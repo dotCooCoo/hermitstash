@@ -991,7 +991,7 @@ select.text-input option{background:var(--bg,#0f0f0f);color:var(--text,#e8e8e8)}
 .footer-right a{font-size:.78rem;color:var(--text-muted);transition:color .4s;letter-spacing:.02em}
 .footer-right a:hover{color:var(--text)}
 .footer-copy{text-align:center;margin-top:40px;padding-top:24px;border-top:1px solid var(--border-thin);font-size:.72rem;color:var(--text-muted);opacity:.7}
-.maintainer-support{text-align:center;padding:24px 0 0;font-size:.75rem}.maintainer-support a{color:var(--text-muted);opacity:.4;text-decoration:none;transition:opacity .2s}.maintainer-support a:hover{opacity:.7}
+.maintainer-support{text-align:center;padding:40px 0 8px}.maintainer-support a{display:inline-flex;align-items:center;gap:6px;color:var(--main-color);font-size:.85rem;font-weight:500;text-decoration:none;padding:10px 24px;border:1px solid rgba(139,92,246,.25);border-radius:30px;background:rgba(139,92,246,.06);transition:all .25s ease}.maintainer-support a:hover{background:rgba(139,92,246,.12);border-color:rgba(139,92,246,.4)}
 
 /* Legacy footer class */
 .footer{text-align:center;padding:28px;font-size:.75rem;color:var(--text-muted);border-top:1px solid var(--border-thin);letter-spacing:.04em;opacity:.7}
