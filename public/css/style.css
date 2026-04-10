@@ -991,8 +991,9 @@ select.text-input option{background:var(--bg,#0f0f0f);color:var(--text,#e8e8e8)}
 .footer-right a{font-size:.78rem;color:var(--text-muted);transition:color .4s;letter-spacing:.02em}
 .footer-right a:hover{color:var(--text)}
 .footer-copy{text-align:center;margin-top:40px;padding-top:24px;border-top:1px solid var(--border-thin);font-size:.72rem;color:var(--text-muted);opacity:.7}
-.maintainer-support{text-align:center;padding:40px 0 8px}.maintainer-support a{display:inline-flex;align-items:center;gap:6px;color:var(--main-color);font-size:.85rem;font-weight:500;text-decoration:none;padding:10px 24px;border:1px solid rgba(139,92,246,.25);border-radius:30px;background:rgba(139,92,246,.06);transition:all .25s ease}.maintainer-support a:hover{background:rgba(139,92,246,.12);border-color:rgba(139,92,246,.4)}
-.footer-support{padding:16px 0 0}.footer-support a{font-size:.75rem;padding:6px 16px;border:none;background:none;opacity:.5}.footer-support a:hover{background:none;border:none;opacity:.8}
+@keyframes support-shimmer{0%{background-position:200% center}100%{background-position:-200% center}}
+.maintainer-support{text-align:center;padding:40px 0 8px}.maintainer-support a{display:inline-flex;align-items:center;gap:6px;font-size:.85rem;font-weight:600;text-decoration:none;padding:10px 24px;border:1px solid rgba(139,92,246,.25);border-radius:30px;background-color:rgba(139,92,246,.06);transition:all .25s ease;background-image:linear-gradient(90deg,#8B5CF6 0%,#c084fc 25%,#e879f9 50%,#c084fc 75%,#8B5CF6 100%);background-size:200% auto;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;animation:support-shimmer 4s linear infinite}.maintainer-support a svg{fill:#8B5CF6;animation:support-shimmer 4s linear infinite;opacity:.8}.maintainer-support a:hover{background-color:rgba(139,92,246,.12);border-color:rgba(139,92,246,.4)}
+.footer-support{padding:16px 0 0}.footer-support a{font-size:.75rem;padding:6px 16px;border:none;background-color:transparent}.footer-support a:hover{background-color:transparent;border:none}
 
 /* Legacy footer class */
 .footer{text-align:center;padding:28px;font-size:.75rem;color:var(--text-muted);border-top:1px solid var(--border-thin);letter-spacing:.04em;opacity:.7}
