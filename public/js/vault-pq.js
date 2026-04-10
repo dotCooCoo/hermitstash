@@ -93,9 +93,18 @@
    * Same seed always produces the same keypair.
    * Falls back to ML-KEM-768 for seeds that were generated with the old version.
    */
+  // Expand a seed to 64 bytes if needed (ML-KEM keygen requires d||z = 64 bytes per FIPS 203).
+  // Existing vaults may have 32-byte seeds; expand deterministically via SHA-512.
+  async function expandSeed(seed) {
+    if (seed.length >= 64) return seed.slice(0, 64);
+    var hash = await crypto.subtle.digest("SHA-512", seed);
+    return new Uint8Array(hash);
+  }
+
   async function deriveKeyPair(seed) {
     var mlkem = await getMlKem();
-    var keypair = mlkem.ml_kem1024.keygen(seed);
+    var expanded = await expandSeed(seed);
+    var keypair = mlkem.ml_kem1024.keygen(expanded);
     return {
       publicKey: keypair.publicKey,   // 1568 bytes
       secretKey: keypair.secretKey,   // 3168 bytes
@@ -104,7 +113,8 @@
   // Legacy: derive ML-KEM-768 keypair (for decrypting old vault files)
   async function deriveKeyPair768(seed) {
     var mlkem = await getMlKem();
-    var keypair = mlkem.ml_kem768.keygen(seed);
+    var expanded = await expandSeed(seed);
+    var keypair = mlkem.ml_kem768.keygen(expanded);
     return { publicKey: keypair.publicKey, secretKey: keypair.secretKey };
   }
 
@@ -184,11 +194,12 @@
   // ---- Passkey-gated mode (no PRF required) ----
 
   /**
-   * Generate a random 32-byte seed for passkey-gated mode.
+   * Generate a random 64-byte seed for passkey-gated mode.
+   * ML-KEM keygen requires d||z = 64 bytes per FIPS 203.
    * The seed is sent to the server for vault-sealed storage.
    */
   function generateRandomSeed() {
-    return crypto.getRandomValues(new Uint8Array(32));
+    return crypto.getRandomValues(new Uint8Array(64));
   }
 
   /**
