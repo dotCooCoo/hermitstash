@@ -236,6 +236,11 @@
           </div>
           <div class="settings-divider"></div>
           <div class="settings-field">
+            <label class="settings-label">Maintainer Support Link <span class="settings-hint">show a small "Support HermitStash" link in the landing page footer</span></label>
+            <label class="toggle"><input type="checkbox" id="s-showMaintainerSupport" data-key="showMaintainerSupport"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="settings-divider"></div>
+          <div class="settings-field">
             <label class="settings-label">Maintenance Mode</label>
             <label class="toggle"><input type="checkbox" id="s-maintenanceMode" data-key="maintenanceMode"><span class="toggle-slider"></span></label>
           </div>
@@ -1137,7 +1142,7 @@ function loadBundles(page){
 }
 // Settings
 var tabFields={
-  branding:['siteName','customLogo','landingEnabled','heroTitle','heroSubtitle','dropTitle','dropSubtitle','maintenanceMode','announcementBanner'],
+  branding:['siteName','customLogo','landingEnabled','heroTitle','heroSubtitle','dropTitle','dropSubtitle','showMaintainerSupport','maintenanceMode','announcementBanner'],
   general:['port','sessionSecret'],
   auth:['localAuth','registrationOpen','googleClientID','googleClientSecret','googleCallbackURL','allowedDomains','emailVerification','passkeyEnabled','rpName','rpId','rpOrigin'],
   uploads:['publicUpload','maxFileSize','publicMaxFiles','publicMaxBundleSize','perUserQuotaBytes','uploadTimeout','uploadConcurrency','uploadRetries','allowedExtensions'],

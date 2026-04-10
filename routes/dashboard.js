@@ -12,6 +12,7 @@ module.exports = function (app) {
     send(res, "landing", {
       user: null, allowedExtensions: config.allowedExtensions,
       heroTitle: config.heroTitle, heroSubtitle: config.heroSubtitle,
+      showMaintainerSupport: config.showMaintainerSupport,
     });
   });
 
