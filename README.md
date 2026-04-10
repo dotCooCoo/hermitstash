@@ -1,4 +1,4 @@
-<p align="center"><img src="public/img/logos/purple.svg" width="120" alt="HermitStash"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/dotCooCoo/hermitstash/main/public/img/logos/purple.svg" width="120" alt="HermitStash"></p>
 <h1 align="center">HermitStash</h1>
 <p align="center"><strong>Stash it quietly. Share it instantly.</strong><br>Post-quantum encrypted, self-hosted file upload server.</p>
 
@@ -209,7 +209,7 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 
 **Security Hardening**
 - Security headers on all responses (CSP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy)
-- 128-bit SHA3-derived share IDs (no brute-force, no collisions)
+- 256-bit SHA3-derived share IDs (no brute-force, no collisions)
 - Input length limits on all free-text fields
 - Pagination capped at 200 results
 - X-Forwarded-For only trusted from configured proxies
