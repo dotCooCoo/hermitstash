@@ -177,6 +177,10 @@
     return arr;
   }
 
+  function toBase64url(uint8) {
+    return toBase64(uint8).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+  }
+
   // ---- Passkey-gated mode (no PRF required) ----
 
   /**
@@ -235,20 +239,20 @@
     var assertion = await navigator.credentials.get({ publicKey: options });
     if (!assertion) return null;
 
-    // Build assertion payload for server
-    var assertionPayload = {
-      id: assertion.id,
-      rawId: toBase64(new Uint8Array(assertion.rawId)),
-      type: assertion.type,
-      response: {
-        authenticatorData: toBase64(new Uint8Array(assertion.response.authenticatorData)),
-        clientDataJSON: toBase64(new Uint8Array(assertion.response.clientDataJSON)),
-        signature: toBase64(new Uint8Array(assertion.response.signature)),
-      },
-    };
-    if (assertion.response.userHandle) {
-      assertionPayload.response.userHandle = toBase64(new Uint8Array(assertion.response.userHandle));
-    }
+    // Build assertion payload for server (must use base64url, not standard base64)
+    var assertionPayload = window.WebAuthnHelpers
+      ? WebAuthnHelpers.formatGetResponse(assertion)
+      : {
+        id: assertion.id,
+        rawId: toBase64url(new Uint8Array(assertion.rawId)),
+        type: assertion.type,
+        response: {
+          authenticatorData: toBase64url(new Uint8Array(assertion.response.authenticatorData)),
+          clientDataJSON: toBase64url(new Uint8Array(assertion.response.clientDataJSON)),
+          signature: toBase64url(new Uint8Array(assertion.response.signature)),
+          userHandle: assertion.response.userHandle ? toBase64url(new Uint8Array(assertion.response.userHandle)) : null,
+        },
+      };
 
     // Send to server for verification + seed release
     var ur = await fetch("/vault/unlock", {
