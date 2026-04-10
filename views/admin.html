@@ -1,0 +1,1504 @@
+{{> head}}
+
+<section class="admin-hero grd-border-bottom">
+  <div class="admin-hero-inner">
+    <span class="sub-title">Management</span>
+    <h1 class="admin-title">Admin <span style="font-weight:200">Dashboard</span></h1>
+  </div>
+</section>
+
+<section class="admin-body">
+  <div class="admin-inner">
+
+    <!-- Stats -->
+    <div class="admin-stats anim-stagger">
+      <div class="admin-stat">
+        <div class="admin-stat-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+        </div>
+        <div class="admin-stat-info">
+          <div class="admin-stat-value" data-count="{{stats.totalFiles}}">0</div>
+          <div class="admin-stat-label">Files</div>
+        </div>
+      </div>
+      <div class="admin-stat">
+        <div class="admin-stat-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+        <div class="admin-stat-info">
+          <div class="admin-stat-value" data-count="{{stats.totalUsers}}">0</div>
+          <div class="admin-stat-label">Users</div>
+        </div>
+      </div>
+      <div class="admin-stat">
+        <div class="admin-stat-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+        </div>
+        <div class="admin-stat-info">
+          <div class="admin-stat-value" data-count="{{stats.totalBundles}}">0</div>
+          <div class="admin-stat-label">Bundles</div>
+        </div>
+      </div>
+      <div class="admin-stat">
+        <div class="admin-stat-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+        </div>
+        <div class="admin-stat-info">
+          <div class="admin-stat-value" data-count="{{{__formatSize(stats.totalSize)}}}">{{{__formatSize(stats.totalSize)}}}</div>
+          <div class="admin-stat-label">Storage</div>
+        </div>
+      </div>
+      <div class="admin-stat">
+        <div class="admin-stat-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </div>
+        <div class="admin-stat-info">
+          <div class="admin-stat-value" data-count="{{stats.totalDownloads}}">0</div>
+          <div class="admin-stat-label">Downloads</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Users (summary — full management at /admin/users) -->
+    <div class="admin-panel">
+      <div class="admin-panel-head">
+        <h2>Users</h2>
+        <a href="/admin/users" class="butn butn-bord-thin butn-sm radius-30"><span>Manage Users</span></a>
+      </div>
+      <div class="admin-panel-body" style="padding:24px 28px;text-align:center">
+        <div class="admin-stat-value" data-count="{{stats.totalUsers}}">0</div>
+        <div class="admin-stat-label">registered users</div>
+      </div>
+    </div>
+
+    <!-- Activity Feed -->
+    <div class="admin-panel collapsible collapsed" id="panel-activity">
+      <div class="admin-panel-head" onclick="togglePanel('panel-activity')">
+        <h2>Recent Activity</h2>
+        <div style="display:flex;align-items:center;gap:10px">
+          <a href="/admin/audit" class="butn butn-bord-thin butn-sm radius-30" onclick="event.stopPropagation()"><span>View All</span></a>
+          <svg class="collapse-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+      </div>
+      <div class="admin-panel-collapse">
+        <div class="admin-panel-body" id="activityFeed">
+          <div class="admin-empty">Loading...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Files -->
+    <div class="admin-panel collapsible collapsed" id="panel-files">
+      <div class="admin-panel-head" onclick="togglePanel('panel-files')">
+        <h2>Files <span class="admin-panel-count" id="filesCount">{{stats.totalFiles}}</span></h2>
+        <svg class="collapse-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="admin-panel-collapse">
+        <div class="admin-panel-body" id="filesList">
+          <div class="admin-empty">Loading...</div>
+        </div>
+        <div id="filesPagination" style="display:none;padding:12px 28px;text-align:center"></div>
+      </div>
+    </div>
+
+    <!-- Bundles -->
+    <div class="admin-panel collapsible collapsed" id="panel-bundles">
+      <div class="admin-panel-head" onclick="togglePanel('panel-bundles')">
+        <h2>Bundles <span class="admin-panel-count" id="bundlesCount">{{stats.totalBundles}}</span></h2>
+        <svg class="collapse-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="admin-panel-collapse">
+        <div class="admin-panel-body" id="bundlesList">
+          <div class="admin-empty">Loading...</div>
+        </div>
+        <div id="bundlesPagination" style="display:none;padding:12px 28px;text-align:center"></div>
+      </div>
+    </div>
+
+    <!-- API Keys -->
+    <div class="admin-panel collapsible collapsed" id="panel-apikeys">
+      <div class="admin-panel-head" onclick="togglePanel('panel-apikeys');loadApiKeys()">
+        <h2>API Keys</h2>
+        <svg class="collapse-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="admin-panel-collapse">
+        <div class="admin-panel-body" style="padding:20px 28px">
+          <div style="display:flex;gap:8px;margin-bottom:16px">
+            <input type="text" class="text-input" id="apikeyName" placeholder="Key name (e.g. CI Pipeline)" style="flex:1">
+            <select class="text-input" id="apikeyPerms" style="width:140px">
+              <option value="upload">Upload only</option>
+              <option value="admin">Full admin</option>
+            </select>
+            <button class="butn butn-bg butn-sm radius-30" onclick="createApiKey()"><span>Generate</span></button>
+          </div>
+          <div id="apikeyNewKey" style="display:none;padding:12px 16px;background:rgba(253,91,56,.08);border:1px solid var(--main-color);border-radius:8px;margin-bottom:16px;word-break:break-all">
+            <div style="font-size:.75rem;color:var(--main-color);margin-bottom:4px;font-weight:600">Copy this key now — it won't be shown again</div>
+            <code id="apikeyNewKeyValue" style="font-size:.85rem"></code>
+          </div>
+          <div id="apikeyList"></div>
+          <div id="apikeyEmpty" style="display:none;text-align:center;color:var(--muted);padding:16px;font-size:.9rem">No API keys. Generate one above to enable programmatic uploads.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Webhooks -->
+    <div class="admin-panel collapsible collapsed" id="panel-webhooks">
+      <div class="admin-panel-head" onclick="togglePanel('panel-webhooks');loadWebhooks()">
+        <h2>Webhooks</h2>
+        <svg class="collapse-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="admin-panel-collapse">
+        <div class="admin-panel-body" style="padding:20px 28px">
+          <div style="display:flex;gap:8px;margin-bottom:16px">
+            <input type="text" class="text-input" id="webhookUrl" placeholder="https://example.com/hook" style="flex:1">
+            <select class="text-input" id="webhookEvents" style="width:160px">
+              <option value="*">All events</option>
+              <option value="bundle.finalized">Bundle finalized</option>
+              <option value="file.uploaded">File uploaded</option>
+              <option value="user.registered">User registered</option>
+            </select>
+            <button class="butn butn-bg butn-sm radius-30" onclick="createWebhook()"><span>Add</span></button>
+          </div>
+          <div id="webhookNewSecret" style="display:none;padding:12px 16px;background:rgba(253,91,56,.08);border:1px solid var(--main-color);border-radius:8px;margin-bottom:16px;word-break:break-all">
+            <div style="font-size:.75rem;color:var(--main-color);margin-bottom:4px;font-weight:600">Signing secret — copy now, won't be shown again</div>
+            <code id="webhookNewSecretValue" style="font-size:.85rem"></code>
+          </div>
+          <div id="webhookList"></div>
+          <div id="webhookEmpty" style="display:none;text-align:center;color:var(--muted);padding:16px;font-size:.9rem">No webhooks configured. Add a URL above to receive event notifications.</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- Settings -->
+<section class="admin-body" style="padding-top:0">
+  <div class="admin-inner">
+    <div class="admin-panel">
+      <div class="admin-panel-head">
+        <h2>Settings</h2>
+      </div>
+      <div class="settings-tabs">
+        <button class="settings-tab active" onclick="showTab('branding')">Branding</button>
+        <button class="settings-tab" onclick="showTab('general')">General</button>
+        <button class="settings-tab" onclick="showTab('auth')">Auth</button>
+        <button class="settings-tab" onclick="showTab('uploads')">Uploads</button>
+        <button class="settings-tab" onclick="showTab('storage')">Storage</button>
+        <button class="settings-tab" onclick="showTab('theme')">Theme</button>
+        <button class="settings-tab" onclick="showTab('email')">Email</button>
+        <button class="settings-tab" onclick="showTab('environment');loadEnvironment()">Environment</button>
+      </div>
+
+      <!-- Branding -->
+      <div class="settings-pane active" id="pane-branding">
+        <div class="settings-group">
+          <div class="settings-field">
+            <label class="settings-label">Site Name</label>
+            <input type="text" class="text-input" id="s-siteName" data-key="siteName" placeholder="HermitStash">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Custom Logo</label>
+            <div id="logoPreview" style="display:none;margin-bottom:10px">
+              <div style="display:flex;align-items:center;gap:12px">
+                <img id="logoPreviewImg" src="" alt="Logo preview" style="height:40px;max-width:200px;object-fit:contain;border-radius:6px;background:rgba(255,255,255,.04);padding:4px 8px">
+                <button type="button" class="butn butn-sm radius-30" style="border-color:rgba(255,68,68,.3);color:var(--danger)" onclick="removeLogo()"><span>Remove</span></button>
+              </div>
+            </div>
+            <div id="logoUploadArea" style="display:flex;gap:8px;align-items:center">
+              <input type="file" id="logoFileInput" accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif" style="display:none" onchange="uploadLogo()">
+              <button type="button" class="butn butn-bord-thin butn-sm radius-30" onclick="document.getElementById('logoFileInput').click()"><span>Upload Logo</span></button>
+              <span style="font-size:.78rem;color:var(--muted)">PNG, JPG, SVG, WebP, GIF (max 2MB)</span>
+            </div>
+            <input type="hidden" id="s-customLogo" data-key="customLogo">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Landing Page</label>
+            <label class="toggle"><input type="checkbox" id="s-landingEnabled" data-key="landingEnabled"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="settings-divider"></div>
+          <div class="settings-field">
+            <label class="settings-label">Hero Title <span class="settings-hint">leave empty for default</span></label>
+            <input type="text" class="text-input" id="s-heroTitle" data-key="heroTitle" placeholder="Stash it quietly. Share it instantly.">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Hero Subtitle</label>
+            <input type="text" class="text-input" id="s-heroSubtitle" data-key="heroSubtitle" placeholder="Self-hosted file uploads...">
+          </div>
+          <div class="settings-divider"></div>
+          <div class="settings-field">
+            <label class="settings-label">Drop Page Title</label>
+            <input type="text" class="text-input" id="s-dropTitle" data-key="dropTitle" placeholder="Drop your files.">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Drop Page Subtitle</label>
+            <input type="text" class="text-input" id="s-dropSubtitle" data-key="dropSubtitle" placeholder="Drag entire folders...">
+          </div>
+          <div class="settings-divider"></div>
+          <div class="settings-field">
+            <label class="settings-label">Maintenance Mode</label>
+            <label class="toggle"><input type="checkbox" id="s-maintenanceMode" data-key="maintenanceMode"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Announcement Banner <span class="settings-hint">shown on all pages when set</span></label>
+            <input type="text" class="text-input" id="s-announcementBanner" data-key="announcementBanner" placeholder="We're upgrading! Files may be slow.">
+          </div>
+        </div>
+        <div class="settings-actions">
+          <button class="butn butn-bord-thin butn-sm radius-30" onclick="openHelp('branding')"><span>? Setup Guide</span></button>
+          <button class="butn butn-bg butn-sm radius-30" onclick="saveTab('branding')"><span>Save Branding</span></button>
+        </div>
+      </div>
+
+      <!-- General -->
+      <div class="settings-pane" id="pane-general">
+        <div class="settings-group">
+          <div class="settings-field">
+            <label class="settings-label">Port <span class="restart-badge">restart</span></label>
+            <input type="number" class="text-input" id="s-port" data-key="port">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Session Secret <span class="restart-badge">restart</span></label>
+            <input type="password" class="text-input" id="s-sessionSecret" data-key="sessionSecret">
+          </div>
+        </div>
+        <div class="settings-actions">
+          <button class="butn butn-bord-thin butn-sm radius-30" onclick="openHelp('general')"><span>? Setup Guide</span></button>
+          <button class="butn butn-bg butn-sm radius-30" onclick="saveTab('general')"><span>Save General</span></button>
+        </div>
+
+        <div class="settings-divider" style="margin:28px 0"></div>
+        <div style="padding:0 28px 28px">
+          <h3 style="color:var(--danger);font-size:.95rem;font-weight:700;margin-bottom:16px">Danger Zone</h3>
+
+          <div class="settings-field" style="margin-bottom:20px">
+            <label class="settings-label">Purge All Sessions</label>
+            <p style="font-size:.78rem;color:var(--muted);margin-bottom:10px">Destroys every active session. All users (including you) will be logged out immediately.</p>
+            <button class="butn butn-sm radius-30" style="border-color:rgba(255,68,68,.3);color:var(--danger)" id="revokeAllBtn" onclick="revokeAllSessions()"><span>Purge Sessions</span></button>
+          </div>
+
+          <div class="settings-field" style="margin-bottom:20px">
+            <label class="settings-label">Purge All Users</label>
+            <p style="font-size:.78rem;color:var(--muted);margin-bottom:10px">Deletes all user accounts except yours. Their files and bundles remain but become unlinked.</p>
+            <button class="butn butn-sm radius-30" style="border-color:rgba(255,68,68,.3);color:var(--danger)" id="purgeUsersBtn" onclick="purgeUsers()"><span>Purge Users</span></button>
+          </div>
+
+          <div class="settings-field" style="margin-bottom:20px">
+            <label class="settings-label">Purge All Files & Bundles</label>
+            <p style="font-size:.78rem;color:var(--muted);margin-bottom:10px">Deletes all uploaded files and bundles from the database and disk. Users are kept.</p>
+            <button class="butn butn-sm radius-30" style="border-color:rgba(255,68,68,.3);color:var(--danger)" id="purgeFilesBtn" onclick="purgeFiles()"><span>Purge Files</span></button>
+          </div>
+
+          <div class="settings-field">
+            <label class="settings-label">Purge Entire Database</label>
+            <p style="font-size:.78rem;color:var(--muted);margin-bottom:10px">Wipes all users (except you), files, bundles, audit logs, API keys, webhooks, and sessions. Factory reset.</p>
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <input type="text" id="purgeDbConfirm" class="text-input" placeholder="Type PURGE to confirm" style="width:220px;flex-shrink:0">
+              <button class="butn butn-sm radius-30" style="border-color:rgba(255,68,68,.3);color:var(--danger);white-space:nowrap" id="purgeDbBtn" onclick="purgeDatabase()"><span>Purge Database</span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Auth -->
+      <div class="settings-pane" id="pane-auth">
+        <div class="settings-group">
+          <div class="settings-field">
+            <label class="settings-label">Local Auth</label>
+            <label class="toggle"><input type="checkbox" id="s-localAuth" data-key="localAuth"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Registration Open</label>
+            <label class="toggle"><input type="checkbox" id="s-registrationOpen" data-key="registrationOpen"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="settings-divider"></div>
+          <div class="settings-field">
+            <label class="settings-label">Google Client ID</label>
+            <input type="text" class="text-input" id="s-googleClientID" data-key="googleClientID" placeholder="Leave empty to disable Google OAuth">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Google Client Secret</label>
+            <input type="password" class="text-input" id="s-googleClientSecret" data-key="googleClientSecret">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Google Callback URL <span class="settings-hint">copy this into Google Cloud Console</span></label>
+            <input type="text" class="text-input" id="s-googleCallbackURL" data-key="googleCallbackURL" readonly onclick="this.select()" style="cursor:pointer">
+          </div>
+          <div class="settings-divider"></div>
+          <div class="settings-field">
+            <label class="settings-label">Allowed Domains <span class="settings-hint">comma-separated, leave empty to allow all</span></label>
+            <input type="text" class="text-input" id="s-allowedDomains" data-key="allowedDomains" placeholder="hermitstash.com">
+          </div>
+          <div class="settings-divider"></div>
+          <div class="settings-field">
+            <label class="settings-label">Email Verification</label>
+            <label class="toggle"><input type="checkbox" id="s-emailVerification" data-key="emailVerification"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Passkeys (WebAuthn)</label>
+            <label class="toggle"><input type="checkbox" id="s-passkeyEnabled" data-key="passkeyEnabled"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">RP Name <span class="settings-hint">shown during passkey registration</span></label>
+            <input type="text" class="text-input" id="s-rpName" data-key="rpName" placeholder="HermitStash">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">RP Domain <span class="settings-hint">e.g. hermitstash.com or localhost</span></label>
+            <input type="text" class="text-input" id="s-rpId" data-key="rpId" placeholder="localhost">
+          </div>
+          <div class="settings-field" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div>
+              <label class="settings-label">RP Protocol</label>
+              <select class="text-input" id="s-rpProto" onchange="updateAdminRpPort()">
+                <option value="https">https</option>
+                <option value="http">http</option>
+              </select>
+            </div>
+            <div>
+              <label class="settings-label">RP Port <span class="settings-hint">blank for default</span></label>
+              <input type="number" class="text-input" id="s-rpPort" placeholder="443">
+            </div>
+          </div>
+          <input type="hidden" id="s-rpOrigin" data-key="rpOrigin">
+        </div>
+        <div class="settings-actions">
+          <button class="butn butn-bord-thin butn-sm radius-30" onclick="openHelp('auth')"><span>? Setup Guide</span></button>
+          <button class="butn butn-bg butn-sm radius-30" onclick="saveTab('auth')"><span>Save Auth</span></button>
+        </div>
+      </div>
+
+      <!-- Uploads -->
+      <div class="settings-pane" id="pane-uploads">
+        <div class="settings-group">
+          <div style="display:block">
+            <label class="settings-label" style="margin-bottom:10px;display:block">Reverse Proxy Config</label>
+            <div id="proxyDetectBanner" style="display:none;padding:10px 14px;border-radius:8px;font-size:.82rem;margin-bottom:10px;line-height:1.5"></div>
+            <p style="font-size:.78rem;color:var(--muted);margin:0 0 10px;line-height:1.5">
+              Select your proxy to generate a config snippet with the correct limits for your upload settings.
+            </p>
+            <select class="text-input" id="proxyType" onchange="updateProxySnippet()" style="max-width:200px;margin-bottom:10px">
+              <option value="">Not using a proxy</option>
+              <option value="nginx">Nginx</option>
+              <option value="caddy">Caddy</option>
+              <option value="apache">Apache</option>
+            </select>
+            <div id="proxySnippet" style="display:none">
+              <pre style="background:rgba(255,255,255,.04);border:1px solid var(--border-thin);border-radius:8px;padding:14px 16px;font-size:.78rem;font-family:'JetBrains Mono',monospace;overflow-x:auto;line-height:1.6;color:var(--body-color);margin:0"><code id="proxyCode"></code></pre>
+              <button type="button" class="butn butn-bord-thin butn-sm radius-30" style="margin-top:8px" onclick="cpProxy()"><span>Copy</span></button>
+            </div>
+          </div>
+          <div class="settings-divider"></div>
+          <div class="settings-field">
+            <label class="settings-label">Public Upload Enabled</label>
+            <label class="toggle"><input type="checkbox" id="s-publicUpload" data-key="publicUpload"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Max File Size</label>
+            <div class="size-input-group">
+              <input type="number" class="text-input" id="s-maxFileSize-val" step="1" min="1">
+              <select class="text-input size-unit" id="s-maxFileSize-unit">
+                <option value="1048576">MB</option>
+                <option value="1073741824">GB</option>
+              </select>
+            </div>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Max Files Per Bundle</label>
+            <input type="number" class="text-input" id="s-publicMaxFiles" data-key="publicMaxFiles">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Max Bundle Size</label>
+            <div class="size-input-group">
+              <input type="number" class="text-input" id="s-publicMaxBundleSize-val" step="1" min="1">
+              <select class="text-input size-unit" id="s-publicMaxBundleSize-unit">
+                <option value="1048576">MB</option>
+                <option value="1073741824">GB</option>
+              </select>
+            </div>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Per-User Quota <span class="settings-hint">0 = unlimited</span></label>
+            <div class="size-input-group">
+              <input type="number" class="text-input" id="s-perUserQuotaBytes-val" step="1" min="0">
+              <select class="text-input size-unit" id="s-perUserQuotaBytes-unit">
+                <option value="1048576">MB</option>
+                <option value="1073741824">GB</option>
+              </select>
+            </div>
+          </div>
+          <div class="settings-divider"></div>
+          <div class="settings-field">
+            <label class="settings-label">Upload Timeout <span class="settings-hint">seconds</span></label>
+            <input type="number" class="text-input" id="s-uploadTimeout-display" min="10">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Concurrent Uploads <span class="settings-hint">parallel files</span></label>
+            <input type="number" class="text-input" id="s-uploadConcurrency" data-key="uploadConcurrency" min="1" max="10">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Retry Attempts <span class="settings-hint">per file</span></label>
+            <input type="number" class="text-input" id="s-uploadRetries" data-key="uploadRetries" min="0" max="5">
+          </div>
+          <div class="settings-divider"></div>
+          <div class="settings-field">
+            <label class="settings-label">Allowed Extensions</label>
+            <div class="ext-categories" id="extCategories"></div>
+            <div class="ext-selected" id="extSelected"></div>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <input type="text" class="text-input" id="extCustomInput" placeholder="Add custom, e.g. .dwg" style="flex:1;font-size:.82rem" onkeydown="if(event.key==='Enter'){event.preventDefault();addCustomExt()}">
+              <button type="button" class="butn butn-bord-thin butn-sm radius-30" onclick="addCustomExt()"><span>Add</span></button>
+            </div>
+            <input type="hidden" id="s-allowedExtensions" data-key="allowedExtensions">
+          </div>
+        </div>
+        <div class="settings-actions">
+          <button class="butn butn-bord-thin butn-sm radius-30" onclick="openHelp('uploads')"><span>? Setup Guide</span></button>
+          <button class="butn butn-bg butn-sm radius-30" onclick="saveTab('uploads')"><span>Save Uploads</span></button>
+        </div>
+      </div>
+
+      <!-- Storage -->
+      <div class="settings-pane" id="pane-storage">
+        <div class="settings-group">
+          <div class="settings-field">
+            <label class="settings-label">Backend <span class="restart-badge">restart</span></label>
+            <select class="text-input" id="s-storageBackend" data-key="storageBackend" onchange="toggleS3()">
+              <option value="local">Local Filesystem</option>
+              <option value="s3">S3-Compatible</option>
+            </select>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Upload Directory <span class="restart-badge">restart</span></label>
+            <input type="text" class="text-input" id="s-uploadDir" data-key="uploadDir">
+          </div>
+          <div id="s3Fields" style="display:none">
+            <div class="settings-divider"></div>
+            <div class="settings-field">
+              <label class="settings-label">S3 Bucket</label>
+              <input type="text" class="text-input" id="s-s3Bucket" data-key="s3Bucket">
+            </div>
+            <div class="settings-field">
+              <label class="settings-label">S3 Region</label>
+              <input type="text" class="text-input" id="s-s3Region" data-key="s3Region">
+            </div>
+            <div class="settings-field">
+              <label class="settings-label">S3 Access Key</label>
+              <input type="password" class="text-input" id="s-s3AccessKey" data-key="s3AccessKey">
+            </div>
+            <div class="settings-field">
+              <label class="settings-label">S3 Secret Key</label>
+              <input type="password" class="text-input" id="s-s3SecretKey" data-key="s3SecretKey">
+            </div>
+            <div class="settings-field">
+              <label class="settings-label">S3 Endpoint <span class="settings-hint">leave empty for AWS, required for MinIO/DO Spaces/Backblaze</span></label>
+              <input type="text" class="text-input" id="s-s3Endpoint" data-key="s3Endpoint" placeholder="https://nyc3.digitaloceanspaces.com">
+            </div>
+            <div class="settings-divider"></div>
+            <div class="settings-field">
+              <label class="settings-label">Direct S3 Downloads <span class="settings-hint">uses S3 SSE instead of app encryption</span></label>
+              <label class="toggle"><input type="checkbox" id="s-s3DirectDownloads" data-key="s3DirectDownloads"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="settings-field">
+              <label class="settings-label">Pre-signed URL Expiry <span class="settings-hint">max 7 days (AWS limit), fresh URL generated per download</span></label>
+              <input type="number" class="text-input" id="s-s3PresignExpiry" data-key="s3PresignExpiry" min="60" max="604800" placeholder="604800">
+            </div>
+          </div>
+        </div>
+        <div class="settings-actions">
+          <button class="butn butn-bord-thin butn-sm radius-30" onclick="openHelp('storage')"><span>? Setup Guide</span></button>
+          <button class="butn butn-bg butn-sm radius-30" onclick="saveTab('storage')"><span>Save Storage</span></button>
+        </div>
+      </div>
+
+      <!-- Theme -->
+      <div class="settings-pane" id="pane-theme">
+        <div class="settings-group">
+          <div class="settings-field">
+            <label class="settings-label">Accent Color <span class="settings-hint">hex code, leave empty for default</span></label>
+            <input type="text" class="text-input" id="s-themeAccentColor" data-key="themeAccentColor" placeholder="#8B5CF6">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Background Color</label>
+            <input type="text" class="text-input" id="s-themeBgColor" data-key="themeBgColor" placeholder="#0f0f0f">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Font Family <span class="settings-hint">leave empty for Plus Jakarta Sans</span></label>
+            <input type="text" class="text-input" id="s-themeFont" data-key="themeFont" placeholder="Inter">
+          </div>
+        </div>
+        <div class="settings-actions">
+          <button class="butn butn-bord-thin butn-sm radius-30" onclick="openHelp('theme')"><span>? Setup Guide</span></button>
+          <button class="butn butn-bg butn-sm radius-30" onclick="saveTab('theme')"><span>Save Theme</span></button>
+        </div>
+      </div>
+
+      <!-- Email -->
+      <div class="settings-pane" id="pane-email">
+        <div class="settings-group">
+          <div class="settings-field">
+            <label class="settings-label">Email Backend</label>
+            <select class="text-input" id="s-emailBackend" data-key="emailBackend" onchange="toggleEmailBackend()">
+              <option value="smtp">SMTP</option>
+              <option value="resend">Resend API</option>
+              <option value="resend+smtp">Resend (primary) + SMTP (fallback)</option>
+              <option value="smtp+resend">SMTP (primary) + Resend (fallback)</option>
+            </select>
+          </div>
+          <div id="emailQuotaDisplay" style="display:none;padding:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;margin-bottom:16px">
+            <div style="display:flex;justify-content:space-between;font-size:.85rem">
+              <span>Daily: <strong id="quotaDaily">0</strong> / <strong id="quotaDailyLimit">100</strong></span>
+              <span>Monthly: <strong id="quotaMonthly">0</strong> / <strong id="quotaMonthlyLimit">3000</strong></span>
+            </div>
+          </div>
+          <div id="resendFields" style="display:none">
+            <div class="settings-field">
+              <label class="settings-label">Resend API Key</label>
+              <input type="password" class="text-input" id="s-resendApiKey" data-key="resendApiKey" placeholder="re_xxxxxxxxx">
+            </div>
+            <div class="settings-field">
+              <label class="settings-label">Daily Quota <span class="settings-hint">Free: 100, Pro: unlimited</span></label>
+              <input type="number" class="text-input" id="s-resendQuotaDaily" data-key="resendQuotaDaily" placeholder="100">
+            </div>
+            <div class="settings-field">
+              <label class="settings-label">Monthly Quota <span class="settings-hint">Free: 3000, Pro: 50000+</span></label>
+              <input type="number" class="text-input" id="s-resendQuotaMonthly" data-key="resendQuotaMonthly" placeholder="3000">
+            </div>
+            <div class="settings-divider"></div>
+          </div>
+          <div id="smtpFields">
+          <div class="settings-field">
+            <label class="settings-label">SMTP Host <span class="settings-hint">leave empty to disable</span></label>
+            <input type="text" class="text-input" id="s-smtpHost" data-key="smtpHost" placeholder="smtp.gmail.com">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">SMTP Port</label>
+            <input type="number" class="text-input" id="s-smtpPort" data-key="smtpPort">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">SMTP User</label>
+            <input type="text" class="text-input" id="s-smtpUser" data-key="smtpUser">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">SMTP Password</label>
+            <input type="password" class="text-input" id="s-smtpPass" data-key="smtpPass">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">From Address</label>
+            <input type="text" class="text-input" id="s-smtpFrom" data-key="smtpFrom" placeholder="Crabby HermitStash <noreply@hermitstash.com>">
+          </div>
+          </div>
+          <div class="settings-divider"></div>
+          <div class="settings-field">
+            <label class="settings-label">Template Mode</label>
+            <div class="tpl-mode-toggle">
+              <button type="button" class="tpl-mode-btn active" id="tplModeText" onclick="setTplMode('text')">Plain Text</button>
+              <button type="button" class="tpl-mode-btn" id="tplModeHtml" onclick="setTplMode('html')">HTML</button>
+            </div>
+            <input type="hidden" id="s-emailTemplateMode" data-key="emailTemplateMode" value="text">
+          </div>
+          <p style="font-size:.78rem;color:var(--muted);margin:0 0 14px;line-height:1.6">
+            Placeholders: <code style="background:rgba(255,255,255,.06);padding:1px 5px;border-radius:3px;font-size:.75rem">{siteName}</code>
+            <code style="background:rgba(255,255,255,.06);padding:1px 5px;border-radius:3px;font-size:.75rem">{uploaderName}</code>
+            <code style="background:rgba(255,255,255,.06);padding:1px 5px;border-radius:3px;font-size:.75rem">{fileCount}</code>
+            <code style="background:rgba(255,255,255,.06);padding:1px 5px;border-radius:3px;font-size:.75rem">{totalSize}</code>
+            <span id="tplModeHint" style="display:block;margin-top:6px;opacity:.7">Line breaks become &lt;br&gt; automatically.</span>
+          </p>
+          <div class="settings-field">
+            <label class="settings-label">Email Subject</label>
+            <input type="text" class="text-input" id="s-emailTemplateSubject" data-key="emailTemplateSubject" placeholder="Your files have been uploaded to {siteName}">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Email Header <span class="settings-hint">shown above the file summary</span></label>
+            <textarea class="text-input settings-textarea tpl-textarea" id="s-emailTemplateHeader" data-key="emailTemplateHeader" rows="3" placeholder="Your upload is ready!"></textarea>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Email Footer <span class="settings-hint">shown below the file list</span></label>
+            <textarea class="text-input settings-textarea tpl-textarea" id="s-emailTemplateFooter" data-key="emailTemplateFooter" rows="4" placeholder="Files are stored securely on {siteName}. Contact us if you have questions."></textarea>
+          </div>
+        </div>
+        <div class="settings-actions">
+          <button class="butn butn-bord-thin butn-sm radius-30" onclick="openHelp('email')"><span>? Setup Guide</span></button>
+          <button class="butn butn-bg butn-sm radius-30" onclick="saveTab('email')"><span>Save Email</span></button>
+        </div>
+      </div>
+      <!-- Environment -->
+      <div class="settings-pane" id="pane-environment">
+        <div class="settings-group">
+          <div id="envInfo" style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:20px"></div>
+          <div class="settings-divider"></div>
+          <h4 style="margin:0 0 12px;font-weight:600">Environment Variable Overrides</h4>
+          <p style="font-size:.82rem;color:var(--muted);margin:0 0 16px;line-height:1.5">Settings set via Docker/environment variables. These override defaults but are overridden by values saved in the admin panel.</p>
+          <div id="envOverrides"></div>
+          <div id="envNoOverrides" style="display:none;padding:20px;text-align:center;color:var(--muted);font-size:.9rem">No environment variable overrides detected. All settings using admin panel or defaults.</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- Setup Guide Modal -->
+<div class="modal-overlay" id="helpModal" style="display:none" onclick="if(event.target===this)closeHelp()">
+  <div class="modal-card" style="max-width:640px;max-height:85vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+      <h3 class="modal-title" id="helpTitle" style="margin:0">Setup Guide</h3>
+      <button onclick="closeHelp()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.4rem;padding:4px 8px;line-height:1" aria-label="Close">&times;</button>
+    </div>
+    <div id="helpBody" style="overflow-y:auto;flex:1;font-size:.9rem;line-height:1.7;color:var(--body-color)"></div>
+  </div>
+</div>
+
+<script>
+// ---- Setup Guide Modal ----
+var helpGuides={
+branding:{
+  title:'Branding Setup',
+  body:'<h4>Site Name</h4>\
+<p>Displayed in the header, emails, and browser tab. Keep it short and recognizable.</p>\
+<h4>Custom Logo</h4>\
+<p>Path to an image file (e.g. <code>/img/logo.svg</code>) or a full URL. Leave empty to use the default HermitStash logo. Recommended size: 40px height, SVG or PNG.</p>\
+<h4>Landing Page</h4>\
+<p>When <strong>on</strong>, visitors see a public landing page at the root URL with your hero text and a call to action. When <strong>off</strong>, the root URL redirects to the login or drop page.</p>\
+<h4>Hero Title &amp; Subtitle</h4>\
+<p>The large heading and subheading on the landing page. Leave empty for the defaults. Supports plain text only.</p>\
+<h4>Drop Page Title &amp; Subtitle</h4>\
+<p>Customizes the heading on the public upload page (<code>/drop</code>). This is what uploaders see first.</p>\
+<h4>Maintenance Mode</h4>\
+<p>When <strong>on</strong>, all non-admin visitors see a maintenance message. Admin accounts can still access everything normally. Use this during upgrades or migrations.</p>\
+<h4>Announcement Banner</h4>\
+<p>A text banner shown at the top of every page. Useful for planned downtime notices or new feature announcements. Leave empty to hide.</p>'
+},
+general:{
+  title:'General Setup',
+  body:'<h4>Port</h4>\
+<p>The network port HermitStash listens on. Default is <code>3000</code>. If you run behind a reverse proxy (nginx, Caddy), this can be any available port. <strong>Requires a restart</strong> after changing.</p>\
+<h4>Session Secret</h4>\
+<p>A random string used to sign session cookies. This must be changed from the default on any production deployment.</p>\
+<p><strong>How to generate a good secret:</strong></p>\
+<pre><code>node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"</code></pre>\
+<p>Use at least 32 random characters. Never share this value. <strong>Requires a restart</strong> after changing. Changing it will log out all active sessions.</p>'
+},
+auth:{
+  title:'Authentication Setup',
+  body:'<h4>Local Auth</h4>\
+<p>Enable email + password registration and login. Turn off if you want Google OAuth or passkeys only.</p>\
+<h4>Registration Open</h4>\
+<p>When <strong>off</strong>, new users cannot self-register. Only admins can create accounts from the Users management page.</p>\
+<h4>Google OAuth</h4>\
+<p>To enable Google login:</p>\
+<ol>\
+<li>Go to the <strong>Google Cloud Console</strong> &rarr; APIs &amp; Services &rarr; Credentials</li>\
+<li>Click <strong>Create Credentials</strong> &rarr; <strong>OAuth 2.0 Client ID</strong></li>\
+<li>Choose <strong>Web application</strong></li>\
+<li>Add your callback URL under Authorized redirect URIs:<br><code>https://yourdomain.com/auth/google/callback</code></li>\
+<li>Copy the <strong>Client ID</strong> and <strong>Client Secret</strong> into the fields here</li>\
+<li>Update the <strong>Callback URL</strong> to match exactly what you entered in Google</li>\
+</ol>\
+<p>Leave Client ID empty to disable Google login entirely.</p>\
+<h4>Allowed Domains</h4>\
+<p>Comma-separated list of email domains (e.g. <code>company.com, partner.org</code>). Only users with matching email domains can log in. Leave empty to allow all domains.</p>\
+<h4>Admin Emails</h4>\
+<p>Comma-separated list of email addresses that have admin access. These users see the admin dashboard and can manage all files, users, and settings.</p>\
+<h4>Email Verification</h4>\
+<p>When <strong>on</strong>, new users must click a verification link sent to their email before they can access the dashboard. Requires a working email backend (SMTP or Resend).</p>\
+<h4>Passkeys (WebAuthn)</h4>\
+<p>Enable passwordless login via biometrics, hardware keys, or device PINs.</p>\
+<ul>\
+<li><strong>RP Name</strong> &mdash; Display name shown during passkey registration (e.g. "HermitStash")</li>\
+<li><strong>RP ID</strong> &mdash; Your domain without protocol (e.g. <code>hermitstash.com</code> or <code>localhost</code>)</li>\
+<li><strong>RP Origin</strong> &mdash; Full URL with protocol (e.g. <code>https://hermitstash.com</code>)</li>\
+</ul>\
+<p>All three must match your actual domain for passkeys to work.</p>'
+},
+uploads:{
+  title:'Uploads Setup',
+  body:'<h4>Public Upload</h4>\
+<p>When <strong>on</strong>, anyone can upload files at <code>/drop</code> without logging in. When off, only authenticated users can upload.</p>\
+<h4>Max File Size</h4>\
+<p>The maximum size for a single uploaded file. Choose MB or GB from the dropdown. If you run behind a reverse proxy, make sure its <code>client_max_body_size</code> (nginx) or equivalent is set to at least this value.</p>\
+<h4>Max Files Per Bundle</h4>\
+<p>How many individual files can be included in one upload session. Default is 200. Increase for large folder uploads.</p>\
+<h4>Max Bundle Size</h4>\
+<p>The total combined size of all files in a single bundle. Prevents a single upload from consuming all storage.</p>\
+<h4>Per-User Quota</h4>\
+<p>Maximum total storage each logged-in user can consume. Set to 0 for unlimited. Anonymous uploads are not affected by this limit.</p>\
+<h4>Upload Timeout</h4>\
+<p>Seconds before an idle upload connection is closed. Increase for large files on slow connections. Default is 300 (5 minutes).</p>\
+<h4>Concurrent Uploads</h4>\
+<p>Number of files uploaded in parallel from the browser. Higher values (3&ndash;5) are faster for many small files. Lower values (1&ndash;2) are more reliable on slow connections.</p>\
+<h4>Retry Attempts</h4>\
+<p>How many times to automatically retry a failed file upload before giving up. Set to 0 to disable retries.</p>\
+<h4>Allowed Extensions</h4>\
+<p>Comma-separated list of file extensions (with dots) that are allowed. Any file with an extension not in this list will be rejected. Example: <code>.pdf, .jpg, .png, .zip, .docx</code></p>'
+},
+storage:{
+  title:'Storage Setup',
+  body:'<h4>Backend</h4>\
+<p>Choose where uploaded files are physically stored:</p>\
+<ul>\
+<li><strong>Local Filesystem</strong> &mdash; Files stored on the server disk. Simple, no external dependencies.</li>\
+<li><strong>S3-Compatible</strong> &mdash; Files stored in AWS S3, MinIO, DigitalOcean Spaces, Backblaze B2, or any S3-compatible service.</li>\
+</ul>\
+<p>Changing the backend <strong>requires a restart</strong>. Existing files are not automatically migrated.</p>\
+<h4>Upload Directory</h4>\
+<p>Where local files are stored. Can be a relative path (e.g. <code>./uploads</code>) or absolute (e.g. <code>/mnt/data/uploads</code>). Make sure the directory is writable.</p>\
+<h4>S3 Configuration</h4>\
+<p>When using the S3 backend:</p>\
+<ol>\
+<li>Create a bucket in your S3 provider</li>\
+<li>Create an IAM user (or equivalent) with these permissions on the bucket:\
+<pre><code>s3:PutObject\ns3:GetObject\ns3:DeleteObject</code></pre></li>\
+<li>Enter the <strong>Bucket</strong> name, <strong>Region</strong> (e.g. <code>us-east-1</code>), <strong>Access Key</strong>, and <strong>Secret Key</strong></li>\
+<li>For non-AWS providers, enter the <strong>Endpoint</strong> URL (e.g. <code>https://nyc3.digitaloceanspaces.com</code> or <code>https://minio.internal:9000</code>)</li>\
+</ol>\
+<h4>Direct S3 Downloads</h4>\
+<p>When <strong>on</strong>, file downloads redirect the browser directly to a time-limited S3 URL. The file data never passes through the HermitStash server.</p>\
+<p><strong>Benefits:</strong> Lower server bandwidth, faster downloads (especially for large files), S3 CDN edge caching.</p>\
+<p><strong>Trade-off:</strong> Files uploaded while this is on use AWS server-side encryption (SSE-S3) instead of HermitStash app-level XChaCha20-Poly1305 + ML-KEM-1024 hybrid encryption. AWS manages the keys rather than HermitStash.</p>\
+<p>Files uploaded while direct mode was <em>off</em> remain app-encrypted and always stream through the server, regardless of this setting. ZIP bundle downloads always stream through the server.</p>\
+<h4>Pre-signed URL Expiry</h4>\
+<p>How long (in seconds) a direct download link stays valid. Default: <code>3600</code> (1 hour). Maximum: <code>604800</code> (7 days). Shorter values are more secure; longer values are better for sharing links that need to stay active.</p>'
+},
+theme:{
+  title:'Theme Setup',
+  body:'<h4>Accent Color</h4>\
+<p>The primary highlight color used for buttons, links, and active elements. Enter a hex code (e.g. <code>#8B5CF6</code>). Leave empty for the default orange accent.</p>\
+<h4>Background Color</h4>\
+<p>The main page background color. Default is <code>#0f0f0f</code> (dark theme). For a lighter look, try <code>#ffffff</code> or <code>#f5f5f5</code>. The site includes a built-in light/dark mode toggle for users, but this sets the base dark-mode background.</p>\
+<h4>Font Family</h4>\
+<p>The typeface used across the entire site. Default is <strong>Plus Jakarta Sans</strong>. You can enter any font name available on the system or via Google Fonts (e.g. <code>Inter</code>, <code>Roboto</code>, <code>JetBrains Mono</code>). Leave empty for the default.</p>'
+},
+email:{
+  title:'Email Setup',
+  body:'<h4>Email Backend</h4>\
+<p>Choose how HermitStash sends emails (upload confirmations, verification links, admin notifications):</p>\
+<ul>\
+<li><strong>SMTP</strong> &mdash; Traditional mail server. Works with Gmail, Outlook, Fastmail, self-hosted, etc.</li>\
+<li><strong>Resend</strong> &mdash; Modern API-based email service. Easier to set up, includes a free tier.</li>\
+</ul>\
+<h4>Resend Setup</h4>\
+<ol>\
+<li>Sign up at <strong>resend.com</strong></li>\
+<li>Verify your sending domain (add DNS records as instructed by Resend)</li>\
+<li>Create an API key and paste it here</li>\
+<li>Set quotas to match your plan &mdash; Free tier: 100/day, 3,000/month</li>\
+</ol>\
+<h4>SMTP Setup</h4>\
+<ol>\
+<li>Enter your mail server hostname (e.g. <code>smtp.gmail.com</code>)</li>\
+<li>Set the port &mdash; usually <code>587</code> (STARTTLS) or <code>465</code> (SSL)</li>\
+<li>Enter your SMTP username and password</li>\
+</ol>\
+<p><strong>Gmail tip:</strong> You need an App Password, not your regular password. Go to Google Account &rarr; Security &rarr; 2-Step Verification &rarr; App Passwords and generate one for "Mail".</p>\
+<p>Leave SMTP Host empty to disable SMTP sending entirely.</p>\
+<h4>From Address</h4>\
+<p>The sender name and email shown in outgoing emails. Format: <code>Display Name &lt;email@domain.com&gt;</code></p>\
+<h4>Email Templates</h4>\
+<p>Customize the confirmation emails sent to uploaders:</p>\
+<ul>\
+<li><strong>Subject</strong> &mdash; Email subject line. Use <code>{siteName}</code> as a placeholder for your site name.</li>\
+<li><strong>Header</strong> &mdash; The bold heading inside the email body.</li>\
+<li><strong>Footer</strong> &mdash; Text at the bottom of the email. Use <code>{siteName}</code> here too.</li>\
+</ul>'
+}
+};
+
+function openHelp(tab){
+  var guide=helpGuides[tab];
+  if(!guide)return;
+  document.getElementById('helpTitle').textContent=guide.title;
+  // Safe: body content is hardcoded static HTML from helpGuides above, not user input
+  document.getElementById('helpBody').innerHTML=guide.body;
+  document.getElementById('helpModal').style.display='flex';
+  document.body.style.overflow='hidden';
+}
+function closeHelp(){
+  document.getElementById('helpModal').style.display='none';
+  document.body.style.overflow='';
+}
+document.addEventListener('keydown',function(e){if(e.key==='Escape'&&document.getElementById('helpModal').style.display==='flex')closeHelp()});
+
+function togglePanel(id){document.getElementById(id).classList.toggle('collapsed')}
+
+// ---- API Keys ----
+var _apikeysLoaded=false;
+function loadApiKeys(){
+  if(_apikeysLoaded)return;_apikeysLoaded=true;
+  fetch('/admin/apikeys/api').then(function(r){return r.json()}).then(function(d){
+    var list=document.getElementById('apikeyList');
+    var empty=document.getElementById('apikeyEmpty');
+    list.textContent='';
+    if(!d.keys||!d.keys.length){empty.style.display='block';return}
+    empty.style.display='none';
+    var tbl=document.createElement('table');tbl.style.cssText='width:100%;border-collapse:collapse;font-size:.85rem';
+    var thead=document.createElement('thead');
+    var hrow=document.createElement('tr');hrow.style.cssText='text-align:left;border-bottom:1px solid var(--border)';
+    ['Name','Prefix','Permissions','Created',''].forEach(function(h){var th=document.createElement('th');th.style.cssText='padding:8px 12px;color:var(--muted);font-weight:500';th.textContent=h;hrow.appendChild(th)});
+    thead.appendChild(hrow);tbl.appendChild(thead);
+    var tbody=document.createElement('tbody');
+    d.keys.forEach(function(k){
+      var tr=document.createElement('tr');tr.style.borderBottom='1px solid var(--border)';tr.id='apikey-'+k._id;
+      var td1=document.createElement('td');td1.style.padding='8px 12px';td1.textContent=k.name;
+      var td2=document.createElement('td');td2.style.padding='8px 12px';var code=document.createElement('code');code.style.cssText='background:rgba(255,255,255,.06);padding:2px 6px;border-radius:3px;font-size:.8rem';code.textContent=k.prefix+'...';td2.appendChild(code);
+      var td3=document.createElement('td');td3.style.padding='8px 12px';
+      var badge=document.createElement('span');badge.style.cssText='font-size:.75rem;padding:2px 8px;border-radius:4px;background:'+(k.permissions==='admin'?'rgba(253,91,56,.15);color:var(--main-color)':'rgba(255,255,255,.06);color:var(--muted)');badge.textContent=k.permissions;td3.appendChild(badge);
+      var td4=document.createElement('td');td4.style.cssText='padding:8px 12px;color:var(--muted);font-size:.8rem';td4.textContent=k.createdAt?k.createdAt.split('T')[0]:'';
+      var td5=document.createElement('td');td5.style.cssText='padding:8px 12px;text-align:right';
+      var btn=document.createElement('button');btn.style.cssText='background:none;border:1px solid var(--border);color:var(--muted);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:.78rem';btn.textContent='Revoke';
+      btn.onclick=function(){if(confirm('Revoke API key "'+k.name+'"? This cannot be undone.')){fetch('/admin/apikeys/'+k._id+'/revoke',{method:'POST'}).then(function(r){return r.json()}).then(function(rd){if(rd.success){var el=document.getElementById('apikey-'+k._id);if(el)el.remove();if(!tbody.children.length)empty.style.display='block'}})}};
+      td5.appendChild(btn);
+      tr.appendChild(td1);tr.appendChild(td2);tr.appendChild(td3);tr.appendChild(td4);tr.appendChild(td5);tbody.appendChild(tr);
+    });
+    tbl.appendChild(tbody);list.appendChild(tbl);
+  });
+}
+function createApiKey(){
+  var name=document.getElementById('apikeyName').value.trim();
+  if(!name){alert('Enter a name for the API key');return}
+  var perms=document.getElementById('apikeyPerms').value;
+  fetch('/admin/apikeys/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,permissions:perms})}).then(function(r){return r.json()}).then(function(d){
+    if(d.error){alert(d.error);return}
+    document.getElementById('apikeyName').value='';
+    var box=document.getElementById('apikeyNewKey');box.style.display='block';
+    document.getElementById('apikeyNewKeyValue').textContent=d.key;
+    _apikeysLoaded=false;loadApiKeys();
+  });
+}
+
+// ---- Webhooks ----
+var _webhooksLoaded=false;
+function loadWebhooks(){
+  if(_webhooksLoaded)return;_webhooksLoaded=true;
+  fetch('/admin/webhooks/api').then(function(r){return r.json()}).then(function(d){
+    var list=document.getElementById('webhookList');
+    var empty=document.getElementById('webhookEmpty');
+    list.textContent='';
+    if(!d.webhooks||!d.webhooks.length){empty.style.display='block';return}
+    empty.style.display='none';
+    var tbl=document.createElement('table');tbl.style.cssText='width:100%;border-collapse:collapse;font-size:.85rem';
+    var thead=document.createElement('thead');
+    var hrow=document.createElement('tr');hrow.style.cssText='text-align:left;border-bottom:1px solid var(--border)';
+    ['URL','Events','Status','Created',''].forEach(function(h){var th=document.createElement('th');th.style.cssText='padding:8px 12px;color:var(--muted);font-weight:500';th.textContent=h;hrow.appendChild(th)});
+    thead.appendChild(hrow);tbl.appendChild(thead);
+    var tbody=document.createElement('tbody');
+    d.webhooks.forEach(function(w){
+      var tr=document.createElement('tr');tr.style.borderBottom='1px solid var(--border)';tr.id='webhook-'+w._id;
+      var td1=document.createElement('td');td1.style.cssText='padding:8px 12px;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';td1.title=w.url;td1.textContent=w.url;
+      var td2=document.createElement('td');td2.style.padding='8px 12px';
+      var evBadge=document.createElement('code');evBadge.style.cssText='background:rgba(255,255,255,.06);padding:2px 6px;border-radius:3px;font-size:.78rem';evBadge.textContent=w.events||'*';td2.appendChild(evBadge);
+      var td3=document.createElement('td');td3.style.padding='8px 12px';
+      var statusBadge=document.createElement('span');
+      var isActive=w.active==='true'||w.active===true;
+      statusBadge.style.cssText='font-size:.75rem;padding:2px 8px;border-radius:4px;cursor:pointer;'+(isActive?'background:rgba(52,199,89,.15);color:#34c759':'background:rgba(255,69,58,.1);color:#ff453a');
+      statusBadge.textContent=isActive?'Active':'Paused';
+      statusBadge.onclick=function(){fetch('/admin/webhooks/'+w._id+'/toggle',{method:'POST'}).then(function(r){return r.json()}).then(function(rd){if(rd.success){var a=rd.active==='true'||rd.active===true;statusBadge.textContent=a?'Active':'Paused';statusBadge.style.cssText='font-size:.75rem;padding:2px 8px;border-radius:4px;cursor:pointer;'+(a?'background:rgba(52,199,89,.15);color:#34c759':'background:rgba(255,69,58,.1);color:#ff453a')}})};
+      td3.appendChild(statusBadge);
+      var td4=document.createElement('td');td4.style.cssText='padding:8px 12px;color:var(--muted);font-size:.8rem';td4.textContent=w.createdAt?w.createdAt.split('T')[0]:'';
+      var td5=document.createElement('td');td5.style.cssText='padding:8px 12px;text-align:right';
+      var btn=document.createElement('button');btn.style.cssText='background:none;border:1px solid var(--border);color:var(--muted);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:.78rem';btn.textContent='Delete';
+      btn.onclick=function(){if(confirm('Delete this webhook? This cannot be undone.')){fetch('/admin/webhooks/'+w._id+'/delete',{method:'POST'}).then(function(r){return r.json()}).then(function(rd){if(rd.success){var el=document.getElementById('webhook-'+w._id);if(el)el.remove();if(!tbody.children.length)empty.style.display='block'}})}};
+      td5.appendChild(btn);
+      tr.appendChild(td1);tr.appendChild(td2);tr.appendChild(td3);tr.appendChild(td4);tr.appendChild(td5);tbody.appendChild(tr);
+    });
+    tbl.appendChild(tbody);list.appendChild(tbl);
+  });
+}
+function createWebhook(){
+  var url=document.getElementById('webhookUrl').value.trim();
+  if(!url){alert('Enter a webhook URL');return}
+  var events=document.getElementById('webhookEvents').value;
+  fetch('/admin/webhooks/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url,events:events})}).then(function(r){return r.json()}).then(function(d){
+    if(d.error){alert(d.error);return}
+    document.getElementById('webhookUrl').value='';
+    var box=document.getElementById('webhookNewSecret');box.style.display='block';
+    document.getElementById('webhookNewSecretValue').textContent=d.secret;
+    _webhooksLoaded=false;loadWebhooks();
+  });
+}
+
+// ---- Logo upload ----
+function showLogoPreview(src){
+  if(src){
+    document.getElementById('logoPreviewImg').src=src+'?t='+Date.now();
+    document.getElementById('logoPreview').style.display='block';
+    document.getElementById('logoUploadArea').querySelector('button span').textContent='Change Logo';
+  }else{
+    document.getElementById('logoPreview').style.display='none';
+    document.getElementById('logoUploadArea').querySelector('button span').textContent='Upload Logo';
+  }
+}
+async function uploadLogo(){
+  var file=document.getElementById('logoFileInput').files[0];
+  if(!file)return;
+  var fm=new FormData();fm.append('file',file);
+  try{
+    var r=await fetch('/admin/logo/upload',{method:'POST',body:fm});
+    var d=await r.json();
+    if(d.success){
+      document.getElementById('s-customLogo').value=d.path;
+      showLogoPreview(d.path);
+    }else{alert(d.error||'Upload failed.')}
+  }catch(e){alert('Upload failed.')}
+  document.getElementById('logoFileInput').value='';
+}
+async function removeLogo(){
+  try{
+    var r=await fetch('/admin/logo/remove',{method:'POST'});
+    var d=await r.json();
+    if(d.success){
+      document.getElementById('s-customLogo').value='';
+      showLogoPreview('');
+    }
+  }catch(e){}
+}
+
+// ---- Extension category picker ----
+var EXT_CATS={
+  'Documents':['.pdf','.doc','.docx','.xls','.xlsx','.ppt','.pptx','.txt','.csv','.rtf'],
+  'Images':['.png','.jpg','.jpeg','.gif','.svg','.webp','.bmp','.ico','.tiff'],
+  'Archives':['.zip','.tar.gz','.7z','.rar','.gz','.bz2'],
+  'Video':['.mp4','.mov','.avi','.mkv','.webm','.wmv'],
+  'Audio':['.mp3','.wav','.ogg','.flac','.aac','.m4a'],
+  'Code':['.json','.xml','.md','.html','.css','.js','.py','.yaml','.yml','.sh'],
+};
+var extSet=new Set();
+
+function initExtPicker(){
+  var catBox=document.getElementById('extCategories');
+  catBox.textContent='';
+  for(var cat in EXT_CATS){
+    var btn=document.createElement('button');btn.type='button';btn.className='ext-cat-btn';
+    btn.textContent=cat;btn.setAttribute('data-cat',cat);
+    btn.onclick=(function(c){return function(){toggleExtCat(c)}})(cat);
+    catBox.appendChild(btn);
+  }
+  renderExtTags();
+  syncExtCatButtons();
+}
+
+function toggleExtCat(cat){
+  var exts=EXT_CATS[cat];
+  // Check if all in this category are already selected
+  var allOn=exts.every(function(e){return extSet.has(e)});
+  if(allOn){exts.forEach(function(e){extSet.delete(e)})}
+  else{exts.forEach(function(e){extSet.add(e)})}
+  renderExtTags();
+  syncExtCatButtons();
+  syncExtHidden();
+}
+
+function removeExt(e){
+  extSet.delete(e);
+  renderExtTags();
+  syncExtCatButtons();
+  syncExtHidden();
+}
+
+function addCustomExt(){
+  var inp=document.getElementById('extCustomInput');
+  var val=inp.value.trim().toLowerCase();
+  if(!val)return;
+  // Ensure leading dot
+  val.split(',').forEach(function(v){
+    v=v.trim();
+    if(!v)return;
+    if(v[0]!=='.')v='.'+v;
+    extSet.add(v);
+  });
+  inp.value='';
+  renderExtTags();
+  syncExtCatButtons();
+  syncExtHidden();
+}
+
+function renderExtTags(){
+  var box=document.getElementById('extSelected');box.textContent='';
+  var sorted=Array.from(extSet).sort();
+  if(!sorted.length){box.textContent='No extensions selected';box.style.color='var(--muted)';box.style.fontSize='.82rem';return}
+  box.style.color='';box.style.fontSize='';
+  sorted.forEach(function(e){
+    var tag=document.createElement('span');tag.className='ext-tag';
+    tag.textContent=e;
+    var rm=document.createElement('button');rm.className='ext-tag-rm';rm.textContent='\u00d7';rm.title='Remove';
+    rm.onclick=function(){removeExt(e)};
+    tag.appendChild(rm);
+    box.appendChild(tag);
+  });
+}
+
+function syncExtCatButtons(){
+  document.querySelectorAll('.ext-cat-btn').forEach(function(btn){
+    var cat=btn.getAttribute('data-cat');
+    var exts=EXT_CATS[cat];
+    var allOn=exts.every(function(e){return extSet.has(e)});
+    var someOn=exts.some(function(e){return extSet.has(e)});
+    btn.classList.toggle('active',allOn);
+    btn.style.opacity=(!allOn&&someOn)?'.7':'';
+  });
+}
+
+function syncExtHidden(){
+  document.getElementById('s-allowedExtensions').value=Array.from(extSet).join(', ');
+}
+
+function loadExtFromValue(val){
+  extSet.clear();
+  if(!val)return;
+  val.split(',').forEach(function(v){v=v.trim();if(v)extSet.add(v)});
+  renderExtTags();
+  syncExtCatButtons();
+}
+
+function cp(u,btn){navigator.clipboard.writeText(u);btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000)}
+async function delF(id){if(!confirm('Delete this file?'))return;await fetch('/admin/files/'+id+'/delete',{method:'POST'});document.getElementById('af-'+id).remove();loadFiles(1)}
+async function delB(id){if(!confirm('Delete bundle and all its files?'))return;await fetch('/admin/bundles/'+id+'/delete',{method:'POST'});document.getElementById('ab-'+id).remove();loadBundles(1);loadFiles(1)}
+
+// Activity feed
+function loadActivity(){
+fetch('/admin/activity/api').then(function(r){return r.json()}).then(function(d){
+  var el=document.getElementById('activityFeed');
+  if(!d.entries||!d.entries.length){el.textContent='';var e=document.createElement('div');e.className='admin-empty';e.textContent='No recent activity.';el.appendChild(e);return}
+  var html='';
+  for(var i=0;i<d.entries.length;i++){
+    var e=d.entries[i];
+    var time=new Date(e.createdAt).toLocaleString();
+    var cls=getActionClass(e.action);
+    html+='<div class="activity-row"><span class="activity-time">'+esc(time)+'</span><span class="badge '+cls+'">'+esc(e.action)+'</span><span class="activity-detail">'+esc(e.details||'')+'</span><span class="activity-who">'+esc(e.performedByEmail||e.targetEmail||'system')+'</span></div>';
+  }
+  el.textContent='';
+  el.insertAdjacentHTML('beforeend',html);
+});
+}
+
+function getActionClass(action){
+  if(action.includes('success')||action.includes('registered'))return 'badge-ok';
+  if(action.includes('failed')||action.includes('denied')||action.includes('deleted'))return 'badge-err';
+  if(action.includes('rejected')||action.includes('suspended'))return 'badge-warn';
+  return 'badge-info';
+}
+function esc(s){return window.Helpers?Helpers.esc(s):String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;').replace(/"/g,'&quot;')}
+function formatSize(b){return window.Helpers?Helpers.formatSize(b):((b<1048576?(b/1024).toFixed(0)+' KB':(b/1048576).toFixed(1)+' MB'))}
+function truncName(n,max){return n.length>max?n.slice(0,max)+'...':n}
+
+function loadFiles(page){
+  fetch('/admin/files/api?page='+page).then(function(r){return r.json()}).then(function(d){
+    var el=document.getElementById('filesList');
+    var pg=document.getElementById('filesPagination');
+    document.getElementById('filesCount').textContent=d.total;
+    if(!d.files||!d.files.length){el.textContent='';var e=document.createElement('div');e.className='admin-empty';e.textContent='No files uploaded yet.';el.appendChild(e);pg.style.display='none';return}
+    var html='';
+    for(var i=0;i<d.files.length;i++){
+      var f=d.files[i];
+      var ext=f.originalName.split('.').pop().toUpperCase();
+      html+='<div class="admin-file-row" id="af-'+esc(f.shareId)+'">';
+      var byLine=f.uploaderName&&f.uploaderEmail?f.uploaderName+' ('+f.uploaderEmail+')':f.uploaderEmail||f.uploaderName||'Anonymous';
+      html+='<div class="admin-file-info"><span class="file-ext-sm">'+esc(ext)+'</span><div><div class="admin-file-name">'+esc(truncName(f.originalName,40))+'</div><div class="admin-file-by">'+esc(byLine)+'</div></div></div>';
+      html+='<div class="admin-file-meta"><span class="admin-file-size">'+formatSize(f.size)+'</span><span class="admin-file-dls">'+(f.downloads||0)+' DLs</span></div>';
+      html+='<div class="admin-file-actions"><button class="butn butn-bord-thin butn-sm radius-30" onclick="cp(\'{{host}}/s/'+esc(f.shareId)+'\',this)"><span>Copy</span></button><button class="butn butn-sm radius-30" style="border-color:rgba(255,68,68,.3);color:var(--danger)" onclick="delF(\''+esc(f.shareId)+'\')"><span>Delete</span></button></div>';
+      html+='</div>';
+    }
+    el.textContent='';
+    el.insertAdjacentHTML('beforeend',html);
+    if(d.pages>1){
+      var ph='';
+      for(var p=1;p<=d.pages;p++){ph+='<button class="butn butn-sm radius-30'+(p===d.page?' butn-bg':' butn-bord-thin')+'" onclick="loadFiles('+p+')" style="margin:0 4px"><span>'+p+'</span></button>';}
+      pg.textContent='';
+      pg.insertAdjacentHTML('beforeend',ph);
+      pg.style.display='block';
+    }else{pg.style.display='none'}
+  });
+}
+// Paginated bundles
+function loadBundles(page){
+  fetch('/admin/bundles/api?page='+page).then(function(r){return r.json()}).then(function(d){
+    var el=document.getElementById('bundlesList');
+    var pg=document.getElementById('bundlesPagination');
+    document.getElementById('bundlesCount').textContent=d.total;
+    if(!d.bundles||!d.bundles.length){el.textContent='';var e=document.createElement('div');e.className='admin-empty';e.textContent='No bundles yet.';el.appendChild(e);pg.style.display='none';return}
+    var html='';
+    for(var i=0;i<d.bundles.length;i++){
+      var b=d.bundles[i];
+      html+='<div class="admin-file-row" id="ab-'+esc(b.shareId)+'">';
+      html+='<div class="admin-file-info"><span class="file-ext-sm">ZIP</span><div><div class="admin-file-name">Bundle '+esc(b.shareId)+'</div><div class="admin-file-by">'+esc(b.uploaderName||'')+' &middot; '+(b.receivedFiles||0)+' files</div></div></div>';
+      html+='<div class="admin-file-meta"><span class="admin-file-size">'+formatSize(b.totalSize)+'</span><span class="admin-file-dls">'+(b.downloads||0)+' DLs</span></div>';
+      html+='<div class="admin-file-actions"><button class="butn butn-bord-thin butn-sm radius-30" onclick="cp(\'{{host}}/b/'+esc(b.shareId)+'\',this)"><span>Copy</span></button><button class="butn butn-sm radius-30" style="border-color:rgba(255,68,68,.3);color:var(--danger)" onclick="delB(\''+esc(b.shareId)+'\')"><span>Delete</span></button></div>';
+      html+='</div>';
+    }
+    el.textContent='';
+    el.insertAdjacentHTML('beforeend',html);
+    if(d.pages>1){
+      var ph='';
+      for(var p=1;p<=d.pages;p++){ph+='<button class="butn butn-sm radius-30'+(p===d.page?' butn-bg':' butn-bord-thin')+'" onclick="loadBundles('+p+')" style="margin:0 4px"><span>'+p+'</span></button>';}
+      pg.textContent='';
+      pg.insertAdjacentHTML('beforeend',ph);
+      pg.style.display='block';
+    }else{pg.style.display='none'}
+  });
+}
+// Settings
+var tabFields={
+  branding:['siteName','customLogo','landingEnabled','heroTitle','heroSubtitle','dropTitle','dropSubtitle','maintenanceMode','announcementBanner'],
+  general:['port','sessionSecret'],
+  auth:['localAuth','registrationOpen','googleClientID','googleClientSecret','googleCallbackURL','allowedDomains','emailVerification','passkeyEnabled','rpName','rpId','rpOrigin'],
+  uploads:['publicUpload','maxFileSize','publicMaxFiles','publicMaxBundleSize','perUserQuotaBytes','uploadTimeout','uploadConcurrency','uploadRetries','allowedExtensions'],
+  storage:['storageBackend','uploadDir','s3Bucket','s3Region','s3AccessKey','s3SecretKey','s3Endpoint','s3DirectDownloads','s3PresignExpiry'],
+  theme:['themeAccentColor','themeBgColor','themeFont'],
+  email:['emailBackend','resendApiKey','resendQuotaDaily','resendQuotaMonthly','smtpHost','smtpPort','smtpUser','smtpPass','smtpFrom','emailTemplateMode','emailTemplateSubject','emailTemplateHeader','emailTemplateFooter']
+};
+
+function showTab(name){
+  document.querySelectorAll('.settings-tab').forEach(function(t){t.classList.remove('active')});
+  document.querySelectorAll('.settings-pane').forEach(function(p){p.classList.remove('active')});
+  event.target.classList.add('active');
+  document.getElementById('pane-'+name).classList.add('active');
+  document.querySelectorAll('.settings-msg-inline').forEach(function(m){m.style.opacity='0'});
+}
+
+// ---- Environment tab ----
+var _envLoaded=false;
+function loadEnvironment(){
+  if(_envLoaded)return;_envLoaded=true;
+  fetch('/admin/environment').then(function(r){return r.json()}).then(function(d){
+    var info=document.getElementById('envInfo');
+    var items=[
+      {label:'Runtime',value:d.docker?'Docker':'Bare metal'},
+      {label:'Node.js',value:d.node},
+      {label:'OpenSSL',value:d.openssl},
+      {label:'Platform',value:d.platform+' '+d.arch},
+      {label:'NODE_ENV',value:d.nodeEnv},
+      {label:'Tmpdir',value:d.tmpdir},
+      {label:'PID',value:String(d.pid)},
+      {label:'Uptime',value:Math.floor(d.uptime/3600)+'h '+Math.floor(d.uptime%3600/60)+'m'},
+    ];
+    items.forEach(function(it){
+      var el=document.createElement('div');
+      el.style.cssText='flex:1;min-width:140px;padding:12px 16px;background:var(--card-bg);border:1px solid var(--border);border-radius:8px';
+      var lbl=document.createElement('div');lbl.style.cssText='font-size:.75rem;color:var(--muted);margin-bottom:4px';lbl.textContent=it.label;
+      var val=document.createElement('div');val.style.cssText='font-size:.95rem;font-weight:600';val.textContent=it.value;
+      el.appendChild(lbl);el.appendChild(val);info.appendChild(el);
+    });
+    var ov=document.getElementById('envOverrides');
+    var noOv=document.getElementById('envNoOverrides');
+    if(!d.envOverrides||!d.envOverrides.length){noOv.style.display='block';return}
+    var tbl=document.createElement('table');tbl.style.cssText='width:100%;border-collapse:collapse;font-size:.85rem';
+    var thead=document.createElement('thead');
+    var hrow=document.createElement('tr');hrow.style.cssText='text-align:left;border-bottom:1px solid var(--border)';
+    ['Setting','Env Variable','Value',''].forEach(function(h){var th=document.createElement('th');th.style.cssText='padding:8px 12px;color:var(--muted);font-weight:500';th.textContent=h;hrow.appendChild(th)});
+    thead.appendChild(hrow);tbl.appendChild(thead);
+    var tbody=document.createElement('tbody');
+    d.envOverrides.forEach(function(o){
+      var tr=document.createElement('tr');tr.style.borderBottom='1px solid var(--border)';
+      var td1=document.createElement('td');td1.style.padding='8px 12px';td1.textContent=o.setting;
+      var td2=document.createElement('td');td2.style.padding='8px 12px';var code=document.createElement('code');code.style.cssText='background:rgba(255,255,255,.06);padding:2px 6px;border-radius:3px;font-size:.8rem';code.textContent=o.env;td2.appendChild(code);
+      var td3=document.createElement('td');td3.style.cssText='padding:8px 12px;font-family:monospace;font-size:.82rem';td3.textContent=o.value;
+      var td4=document.createElement('td');td4.style.padding='8px 12px';
+      if(o.restart){var badge=document.createElement('span');badge.style.cssText='font-size:.7rem;background:var(--main-color);color:#fff;padding:2px 6px;border-radius:4px';badge.textContent='restart';td4.appendChild(badge)}
+      tr.appendChild(td1);tr.appendChild(td2);tr.appendChild(td3);tr.appendChild(td4);tbody.appendChild(tr);
+    });
+    tbl.appendChild(tbody);ov.appendChild(tbl);
+  });
+}
+
+// ---- Reverse proxy config generator ----
+function getUploadSettings(){
+  var maxFile=getSizeField('s-maxFileSize');
+  var maxBundle=getSizeField('s-publicMaxBundleSize')||0;
+  var larger=Math.max(maxFile,maxBundle);
+  var sizeMB=Math.ceil(larger/1048576);
+  var timeoutSec=parseInt(document.getElementById('s-uploadTimeout-display').value,10)||300;
+  var port=document.getElementById('s-port').value||'3000';
+  return{sizeMB:sizeMB,timeoutSec:timeoutSec,port:port};
+}
+
+function updateProxySnippet(){
+  var type=document.getElementById('proxyType').value;
+  var box=document.getElementById('proxySnippet');
+  if(!type){box.style.display='none';return}
+  box.style.display='block';
+  var s=getUploadSettings();
+  var code='';
+  if(type==='nginx'){
+    code='server {\n'
+      +'    listen 443 ssl;\n'
+      +'    server_name yourdomain.com;\n'
+      +'\n'
+      +'    client_max_body_size '+s.sizeMB+'m;\n'
+      +'    proxy_read_timeout '+s.timeoutSec+'s;\n'
+      +'    proxy_send_timeout '+s.timeoutSec+'s;\n'
+      +'    proxy_connect_timeout 10s;\n'
+      +'    proxy_buffering off;\n'
+      +'\n'
+      +'    location / {\n'
+      +'        proxy_pass http://127.0.0.1:'+s.port+';\n'
+      +'        proxy_set_header Host $host;\n'
+      +'        proxy_set_header X-Real-IP $remote_addr;\n'
+      +'        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n'
+      +'        proxy_set_header X-Forwarded-Proto $scheme;\n'
+      +'        proxy_http_version 1.1;\n'
+      +'        proxy_set_header Upgrade $http_upgrade;\n'
+      +'        proxy_set_header Connection "upgrade";\n'
+      +'    }\n'
+      +'}';
+  }else if(type==='caddy'){
+    code='yourdomain.com {\n'
+      +'    reverse_proxy 127.0.0.1:'+s.port+' {\n'
+      +'        transport http {\n'
+      +'            read_timeout '+s.timeoutSec+'s\n'
+      +'            write_timeout '+s.timeoutSec+'s\n'
+      +'        }\n'
+      +'    }\n'
+      +'    request_body {\n'
+      +'        max_size '+s.sizeMB+'MB\n'
+      +'    }\n'
+      +'}';
+  }else if(type==='apache'){
+    code='<VirtualHost *:443>\n'
+      +'    ServerName yourdomain.com\n'
+      +'\n'
+      +'    ProxyPreserveHost On\n'
+      +'    ProxyPass / http://127.0.0.1:'+s.port+'/\n'
+      +'    ProxyPassReverse / http://127.0.0.1:'+s.port+'/\n'
+      +'\n'
+      +'    LimitRequestBody '+s.sizeMB*1048576+'\n'
+      +'    ProxyTimeout '+s.timeoutSec+'\n'
+      +'    RequestHeader set X-Forwarded-Proto "https"\n'
+      +'</VirtualHost>';
+  }
+  document.getElementById('proxyCode').textContent=code;
+}
+
+function cpProxy(){
+  var code=document.getElementById('proxyCode').textContent;
+  navigator.clipboard.writeText(code);
+  event.target.closest('button').querySelector('span').textContent='Copied!';
+  setTimeout(function(){event.target.closest('button').querySelector('span').textContent='Copy'},2000);
+}
+
+function updateAdminRpPort(){
+  var proto=document.getElementById('s-rpProto').value;
+  var port=document.getElementById('s-rpPort');
+  var def=proto==='https'?'443':'80';
+  var oldDef=proto==='https'?'80':'443';
+  port.placeholder=def;
+  if(!port.value||port.value===oldDef||port.value==='443'||port.value==='80'||port.value==='3000'||port.value==='8080')port.value='';
+}
+function buildRpOrigin(){
+  var proto=document.getElementById('s-rpProto').value;
+  var id=document.getElementById('s-rpId').value.trim();
+  var port=document.getElementById('s-rpPort').value.trim();
+  if(!id)return '';
+  var defaultPort=proto==='https'?'443':'80';
+  return proto+'://'+id+(port&&port!==defaultPort?':'+port:'');
+}
+
+function setTplMode(mode){
+  document.getElementById('s-emailTemplateMode').value=mode;
+  var isHtml=mode==='html';
+  document.getElementById('tplModeText').classList.toggle('active',!isHtml);
+  document.getElementById('tplModeHtml').classList.toggle('active',isHtml);
+  document.getElementById('tplModeHint').innerHTML=isHtml
+    ?'<b>Raw HTML mode:</b> Tags like &lt;b&gt;, &lt;a href&gt;, &lt;div&gt; will render in the email. Nothing is escaped.'
+    :'<b>Plain text mode:</b> HTML tags are escaped (shown literally). Line breaks become &lt;br&gt; automatically.';
+  // Update placeholders to show examples for the mode
+  var hdr=document.getElementById('s-emailTemplateHeader');
+  var ftr=document.getElementById('s-emailTemplateFooter');
+  if(isHtml){
+    hdr.placeholder='<h2 style="color:#3D2E22">Your upload is ready!</h2>';
+    ftr.placeholder='<p>Files stored securely on <b>{siteName}</b>.</p><p><a href="https://hermitstash.com">Visit us</a></p>';
+  }else{
+    hdr.placeholder='Your upload is ready!';
+    ftr.placeholder='Files are stored securely on {siteName}. Contact us if you have questions.';
+  }
+  document.querySelectorAll('.tpl-textarea').forEach(function(el){
+    el.style.fontFamily=isHtml?"'JetBrains Mono',monospace":'';
+    el.style.fontSize=isHtml?'.82rem':'';
+    el.rows=isHtml?6:el===hdr?3:4;
+  });
+}
+
+function toggleS3(){
+  var v=document.getElementById('s-storageBackend').value;
+  document.getElementById('s3Fields').style.display=v==='s3'?'block':'none';
+}
+
+// Size field helpers
+function bytesToUnit(bytes){
+  var b=parseInt(bytes,10)||0;
+  if(b>=1073741824&&b%1073741824===0)return{val:b/1073741824,unit:'1073741824'};
+  return{val:Math.round(b/1048576),unit:'1048576'};
+}
+
+function loadSizeField(id,bytes){
+  var r=bytesToUnit(bytes);
+  document.getElementById(id+'-val').value=r.val;
+  document.getElementById(id+'-unit').value=r.unit;
+}
+
+function getSizeField(id){
+  var val=parseFloat(document.getElementById(id+'-val').value)||0;
+  var unit=parseInt(document.getElementById(id+'-unit').value,10);
+  return Math.round(val*unit);
+}
+
+function toggleEmailBackend(){
+  var sel=document.getElementById('s-emailBackend');
+  var val=sel?sel.value:'smtp';
+  var hasResend=val.includes('resend');
+  var hasSmtp=val.includes('smtp');
+  var rf=document.getElementById('resendFields');
+  var sf=document.getElementById('smtpFields');
+  var qd=document.getElementById('emailQuotaDisplay');
+  if(rf)rf.style.display=hasResend?'':'none';
+  if(sf)sf.style.display=hasSmtp?'':'none';
+  if(qd)qd.style.display=hasResend?'':'none';
+  if(hasResend){
+    fetch('/admin/email/quota').then(function(r){return r.json()}).then(function(d){
+      var qde=document.getElementById('quotaDaily');if(qde)qde.textContent=d.daily;
+      var qdl=document.getElementById('quotaDailyLimit');if(qdl)qdl.textContent=d.dailyLimit;
+      var qme=document.getElementById('quotaMonthly');if(qme)qme.textContent=d.monthly;
+      var qml=document.getElementById('quotaMonthlyLimit');if(qml)qml.textContent=d.monthlyLimit;
+    }).catch(function(){});
+  }
+}
+
+function loadSettings(){
+  fetch('/admin/settings').then(function(r){return r.json()}).then(function(s){
+    for(var key in s){
+      var el=document.getElementById('s-'+key);
+      if(!el)continue;
+      if(el.type==='checkbox')el.checked=!!s[key];
+      else el.value=s[key]!=null?s[key]:'';
+    }
+    loadSizeField('s-maxFileSize',s.maxFileSize);
+    loadSizeField('s-publicMaxBundleSize',s.publicMaxBundleSize);
+    loadSizeField('s-perUserQuotaBytes',s.perUserQuotaBytes||0);
+    document.getElementById('s-uploadTimeout-display').value=Math.round((s.uploadTimeout||300000)/1000);
+    toggleS3();
+    toggleEmailBackend();
+    loadExtFromValue(s.allowedExtensions);
+    showLogoPreview(s.customLogo||'');
+    // Auto-fill Google callback URL from current domain if empty
+    var cbEl=document.getElementById('s-googleCallbackURL');
+    if(cbEl&&!s.googleCallbackURL){cbEl.value=window.location.origin+'/auth/google/callback'}
+    initExtPicker();
+    setTplMode(s.emailTemplateMode||'text');
+    // Parse rpOrigin into protocol + port
+    if(s.rpOrigin){try{var u=new URL(s.rpOrigin);document.getElementById('s-rpProto').value=u.protocol.replace(':','');if(u.port)document.getElementById('s-rpPort').value=u.port;else document.getElementById('s-rpPort').placeholder=u.protocol==='https:'?'443':'80'}catch(e){}}
+    updateAdminRpPort();
+  });
+}
+
+function saveTab(tab){
+  var data={};
+  tabFields[tab].forEach(function(key){
+    // Handle size fields with unit selectors
+    if(key==='maxFileSize'||key==='publicMaxBundleSize'||key==='perUserQuotaBytes'){
+      data[key]=String(getSizeField('s-'+key));
+      return;
+    }
+    // Handle timeout (displayed in seconds, stored in ms)
+    if(key==='uploadTimeout'){
+      data[key]=String((parseInt(document.getElementById('s-uploadTimeout-display').value,10)||300)*1000);
+      return;
+    }
+    var el=document.getElementById('s-'+key);
+    if(!el)return;
+    if(el.type==='checkbox')data[key]=el.checked?'true':'false';
+    else data[key]=el.value;
+  });
+  // Build rpOrigin from protocol + domain + port
+  if(tab==='auth')data.rpOrigin=buildRpOrigin();
+  // Find or create inline message next to save button
+  var actions=document.querySelector('#pane-'+tab+' .settings-actions');
+  var msg=actions.querySelector('.settings-msg-inline');
+  if(!msg){msg=document.createElement('span');msg.className='settings-msg-inline';actions.appendChild(msg)}
+  msg.style.opacity='0';
+  fetch('/admin/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(function(r){return r.json()}).then(function(d){
+    if(d.success){
+      msg.className='settings-msg-inline msg-ok';
+      msg.textContent='Settings saved'+(d.restart?' — restart required':'');
+    }else{
+      msg.className='settings-msg-inline msg-err';
+      msg.textContent=d.error||'Failed to save.';
+    }
+    msg.style.opacity='1';
+    setTimeout(function(){msg.style.opacity='0'},4000);
+  }).catch(function(){
+    msg.className='settings-msg-inline msg-err';
+    msg.textContent='Network error.';
+    msg.style.opacity='1';
+    setTimeout(function(){msg.style.opacity='0'},4000);
+  });
+}
+
+function revokeAllSessions(){
+  if(!confirm('Purge ALL sessions? Every user (including you) will be logged out immediately.'))return;
+  var btn=document.getElementById('revokeAllBtn');
+  btn.disabled=true;btn.querySelector('span').textContent='Purging...';
+  fetch('/admin/sessions/revoke-all',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
+    if(d.success){alert('All sessions purged. You will be redirected to login.');window.location.href='/auth/login'}
+    else{alert(d.error||'Failed.');btn.disabled=false;btn.querySelector('span').textContent='Purge Sessions'}
+  }).catch(function(){alert('Network error.');btn.disabled=false;btn.querySelector('span').textContent='Purge Sessions'});
+}
+
+function purgeUsers(){
+  if(!confirm('Delete ALL user accounts except yours? This cannot be undone.'))return;
+  if(!confirm('Are you absolutely sure? All user accounts will be permanently deleted.'))return;
+  var btn=document.getElementById('purgeUsersBtn');
+  btn.disabled=true;btn.querySelector('span').textContent='Purging...';
+  fetch('/admin/purge/users',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
+    if(d.success){alert('Purged '+d.deleted+' users. Sessions cleared.');location.reload()}
+    else{alert(d.error||'Failed.');btn.disabled=false;btn.querySelector('span').textContent='Purge Users'}
+  }).catch(function(){alert('Network error.');btn.disabled=false;btn.querySelector('span').textContent='Purge Users'});
+}
+
+function purgeFiles(){
+  if(!confirm('Delete ALL files and bundles? This removes files from disk and cannot be undone.'))return;
+  if(!confirm('Are you absolutely sure? Every uploaded file and bundle will be permanently deleted.'))return;
+  var btn=document.getElementById('purgeFilesBtn');
+  btn.disabled=true;btn.querySelector('span').textContent='Purging...';
+  fetch('/admin/purge/files',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
+    if(d.success){alert('Purged '+d.deletedFiles+' files and '+d.deletedBundles+' bundles.');location.reload()}
+    else{alert(d.error||'Failed.');btn.disabled=false;btn.querySelector('span').textContent='Purge Files'}
+  }).catch(function(){alert('Network error.');btn.disabled=false;btn.querySelector('span').textContent='Purge Files'});
+}
+
+function purgeDatabase(){
+  var confirm=document.getElementById('purgeDbConfirm').value;
+  if(confirm!=='PURGE')return alert('Type PURGE to confirm.');
+  var btn=document.getElementById('purgeDbBtn');
+  btn.disabled=true;btn.querySelector('span').textContent='Purging...';
+  fetch('/admin/purge/database',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:'PURGE'})}).then(function(r){return r.json()}).then(function(d){
+    if(d.success){alert('Database purged. You will be redirected to login.');window.location.href='/auth/login'}
+    else{alert(d.error||'Failed.');btn.disabled=false;btn.querySelector('span').textContent='Purge Database'}
+  }).catch(function(){alert('Network error.');btn.disabled=false;btn.querySelector('span').textContent='Purge Database'});
+}
+
+// Defer all API calls until api.js has loaded and overridden fetch
+window.addEventListener('load',function(){
+  loadActivity();loadFiles(1);loadBundles(1);loadSettings();
+  // Auto-detect reverse proxy
+  fetch('/admin/proxy/detect').then(function(r){return r.json()}).then(function(d){
+    var banner=document.getElementById('proxyDetectBanner');
+    if(d.detected){
+      var hdrs=Object.keys(d.headers).map(function(k){return k+': '+d.headers[k]}).join(', ');
+      banner.style.display='block';
+      banner.style.background='rgba(253,176,46,.08)';
+      banner.style.border='1px solid rgba(253,176,46,.2)';
+      banner.style.color='var(--body-color)';
+      banner.textContent='Proxy detected via headers: '+hdrs+(d.guess?' (likely '+d.guess.charAt(0).toUpperCase()+d.guess.slice(1)+')':'');
+      if(d.guess&&!document.getElementById('proxyType').value){
+        document.getElementById('proxyType').value=d.guess;
+        updateProxySnippet();
+      }
+    }else{
+      banner.style.display='block';
+      banner.style.background='rgba(45,138,62,.06)';
+      banner.style.border='1px solid rgba(45,138,62,.15)';
+      banner.style.color='var(--body-color)';
+      banner.textContent='No reverse proxy detected \u2014 direct connection.';
+    }
+  }).catch(function(){});
+});
+</script>
+{{> foot}}

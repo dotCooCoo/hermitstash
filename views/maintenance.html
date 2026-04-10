@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{{brand.siteName}}} — We'll be right back</title>
+  <link rel="stylesheet" href="{{{assets.css}}}">
+  <script>(function(){var t=localStorage.getItem('theme');if(t)document.documentElement.setAttribute('data-theme',t)})()</script>
+</head>
+<body>
+  <div class="maint-page">
+    <div class="maint-card">
+      <div class="maint-mascot">
+        <img src="{{{brand.logoColor}}}" alt="" class="maint-mascot-img">
+      </div>
+      <div class="maint-icon">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+        </svg>
+      </div>
+      <h1 class="maint-title">We'll be <span style="font-weight:200">right back.</span></h1>
+      <p class="maint-sub">Crabby is making some improvements behind the scenes. This shouldn't take long.</p>
+      <div class="maint-status">
+        <div class="maint-dot"></div>
+        <span>Maintenance in progress</span>
+      </div>
+      <div class="maint-tip">
+        <p>In the meantime, you can:</p>
+        <ul>
+          <li>Refresh this page in a few minutes</li>
+          <li>Check back later — your files are safe</li>
+        </ul>
+      </div>
+      <button class="butn butn-bord butn-md radius-30" onclick="location.reload()"><span>Refresh Page</span></button>
+    </div>
+  </div>
+</body>
+</html>

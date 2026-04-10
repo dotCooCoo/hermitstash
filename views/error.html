@@ -1,0 +1,23 @@
+{{> head}}
+<main class="main">
+<div class="error-page">
+  <div class="error-mascot">
+    <img src="{{{brand.logoColor}}}" alt="" class="error-mascot-img">
+  </div>
+  <h1 class="error-heading">{{title}}</h1>
+  <p class="error-message">{{message}}</p>
+  <div class="error-actions">
+    <a href="/" class="butn butn-bg butn-md radius-30"><span>Go Home</span></a>
+    <button class="butn butn-bord butn-md radius-30" onclick="history.back()"><span>Go Back</span></button>
+  </div>
+  <div class="error-help">
+    <p>If you keep seeing this, try one of these:</p>
+    <div class="error-links">
+      <a href="/drop">Drop Files</a>
+      <a href="/auth/login">Sign In</a>
+      <a href="/">Landing Page</a>
+    </div>
+  </div>
+</div>
+</main>
+{{> foot}}

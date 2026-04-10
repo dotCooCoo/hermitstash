@@ -1,0 +1,75 @@
+  <footer class="site-footer" data-anim>
+    <div class="footer-inner">
+      <div class="footer-left"><img src="{{{brand.logo}}}" alt="" class="footer-logo-img logo-light"><img src="{{{brand.logoDark}}}" alt="" class="footer-logo-img logo-dark"> {{{brand.siteName}}}</div>
+      <div class="footer-right">
+        <a href="/drop">Drop Files</a>
+        <a href="/auth/login">Sign In</a>
+      </div>
+    </div>
+    <div class="footer-copy">Post-quantum encrypted. Self-hosted. Built on Node.js.</div>
+  </footer>
+
+  <!-- Scroll progress indicator -->
+  <div class="scroll-progress" id="scrollProgress">
+    <svg width="44" height="44" viewBox="0 0 44 44">
+      <circle class="scroll-prog-bg" cx="22" cy="22" r="20"/>
+      <circle class="scroll-prog-circle" cx="22" cy="22" r="20" stroke-dasharray="125.66" stroke-dashoffset="125.66"/>
+    </svg>
+    <div class="scroll-progress-arrow">&#8593;</div>
+  </div>
+
+  <script>
+  (function(){
+    var nb=document.getElementById('navbar');
+    window.addEventListener('scroll',function(){
+      var light=document.documentElement.getAttribute('data-theme')==='light';
+      if(window.scrollY>80){nb.style.background=light?'rgba(245,245,247,.95)':'rgba(15,15,15,.95)';nb.classList.add('scrolled')}
+      else{nb.style.background=light?'rgba(245,245,247,.85)':'rgba(15,15,15,.6)';nb.classList.remove('scrolled')}
+    });
+  })();
+  </script>
+  <script src="{{{assets.helpers}}}"></script>
+  {% if (typeof apiKey !== 'undefined' && apiKey) { %}<script>window.__ak="{{apiKey}}";</script>
+  <script src="{{{assets.apiJs}}}"></script>{% } %}
+  {% if (user) { %}<script src="{{{assets.webauthn}}}"></script>{% } %}
+  {% if (user || (typeof vaultEnabled !== 'undefined' && vaultEnabled)) { %}<script src="{{{assets.vaultPq}}}"></script>{% } %}
+  <script src="{{{assets.js}}}"></script>
+
+  {% if (user) { %}
+  <!-- Session heartbeat — detects idle timeout and shows graceful overlay -->
+  <div id="sessionExpiredOverlay" style="display:none;position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.7);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);opacity:0;transition:opacity .4s ease">
+    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;max-width:380px;width:90%;padding:40px 32px;background:var(--bg,#111);border:1px solid rgba(255,255,255,.08);border-radius:16px;box-shadow:0 24px 80px rgba(0,0,0,.5)">
+      <div style="width:56px;height:56px;margin:0 auto 20px;border-radius:50%;background:rgba(253,91,56,.1);display:flex;align-items:center;justify-content:center">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#8B5CF6" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      </div>
+      <h2 style="margin:0 0 8px;font-size:1.3rem;font-weight:700;color:var(--text-color,#fff)">Session expired</h2>
+      <p style="margin:0 0 24px;font-size:.9rem;color:var(--text-muted,#888);line-height:1.5">You've been inactive for a while. Sign in again to continue.</p>
+      <a href="/auth/login" style="display:inline-block;padding:12px 32px;background:#8B5CF6;color:#fff;font-size:.9rem;font-weight:600;border-radius:8px;text-decoration:none;transition:background .2s" onmouseover="this.style.background='#7C3AED'" onmouseout="this.style.background='#8B5CF6'">Sign In</a>
+    </div>
+  </div>
+  <script>
+  (function(){
+    var CHECK_INTERVAL=60000; // check every 60s
+    var overlay=document.getElementById('sessionExpiredOverlay');
+    var expired=false;
+    function check(){
+      if(expired)return;
+      fetch('/auth/session-check',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
+        if(!d.authenticated){
+          expired=true;
+          overlay.style.display='block';
+          setTimeout(function(){overlay.style.opacity='1'},10);
+        }
+      }).catch(function(){});
+    }
+    // Start checking after first interval (don't check immediately on page load)
+    var timer=setInterval(check,CHECK_INTERVAL);
+    // Also check when tab becomes visible after being hidden (user returns from another tab)
+    document.addEventListener('visibilitychange',function(){
+      if(!document.hidden&&!expired)check();
+    });
+  })();
+  </script>
+  {% } %}
+</body>
+</html>

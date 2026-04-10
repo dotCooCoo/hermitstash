@@ -1,0 +1,51 @@
+{{> head}}
+<main class="main">
+<div class="share-page bundle-page">
+  <div class="bundle-card">
+    <div class="share-card-icon"><img src="{{{brand.logo}}}" alt="" class="share-logo"></div>
+    <h2>File Bundle</h2>
+    <div class="share-meta">
+      <span>{{{files.length}}} file{{{files.length !== 1 ? 's' : ''}}}</span>
+      <span>{{{__formatSize(bundle.totalSize)}}}</span>
+      <span>From {{bundle.uploaderName}}</span>
+    </div>
+    <a href="/b/{{bundle.shareId}}/download" class="btn btn-primary btn-lg">⬇ Download All as ZIP</a>
+    <div class="bundle-tree">
+      {{{ (function buildHtml(fileList) {
+        const root = { children: {}, files: [] };
+        for (const f of fileList) {
+          const parts = (f.relativePath || f.originalName).split('/');
+          let node = root;
+          for (let i = 0; i < parts.length - 1; i++) {
+            if (!node.children[parts[i]]) node.children[parts[i]] = { children: {}, files: [] };
+            node = node.children[parts[i]];
+          }
+          node.files.push(f);
+        }
+        function renderNode(node, depth, pathPrefix) {
+          let out = '';
+          for (const name of Object.keys(node.children).sort()) {
+            var folderPath = pathPrefix ? pathPrefix + '/' + name : name;
+            out += '<div class="tree-item tree-folder" style="padding-left:' + (depth * 20) + 'px">';
+            out += '&#128193; ' + __esc(name);
+            out += ' <a href="/b/' + __esc(bundle.shareId) + '/folder/' + encodeURIComponent(folderPath) + '" class="tree-folder-dl" title="Download folder as ZIP">⬇</a>';
+            out += '</div>';
+            out += renderNode(node.children[name], depth + 1, folderPath);
+          }
+          for (const f of node.files.sort((a,b) => a.originalName.localeCompare(b.originalName))) {
+            const ext = __esc(f.originalName.split('.').pop().toUpperCase());
+            out += '<div class="tree-item tree-file" style="padding-left:' + (depth * 20 + 20) + 'px">';
+            out += '<span class="tree-ext">' + ext + '</span> ';
+            out += '<a href="/b/' + __esc(bundle.shareId) + '/file/' + __esc(f.shareId) + '" class="tree-file-link">' + __esc(f.originalName) + '</a>';
+            out += '<span class="tree-size">' + __formatSize(f.size) + '</span></div>';
+          }
+          return out;
+        }
+        return renderNode(root, 0, '');
+      })(files) }}}
+    </div>
+    <p class="share-disclaimer">Shared via HermitStash</p>
+  </div>
+</div>
+</main>
+{{> foot}}

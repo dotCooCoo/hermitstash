@@ -1,0 +1,10 @@
+data/
+uploads/
+.git/
+node_modules/
+tests/
+template/
+*.md
+.env*
+*.log
+*.bak

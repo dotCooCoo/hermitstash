@@ -1,0 +1,255 @@
+{{> head}}
+<main class="main">
+<div class="auth-page">
+  <div class="auth-card" style="max-width:500px">
+    <div class="auth-logo"><img src="{{{brand.logo}}}" alt="" class="auth-logo-img"></div>
+    <h2 class="auth-title">My <span style="font-weight:200">Profile</span></h2>
+
+    <div id="profileMsg" class="settings-msg" style="display:none"></div>
+
+    <!-- Info -->
+    <div class="profile-section">
+      <div class="profile-avatar">
+        {% if (user.avatar) { %}
+          <img src="{{user.avatar}}" alt="">
+        {% } else { %}
+          <span class="profile-initial">{{{user.displayName ? user.displayName.charAt(0).toUpperCase() : '?'}}}</span>
+        {% } %}
+      </div>
+      <div class="profile-field">
+        <label class="input-label">Display Name</label>
+        <div class="profile-edit-row">
+          <input type="text" id="profName" class="text-input" value="{{user.displayName}}">
+          <button class="butn butn-bg butn-sm radius-30" onclick="saveName()"><span>Save</span></button>
+        </div>
+      </div>
+      <div class="profile-field">
+        <label class="input-label">Email</label>
+        <input type="text" class="text-input" value="{{user.email}}" disabled style="opacity:.5">
+        <span class="profile-hint">Contact admin to change email</span>
+      </div>
+      <div class="profile-meta">
+        <span class="badge badge-{{user.role}}">{{user.role}}</span>
+        <span class="badge" style="background:rgba(255,255,255,.04);color:var(--text-muted)">{{{user.authType || 'local'}}}</span>
+        <span style="font-size:.75rem;color:var(--text-muted)">Joined {{{new Date(user.createdAt).toLocaleDateString()}}}</span>
+      </div>
+    </div>
+
+    <!-- Password (local auth only) -->
+    {% if (user.authType === 'local') { %}
+    <div class="profile-section">
+      <h3 class="profile-section-title">Change Password</h3>
+      <div class="profile-field">
+        <label class="input-label">Current Password</label>
+        <input type="password" id="profCurPwd" class="text-input" placeholder="Crabby's current secret">
+      </div>
+      <div class="profile-field">
+        <label class="input-label">New Password <span style="opacity:.5">(min 8 chars)</span></label>
+        <input type="password" id="profNewPwd" class="text-input" placeholder="Crabby's new secret">
+      </div>
+      <button class="butn butn-bg butn-sm radius-30" onclick="changePwd()"><span>Change Password</span></button>
+    </div>
+    {% } %}
+
+    <!-- Passkeys -->
+    {% if (passkeyEnabled) { %}
+    <div class="profile-section">
+      <h3 class="profile-section-title">Passkeys</h3>
+      <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:16px">Use a fingerprint, face scan, or security key to sign in without a password.</p>
+      <div id="passkeyList" style="margin-bottom:16px">
+        <p style="font-size:.85rem;color:var(--text-muted)">Loading passkeys...</p>
+      </div>
+      <button class="butn butn-bg butn-sm radius-30" id="addPasskeyBtn" onclick="registerPasskey()"><span>Add Passkey</span></button>
+    </div>
+    {% } %}
+
+    <!-- Vault Stealth Mode -->
+    <div class="profile-section" id="stealthSection" style="display:none">
+      <h3 class="profile-section-title">Vault Stealth Mode</h3>
+      <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:12px;line-height:1.6">
+        When enabled, vault operations (upload, download, delete) are not recorded in the audit log.
+        Activating or deactivating stealth is always logged.
+      </p>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+        <label class="toggle"><input type="checkbox" id="stealthToggle" onchange="toggleStealth()"><span class="toggle-slider"></span></label>
+        <span id="stealthLabel" style="font-size:.85rem;font-weight:500"></span>
+      </div>
+      <p style="font-size:.72rem;color:var(--text-muted);opacity:.6">Requires passkey re-authentication to change.</p>
+    </div>
+
+    <!-- Danger Zone -->
+    <div class="profile-section profile-danger">
+      <h3 class="profile-section-title" style="color:var(--danger)">Danger Zone</h3>
+      <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:16px">Deleting your account is permanent. Your files will remain accessible via their share links but will no longer be tied to your account.</p>
+      <div class="profile-field">
+        <label class="input-label">Type DELETE to confirm</label>
+        <input type="text" id="profDeleteConfirm" class="text-input" placeholder="DELETE">
+      </div>
+      <button class="butn butn-sm radius-30" style="border-color:rgba(255,68,68,.3);color:var(--danger)" onclick="deleteAccount()"><span>Delete My Account</span></button>
+    </div>
+  </div>
+</div>
+</main>
+
+<script>
+function msg(text,ok){var m=document.getElementById('profileMsg');m.className='settings-msg '+(ok?'settings-msg-ok':'settings-msg-err');m.textContent=text;m.style.display='block';setTimeout(function(){m.style.display='none'},4000)}
+
+function saveName(){
+  var name=document.getElementById('profName').value.trim();
+  if(!name)return msg('Name is required',false);
+  fetch('/profile/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({displayName:name})}).then(function(r){return r.json()}).then(function(d){
+    if(d.success)msg('Name updated',true);else msg(d.error,false);
+  }).catch(function(){msg('Network error',false)});
+}
+
+function changePwd(){
+  var cur=document.getElementById('profCurPwd').value;
+  var nw=document.getElementById('profNewPwd').value;
+  if(!cur||!nw)return msg('Both fields required',false);
+  if(nw.length<8)return msg('New password must be at least 8 characters',false);
+  fetch('/profile/password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({currentPassword:cur,newPassword:nw})}).then(function(r){return r.json()}).then(function(d){
+    if(d.success){msg('Password changed',true);document.getElementById('profCurPwd').value='';document.getElementById('profNewPwd').value=''}else msg(d.error,false);
+  }).catch(function(){msg('Network error',false)});
+}
+
+// ---- Passkey management ----
+
+function loadPasskeys(){
+  var list=document.getElementById('passkeyList');
+  if(!list)return;
+  fetch('/passkey/list').then(function(r){return r.json()}).then(function(d){
+    list.textContent='';
+    if(!d.passkeys||d.passkeys.length===0){
+      var empty=document.createElement('p');
+      empty.style.cssText='font-size:.85rem;color:var(--text-muted)';
+      empty.textContent='No passkeys registered yet.';
+      list.appendChild(empty);
+      return;
+    }
+    for(var i=0;i<d.passkeys.length;i++){
+      (function(p){
+        var row=document.createElement('div');
+        row.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;margin-bottom:8px';
+
+        var info=document.createElement('div');
+        var type=p.deviceType==='multiDevice'?'Multi-device':'Single-device';
+        var label=document.createElement('span');
+        label.style.fontSize='.85rem';
+        label.textContent=type;
+        info.appendChild(label);
+        if(p.backedUp){var sync=document.createElement('span');sync.style.cssText='font-size:.7rem;color:var(--success);margin-left:6px';sync.textContent='synced';info.appendChild(sync)}
+        var date=document.createElement('span');
+        date.style.cssText='font-size:.75rem;color:var(--text-muted);margin-left:10px';
+        date.textContent='Added '+new Date(p.createdAt).toLocaleDateString();
+        info.appendChild(date);
+        row.appendChild(info);
+
+        var rmBtn=document.createElement('button');
+        rmBtn.className='butn butn-sm radius-30';
+        rmBtn.style.cssText='border-color:rgba(255,68,68,.3);color:var(--danger);padding:4px 12px;font-size:.75rem';
+        var rmSpan=document.createElement('span');rmSpan.textContent='Remove';rmBtn.appendChild(rmSpan);
+        rmBtn.addEventListener('click',function(){removePasskey(p._id)});
+        row.appendChild(rmBtn);
+        list.appendChild(row);
+      })(d.passkeys[i]);
+    }
+  }).catch(function(){
+    list.textContent='';
+    var err=document.createElement('p');
+    err.style.cssText='font-size:.85rem;color:var(--danger)';
+    err.textContent='Failed to load passkeys.';
+    list.appendChild(err);
+  });
+}
+
+async function registerPasskey(){
+  var btn=document.getElementById('addPasskeyBtn');
+  btn.disabled=true;btn.querySelector('span').textContent='Waiting for passkey...';
+  try{
+    var optRes=await fetch('/passkey/register/options',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    if(!optRes.ok){var e=await optRes.json();throw new Error(e.error||'Failed')}
+    var options=await optRes.json();
+
+    WebAuthnHelpers.prepareCreateOptions(options);
+
+    var createOpts={publicKey:options};
+    if(options.hints){createOpts.hints=options.hints;delete options.hints}
+    var credential=await navigator.credentials.create(createOpts);
+
+    var regResp=WebAuthnHelpers.formatCreateResponse(credential);
+
+    var verRes=await fetch('/passkey/register/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(regResp)});
+    var verData=await verRes.json();
+    if(verData.verified){msg('Passkey added!',true);loadPasskeys()}
+    else{msg(verData.error||'Registration failed.',false)}
+  }catch(err){
+    if(err.name==='NotAllowedError')msg('Passkey request was cancelled.',false);
+    else msg(err.message||'Failed to add passkey.',false);
+  }
+  btn.disabled=false;btn.querySelector('span').textContent='Add Passkey';
+}
+
+function removePasskey(id,confirmVault){
+  if(!confirmVault&&!confirm('Remove this passkey?'))return;
+  var payload={credentialId:id};
+  if(confirmVault)payload.confirmVaultRisk=true;
+  fetch('/passkey/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json()}).then(function(d){
+    if(d.success){msg('Passkey removed.',true);loadPasskeys()}
+    else if(d.requiresConfirmation){
+      if(confirm('WARNING: This passkey is used for your personal vault. Removing it will make your vault files permanently unrecoverable. Are you sure?')){
+        removePasskey(id,true);
+      }
+    }
+    else msg(d.error,false);
+  }).catch(function(){msg('Network error',false)});
+}
+
+// Load passkeys on page load
+// Defer until api.js has loaded and overridden fetch for encrypted responses
+window.addEventListener('load',function(){if(document.getElementById('passkeyList'))loadPasskeys()});
+
+function deleteAccount(){
+  var confirm=document.getElementById('profDeleteConfirm').value;
+  if(confirm!=='DELETE')return msg('Type DELETE to confirm',false);
+  fetch('/profile/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:confirm})}).then(function(r){return r.json()}).then(function(d){
+    if(d.success)window.location.href=d.redirect;else msg(d.error,false);
+  }).catch(function(){msg('Network error',false)});
+}
+
+// ---- Vault Stealth Mode ----
+window.addEventListener('load',function(){
+  fetch('/vault/status').then(function(r){return r.json()}).then(function(d){
+    if(!d.enabled)return;
+    var sec=document.getElementById('stealthSection');sec.style.display='block';
+    var tog=document.getElementById('stealthToggle');tog.checked=d.stealth;
+    document.getElementById('stealthLabel').textContent=d.stealth?'Stealth active — vault ops hidden from audit log':'Stealth off — vault ops are logged';
+  }).catch(function(){});
+});
+
+async function toggleStealth(){
+  var tog=document.getElementById('stealthToggle');
+  var enabling=tog.checked;
+  tog.checked=!enabling; // revert until confirmed
+
+  // Require passkey re-authentication
+  try{
+    var optRes=await fetch('/passkey/login/options',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    var options=await optRes.json();
+    WebAuthnHelpers.prepareGetOptions(options);
+    var getOpts={publicKey:options};
+    if(options.hints){getOpts.hints=options.hints;delete options.hints}
+    await navigator.credentials.get(getOpts);
+  }catch(e){msg('Passkey authentication required to change stealth mode',false);return}
+
+  // Toggle on server
+  fetch('/vault/stealth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enable:enabling})}).then(function(r){return r.json()}).then(function(d){
+    if(d.success){
+      tog.checked=d.stealth;
+      document.getElementById('stealthLabel').textContent=d.stealth?'Stealth active — vault ops hidden from audit log':'Stealth off — vault ops are logged';
+      msg('Stealth mode '+(d.stealth?'enabled':'disabled'),true);
+    }else{msg(d.error,false)}
+  }).catch(function(){msg('Network error',false)});
+}
+
+</script>
+{{> foot}}

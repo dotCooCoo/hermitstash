@@ -1,0 +1,17 @@
+{{> head}}
+<main class="main">
+<div class="share-page">
+  <div class="share-card">
+    <div class="share-card-icon"><img src="{{{brand.logo}}}" alt="" class="share-logo"></div>
+    <div class="share-file-ext">{{{file.originalName.split('.').pop().toUpperCase()}}}</div>
+    <h2 class="share-file-name">{{file.originalName}}</h2>
+    <div class="share-meta">
+      <span>{{{__formatSize(file.size)}}}</span>
+      <span>Shared by {{file.uploaderName}}</span>
+    </div>
+    <a href="/s/{{file.shareId}}/download" class="btn btn-primary btn-lg">⬇ Download</a>
+    <p class="share-disclaimer">Shared via HermitStash</p>
+  </div>
+</div>
+</main>
+{{> foot}}

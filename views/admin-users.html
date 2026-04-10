@@ -1,0 +1,239 @@
+{{> head}}
+
+<section class="admin-hero grd-border-bottom">
+  <div class="admin-hero-inner">
+    <span class="sub-title">Management</span>
+    <h1 class="admin-title">User <span style="font-weight:200">Management</span></h1>
+  </div>
+</section>
+
+<section class="admin-body">
+  <div class="admin-inner">
+
+    <!-- Toolbar -->
+    <div class="users-toolbar">
+      <input type="text" id="userSearch" class="text-input" placeholder="Search by name or email..." style="flex:2">
+      <select id="filterRole" class="text-input" onchange="loadUsers(1)">
+        <option value="">All Roles</option>
+        <option value="admin">Admin</option>
+        <option value="user">User</option>
+      </select>
+      <select id="filterStatus" class="text-input" onchange="loadUsers(1)">
+        <option value="">All Status</option>
+        <option value="active">Active</option>
+        <option value="suspended">Suspended</option>
+      </select>
+      <button class="butn butn-bg butn-sm radius-30" onclick="showInviteModal()"><span>+ Invite User</span></button>
+    </div>
+
+    <!-- User list -->
+    <div class="admin-panel">
+      <div class="admin-panel-head">
+        <h2>Users</h2>
+        <span class="admin-panel-count" id="userCount">0</span>
+      </div>
+      <div class="admin-panel-body" id="usersList">
+        <div class="admin-empty">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Pagination -->
+    <div class="users-pagination" id="pagination"></div>
+
+    <!-- Pending Invites -->
+    <div class="admin-panel" style="margin-top:32px">
+      <div class="admin-panel-head">
+        <h2>Pending Invites</h2>
+        <span class="admin-panel-count" id="inviteCount">0</span>
+      </div>
+      <div class="admin-panel-body" id="invitesList">
+        <div class="admin-empty">Loading...</div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- Invite User Modal -->
+<div class="modal-overlay" id="inviteModal" style="display:none" onclick="if(event.target===this)hideInviteModal()">
+  <div class="modal-card">
+    <h3 class="modal-title">Invite <span style="font-weight:200">User</span></h3>
+    <p style="font-size:.85rem;color:var(--muted);margin:0 0 20px;line-height:1.5">An email will be sent with a link to set up their account.</p>
+    <div id="inviteMsg" class="settings-msg" style="display:none"></div>
+    <div class="profile-field">
+      <label class="input-label">Email</label>
+      <input type="email" id="inviteEmail" class="text-input" placeholder="user@example.com">
+    </div>
+    <div class="profile-field">
+      <label class="input-label">Role</label>
+      <select id="inviteRole" class="text-input">
+        <option value="user">User</option>
+        <option value="admin">Admin</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:20px">
+      <button class="butn butn-bg butn-sm radius-30" id="inviteSendBtn" onclick="sendInvite()"><span>Send Invite</span></button>
+      <button class="butn butn-bord-thin butn-sm radius-30" onclick="hideInviteModal()"><span>Cancel</span></button>
+    </div>
+  </div>
+</div>
+
+<script>
+var currentPage=1,totalPages=1;
+
+// Debounced search
+var searchTimer;
+document.getElementById('userSearch').addEventListener('input',function(){
+  clearTimeout(searchTimer);
+  searchTimer=setTimeout(function(){loadUsers(1)},300);
+});
+
+function loadUsers(page){
+  currentPage=page||1;
+  var q=document.getElementById('userSearch').value;
+  var role=document.getElementById('filterRole').value;
+  var status=document.getElementById('filterStatus').value;
+  var params='?page='+currentPage+'&limit=25';
+  if(q)params+='&q='+encodeURIComponent(q);
+  if(role)params+='&role='+role;
+  if(status)params+='&status='+status;
+
+  fetch('/admin/users/api'+params).then(function(r){return r.json()}).then(function(d){
+    document.getElementById('userCount').textContent=d.total;
+    totalPages=d.pages;
+    renderUsers(d.users);
+    renderPagination(d.page,d.pages);
+  });
+}
+
+function renderUsers(list){
+  var el=document.getElementById('usersList');
+  if(!list.length){el.textContent='';var e=document.createElement('div');e.className='admin-empty';e.textContent='No users found.';el.appendChild(e);return}
+  var html='';
+  for(var i=0;i<list.length;i++){
+    var u=list[i];
+    var initial=u.displayName?u.displayName.charAt(0).toUpperCase():'?';
+    var isSuspended=u.status==='suspended';
+    html+='<div class="admin-user-row'+(isSuspended?' user-suspended':'')+'">';
+    html+='<div class="admin-user-info">';
+    html+='<div class="admin-user-avatar">'+(u.avatar?'<img src="'+esc(u.avatar)+'" alt="">':'<span class="admin-user-initial">'+esc(initial)+'</span>')+'</div>';
+    html+='<div><div class="admin-user-name">'+esc(u.displayName||'')+'</div><div class="admin-user-email">'+esc(u.email||'')+'</div></div>';
+    html+='</div>';
+    html+='<div class="admin-user-meta">';
+    html+='<span class="badge badge-'+esc(u.role)+'">'+esc(u.role)+'</span>';
+    if(isSuspended)html+='<span class="badge badge-suspended">suspended</span>';
+    html+='<span class="admin-user-date">'+esc(u.authType||'local')+'</span>';
+    html+='<span class="admin-user-date">'+new Date(u.createdAt).toLocaleDateString()+'</span>';
+    if(u.fileCount!==undefined)html+='<span class="admin-user-date">'+u.fileCount+' files</span>';
+    html+='</div>';
+    html+='<div class="admin-user-actions">';
+    html+='<button class="butn butn-sm radius-30" style="border-color:rgba(255,255,255,.25);color:var(--text)" onclick="toggleRole(\''+u._id+'\')"><span>'+(u.role==='admin'?'Demote':'Promote')+'</span></button>';
+    if(isSuspended){
+      html+='<button class="butn butn-sm radius-30" style="border-color:rgba(202,255,51,.5);color:var(--accent)" onclick="unsuspend(\''+u._id+'\')"><span>Unsuspend</span></button>';
+    }else{
+      html+='<button class="butn butn-sm radius-30" style="border-color:rgba(255,165,0,.5);color:orange" onclick="suspend(\''+u._id+'\')"><span>Suspend</span></button>';
+    }
+    html+='<button class="butn butn-sm radius-30" style="border-color:rgba(255,68,68,.5);color:var(--danger)" onclick="deleteUser(\''+u._id+'\',\''+esc(u.email)+'\')"><span>Delete</span></button>';
+    html+='</div></div>';
+  }
+  el.textContent='';
+  el.insertAdjacentHTML('beforeend',html);
+}
+
+function renderPagination(page,pages){
+  var el=document.getElementById('pagination');
+  if(pages<=1){el.textContent='';return}
+  var html='';
+  for(var i=1;i<=pages;i++){
+    html+='<button class="page-btn'+(i===page?' active':'')+'" onclick="loadUsers('+i+')">'+i+'</button>';
+  }
+  el.textContent='';
+  el.insertAdjacentHTML('beforeend',html);
+}
+
+function toggleRole(id){
+  fetch('/admin/users/'+id+'/role',{method:'POST'}).then(function(r){return r.json()}).then(function(d){
+    if(d.success)loadUsers(currentPage);else alert(d.error);
+  });
+}
+function suspend(id){
+  if(!confirm('Suspend this user?'))return;
+  fetch('/admin/users/'+id+'/suspend',{method:'POST'}).then(function(r){return r.json()}).then(function(d){
+    if(d.success)loadUsers(currentPage);else alert(d.error);
+  });
+}
+function unsuspend(id){
+  fetch('/admin/users/'+id+'/unsuspend',{method:'POST'}).then(function(r){return r.json()}).then(function(d){
+    if(d.success)loadUsers(currentPage);else alert(d.error);
+  });
+}
+function deleteUser(id,email){
+  if(!confirm('Delete user '+email+'? Their files will be preserved but unlinked.'))return;
+  fetch('/admin/users/'+id+'/delete',{method:'POST'}).then(function(r){return r.json()}).then(function(d){
+    if(d.success)loadUsers(currentPage);else alert(d.error);
+  });
+}
+
+function showInviteModal(){document.getElementById('inviteModal').style.display='flex'}
+function hideInviteModal(){document.getElementById('inviteModal').style.display='none';document.getElementById('inviteMsg').style.display='none'}
+
+function sendInvite(){
+  var email=document.getElementById('inviteEmail').value.trim();
+  var role=document.getElementById('inviteRole').value;
+  var msg=document.getElementById('inviteMsg');
+  var btn=document.getElementById('inviteSendBtn');
+  if(!email){msg.className='settings-msg settings-msg-err';msg.textContent='Email required';msg.style.display='block';return}
+  btn.disabled=true;btn.querySelector('span').textContent='Sending...';
+  fetch('/admin/users/invite',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,role:role})}).then(function(r){return r.json()}).then(function(d){
+    btn.disabled=false;btn.querySelector('span').textContent='Send Invite';
+    if(d.success){
+      msg.className='settings-msg settings-msg-ok';
+      msg.textContent='Invite sent'+(d.emailSent?'':' (email delivery failed — check email settings)');
+      msg.style.display='block';
+      document.getElementById('inviteEmail').value='';
+      setTimeout(function(){hideInviteModal();loadUsers(currentPage)},2000);
+    }else{msg.className='settings-msg settings-msg-err';msg.textContent=d.error;msg.style.display='block'}
+  }).catch(function(){btn.disabled=false;btn.querySelector('span').textContent='Send Invite';msg.className='settings-msg settings-msg-err';msg.textContent='Network error';msg.style.display='block'});
+}
+
+function esc(s){return window.Helpers?Helpers.esc(s):String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;').replace(/"/g,'&quot;')}
+
+// ---- Pending Invites ----
+function loadInvites(){
+  fetch('/admin/users/invites/api').then(function(r){return r.json()}).then(function(d){
+    var el=document.getElementById('invitesList');
+    document.getElementById('inviteCount').textContent=d.invites.length;
+    if(!d.invites.length){el.textContent='';var e=document.createElement('div');e.className='admin-empty';e.textContent='No pending invites.';el.appendChild(e);return}
+    var html='';
+    for(var i=0;i<d.invites.length;i++){
+      var inv=d.invites[i];
+      html+='<div class="admin-user-row">';
+      html+='<div class="admin-user-info">';
+      html+='<div class="admin-user-avatar"><span class="admin-user-initial">@</span></div>';
+      html+='<div><div class="admin-user-name">'+esc(inv.email)+'</div><div class="admin-user-email">Invited '+new Date(inv.createdAt).toLocaleDateString()+'</div></div>';
+      html+='</div>';
+      html+='<div class="admin-user-meta">';
+      html+='<span class="badge badge-'+esc(inv.role)+'">'+esc(inv.role)+'</span>';
+      if(inv.expired){html+='<span class="badge badge-suspended">expired</span>'}else{html+='<span class="badge" style="background:rgba(202,255,51,.08);color:var(--accent)">active</span>'}
+      html+='</div>';
+      html+='<div class="admin-user-actions">';
+      html+='<button class="butn butn-bord-thin butn-sm radius-30" onclick="resendInvite(\''+esc(inv.email)+'\',this)"><span>Resend</span></button>';
+      html+='</div></div>';
+    }
+    el.textContent='';
+    el.insertAdjacentHTML('beforeend',html);
+  });
+}
+
+function resendInvite(email,btn){
+  btn.disabled=true;btn.querySelector('span').textContent='Sending...';
+  fetch('/admin/users/invite/resend',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})}).then(function(r){return r.json()}).then(function(d){
+    btn.disabled=false;btn.querySelector('span').textContent='Resend';
+    if(d.success){btn.querySelector('span').textContent='Sent!';setTimeout(function(){btn.querySelector('span').textContent='Resend'},2000)}
+    else{alert(d.error||'Failed to resend')}
+  }).catch(function(){btn.disabled=false;btn.querySelector('span').textContent='Resend';alert('Network error')});
+}
+
+window.addEventListener('load',function(){loadUsers(1);loadInvites()});
+</script>
+{{> foot}}

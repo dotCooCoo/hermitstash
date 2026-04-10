@@ -1,0 +1,522 @@
+{{> head}}
+<main class="main">
+<div class="page-header"><div><span class="sub-title">Dashboard</span><h1>My <span style="font-weight:200">Stash</span></h1></div><a href="/drop" class="butn butn-bg butn-sm radius-30"><span>+ Drop Files</span></a></div>
+{% if (files.length === 0 && bundles.length === 0) { %}
+  <div class="empty-state"><div class="empty-icon"><img src="{{{brand.logo}}}" alt="" style="width:64px;height:auto;opacity:.4"></div><p>Your stash is empty.</p><a href="/drop" class="btn btn-primary">Upload your first file</a></div>
+{% } %}
+
+{% if (bundles.length > 0) { %}
+  <div style="margin-bottom:32px">
+    {% for (const b of bundles) { %}
+      <div class="bundle-group" id="bundle-{{b.bundle.shareId}}" style="background:var(--bg-sub);border:1px solid var(--border-thin);border-radius:12px;padding:20px 24px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+          <div>
+            <div style="font-size:.95rem;font-weight:600;color:var(--text)">Bundle — {{{b.files.length}}} file{{{b.files.length !== 1 ? 's' : ''}}}</div>
+            <div style="font-size:.78rem;color:var(--text-muted)">{{{__formatSize(b.bundle.totalSize)}}} · {{{b.bundle.downloads||0}}} downloads · {{{new Date(b.bundle.createdAt).toLocaleDateString()}}}</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <a href="/b/{{b.bundle.shareId}}/download" class="butn butn-bg butn-sm radius-30"><span>⬇ ZIP</span></a>
+            <button class="butn butn-sm radius-30" style="border-color:rgba(255,255,255,.25);color:var(--text)" onclick="navigator.clipboard.writeText('{{host}}/b/{{b.bundle.shareId}}');this.querySelector('span').textContent='Copied!';var _b=this;setTimeout(function(){_b.querySelector('span').textContent='Copy Link'},1500)"><span>Copy Link</span></button>
+            <button class="butn butn-sm radius-30" style="border-color:rgba(255,68,68,.5);color:var(--danger)" onclick="delBundle('{{b.bundle.shareId}}',{{{b.files.length}}})"><span>Delete</span></button>
+          </div>
+        </div>
+        <div class="file-grid" style="gap:12px">
+          {% for (const f of b.files) { %}
+            <div class="file-card" id="file-{{f.shareId}}" style="margin:0">
+              <div class="file-card-top"><div class="file-ext">{{{f.originalName.split('.').pop().toUpperCase()}}}</div><button class="file-delete" onclick="del('{{f.shareId}}')" title="Delete">✕</button></div>
+              <div class="file-card-body">
+                <p class="file-name" title="{{f.originalName}}">{{f.originalName}}</p>
+                <div class="file-meta"><span>{{{__formatSize(f.size)}}}</span><span>{{{f.downloads||0}}} downloads</span></div>
+              </div>
+              <div class="file-card-actions"><div class="share-link-box compact"><input type="text" value="{{host}}/s/{{f.shareId}}" readonly class="share-input" onclick="this.select()"><button class="btn btn-sm" onclick="navigator.clipboard.writeText('{{host}}/s/{{f.shareId}}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000)">Copy</button></div></div>
+            </div>
+          {% } %}
+        </div>
+      </div>
+    {% } %}
+  </div>
+{% } %}
+
+{% if (files.length > 0) { %}
+  <div class="file-grid">
+    {% for (const f of files) { %}
+      <div class="file-card" id="file-{{f.shareId}}">
+        <div class="file-card-top"><div class="file-ext">{{{f.originalName.split('.').pop().toUpperCase()}}}</div><button class="file-delete" onclick="del('{{f.shareId}}')" title="Delete">✕</button></div>
+        <div class="file-card-body">
+          <p class="file-name" title="{{f.originalName}}">{{f.originalName}}</p>
+          <div class="file-meta"><span>{{{__formatSize(f.size)}}}</span><span>{{{f.downloads||0}}} downloads</span></div>
+        </div>
+        <div class="file-card-actions"><div class="share-link-box compact"><input type="text" value="{{host}}/s/{{f.shareId}}" readonly class="share-input" onclick="this.select()"><button class="btn btn-sm" onclick="navigator.clipboard.writeText('{{host}}/s/{{f.shareId}}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000)">Copy</button></div></div>
+      </div>
+    {% } %}
+  </div>
+{% } %}
+<!-- Personal Vault -->
+<div class="vault-section" id="vaultSection" style="display:none">
+  <div class="page-header" style="margin-top:48px">
+    <div>
+      <span class="sub-title">Zero-Knowledge</span>
+      <h2 style="font-weight:600;font-size:1.6rem;letter-spacing:-.02em">Personal <span style="font-weight:200">Vault</span></h2>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="butn butn-sm radius-30" id="vaultDisableBtn" style="display:none;border-color:rgba(255,68,68,.3);color:var(--danger)" onclick="startDisableVault()"><span>Disable Vault</span></button>
+      <button class="butn butn-bord-thin butn-sm radius-30" id="vaultRotateBtn" style="display:none" onclick="rotateVaultPasskey()"><span>Rotate Passkey</span></button>
+      <a href="/drop?vault=1" class="butn butn-bg butn-sm radius-30" id="vaultUploadBtn" style="display:none;text-decoration:none">
+        <span>+ Vault Upload</span>
+      </a>
+    </div>
+  </div>
+
+  <div id="vaultNotEnabled" style="display:none">
+    <div style="background:var(--bg-sub);border:1px solid var(--border-thin);border-radius:12px;padding:32px;text-align:center">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="1.5" style="margin-bottom:12px"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <h3 style="font-size:1.1rem;font-weight:600;margin-bottom:8px">Enable Your Personal Vault</h3>
+      <p style="font-size:.85rem;color:var(--muted);margin-bottom:20px;max-width:400px;margin-left:auto;margin-right:auto;line-height:1.6">
+        Encrypt files with post-quantum ML-KEM-768 using your passkey. Only you can decrypt them — not even admins.
+      </p>
+      <button class="butn butn-bg butn-md radius-30" id="enableVaultBtn" onclick="enableVault()"><span>Enable with Passkey</span></button>
+      <p style="font-size:.72rem;color:var(--muted);margin-top:12px;opacity:.6">Works with any passkey — hardware keys, password managers, or platform authenticators.</p>
+    </div>
+  </div>
+
+  <div id="vaultEnabled" style="display:none">
+    <div id="vaultFileList"></div>
+    <div id="vaultEmpty" style="display:none;text-align:center;padding:40px;color:var(--muted);font-size:.9rem">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom:8px;opacity:.4"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <p>Your vault is empty. Upload files to encrypt them with your passkey.</p>
+    </div>
+    <div style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border-thin)">
+      <details style="font-size:.82rem;color:var(--muted)">
+        <summary style="cursor:pointer;font-weight:600;color:var(--danger)">Vault Recovery</summary>
+        <p style="margin:12px 0 8px;line-height:1.6">If your vault is in a broken state (failed rotation, lost passkey), you can force-reset it. This permanently deletes all vault-encrypted files and clears the vault key.</p>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <input type="text" id="vaultResetConfirm" class="text-input" placeholder="Type RESET to confirm" style="width:180px;font-size:.82rem">
+          <button class="butn butn-sm radius-30" style="border-color:rgba(255,68,68,.3);color:var(--danger)" onclick="forceResetVault()"><span>Force Reset Vault</span></button>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <div id="vaultProgress" style="display:none;text-align:center;padding:20px">
+    <p style="font-size:.9rem;color:var(--muted)" id="vaultProgressText">Encrypting...</p>
+  </div>
+</div>
+
+<!-- Disable Vault Confirmation Modal -->
+<div class="modal-overlay" id="vaultDisableModal" style="display:none" onclick="if(event.target===this)hideDisableVaultModal()">
+  <div class="modal-card" style="max-width:440px">
+    <h3 class="modal-title" style="color:var(--danger)">Disable <span style="font-weight:200">Vault</span></h3>
+    <div id="vaultDisableMsg" style="font-size:.85rem;color:var(--muted);margin:0 0 20px;line-height:1.6"></div>
+    <div class="profile-field" id="vaultDisableConfirmField" style="display:none">
+      <label class="input-label">Type DISABLE to confirm</label>
+      <input type="text" id="vaultDisableConfirm" class="text-input" placeholder="DISABLE">
+    </div>
+    <div style="display:flex;gap:8px;margin-top:20px">
+      <button class="butn butn-sm radius-30" id="vaultDisableSubmitBtn" style="border-color:rgba(255,68,68,.3);color:var(--danger)" onclick="confirmDisableVault()"><span>Disable Vault</span></button>
+      <button class="butn butn-bord-thin butn-sm radius-30" onclick="hideDisableVaultModal()"><span>Cancel</span></button>
+    </div>
+  </div>
+</div>
+
+<script>
+async function del(id){if(!confirm('Delete?'))return;const r=await fetch('/files/'+id+'/delete',{method:'POST'});if(r.ok){document.getElementById('file-'+id).remove();if(!document.querySelector('.file-card')&&!document.querySelector('.bundle-group'))location.reload()}}
+async function delBundle(shareId,count){if(!confirm('Delete this bundle and all '+count+' file'+(count!==1?'s':'')+'?'))return;var r=await fetch('/bundles/'+shareId+'/delete',{method:'POST'});var d=await r.json();if(d.success){var el=document.getElementById('bundle-'+shareId);if(el)el.remove();if(!document.querySelector('.file-card')&&!document.querySelector('.bundle-group'))location.reload()}else{alert(d.error||'Delete failed')}}
+
+// ---- Vault Disable ----
+var _vaultFileCount=0;
+
+function startDisableVault(){
+  var modal=document.getElementById('vaultDisableModal');
+  var msgEl=document.getElementById('vaultDisableMsg');
+  var confirmField=document.getElementById('vaultDisableConfirmField');
+  var confirmInput=document.getElementById('vaultDisableConfirm');
+  confirmInput.value='';
+  msgEl.textContent='Checking vault files...';
+  confirmField.style.display='none';
+  modal.style.display='flex';
+
+  fetch('/vault/files').then(function(r){return r.json()}).then(function(d){
+    _vaultFileCount=(d.files&&d.files.length)||0;
+    if(_vaultFileCount>0){
+      // Build warning with DOM methods to avoid innerHTML
+      msgEl.textContent='';
+      var t1=document.createTextNode('You have ');
+      var b1=document.createElement('strong');b1.textContent=_vaultFileCount;
+      var t2=document.createTextNode(' vault-encrypted file'+(_vaultFileCount===1?'':'s')+'. Disabling the vault will make them ');
+      var b2=document.createElement('strong');b2.textContent='permanently unrecoverable';
+      var t3=document.createTextNode('. Download them first or type ');
+      var b3=document.createElement('strong');b3.textContent='DISABLE';
+      var t4=document.createTextNode(' to confirm.');
+      msgEl.appendChild(t1);msgEl.appendChild(b1);msgEl.appendChild(t2);msgEl.appendChild(b2);msgEl.appendChild(t3);msgEl.appendChild(b3);msgEl.appendChild(t4);
+      confirmField.style.display='block';
+    }else{
+      msgEl.textContent='Your vault has no files. Are you sure you want to disable it?';
+      confirmField.style.display='none';
+    }
+  }).catch(function(){
+    msgEl.textContent='Are you sure you want to disable your vault?';
+    confirmField.style.display='none';
+  });
+}
+
+function hideDisableVaultModal(){
+  document.getElementById('vaultDisableModal').style.display='none';
+}
+
+function confirmDisableVault(){
+  if(_vaultFileCount>0){
+    var val=document.getElementById('vaultDisableConfirm').value.trim();
+    if(val!=='DISABLE'){alert('Type DISABLE to confirm.');return}
+  }
+  var btn=document.getElementById('vaultDisableSubmitBtn');
+  btn.disabled=true;btn.querySelector('span').textContent='Disabling...';
+  fetch('/vault/disable',{method:'POST'}).then(function(r){return r.json()}).then(function(d){
+    btn.disabled=false;btn.querySelector('span').textContent='Disable Vault';
+    if(d.success){
+      hideDisableVaultModal();
+      document.getElementById('vaultEnabled').style.display='none';
+      document.getElementById('vaultUploadBtn').style.display='none';
+      document.getElementById('vaultRotateBtn').style.display='none';
+      document.getElementById('vaultDisableBtn').style.display='none';
+      document.getElementById('vaultNotEnabled').style.display='block';
+    }else{alert(d.error||'Failed to disable vault')}
+  }).catch(function(){btn.disabled=false;btn.querySelector('span').textContent='Disable Vault';alert('Network error')});
+}
+
+// ---- Vault UI ----
+// Secret key scoped here — not on window. Zeroed after decrypt.
+// _vsk is either a Uint8Array (legacy) or {sk1024, sk768} object (current)
+var _vsk=null;
+function getVaultKey(){return _vsk}
+function setVaultKey(k){_vsk=k}
+function clearVaultKey(){if(!_vsk)return;if(_vsk.sk1024)_vsk.sk1024.fill(0);if(_vsk.sk768)_vsk.sk768.fill(0);if(_vsk.fill)_vsk.fill(0);_vsk=null}
+
+window.addEventListener('load',function(){
+  fetch('/vault/status').then(function(r){return r.json()}).then(function(d){
+    document.getElementById('vaultSection').style.display='block';
+    if(d.enabled){
+      document.getElementById('vaultEnabled').style.display='block';
+      document.getElementById('vaultUploadBtn').style.display='';
+      document.getElementById('vaultDisableBtn').style.display='';
+      loadVaultFiles();
+    }else{
+      document.getElementById('vaultNotEnabled').style.display='block';
+    }
+  }).catch(function(){});
+});
+
+async function enableVault(){
+  var btn=document.getElementById('enableVaultBtn');
+  btn.disabled=true;btn.querySelector('span').textContent='Checking passkeys...';
+  try{
+    // Check if user already has passkeys registered
+    var listRes=await fetch('/passkey/list');
+    var listData=await listRes.json();
+    var hasPasskeys=listData.passkeys&&listData.passkeys.length>0;
+
+    var credential,prfResults=null,isNewPasskey=false;
+
+    if(hasPasskeys){
+      // User has passkeys — authenticate with existing one (can try PRF)
+      btn.querySelector('span').textContent='Authenticating...';
+      var optRes=await fetch('/passkey/login/options',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+      var options=await optRes.json();
+      WebAuthnHelpers.prepareGetOptions(options);
+      var salt=new TextEncoder().encode("hermitstash-vault-prf-v1-salt-00");
+      options.extensions={prf:{eval:{first:salt}}};
+      btn.querySelector('span').textContent='Touch your passkey...';
+      var getOpts={publicKey:options};
+      if(options.hints){getOpts.hints=options.hints;delete options.hints}
+      credential=await navigator.credentials.get(getOpts);
+      var extResults=credential.getClientExtensionResults();
+      prfResults=extResults.prf;
+    }else{
+      // No passkeys — register a new one AND use it for vault
+      btn.querySelector('span').textContent='Creating passkey...';
+      var regOptRes=await fetch('/passkey/register/options',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+      if(!regOptRes.ok){throw new Error('Failed to get passkey options')}
+      var regOptions=await regOptRes.json();
+      WebAuthnHelpers.prepareCreateOptions(regOptions);
+      var createOpts={publicKey:regOptions};
+      if(regOptions.hints){createOpts.hints=regOptions.hints;delete regOptions.hints}
+      btn.querySelector('span').textContent='Touch your passkey...';
+      credential=await navigator.credentials.create(createOpts);
+
+      // Register the passkey with the server
+      var regResp=WebAuthnHelpers.formatCreateResponse(credential);
+      var verRes=await fetch('/passkey/register/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(regResp)});
+      var verData=await verRes.json();
+      if(!verData.verified){throw new Error(verData.error||'Passkey registration failed')}
+      isNewPasskey=true;
+    }
+
+    // Step 2: Check if PRF worked — if not, use passkey-gated mode
+    var hasPrf=prfResults&&prfResults.results&&prfResults.results.first;
+    var mode,pkB64,seedB64=null;
+
+    btn.querySelector('span').textContent='Generating PQ keys...';
+    var mlkem=await import('/js/noble-pq.js');
+
+    if(hasPrf){
+      // PRF mode: derive keypair from PRF seed (zero-knowledge)
+      mode='prf';
+      var fullSeed=new Uint8Array(64);fullSeed.set(new Uint8Array(prfResults.results.first).slice(0,64));
+      var kp=mlkem.ml_kem768.keygen(fullSeed);
+      pkB64=VaultPQ.toBase64(kp.publicKey);
+      setVaultKey(kp.secretKey);
+    }else{
+      // Passkey-gated mode: random seed, stored server-side
+      mode='passkey';
+      var seed=crypto.getRandomValues(new Uint8Array(32));
+      var fullSeed=new Uint8Array(64);fullSeed.set(seed);
+      var kp=mlkem.ml_kem768.keygen(fullSeed);
+      pkB64=VaultPQ.toBase64(kp.publicKey);
+      seedB64=VaultPQ.toBase64(seed);
+      setVaultKey(kp.secretKey);
+    }
+
+    // Step 3: Send to server
+    var body={publicKey:pkB64,mode:mode};
+    if(seedB64)body.seed=seedB64;
+    var r=await fetch('/vault/enable',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    var d=await r.json();
+    if(d.success){
+      document.getElementById('vaultNotEnabled').style.display='none';
+      document.getElementById('vaultEnabled').style.display='block';
+      document.getElementById('vaultUploadBtn').style.display='';
+      document.getElementById('vaultDisableBtn').style.display='';
+      loadVaultFiles();
+    }else{alert(d.error||'Failed')}
+  }catch(e){console.error('Vault enable error:',e);alert('Failed: '+e.message)}
+  btn.disabled=false;btn.querySelector('span').textContent='Enable with Passkey';
+}
+
+async function unlockVault(){
+  try{
+    var statusRes=await fetch('/vault/status');
+    var status=await statusRes.json();
+    var vaultMode=status.mode||'prf';
+
+    if(vaultMode==='passkey'){
+      var sk=await VaultPQ.unlockPasskeyGated();
+      if(!sk)return null;
+      setVaultKey(sk);
+      return {secretKey:sk};
+    }
+
+    // PRF mode: derive keypair from PRF seed
+    var optRes=await fetch('/passkey/login/options',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    var options=await optRes.json();
+    WebAuthnHelpers.prepareGetOptions(options);
+    var salt=new TextEncoder().encode("hermitstash-vault-prf-v1-salt-00");
+    options.extensions={prf:{eval:{first:salt}}};
+    var getOpts={publicKey:options};
+    if(options.hints){getOpts.hints=options.hints;delete options.hints}
+    var credential=await navigator.credentials.get(getOpts);
+    var prfResults=credential.getClientExtensionResults().prf;
+    if(!prfResults||!prfResults.results||!prfResults.results.first)return null;
+    var mlkem=await import('/js/noble-pq.js');
+    var fullSeed=new Uint8Array(64);fullSeed.set(new Uint8Array(prfResults.results.first).slice(0,64));
+    var kp1024=mlkem.ml_kem1024.keygen(fullSeed);
+    var kp768=mlkem.ml_kem768.keygen(fullSeed);
+    var keys={sk1024:kp1024.secretKey,sk768:kp768.secretKey};
+    setVaultKey(keys);
+    return keys;
+  }catch(e){console.error('Unlock error:',e);return null}
+}
+
+function buildVaultCard(f){
+  var card=document.createElement('div');card.className='file-card';card.id='vf-'+f.shareId;
+  var ext=f.originalName.split('.').pop().toUpperCase();
+  var top=document.createElement('div');top.className='file-card-top';
+  var extDiv=document.createElement('div');extDiv.className='file-ext';extDiv.textContent=ext;
+  var delBtn=document.createElement('button');delBtn.className='file-delete';delBtn.textContent='\u2715';delBtn.title='Delete';
+  delBtn.onclick=function(){vaultDel(f.shareId)};
+  top.appendChild(extDiv);top.appendChild(delBtn);
+  var body=document.createElement('div');body.className='file-card-body';
+  var name=document.createElement('p');name.className='file-name';name.title=f.originalName;name.textContent=f.originalName;
+  var meta=document.createElement('div');meta.className='file-meta';
+  var sz=document.createElement('span');sz.textContent=Helpers.formatSize(f.size);
+  var pq=document.createElement('span');pq.textContent='PQ Encrypted';pq.style.color='var(--main-color)';
+  meta.appendChild(sz);meta.appendChild(pq);
+  body.appendChild(name);body.appendChild(meta);
+  var actions=document.createElement('div');actions.className='file-card-actions';
+  var dlBtn=document.createElement('button');dlBtn.className='butn butn-bg butn-sm radius-30';
+  var dlSpan=document.createElement('span');dlSpan.textContent='Decrypt & Download';
+  dlBtn.appendChild(dlSpan);dlBtn.onclick=function(){vaultDownload(f.shareId)};
+  actions.appendChild(dlBtn);
+  card.appendChild(top);card.appendChild(body);card.appendChild(actions);
+  return card;
+}
+
+function loadVaultFiles(){
+  fetch('/vault/files').then(function(r){return r.json()}).then(function(d){
+    var list=document.getElementById('vaultFileList');
+    var empty=document.getElementById('vaultEmpty');
+    if(!d.files||!d.files.length){list.textContent='';empty.style.display='block';document.getElementById('vaultRotateBtn').style.display='none';return}
+    document.getElementById('vaultRotateBtn').style.display='';
+    empty.style.display='none';list.textContent='';
+
+    // Group files by batch
+    var batches={};var solo=[];
+    d.files.forEach(function(f){
+      if(f.vaultBatchId){
+        if(!batches[f.vaultBatchId])batches[f.vaultBatchId]=[];
+        batches[f.vaultBatchId].push(f);
+      }else{solo.push(f)}
+    });
+
+    // Render batches
+    var batchIds=Object.keys(batches);
+    for(var bi=0;bi<batchIds.length;bi++){
+      var bid=batchIds[bi];var bFiles=batches[bid];
+      var totalSize=0;for(var bs=0;bs<bFiles.length;bs++)totalSize+=bFiles[bs].size||0;
+      var group=document.createElement('div');group.className='bundle-group';group.id='vbatch-'+bid;
+      group.style.cssText='background:var(--bg-sub);border:1px solid var(--border-thin);border-radius:12px;padding:20px 24px;margin-bottom:16px';
+      var header=document.createElement('div');
+      header.style.cssText='display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px';
+      var info=document.createElement('div');
+      var title=document.createElement('div');title.style.cssText='font-size:.95rem;font-weight:600;color:var(--text)';
+      title.textContent='Vault Batch \u2014 '+bFiles.length+' file'+(bFiles.length!==1?'s':'');
+      var sub=document.createElement('div');sub.style.cssText='font-size:.78rem;color:var(--text-muted)';
+      sub.textContent=Helpers.formatSize(totalSize)+' \xb7 PQ Encrypted';
+      info.appendChild(title);info.appendChild(sub);
+      var btns=document.createElement('div');btns.style.cssText='display:flex;gap:8px;align-items:center';
+      var dlAllBtn=document.createElement('button');dlAllBtn.className='butn butn-bg butn-sm radius-30';
+      var dlAllSpan=document.createElement('span');dlAllSpan.textContent='\u2b07 Decrypt All';
+      dlAllBtn.appendChild(dlAllSpan);dlAllBtn.onclick=(function(files,span){return function(){vaultBatchDownload(files,span)}})(bFiles,dlAllSpan);
+      var delAllBtn=document.createElement('button');delAllBtn.className='butn butn-sm radius-30';
+      delAllBtn.style.cssText='border-color:rgba(255,68,68,.5);color:var(--danger)';
+      var delAllSpan=document.createElement('span');delAllSpan.textContent='Delete Batch';
+      delAllBtn.appendChild(delAllSpan);delAllBtn.onclick=(function(id,count){return function(){vaultBatchDel(id,count)}})(bid,bFiles.length);
+      btns.appendChild(dlAllBtn);btns.appendChild(delAllBtn);
+      header.appendChild(info);header.appendChild(btns);group.appendChild(header);
+      var grid=document.createElement('div');grid.className='file-grid';grid.style.gap='12px';
+      bFiles.forEach(function(f){grid.appendChild(buildVaultCard(f))});
+      group.appendChild(grid);list.appendChild(group);
+    }
+
+    // Render solo files
+    if(solo.length>0){
+      var grid=document.createElement('div');grid.className='file-grid';
+      solo.forEach(function(f){grid.appendChild(buildVaultCard(f))});
+      list.appendChild(grid);
+    }
+  });
+}
+
+async function vaultDownload(shareId){
+  if(!getVaultKey()){var kp=await unlockVault();if(!kp){alert('Passkey authentication required to decrypt.');return}}
+  try{
+    var r=await fetch('/vault/download/'+shareId);var d=await r.json();
+    if(!d.ciphertext){alert(d.error||'Download failed');return}
+    var encKey=VaultPQ.fromBase64(d.encapsulatedKey);
+    var iv=VaultPQ.fromBase64(d.iv);
+    var ct=VaultPQ.fromBase64(d.ciphertext);
+    var sk=getVaultKey();
+    var decrypted=await VaultPQ.decryptFile(sk,encKey,iv,ct);
+    clearVaultKey();
+    var blob=new Blob([decrypted],{type:d.mimeType||'application/octet-stream'});
+    var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download=d.filename;a.click();URL.revokeObjectURL(url);
+  }catch(e){console.error('Decrypt error:',e);alert('Decryption failed. Make sure you used the correct passkey.')}
+}
+
+// Minimal client-side ZIP builder for vault batch downloads
+function buildZipBlob(entries){
+  var offset=0;var localHeaders=[];var centralHeaders=[];
+  for(var i=0;i<entries.length;i++){
+    var e=entries[i];var nameBytes=new TextEncoder().encode(e.name);
+    var lh=new Uint8Array(30+nameBytes.length);var v=new DataView(lh.buffer);
+    v.setUint32(0,0x04034b50,true);v.setUint16(4,20,true);
+    v.setUint32(14,0,true);v.setUint32(18,e.data.length,true);v.setUint32(22,e.data.length,true);
+    v.setUint16(26,nameBytes.length,true);lh.set(nameBytes,30);
+    localHeaders.push({header:lh,data:e.data,offset:offset,nameBytes:nameBytes});
+    offset+=lh.length+e.data.length;
+    var ch=new Uint8Array(46+nameBytes.length);var cv=new DataView(ch.buffer);
+    cv.setUint32(0,0x02014b50,true);cv.setUint16(4,20,true);cv.setUint16(6,20,true);
+    cv.setUint32(20,e.data.length,true);cv.setUint32(24,e.data.length,true);
+    cv.setUint16(28,nameBytes.length,true);cv.setUint32(42,localHeaders[i].offset,true);
+    ch.set(nameBytes,46);centralHeaders.push(ch);
+  }
+  var cdSize=0;for(var j=0;j<centralHeaders.length;j++)cdSize+=centralHeaders[j].length;
+  var eocd=new Uint8Array(22);var ev=new DataView(eocd.buffer);
+  ev.setUint32(0,0x06054b50,true);ev.setUint16(8,entries.length,true);ev.setUint16(10,entries.length,true);
+  ev.setUint32(12,cdSize,true);ev.setUint32(16,offset,true);
+  var parts=[];
+  for(var k=0;k<localHeaders.length;k++){parts.push(localHeaders[k].header);parts.push(localHeaders[k].data)}
+  for(var m=0;m<centralHeaders.length;m++)parts.push(centralHeaders[m]);
+  parts.push(eocd);
+  return new Blob(parts,{type:'application/zip'});
+}
+
+async function vaultBatchDownload(files,btnSpan){
+  if(!getVaultKey()){var kp=await unlockVault();if(!kp){alert('Passkey authentication required to decrypt.');return}}
+  var origText=btnSpan.textContent;
+  try{
+    var entries=[];
+    for(var i=0;i<files.length;i++){
+      btnSpan.textContent='Decrypting '+(i+1)+'/'+files.length+'...';
+      var r=await fetch('/vault/download/'+files[i].shareId);var d=await r.json();
+      if(!d.ciphertext){continue}
+      var encKey=VaultPQ.fromBase64(d.encapsulatedKey);
+      var iv=VaultPQ.fromBase64(d.iv);
+      var ct=VaultPQ.fromBase64(d.ciphertext);
+      var decrypted=await VaultPQ.decryptFile(getVaultKey(),encKey,iv,ct);
+      entries.push({name:d.filename,data:new Uint8Array(decrypted)});
+    }
+    clearVaultKey();
+    if(entries.length===0){alert('No files could be decrypted.');btnSpan.textContent=origText;return}
+    var blob=buildZipBlob(entries);
+    var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download='vault-batch.zip';a.click();URL.revokeObjectURL(url);
+  }catch(e){console.error('Batch decrypt error:',e);alert('Decryption failed: '+e.message)}
+  btnSpan.textContent=origText;
+}
+
+async function vaultBatchDel(batchId,count){
+  if(!confirm('Delete all '+count+' files in this batch? This cannot be undone.'))return;
+  var r=await fetch('/vault/batch/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({batchId:batchId})});
+  var d=await r.json();
+  if(d.success){var el=document.getElementById('vbatch-'+batchId);if(el)el.remove();if(!document.querySelector('#vaultFileList .file-card'))document.getElementById('vaultEmpty').style.display='block'}
+  else{alert(d.error||'Delete failed')}
+}
+
+async function vaultDel(shareId){
+  if(!confirm('Delete this vault file? This cannot be undone.'))return;
+  await fetch('/vault/delete/'+shareId,{method:'POST'});
+  var el=document.getElementById('vf-'+shareId);if(el)el.remove();
+  if(!document.querySelector('#vaultFileList .file-card'))document.getElementById('vaultEmpty').style.display='block';
+}
+
+async function forceResetVault(){
+  var confirm=document.getElementById('vaultResetConfirm').value;
+  if(confirm!=='RESET')return alert('Type RESET to confirm.');
+  if(!window.confirm('This will PERMANENTLY DELETE all vault-encrypted files. This cannot be undone. Proceed?'))return;
+  fetch('/vault/force-reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:'RESET'})}).then(function(r){return r.json()}).then(function(d){
+    if(d.success){alert('Vault reset. '+d.filesDeleted+' encrypted files deleted.');location.reload()}
+    else alert(d.error||'Reset failed.');
+  }).catch(function(){alert('Network error.')});
+}
+
+async function rotateVaultPasskey(){
+  if(!confirm('Rotate vault passkey? This will:\n1. Authenticate with your current passkey\n2. Re-encrypt all vault files with a new key\n3. Register a new passkey\n\nDo not close this page during the process.'))return;
+
+  var btn=document.getElementById('vaultRotateBtn');
+  var prog=document.getElementById('vaultProgress');
+  var progText=document.getElementById('vaultProgressText');
+  btn.disabled=true;btn.querySelector('span').textContent='Rotating...';
+  prog.style.display='block';
+
+  try{
+    var result=await VaultPQ.rotateVault(function(msg){progText.textContent=msg});
+    alert('Vault passkey rotated successfully! '+result.filesUpdated+' files re-encrypted.\n\nYou can now remove the old passkey from your profile.');
+    loadVaultFiles();
+  }catch(e){
+    alert('Vault rotation failed: '+e.message);
+  }
+  prog.style.display='none';
+  btn.disabled=false;btn.querySelector('span').textContent='Rotate Passkey';
+}
+
+</script>
+</main>
+{{> foot}}

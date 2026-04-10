@@ -1,0 +1,38 @@
+{{> head}}
+<main class="main">
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-logo"><img src="{{{brand.logo}}}" alt="" class="auth-logo-img"></div>
+    <h2 class="auth-title">Protected <span style="font-weight:200">Bundle</span></h2>
+    <p class="auth-desc">This bundle is password-protected. Enter the password to view the files.</p>
+
+    <div id="lockError" class="auth-error" style="display:none"></div>
+
+    <form class="auth-form" onsubmit="return unlock(event)">
+      <div class="auth-field">
+        <label class="input-label">Password</label>
+        <input type="password" id="bundlePassword" class="text-input" placeholder="Enter bundle password" required autofocus>
+      </div>
+      <button type="submit" class="butn butn-bg butn-full radius-30" id="unlockBtn"><span>Unlock</span></button>
+    </form>
+  </div>
+</div>
+
+<script>
+async function unlock(e){
+  e.preventDefault();
+  var btn=document.getElementById('unlockBtn');
+  var errEl=document.getElementById('lockError');
+  errEl.style.display='none';
+  btn.disabled=true;btn.querySelector('span').textContent='Unlocking...';
+  try{
+    var r=await fetch('/b/{{shareId}}/unlock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('bundlePassword').value})});
+    var d=await r.json();
+    if(d.success){window.location.reload()}
+    else{errEl.textContent=d.error||'Incorrect password.';errEl.style.display='block';btn.disabled=false;btn.querySelector('span').textContent='Unlock'}
+  }catch(err){errEl.textContent='Something went wrong.';errEl.style.display='block';btn.disabled=false;btn.querySelector('span').textContent='Unlock'}
+  return false;
+}
+</script>
+</main>
+{{> foot}}

@@ -1,0 +1,68 @@
+{
+  "_comment": "Vendored dependencies — no npm runtime packages. Use scripts/vendor-update.sh to update.",
+  "packages": {
+    "@noble/ciphers": {
+      "version": "2.1.1",
+      "license": "MIT",
+      "author": "Paul Miller",
+      "source": "https://github.com/paulmillr/noble-ciphers",
+      "exports": ["xchacha20poly1305"],
+      "files": {
+        "server": "lib/vendor/noble-ciphers.cjs",
+        "browser": "public/js/noble-ciphers.js"
+      },
+      "bundler": "esbuild --format=cjs/esm --minify --platform=node/browser",
+      "bundledAt": "2026-04-09"
+    },
+    "@noble/hashes": {
+      "version": "2.0.1",
+      "license": "MIT",
+      "author": "Paul Miller",
+      "source": "https://github.com/paulmillr/noble-hashes",
+      "exports": ["shake256"],
+      "files": {
+        "browser": "public/js/noble-hashes.js"
+      },
+      "bundler": "esbuild --format=esm --minify --platform=browser",
+      "bundledAt": "2026-04-09"
+    },
+    "@noble/post-quantum": {
+      "version": "0.6.0",
+      "license": "MIT",
+      "author": "Paul Miller",
+      "source": "https://github.com/paulmillr/noble-post-quantum",
+      "exports": ["ml_kem512", "ml_kem768", "ml_kem1024"],
+      "files": {
+        "browser": "public/js/noble-pq.js"
+      },
+      "bundler": "esbuild --format=esm --minify --platform=browser",
+      "bundledAt": "2026-04-09"
+    },
+    "@simplewebauthn/server": {
+      "version": "13.3.0",
+      "license": "MIT",
+      "author": "Matthew Miller",
+      "source": "https://github.com/MasterKale/SimpleWebAuthn",
+      "exports": ["generateRegistrationOptions", "verifyRegistrationResponse", "generateAuthenticationOptions", "verifyAuthenticationResponse", "MetadataService"],
+      "files": {
+        "server": "lib/vendor/simplewebauthn-server.cjs"
+      },
+      "bundler": "esbuild --format=cjs --minify --platform=node --external:crypto --external:node:crypto",
+      "bundledAt": "2026-04-09"
+    },
+    "argon2": {
+      "version": "0.44.0",
+      "license": "MIT",
+      "author": "Ranieri Althoff",
+      "source": "https://github.com/ranisalt/node-argon2",
+      "exports": ["hash", "verify"],
+      "files": {
+        "server": "lib/vendor/argon2/argon2.cjs",
+        "prebuilds": "lib/vendor/argon2/prebuilds/"
+      },
+      "platforms": ["darwin-arm64", "darwin-x64", "freebsd-arm64", "freebsd-x64", "linux-arm", "linux-arm64", "linux-x64", "win32-x64"],
+      "bundler": "esbuild --format=cjs --platform=node (inlines @phc/format + node-gyp-build)",
+      "bundledAt": "2026-04-09"
+    }
+  }
+}
