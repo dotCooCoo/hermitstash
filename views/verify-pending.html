@@ -1,0 +1,42 @@
+{{> head}}
+<main class="main">
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-logo"><img src="{{{brand.logo}}}" alt="" class="auth-logo-img"></div>
+    <h2 class="auth-title">Check your <span style="font-weight:200">email.</span></h2>
+    <p class="auth-desc">We sent a verification link to your email address. Click the link to activate your account.</p>
+
+    <div id="resendMsg" class="auth-error" style="display:none"></div>
+
+    <div style="text-align:center;margin:24px 0">
+      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="4" width="20" height="16" rx="2"/>
+        <path d="M22 4L12 13L2 4"/>
+      </svg>
+    </div>
+
+    <p style="font-size:.85rem;color:var(--text-muted);text-align:center;margin-bottom:20px">The link will expire in 24 hours. Check your spam folder if you don't see it.</p>
+
+    <div style="text-align:center;margin-bottom:16px">
+      <button class="butn butn-bord radius-30" id="resendBtn" onclick="resendVerification()"><span>Resend Verification Email</span></button>
+    </div>
+
+    <div class="auth-alt"><a href="/auth/login">Back to Sign In</a></div>
+  </div>
+</div>
+
+<script>
+function resendVerification(){
+  var btn=document.getElementById('resendBtn');
+  var msgEl=document.getElementById('resendMsg');
+  var email=new URLSearchParams(window.location.search).get('email')||'';
+  if(!email){msgEl.textContent='Could not determine email address. Please try registering again.';msgEl.style.display='block';msgEl.className='auth-error';return}
+  btn.disabled=true;btn.querySelector('span').textContent='Sending...';
+  fetch('/auth/resend-verification',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})}).then(function(r){return r.json()}).then(function(d){
+    msgEl.textContent=d.message||'Verification email resent.';msgEl.style.display='block';msgEl.className='auth-error';msgEl.style.borderColor='var(--success)';msgEl.style.color='var(--success)';
+    btn.disabled=false;btn.querySelector('span').textContent='Resend Verification Email';
+  }).catch(function(){msgEl.textContent='Something went wrong.';msgEl.style.display='block';btn.disabled=false;btn.querySelector('span').textContent='Resend Verification Email'});
+}
+</script>
+</main>
+{{> foot}}

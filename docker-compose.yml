@@ -1,0 +1,50 @@
+services:
+  hermitstash:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    shm_size: 256m
+    environment:
+      NODE_ENV: production
+      HERMITSTASH_TMPDIR: /dev/shm
+      PORT: 3000
+      SITE_NAME: HermitStash
+      TRUST_PROXY: "true"
+
+      # Auth
+      LOCAL_AUTH: "true"
+      REGISTRATION_OPEN: "true"
+      PUBLIC_UPLOAD: "true"
+
+      # Passkey / WebAuthn — set RP_ID to your domain, RP_ORIGIN to full URL
+      PASSKEY_ENABLED: "true"
+      RP_ID: ""                        # e.g. hermitstash.example.com
+      RP_ORIGIN: ""                    # e.g. https://hermitstash.example.com
+
+      # Google OAuth — leave empty to disable
+      GOOGLE_CLIENT_ID: ""
+      GOOGLE_CLIENT_SECRET: ""
+
+      # SMTP — leave empty to disable email
+      SMTP_HOST: ""                    # e.g. smtp.gmail.com
+      SMTP_PORT: "587"
+      SMTP_USER: ""
+      SMTP_PASS: ""
+      SMTP_FROM: ""                    # e.g. noreply@hermitstash.example.com
+      EMAIL_VERIFICATION: "false"
+
+      # Storage
+      STORAGE_BACKEND: local           # "local" or "s3"
+      UPLOAD_DIR: /app/uploads
+      MAX_FILE_SIZE: "104857600"       # 100MB in bytes
+
+      # S3 — only when STORAGE_BACKEND=s3
+      S3_BUCKET: ""
+      S3_REGION: ""                    # e.g. us-east-1
+      S3_ENDPOINT: ""                  # custom endpoint for R2/MinIO/Backblaze
+      S3_ACCESS_KEY: ""
+      S3_SECRET_KEY: ""
+    restart: unless-stopped

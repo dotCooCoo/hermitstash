@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{{brand.siteName}}}</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="{{{assets.favicon32}}}">
+  <link rel="icon" type="image/png" sizes="16x16" href="{{{assets.favicon16}}}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{{assets.appleTouchIcon}}}">
+  <link rel="manifest" href="{{{assets.manifest}}}">
+  <meta name="theme-color" content="{{{assets.themeColor}}}">
+  <meta property="og:title" content="{{{brand.siteName}}}">
+  <meta name="description" content="Post-quantum encrypted, self-hosted file uploads. ML-KEM-1024 hybrid KEM, XChaCha20-Poly1305, zero-knowledge vault.">
+  <meta property="og:description" content="Post-quantum encrypted file uploads. ML-KEM-1024 + P-384 hybrid, XChaCha20-Poly1305, zero-knowledge vault. Self-hosted.">
+  <meta property="og:image" content="{{{assets.ogImage}}}">
+  <meta property="og:type" content="website">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@200;300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{{assets.css}}}">
+  {% if (site && (site.themeAccentColor || site.themeBgColor || site.themeFont)) { %}
+  <style>
+    :root {
+      {% if (site.themeAccentColor) { %} --main-color: {{{site.themeAccentColor}}}; {% } %}
+      {% if (site.themeBgColor) { %} --bg: {{{site.themeBgColor}}}; {% } %}
+    }
+    {% if (site.themeFont) { %} body { font-family: '{{{site.themeFont}}}', system-ui, sans-serif; } {% } %}
+  </style>
+  {% } %}
+</head>
+<body>
+<script>
+// Apply saved theme immediately to prevent flash
+(function(){var t=localStorage.getItem('theme');if(t)document.documentElement.setAttribute('data-theme',t)})();
+function toggleTheme(){
+  var html=document.documentElement;
+  var current=html.getAttribute('data-theme');
+  var next=current==='light'?'dark':'light';
+  document.body.classList.add('theme-transitioning');
+  if(next==='dark'){html.removeAttribute('data-theme');localStorage.removeItem('theme')}
+  else{html.setAttribute('data-theme',next);localStorage.setItem('theme',next)}
+  setTimeout(function(){document.body.classList.remove('theme-transitioning')},400);
+}
+</script>
+  {% if (site && site.announcement) { %}
+    <div class="announcement-banner">{{site.announcement}}</div>
+  {% } %}
+  <nav class="navbar" id="navbar">
+    <a href="/" class="navbar-logo">
+      <img src="{{{brand.logo}}}" alt="" class="navbar-logo-img logo-light">
+      <img src="{{{brand.logoDark}}}" alt="" class="navbar-logo-img logo-dark">
+      <span>{{{brand.siteName}}}</span>
+    </a>
+    <div class="navbar-links">
+      <a href="/drop"><span class="rolling-text" data-text="Drop Files">Drop Files</span></a>
+      {% if (user) { %}
+        <a href="/dashboard"><span class="rolling-text" data-text="My Files">My Files</span></a>
+        {% if (user.role === "admin") { %}
+          <a href="/admin"><span class="rolling-text" data-text="Admin">Admin</span></a>
+        {% } %}
+        <span class="navbar-divider"></span>
+        <div class="navbar-right">
+          <a href="/profile"><span class="rolling-text" data-text="Profile">Profile</span></a>
+          {% if (user.avatar) { %}<img src="{{user.avatar}}" alt="" class="navbar-avatar">{% } %}
+          <a href="/auth/logout" class="btn-logout"><span class="rolling-text" data-text="Sign Out">Sign Out</span></a>
+          <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+            <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          </button>
+        </div>
+      {% } else { %}
+        <a href="/auth/login" class="navbar-btn">Sign In</a>
+        <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+      {% } %}
+    </div>
+  </nav>

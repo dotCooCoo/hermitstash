@@ -1,0 +1,81 @@
+{{> head}}
+<main class="main">
+<div class="share-page">
+  <div class="share-card">
+    <div class="share-card-icon"><img src="{{{brand.logo}}}" alt="" class="share-logo"></div>
+    <div class="share-file-ext">{{{file.originalName.split('.').pop().toUpperCase()}}}</div>
+    <h2 class="share-file-name">{{file.originalName}}</h2>
+    <div class="share-meta">
+      <span>{{{__formatSize(file.size)}}}</span>
+      <span style="color:var(--main-color)">PQ Encrypted</span>
+    </div>
+    <button id="decryptBtn" class="btn btn-primary btn-lg" onclick="decryptAndDownload()">Decrypt & Download</button>
+    <p id="decryptStatus" style="display:none;margin-top:12px;font-size:.85rem;color:var(--text-muted,#888)"></p>
+    <p class="share-disclaimer">Zero-knowledge vault file &mdash; only you can decrypt</p>
+  </div>
+</div>
+</main>
+<script>
+var SHARE_ID="{{file.shareId}}";
+var _vsk=null;
+function getVaultKey(){return _vsk}
+function setVaultKey(k){_vsk=k}
+function clearVaultKey(){if(!_vsk)return;if(_vsk.sk1024)_vsk.sk1024.fill(0);if(_vsk.sk768)_vsk.sk768.fill(0);if(_vsk.fill)_vsk.fill(0);_vsk=null}
+
+async function unlockVault(){
+  try{
+    var statusRes=await fetch('/vault/status');
+    var status=await statusRes.json();
+    var vaultMode=status.mode||'prf';
+    if(vaultMode==='passkey'){
+      var sk=await VaultPQ.unlockPasskeyGated();
+      if(!sk)return null;
+      setVaultKey(sk);return sk;
+    }
+    var optRes=await fetch('/passkey/login/options',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    var options=await optRes.json();
+    WebAuthnHelpers.prepareGetOptions(options);
+    var salt=new TextEncoder().encode("hermitstash-vault-prf-v1-salt-00");
+    options.extensions={prf:{eval:{first:salt}}};
+    var getOpts={publicKey:options};
+    if(options.hints){getOpts.hints=options.hints;delete options.hints}
+    var credential=await navigator.credentials.get(getOpts);
+    var prfResults=credential.getClientExtensionResults().prf;
+    if(!prfResults||!prfResults.results||!prfResults.results.first)return null;
+    var mlkem=await import('/js/noble-pq.js');
+    var fullSeed=new Uint8Array(64);fullSeed.set(new Uint8Array(prfResults.results.first).slice(0,64));
+    var kp1024=mlkem.ml_kem1024.keygen(fullSeed);
+    var kp768=mlkem.ml_kem768.keygen(fullSeed);
+    var keys={sk1024:kp1024.secretKey,sk768:kp768.secretKey};
+    setVaultKey(keys);return keys;
+  }catch(e){console.error('Unlock error:',e);return null}
+}
+
+async function decryptAndDownload(){
+  var btn=document.getElementById('decryptBtn');
+  var status=document.getElementById('decryptStatus');
+  btn.disabled=true;btn.textContent='Authenticating\u2026';
+  status.style.display='block';status.textContent='Waiting for passkey\u2026';
+  try{
+    if(!getVaultKey()){var kp=await unlockVault();if(!kp){btn.disabled=false;btn.textContent='Decrypt & Download';status.textContent='Passkey authentication cancelled.';return}}
+    status.textContent='Downloading encrypted file\u2026';btn.textContent='Decrypting\u2026';
+    var r=await fetch('/vault/download/'+SHARE_ID);var d=await r.json();
+    if(!d.ciphertext){btn.disabled=false;btn.textContent='Decrypt & Download';status.textContent=d.error||'Download failed.';return}
+    status.textContent='Decrypting with ML-KEM-768\u2026';
+    var encKey=VaultPQ.fromBase64(d.encapsulatedKey);
+    var iv=VaultPQ.fromBase64(d.iv);
+    var ct=VaultPQ.fromBase64(d.ciphertext);
+    var sk=getVaultKey();
+    var decrypted=await VaultPQ.decryptFile(sk,encKey,iv,ct);
+    clearVaultKey();
+    var blob=new Blob([decrypted],{type:d.mimeType||'application/octet-stream'});
+    var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download=d.filename;a.click();URL.revokeObjectURL(url);
+    btn.textContent='Downloaded';status.textContent='File decrypted and saved.';
+  }catch(e){
+    console.error('Decrypt error:',e);
+    btn.disabled=false;btn.textContent='Decrypt & Download';
+    status.textContent='Decryption failed. Make sure you used the correct passkey.';
+  }
+}
+</script>
+{{> foot}}

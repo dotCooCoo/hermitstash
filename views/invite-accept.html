@@ -1,0 +1,78 @@
+{{> head}}
+<main class="main">
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-logo"><img src="{{{brand.logo}}}" alt="" class="auth-logo-img"></div>
+    <h2 class="auth-title">Join <span style="font-weight:200">{{{brand.siteName}}}</span></h2>
+    <p class="auth-desc">You've been invited! Set up your account below.</p>
+
+    <div id="inviteError" class="auth-error" style="display:none"></div>
+
+    <form id="inviteForm" onsubmit="return acceptInvite(event)">
+      <div class="auth-field">
+        <label class="input-label">Email</label>
+        <input type="email" class="text-input" value="{{email}}" readonly style="opacity:.7">
+      </div>
+      <div class="auth-field">
+        <label class="input-label">Display Name</label>
+        <input type="text" id="inviteName" class="text-input" placeholder="Your name" required autofocus>
+      </div>
+      {% if (typeof localAuth === 'undefined' || localAuth) { %}
+      <div class="auth-field">
+        <label class="input-label">Password <span style="opacity:.4">min 8 characters</span></label>
+        <input type="password" id="invitePassword" class="text-input" placeholder="Choose a password" required>
+      </div>
+      <div class="auth-field">
+        <label class="input-label">Confirm Password</label>
+        <input type="password" id="invitePasswordConfirm" class="text-input" placeholder="Repeat password" required>
+      </div>
+      {% } else { %}
+      <div style="background:rgba(253,91,56,.04);border:1px solid rgba(253,91,56,.12);border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:.82rem;color:var(--text-muted);line-height:1.5">
+        <strong style="color:var(--text-color)">Password login is disabled.</strong><br>
+        After creating your account, sign in using
+        {% if (passkeyEnabled && googleAuth) { %}a passkey or Google.{% } %}
+        {% if (passkeyEnabled && !googleAuth) { %}a passkey.{% } %}
+        {% if (!passkeyEnabled && googleAuth) { %}Google.{% } %}
+        You'll be signed in automatically for now.
+      </div>
+      {% } %}
+      <button type="submit" class="butn butn-bg butn-full radius-30" id="inviteBtn"><span>Create Account</span></button>
+    </form>
+  </div>
+</div>
+
+<script>
+var LOCAL_AUTH={% if (typeof localAuth === 'undefined' || localAuth) { %}true{% } else { %}false{% } %};
+async function acceptInvite(e){
+  e.preventDefault();
+  var err=document.getElementById('inviteError');
+  err.style.display='none';
+  var name=document.getElementById('inviteName').value.trim();
+  if(!name){err.textContent='Name is required.';err.style.display='block';return false}
+
+  var pw='',pw2='';
+  if(LOCAL_AUTH){
+    pw=document.getElementById('invitePassword').value;
+    pw2=document.getElementById('invitePasswordConfirm').value;
+    if(pw.length<8){err.textContent='Password must be at least 8 characters.';err.style.display='block';return false}
+    if(pw!==pw2){err.textContent='Passwords do not match.';err.style.display='block';return false}
+  }
+
+  var btn=document.getElementById('inviteBtn');
+  btn.disabled=true;btn.querySelector('span').textContent='Creating account...';
+
+  try{
+    var body={token:'{{token}}',displayName:name};
+    if(pw)body.password=pw;
+    var r=await fetch('/auth/invite/accept',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    var d=await r.json();
+    if(d.success){window.location.href=d.redirect}
+    else{err.textContent=d.error||'Failed.';err.style.display='block';btn.disabled=false;btn.querySelector('span').textContent='Create Account'}
+  }catch(ex){
+    err.textContent='Network error.';err.style.display='block';btn.disabled=false;btn.querySelector('span').textContent='Create Account';
+  }
+  return false;
+}
+</script>
+</main>
+{{> foot}}

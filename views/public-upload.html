@@ -1,0 +1,800 @@
+{{> head}}
+
+<section class="drop-hero">
+  <div class="drop-hero-content">
+    {% if (user) { %}
+    <span class="sub-title">Stash Files</span>
+    {% } else { %}
+    <span class="sub-title">Public Upload</span>
+    {% } %}
+    <h1 class="drop-title">{{{dropTitle}}}</h1>
+    <p class="drop-subtitle">{{{dropSubtitle}}}</p>
+  </div>
+</section>
+
+<section class="drop-section" id="setupForm">
+  <div class="drop-container">
+
+    <!-- Step 1: Identity / Options -->
+    <div class="drop-step fade-in">
+      <div class="drop-step-num">01</div>
+      <div class="drop-step-content">
+        {% if (user) { %}
+        <h3 class="drop-step-title">Upload <span class="fw-200">options.</span></h3>
+        <input type="hidden" id="uploaderName" value="{{user.displayName}}">
+        <input type="hidden" id="uploaderEmail" value="{{user.email}}">
+        <input type="hidden" id="bundleMessage" value="">
+        {% if (vaultEnabled) { %}
+        <label class="vault-toggle-row" id="vaultToggleRow">
+          <div class="vault-toggle-info">
+            <div class="vault-toggle-label">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              Vault encrypt
+            </div>
+            <span class="vault-toggle-hint">Only you can decrypt these files</span>
+          </div>
+          <span class="toggle-switch">
+            <input type="checkbox" id="vaultToggle" onchange="onVaultToggle()">
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </span>
+        </label>
+        {% } %}
+        <div class="drop-fields" id="bundleOptionsFields">
+          <div class="drop-field">
+            <label class="input-label">Expires in</label>
+            <select id="bundleExpiry" class="text-input">
+              <option value="0" selected>Never</option>
+              <option value="1">1 day</option>
+              <option value="7">7 days</option>
+              <option value="30">30 days</option>
+              <option value="90">90 days</option>
+            </select>
+          </div>
+          <div class="drop-field">
+            <label class="input-label">Password <span style="opacity:.4">(optional)</span></label>
+            <input type="password" id="bundlePassword" class="text-input" placeholder="Leave empty for none">
+          </div>
+        </div>
+        {% } else { %}
+        <h3 class="drop-step-title">Who's <span class="fw-200">sending?</span></h3>
+        <div class="drop-fields">
+          <div class="drop-field">
+            <label class="input-label">Your name</label>
+            <input type="text" id="uploaderName" class="text-input" placeholder="Crabby">
+          </div>
+          <div class="drop-field">
+            <label class="input-label">Recipient emails <span style="opacity:.4">(optional)</span></label>
+            <input type="text" id="uploaderEmail" class="text-input" placeholder="alice@example.com, bob@example.com">
+          </div>
+        </div>
+        <button type="button" class="drop-more-toggle" id="moreToggle" onclick="toggleMore()">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+          More options
+        </button>
+        <div class="drop-more-fields" id="moreFields">
+          <div class="drop-fields">
+            <div class="drop-field" style="grid-column:1/-1">
+              <label class="input-label">Message <span style="opacity:.4">(optional)</span></label>
+              <textarea id="bundleMessage" class="text-input" rows="2" maxlength="2000" placeholder="Add a note for the recipients..." style="resize:vertical"></textarea>
+            </div>
+            <div class="drop-field">
+              <label class="input-label">Expires in</label>
+              <select id="bundleExpiry" class="text-input">
+                <option value="0" selected>Never</option>
+                <option value="1">1 day</option>
+                <option value="7">7 days</option>
+                <option value="30">30 days</option>
+                <option value="90">90 days</option>
+              </select>
+            </div>
+            <div class="drop-field">
+              <label class="input-label">Password <span style="opacity:.4">(optional)</span></label>
+              <input type="password" id="bundlePassword" class="text-input" placeholder="Leave empty for none">
+            </div>
+          </div>
+        </div>
+        {% } %}
+      </div>
+    </div>
+
+    <!-- Step 2: Drop Zone -->
+    <div class="drop-step fade-in" id="step2">
+      <div class="drop-step-num">02</div>
+      <div class="drop-step-content">
+        <h3 class="drop-step-title">Drop your <span class="fw-200">files.</span></h3>
+        <div class="drop-zone" id="dropArea" tabindex="0" role="button" aria-label="Drop zone. Drag files here or press Enter to browse.">
+          <div class="drop-zone-border"></div>
+          <div class="drop-zone-inner">
+            <div class="drop-zone-icon" id="dropIcon">
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+            </div>
+            <p class="drop-zone-title drop-desktop-only">Drag folders or files here</p>
+            <p class="drop-zone-title drop-mobile-only" style="display:none">Tap below to select files</p>
+            <p class="drop-zone-hint drop-desktop-only">or use the buttons below</p>
+            <div class="drop-zone-exts" id="extSection">
+              <div class="ext-pills" id="extPills"></div>
+            </div>
+          </div>
+          <input type="file" id="folderInput" webkitdirectory multiple hidden>
+          <input type="file" id="fileInput" multiple hidden>
+          <div class="drop-zone-actions">
+            <button type="button" class="butn butn-bg butn-sm radius-30" onclick="document.getElementById('folderInput').click()"><span>Browse Folders</span></button>
+            <button type="button" class="butn butn-bord-thin butn-sm radius-30" onclick="document.getElementById('fileInput').click()"><span>Browse Files</span></button>
+          </div>
+        </div>
+        <div class="drop-limits">
+          <span class="limit-value">{{{__formatSize(maxSize)}}} per file</span>
+          <div class="limit-sep"></div>
+          <span class="limit-value">{{{__formatSize(maxBundleSize)}}} per bundle</span>
+          <div class="limit-sep"></div>
+          <span class="limit-value">{{{maxFiles}}} files max</span>
+        </div>
+        <div class="drop-trust">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          Files stored on your server. No third parties.
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3: Preview -->
+    <div class="drop-step fade-in" id="filePreview" style="display:none">
+      <div class="drop-step-num step-num-active">03</div>
+      <div class="drop-step-content">
+        <div class="preview-head">
+          {% if (user) { %}
+          <h3 class="drop-step-title" id="previewTitle">Ready to <span class="fw-200">stash.</span></h3>
+          {% } else { %}
+          <h3 class="drop-step-title" id="previewTitle">Ready to <span class="fw-200">upload.</span></h3>
+          {% } %}
+          <button class="butn butn-bord-thin butn-sm radius-30" onclick="clearAll()"><span>Clear</span></button>
+        </div>
+
+        <div class="preview-stats" id="previewStats"></div>
+
+        <div id="skippedNotice" class="skipped-notice" style="display:none">
+          <details>
+            <summary id="skippedSummary"></summary>
+            <ul id="skippedList" class="skipped-list"></ul>
+          </details>
+        </div>
+
+        <div class="folder-tree" id="folderTree"></div>
+
+        <div class="preview-footer">
+          <span class="preview-summary" id="summaryText"></span>
+          <button class="butn butn-bg butn-md radius-30" id="uploadBtn" onclick="startUpload()"><span>Upload</span></button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- Progress with per-file list -->
+<section class="drop-section" id="progressPanel" style="display:none">
+  <div class="drop-container">
+    <div class="progress-card fade-in">
+      <div class="progress-header">
+        <div class="progress-ring">
+          <svg width="64" height="64" viewBox="0 0 64 64">
+            <circle cx="32" cy="32" r="28" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="3"/>
+            <circle cx="32" cy="32" r="28" fill="none" stroke="var(--main-color)" stroke-width="3" stroke-dasharray="176" stroke-dashoffset="176" stroke-linecap="round" id="progressRing" transform="rotate(-90 32 32)"/>
+          </svg>
+          <span class="progress-ring-pct" id="ringPct">0%</span>
+        </div>
+        <div class="progress-header-text">
+          {% if (user) { %}
+          <h2 class="progress-title">Stashing<span class="dot-anim">...</span></h2>
+          {% } else { %}
+          <h2 class="progress-title">Uploading<span class="dot-anim">...</span></h2>
+          {% } %}
+          <div class="progress-live-stats" id="liveStats"></div>
+        </div>
+      </div>
+      <div class="progress-bar-track"><div class="progress-bar-fill" id="progressFill"></div></div>
+      <div class="progress-details"><span id="progressText">0 / 0</span><span id="progressPct">0%</span></div>
+
+      <!-- Upload controls -->
+      <div style="display:flex;gap:10px;justify-content:center;margin:16px 0">
+        <button class="butn butn-bord-thin butn-sm radius-30" id="pauseBtn" onclick="togglePause()"><span>Pause</span></button>
+        <button class="butn butn-sm radius-30" id="cancelBtn" onclick="cancelUpload()" style="border-color:rgba(255,68,68,.3);color:var(--danger)"><span>Cancel</span></button>
+      </div>
+
+      <!-- Per-file status list -->
+      <div class="file-status-list" id="fileStatusList"></div>
+    </div>
+  </div>
+</section>
+
+<!-- Result with stats -->
+<section class="drop-section" id="resultPanel" style="display:none">
+  <div class="drop-container">
+    <div class="result-card fade-in">
+      <div class="result-glow"></div>
+      <div class="result-mascot">
+        <img src="{{{brand.logoColor}}}" alt="" class="result-mascot-img">
+      </div>
+      <h2 class="result-title" id="resultTitle">Stashed!</h2>
+
+      <!-- Stats grid -->
+      <div class="result-stats" id="resultStats"></div>
+
+      <div class="result-summary-card" id="resultCard"></div>
+      <div class="result-link-card">
+        {% if (user) { %}
+        <span class="result-link-label">Share link</span>
+        {% } else { %}
+        <span class="result-link-label">Your bundle link</span>
+        {% } %}
+        <div class="share-link-box">
+          <input type="text" id="bundleUrl" readonly class="share-input">
+          <button class="butn butn-bg butn-sm radius-30" onclick="cpLink()"><span>Copy Link</span></button>
+        </div>
+      </div>
+      <div id="emailNotice" style="display:none" class="email-sent-notice">Confirmation email sent</div>
+      {% if (!user) { %}
+      <div id="accountPrompt" style="display:none" class="account-prompt">
+        <div class="account-prompt-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+        <div class="account-prompt-text">
+          <strong>Want to manage these files?</strong>
+          <p>Create a free account to view, share, and delete your uploads anytime.</p>
+        </div>
+        <a id="accountPromptLink" href="/auth/register" class="butn butn-bg butn-sm radius-30"><span>Create Account</span></a>
+      </div>
+      {% } %}
+      <div class="result-actions">
+        {% if (user) { %}
+        <button class="butn butn-bord butn-sm radius-30" onclick="location.href='/dashboard'"><span>Dashboard</span></button>
+        {% } %}
+        <button class="butn butn-bord butn-sm radius-30" onclick="location.reload()"><span>Stash More</span></button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+var MAX_FILE={{{maxSize}}},MAX_BUNDLE={{{maxBundleSize}}},MAX_FILES={{{maxFiles}}},ALLOWED={{{JSON.stringify(allowedExtensions)}}};
+var CONCURRENCY={{{uploadConcurrency}}},RETRIES={{{uploadRetries}}},TIMEOUT={{{uploadTimeout}}};
+var CHUNK_SIZE=10*1024*1024; // 10MB chunks
+var IS_AUTHED={% if (user) { %}true{% } else { %}false{% } %};
+var VAULT_ENABLED={% if (vaultEnabled) { %}true{% } else { %}false{% } %};
+var VAULT_PK={% if (vaultPublicKey) { %}"{{{vaultPublicKey}}}"{% } else { %}null{% } %};
+var VAULT_MODE=false;
+// Auto-enable vault mode when linked from dashboard with ?vault=1
+if(VAULT_ENABLED&&new URLSearchParams(location.search).get('vault')==='1'){
+  var vt=document.getElementById('vaultToggle');
+  if(vt){vt.checked=true;VAULT_MODE=true;setTimeout(function(){onVaultToggle()},0)}
+}
+var accepted=[],skipped=[];
+var uploadPaused=false,uploadCancelled=false,activeControllers=[];
+var da=document.getElementById('dropArea'),fi=document.getElementById('folderInput'),fii=document.getElementById('fileInput');
+
+// More options toggle
+function toggleMore(){
+  var f=document.getElementById('moreFields'),b=document.getElementById('moreToggle');
+  f.classList.toggle('show');b.classList.toggle('open');
+}
+
+// Vault toggle — hide bundle options when vault mode is on
+function onVaultToggle(){
+  VAULT_MODE=document.getElementById('vaultToggle').checked;
+  var opts=document.getElementById('bundleOptionsFields');
+  if(opts){
+    if(VAULT_MODE)opts.classList.add('bundle-opts-hidden');
+    else opts.classList.remove('bundle-opts-hidden');
+  }
+}
+
+// Compact extension pills — show first 8, collapse rest
+(function(){
+  var EXT_SHOW=8;
+  var box=document.getElementById('extPills');if(!box)return;
+  var all=ALLOWED.slice();
+  var shown=all.slice(0,EXT_SHOW),rest=all.slice(EXT_SHOW);
+  shown.forEach(function(e){var s=document.createElement('span');s.className='ext-pill';s.textContent=e;box.appendChild(s)});
+  if(rest.length){
+    var more=document.createElement('span');more.className='ext-more';more.textContent='+'+rest.length+' more';
+    more.onclick=function(){
+      box.removeChild(more);
+      rest.forEach(function(e){var s=document.createElement('span');s.className='ext-pill';s.textContent=e;box.appendChild(s)});
+    };
+    box.appendChild(more);
+  }
+})();
+
+// Mobile detection
+var isMobile='ontouchstart' in window||navigator.maxTouchPoints>0;
+if(isMobile){
+  document.querySelectorAll('.drop-desktop-only').forEach(function(el){el.style.display='none'});
+  document.querySelectorAll('.drop-mobile-only').forEach(function(el){el.style.display=''});
+}
+
+// Keyboard accessibility for drop zone
+da.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();document.getElementById('fileInput').click()}});
+
+da.addEventListener('dragover',function(e){e.preventDefault();da.classList.add('drag-over')});
+da.addEventListener('dragleave',function(){da.classList.remove('drag-over')});
+// Drag appends instead of replacing
+da.addEventListener('drop',async function(e){e.preventDefault();da.classList.remove('drag-over');var items=e.dataTransfer.items;if(!items)return;var c=[];var p=[];for(var it of items){var en=it.webkitGetAsEntry?it.webkitGetAsEntry():null;if(en)p.push(walk(en,'',c))}await Promise.all(p);if(c.length)process(c,true)});
+
+async function walk(en,base,c){if(en.isFile){var f=await new Promise(function(r){en.file(r)});c.push({file:f,rel:base+en.name})}else if(en.isDirectory){var rd=en.createReader();var entries=await new Promise(function(r){var a=[];var rb=function(){rd.readEntries(function(b){if(!b.length){r(a);return}a.push.apply(a,b);rb()})};rb()});for(var ch of entries)await walk(ch,base+en.name+'/',c)}}
+
+fi.addEventListener('change',function(){var c=[];for(var f of fi.files)c.push({file:f,rel:f.webkitRelativePath||f.name});process(c,true)});
+fii.addEventListener('change',function(){var c=[];for(var f of fii.files)c.push({file:f,rel:f.name});process(c,true)});
+
+function ext(n){var p=n.split('.');return p.length>1?'.'+p.pop().toLowerCase():''}
+// append=true adds to existing, false replaces
+function process(c,append){
+  if(!append){accepted=[];skipped=[]}
+  for(var i=0;i<c.length;i++){
+    var f=c[i].file,rel=c[i].rel;var e=ext(f.name);
+    // Deduplicate by relative path
+    if(accepted.some(function(a){return a.rel===rel}))continue;
+    if(!ALLOWED.includes(e))skipped.push({rel:rel,reason:e?e+' not allowed':'no ext'});
+    else if(f.size>MAX_FILE)skipped.push({rel:rel,reason:'too big'});
+    else if(f.size===0)skipped.push({rel:rel,reason:'empty'});
+    else accepted.push({file:f,rel:rel});
+  }
+  renderPreview();
+}
+
+function removeFile(idx){
+  accepted.splice(idx,1);
+  if(accepted.length===0){clearAll();return}
+  renderPreview();
+}
+
+function renderPreview(){
+  var step2=document.getElementById('step2');
+  step2.style.opacity='0';step2.style.transform='translateY(-10px)';
+  setTimeout(function(){
+    step2.style.display='none';
+    var fp=document.getElementById('filePreview');
+    fp.style.display='block';fp.style.opacity='0';fp.style.transform='translateY(10px)';
+    setTimeout(function(){fp.style.opacity='1';fp.style.transform='translateY(0)'},50);
+  },300);
+
+  var ts=accepted.reduce(function(s,o){return s+o.file.size},0),total=accepted.length+skipped.length;
+  var flds=new Set();accepted.forEach(function(o){var p=o.rel.split('/');for(var j=1;j<p.length;j++)flds.add(p.slice(0,j).join('/'))});
+
+  var statsEl=document.getElementById('previewStats');statsEl.textContent='';
+  var pills=[{cls:'stat-accepted',t:accepted.length+' accepted'}];
+  if(skipped.length)pills.push({cls:'stat-skipped',t:skipped.length+' skipped'});
+  if(flds.size)pills.push({cls:'',t:flds.size+' folder'+(flds.size>1?'s':'')});
+  pills.push({cls:'',t:fmtS(ts)});
+  pills.forEach(function(p){var d=document.createElement('div');d.className='stat-pill'+(p.cls?' '+p.cls:'');d.textContent=p.t;statsEl.appendChild(d)});
+
+  if(skipped.length){
+    document.getElementById('skippedNotice').style.display='block';
+    document.getElementById('skippedSummary').textContent=skipped.length+' skipped (click to see)';
+    var ul=document.getElementById('skippedList');ul.textContent='';
+    skipped.forEach(function(f){var li=document.createElement('li');var sp=document.createElement('span');sp.className='skipped-path';sp.textContent=f.rel;var sr=document.createElement('span');sr.className='skipped-reason';sr.textContent=f.reason;li.appendChild(sp);li.appendChild(sr);ul.appendChild(li)});
+  }else{document.getElementById('skippedNotice').style.display='none'}
+
+  // Bundle size warning (#13)
+  if(ts>MAX_BUNDLE){
+    var warnEl=document.createElement('div');
+    warnEl.className='skipped-notice';
+    warnEl.style.borderColor='var(--danger)';
+    warnEl.textContent='Total size ('+fmtS(ts)+') exceeds max bundle size ('+fmtS(MAX_BUNDLE)+'). Remove some files.';
+    statsEl.parentNode.insertBefore(warnEl,statsEl.nextSibling);
+  }
+  if(accepted.length>MAX_FILES){
+    var warnEl2=document.createElement('div');
+    warnEl2.className='skipped-notice';
+    warnEl2.style.borderColor='var(--danger)';
+    warnEl2.textContent='Too many files ('+accepted.length+'). Max is '+MAX_FILES+'.';
+    statsEl.parentNode.insertBefore(warnEl2,statsEl.nextSibling);
+  }
+
+  // File list with remove buttons
+  var ft=document.getElementById('folderTree');ft.textContent='';
+  if(accepted.length){
+    for(var i=0;i<accepted.length;i++){
+      (function(idx){
+        var a=accepted[idx],nm=a.rel.split('/').pop(),ex=nm.split('.').pop().toUpperCase();
+        var row=document.createElement('div');row.className='tree-item tree-file';row.style.paddingLeft='20px';row.style.display='flex';row.style.alignItems='center';row.style.gap='8px';
+        var extSpan=document.createElement('span');extSpan.className='tree-ext';extSpan.textContent=ex;
+        var nameSpan=document.createElement('span');nameSpan.style.flex='1';nameSpan.style.overflow='hidden';nameSpan.style.textOverflow='ellipsis';nameSpan.textContent=a.rel;
+        var sizeSpan=document.createElement('span');sizeSpan.className='tree-size';sizeSpan.textContent=fmtS(a.file.size);
+        var rmBtn=document.createElement('button');rmBtn.className='tree-rm';rmBtn.textContent='\u00d7';rmBtn.title='Remove';
+        rmBtn.style.cssText='background:none;border:none;color:var(--danger);font-size:1.2rem;cursor:pointer;padding:0 4px;opacity:.5';
+        rmBtn.addEventListener('mouseenter',function(){this.style.opacity='1'});
+        rmBtn.addEventListener('mouseleave',function(){this.style.opacity='.5'});
+        rmBtn.addEventListener('click',function(){removeFile(idx)});
+        row.appendChild(extSpan);row.appendChild(nameSpan);row.appendChild(sizeSpan);row.appendChild(rmBtn);
+        ft.appendChild(row);
+      })(i);
+    }
+  }else{var de=document.createElement('div');de.className='tree-empty';de.textContent='No accepted files';ft.appendChild(de)}
+
+  document.getElementById('summaryText').textContent=accepted.length+' of '+total+' will upload \u2014 '+fmtS(ts);
+  var btn=document.getElementById('uploadBtn');
+  var overLimit=ts>MAX_BUNDLE||accepted.length>MAX_FILES;
+  btn.disabled=!accepted.length||overLimit;
+  var btnSpan=btn.querySelector('span');
+  var verb=IS_AUTHED?'Stash':'Upload';
+  if(btnSpan)btnSpan.textContent=overLimit?'Over limit':accepted.length?verb+' '+accepted.length+' Files':'Nothing to '+verb.toLowerCase();
+}
+
+function clearAll(){
+  accepted=[];skipped=[];
+  var fp=document.getElementById('filePreview');
+  fp.style.opacity='0';fp.style.transform='translateY(-10px)';
+  setTimeout(function(){
+    fp.style.display='none';
+    var step2=document.getElementById('step2');
+    step2.style.display='block';step2.style.opacity='0';step2.style.transform='translateY(10px)';
+    setTimeout(function(){step2.style.opacity='1';step2.style.transform='translateY(0)'},50);
+  },300);
+  fi.value='';fii.value='';
+}
+
+function uploadFile(file,rel,bundleId,onProgress){
+  return new Promise(function(resolve){
+    if(uploadCancelled)return resolve({ok:false,rel:rel,error:'Cancelled'});
+
+    // Use chunked upload for large files
+    if(file.size>CHUNK_SIZE){
+      uploadChunked(file,rel,bundleId,onProgress).then(resolve);
+      return;
+    }
+
+    var attempts=0;
+    function attempt(){
+      if(uploadCancelled)return resolve({ok:false,rel:rel,error:'Cancelled'});
+      attempts++;
+      var fm=new FormData();fm.append('file',file);fm.append('relativePath',rel);
+      var xhr=new XMLHttpRequest();
+      activeControllers.push(xhr);
+      xhr.open('POST','/drop/file/'+bundleId);
+      xhr.timeout=TIMEOUT;
+      if(onProgress)xhr.upload.addEventListener('progress',function(e){if(e.lengthComputable)onProgress(e.loaded,e.total)});
+      xhr.onload=function(){
+        activeControllers=activeControllers.filter(function(x){return x!==xhr});
+        if(xhr.status===200){resolve({ok:true,size:file.size,rel:rel})}
+        else{try{var d=JSON.parse(xhr.responseText);if(attempts<RETRIES)attempt();else resolve({ok:false,rel:rel,error:d.error||'fail'})}catch(e){if(attempts<RETRIES)attempt();else resolve({ok:false,rel:rel,error:'fail'})}}
+      };
+      xhr.onerror=function(){activeControllers=activeControllers.filter(function(x){return x!==xhr});if(attempts<RETRIES)attempt();else resolve({ok:false,rel:rel,error:'Network error'})};
+      xhr.ontimeout=function(){activeControllers=activeControllers.filter(function(x){return x!==xhr});if(attempts<RETRIES)attempt();else resolve({ok:false,rel:rel,error:'Timeout'})};
+      xhr.send(fm);
+    }
+    attempt();
+  });
+}
+
+function uploadChunked(file,rel,bundleId,onProgress){
+  return new Promise(async function(resolve){
+    var totalChunks=Math.ceil(file.size/CHUNK_SIZE);
+    var fileId=Math.random().toString(36).substring(2,10)+Date.now().toString(36);
+    var uploaded=0;
+    for(var ci=0;ci<totalChunks;ci++){
+      if(uploadCancelled)return resolve({ok:false,rel:rel,error:'Cancelled'});
+      var start=ci*CHUNK_SIZE,end=Math.min(start+CHUNK_SIZE,file.size);
+      var blob=file.slice(start,end);
+      var fm=new FormData();
+      fm.append('file',blob);fm.append('chunkIndex',ci);fm.append('totalChunks',totalChunks);
+      fm.append('fileId',fileId);fm.append('filename',file.name);fm.append('relativePath',rel);
+      fm.append('mimeType',file.type||'application/octet-stream');
+      try{
+        var r=await fetch('/drop/chunk/'+bundleId,{method:'POST',body:fm});
+        if(!r.ok){var d=await r.json().catch(function(){return{}});return resolve({ok:false,rel:rel,error:d.error||'Chunk failed'})}
+        uploaded+=blob.size;
+        if(onProgress)onProgress(uploaded,file.size);
+      }catch(e){return resolve({ok:false,rel:rel,error:'Chunk network error'})}
+    }
+    resolve({ok:true,size:file.size,rel:rel});
+  });
+}
+
+function togglePause(){
+  uploadPaused=!uploadPaused;
+  var btn=document.getElementById('pauseBtn');
+  btn.querySelector('span').textContent=uploadPaused?'Resume':'Pause';
+}
+
+function cancelUpload(){
+  if(!confirm('Cancel all uploads?'))return;
+  uploadCancelled=true;
+  activeControllers.forEach(function(xhr){try{xhr.abort()}catch(e){}});
+  activeControllers=[];
+  document.getElementById('progressPanel').style.display='none';
+  document.getElementById('setupForm').style.display='block';
+  document.getElementById('setupForm').style.opacity='1';
+  document.getElementById('setupForm').style.transform='none';
+}
+
+// Build the per-file status list with progress bars
+function buildFileList(items){
+  var list=document.getElementById('fileStatusList');list.textContent='';
+  for(var i=0;i<items.length;i++){
+    var a=items[i],nm=a.rel.split('/').pop();
+    var row=document.createElement('div');row.className='fsl-row';row.id='fsl-'+i;
+    var status=document.createElement('span');status.className='fsl-status fsl-queued';
+    var name=document.createElement('span');name.className='fsl-name';name.textContent=nm;
+    var size=document.createElement('span');size.className='fsl-size';size.textContent=fmtS(a.file.size);
+    var bar=document.createElement('div');bar.className='fsl-bar';bar.style.cssText='height:2px;background:var(--border);border-radius:1px;margin-top:2px;overflow:hidden;display:none';
+    var fill=document.createElement('div');fill.id='fsl-fill-'+i;fill.style.cssText='height:100%;width:0%;background:var(--main-color);transition:width .2s';
+    bar.appendChild(fill);
+    row.appendChild(status);row.appendChild(name);row.appendChild(size);row.appendChild(bar);
+    list.appendChild(row);
+  }
+}
+
+function setFileStatus(idx,status){
+  var row=document.getElementById('fsl-'+idx);if(!row)return;
+  var dot=row.querySelector('.fsl-status');
+  dot.className='fsl-status fsl-'+status;
+  var bar=row.querySelector('.fsl-bar');
+  if(status==='uploading'&&bar)bar.style.display='block';
+  if(status==='done'||status==='failed'){
+    if(bar)bar.style.display='none';
+    var fill=document.getElementById('fsl-fill-'+idx);
+    if(fill)fill.style.width='100%';
+  }
+}
+
+function setFileProgress(idx,loaded,total){
+  var fill=document.getElementById('fsl-fill-'+idx);
+  if(fill){fill.style.width=Math.round(loaded/total*100)+'%'}
+}
+
+async function startUpload(){
+  var toUpload=accepted.slice();
+  if(!toUpload.length)return;
+
+  // Vault mode: encrypt client-side and upload to /vault/upload
+  if(VAULT_MODE&&VAULT_PK){return startVaultUpload(toUpload)}
+
+  var name=document.getElementById('uploaderName').value.trim()||'Crabby';
+  var email=document.getElementById('uploaderEmail').value.trim();
+
+  // Transition
+  document.getElementById('setupForm').style.opacity='0';document.getElementById('setupForm').style.transform='translateY(-10px)';
+  setTimeout(function(){
+    document.getElementById('setupForm').style.display='none';
+    var pp=document.getElementById('progressPanel');pp.style.display='block';pp.style.opacity='0';pp.style.transform='translateY(10px)';
+    setTimeout(function(){pp.style.opacity='1';pp.style.transform='translateY(0)'},50);
+  },300);
+
+  // Build file status list
+  buildFileList(toUpload);
+
+  uploadPaused=false;uploadCancelled=false;activeControllers=[];
+
+  // Init bundle with password, message, expiry
+  var password=document.getElementById('bundlePassword').value;
+  var message=document.getElementById('bundleMessage').value.trim();
+  var expiryDays=parseInt(document.getElementById('bundleExpiry').value,10)||0;
+
+  var ir=await fetch('/drop/init',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uploaderName:name,uploaderEmail:email||null,password:password||null,message:message||null,expiryDays:expiryDays,fileCount:toUpload.length,skippedCount:skipped.length,skippedFiles:skipped.map(function(f){return{path:f.rel,reason:f.reason}})})});
+  var bd=await ir.json();var bundleId=bd.bundleId;var finalizeToken=bd.finalizeToken;
+
+  // Concurrent queue with per-file status
+  var up=0,errs=[],bUp=0,done=0;
+  var tB=toUpload.reduce(function(s,o){return s+o.file.size},0),t0=Date.now();
+  var ring=document.getElementById('progressRing');
+  var ringPct=document.getElementById('ringPct');
+  var queue=[];for(var qi=0;qi<toUpload.length;qi++)queue.push({item:toUpload[qi],idx:qi});
+  var active=0;
+
+  function updateProgress(){
+    var pct=Math.round(done/toUpload.length*100);
+    document.getElementById('progressFill').style.width=pct+'%';
+    document.getElementById('progressText').textContent=done+' / '+toUpload.length;
+    document.getElementById('progressPct').textContent=pct+'%';
+    ring.style.strokeDashoffset=176-(176*pct/100);
+    ringPct.textContent=pct+'%';
+    var el=(Date.now()-t0)/1000,rate=bUp/(el||1),rem=rate>0?(tB-bUp)/rate:0;
+    document.getElementById('liveStats').textContent=fmtS(bUp)+' of '+fmtS(tB)+(active>0?' \u00b7 '+active+' active':'')+(rem>0&&rem<86400?' \u00b7 ~'+fmtT(rem)+' left':'');
+  }
+
+  await new Promise(function(resolveAll){
+    function next(){
+      if(uploadCancelled)return resolveAll();
+      while(!uploadPaused&&active<CONCURRENCY&&queue.length>0){
+        var q=queue.shift();active++;
+        setFileStatus(q.idx,'uploading');
+        updateProgress();
+        (function(qq){
+          uploadFile(qq.item.file,qq.item.rel,bundleId,function(loaded,total){
+            setFileProgress(qq.idx,loaded,total);
+          }).then(function(res){
+            active--;done++;
+            if(res.ok){up++;bUp+=res.size;setFileStatus(qq.idx,'done')}
+            else{errs.push({name:res.rel,error:res.error});setFileStatus(qq.idx,'failed')}
+            updateProgress();
+            var row=document.getElementById('fsl-'+qq.idx);if(row)row.scrollIntoView({block:'nearest',behavior:'smooth'});
+            if(uploadCancelled){resolveAll();return}
+            if(queue.length>0)next();
+            else if(active===0)resolveAll();
+          });
+        })(q);
+      }
+      // If paused, poll to check for resume
+      if(uploadPaused&&(queue.length>0||active>0)){
+        setTimeout(next,500);
+      }
+      if(queue.length===0&&active===0)resolveAll();
+    }
+    next();
+  });
+
+  if(uploadCancelled)return;
+
+  // Finalize
+  var fr=await fetch('/drop/finalize/'+bundleId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({finalizeToken:finalizeToken})});var fd=await fr.json();
+  var elapsed=(Date.now()-t0)/1000;
+  var speed=bUp/(elapsed||1);
+
+  // Transition to result
+  document.getElementById('progressPanel').style.opacity='0';document.getElementById('progressPanel').style.transform='translateY(-10px)';
+  setTimeout(function(){
+    document.getElementById('progressPanel').style.display='none';
+    var rp=document.getElementById('resultPanel');rp.style.display='block';rp.style.opacity='0';rp.style.transform='translateY(10px)';
+    setTimeout(function(){rp.style.opacity='1';rp.style.transform='translateY(0)'},50);
+  },300);
+
+  // Fun title
+  document.getElementById('resultTitle').textContent=up+' file'+(up!==1?'s':'')+' stashed!';
+
+  // Stats grid
+  var statsEl=document.getElementById('resultStats');statsEl.textContent='';
+  var stats=[
+    {label:'Uploaded',value:fmtS(bUp),cls:''},
+    {label:'Files',value:up+' of '+toUpload.length,cls:''},
+    {label:'Time',value:fmtT(elapsed),cls:''},
+    {label:'Speed',value:fmtS(Math.round(speed))+'/s',cls:''},
+  ];
+  if(skipped.length)stats.push({label:'Skipped',value:String(skipped.length),cls:'stat-skip'});
+  if(errs.length)stats.push({label:'Failed',value:String(errs.length),cls:'stat-fail'});
+  stats.forEach(function(s){
+    var d=document.createElement('div');d.className='result-stat'+(s.cls?' '+s.cls:'');
+    var v=document.createElement('div');v.className='result-stat-value';v.textContent=s.value;
+    var l=document.createElement('div');l.className='result-stat-label';l.textContent=s.label;
+    d.appendChild(v);d.appendChild(l);statsEl.appendChild(d);
+  });
+
+  // Detail rows
+  var rc=document.getElementById('resultCard');rc.textContent='';
+  function addRow(label,val,cls){var d=document.createElement('div');d.className='summary-row'+(cls?' '+cls:'');var s1=document.createElement('span');s1.textContent=label;var s2=document.createElement('strong');s2.textContent=val;d.appendChild(s1);d.appendChild(s2);rc.appendChild(d)}
+  addRow('From',name);
+  if(errs.length){addRow('Failed',errs.length+' files','summary-err');errs.forEach(function(e){var li=document.createElement('div');li.className='summary-err-item';li.textContent=e.name+' \u2014 '+e.error;rc.appendChild(li)})}
+
+  document.getElementById('bundleUrl').value=fd.shareUrl;
+  if(fd.emailSent)document.getElementById('emailNotice').style.display='block';
+  if(email){
+    var ap=document.getElementById('accountPrompt');ap.style.display='flex';
+    document.getElementById('accountPromptLink').href='/auth/register?email='+encodeURIComponent(email)+'&name='+encodeURIComponent(name);
+  }
+}
+
+function fmtS(b){return window.Helpers?Helpers.formatSize(b):((b<1048576?(b/1024).toFixed(0)+' KB':(b/1048576).toFixed(1)+' MB'))}
+function fmtT(s){if(s<60)return Math.round(s)+'s';if(s<3600)return Math.round(s/60)+'m '+Math.round(s%60)+'s';return Math.round(s/3600)+'h'}
+function esc(s){return window.Helpers?Helpers.esc(s):String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;').replace(/"/g,'&quot;')}
+function cpLink(){var i=document.getElementById('bundleUrl');i.select();navigator.clipboard.writeText(i.value);event.target.textContent='Copied!';setTimeout(function(){event.target.textContent='Copy Link'},2000)}
+
+// ---- Vault upload flow ----
+// Encrypts each file client-side with ML-KEM-768 and uploads to /vault/upload
+async function startVaultUpload(toUpload){
+  // Transition to progress
+  document.getElementById('setupForm').style.opacity='0';document.getElementById('setupForm').style.transform='translateY(-10px)';
+  setTimeout(function(){
+    document.getElementById('setupForm').style.display='none';
+    var pp=document.getElementById('progressPanel');pp.style.display='block';pp.style.opacity='0';pp.style.transform='translateY(10px)';
+    setTimeout(function(){pp.style.opacity='1';pp.style.transform='translateY(0)'},50);
+  },300);
+
+  buildFileList(toUpload);
+  uploadPaused=false;uploadCancelled=false;
+
+  // Decode the vault public key from base64
+  var pkBytes=VaultPQ.fromBase64(VAULT_PK);
+  var vaultBatchId=toUpload.length>1?crypto.randomUUID():null;
+  var up=0,errs=[],bUp=0,done=0;
+  var tB=toUpload.reduce(function(s,o){return s+o.file.size},0),t0=Date.now();
+  var ring=document.getElementById('progressRing');
+  var ringPct=document.getElementById('ringPct');
+
+  function updateVaultProgress(){
+    var pct=Math.round(done/toUpload.length*100);
+    document.getElementById('progressFill').style.width=pct+'%';
+    document.getElementById('progressText').textContent=done+' / '+toUpload.length;
+    document.getElementById('progressPct').textContent=pct+'%';
+    ring.style.strokeDashoffset=176-(176*pct/100);
+    ringPct.textContent=pct+'%';
+    var el=(Date.now()-t0)/1000,rate=bUp/(el||1),rem=rate>0?(tB-bUp)/rate:0;
+    document.getElementById('liveStats').textContent=fmtS(bUp)+' of '+fmtS(tB)+(rem>0&&rem<86400?' \u00b7 ~'+fmtT(rem)+' left':'');
+  }
+
+  for(var i=0;i<toUpload.length;i++){
+    if(uploadCancelled)break;
+    while(uploadPaused&&!uploadCancelled){await new Promise(function(r){setTimeout(r,500)})}
+    if(uploadCancelled)break;
+
+    var item=toUpload[i];
+    setFileStatus(i,'uploading');
+    updateVaultProgress();
+
+    try{
+      // Read file into ArrayBuffer
+      var buf=await item.file.arrayBuffer();
+      var fileBytes=new Uint8Array(buf);
+
+      // Encrypt with ML-KEM-768 + XChaCha20-Poly1305
+      var enc=await VaultPQ.encryptFile(pkBytes,fileBytes);
+
+      // Upload encrypted payload to /vault/upload
+      var payload={
+        ciphertext:VaultPQ.toBase64(enc.ciphertext),
+        encapsulatedKey:VaultPQ.toBase64(enc.encapsulatedKey),
+        iv:VaultPQ.toBase64(enc.iv),
+        filename:item.rel.split('/').pop(),
+        mimeType:item.file.type||'application/octet-stream',
+        originalSize:item.file.size,
+      };
+      if(vaultBatchId)payload.batchId=vaultBatchId;
+      var resp=await fetch('/vault/upload',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(payload)});
+      var rd=await resp.json();
+      if(resp.ok&&rd.success){up++;bUp+=item.file.size;setFileStatus(i,'done')}
+      else{errs.push({name:item.rel,error:rd.error||'Upload failed'});setFileStatus(i,'failed')}
+    }catch(e){
+      errs.push({name:item.rel,error:e.message||'Encryption failed'});setFileStatus(i,'failed');
+    }
+    done++;
+    updateVaultProgress();
+  }
+
+  if(uploadCancelled)return;
+  var elapsed=(Date.now()-t0)/1000;
+  var speed=bUp/(elapsed||1);
+
+  // Transition to result
+  document.getElementById('progressPanel').style.opacity='0';document.getElementById('progressPanel').style.transform='translateY(-10px)';
+  setTimeout(function(){
+    document.getElementById('progressPanel').style.display='none';
+    var rp=document.getElementById('resultPanel');rp.style.display='block';rp.style.opacity='0';rp.style.transform='translateY(10px)';
+    setTimeout(function(){rp.style.opacity='1';rp.style.transform='translateY(0)'},50);
+  },300);
+
+  document.getElementById('resultTitle').textContent=up+' file'+(up!==1?'s':'')+' vault-encrypted!';
+
+  var statsEl=document.getElementById('resultStats');statsEl.textContent='';
+  var stats=[
+    {label:'Encrypted',value:fmtS(bUp),cls:''},
+    {label:'Files',value:up+' of '+toUpload.length,cls:''},
+    {label:'Time',value:fmtT(elapsed),cls:''},
+    {label:'Speed',value:fmtS(Math.round(speed))+'/s',cls:''},
+  ];
+  if(errs.length)stats.push({label:'Failed',value:String(errs.length),cls:'stat-fail'});
+  stats.forEach(function(s){
+    var d=document.createElement('div');d.className='result-stat'+(s.cls?' '+s.cls:'');
+    var v=document.createElement('div');v.className='result-stat-value';v.textContent=s.value;
+    var l=document.createElement('div');l.className='result-stat-label';l.textContent=s.label;
+    d.appendChild(v);d.appendChild(l);statsEl.appendChild(d);
+  });
+
+  var rc=document.getElementById('resultCard');rc.textContent='';
+  var d=document.createElement('div');d.className='summary-row';
+  var s1=document.createElement('span');s1.textContent='Protection';
+  var s2=document.createElement('strong');s2.textContent='ML-KEM-768 + AES-256-GCM (post-quantum)';
+  d.appendChild(s1);d.appendChild(s2);rc.appendChild(d);
+  if(errs.length){
+    var d2=document.createElement('div');d2.className='summary-row summary-err';
+    var se1=document.createElement('span');se1.textContent='Failed';
+    var se2=document.createElement('strong');se2.textContent=errs.length+' files';
+    d2.appendChild(se1);d2.appendChild(se2);rc.appendChild(d2);
+    errs.forEach(function(e){var li=document.createElement('div');li.className='summary-err-item';li.textContent=e.name+' \u2014 '+e.error;rc.appendChild(li)});
+  }
+
+  // Hide bundle link section (vault files don't have share links)
+  var linkCard=document.querySelector('.result-link-card');if(linkCard)linkCard.style.display='none';
+}
+</script>
+{{> foot}}

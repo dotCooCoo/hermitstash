@@ -1,0 +1,204 @@
+{{> head}}
+<main class="main">
+<div class="auth-page" style="padding-top:80px">
+  <div class="auth-card" style="max-width:540px">
+    <div class="auth-logo"><img src="{{{brand.logo}}}" alt="" class="auth-logo-img"></div>
+    <h2 class="auth-title">Initial <span style="font-weight:200">Setup</span></h2>
+    <p class="auth-desc">Welcome! Let's secure your instance before you get started.</p>
+
+    <div id="setupError" class="auth-error" style="display:none"></div>
+    <div id="setupSuccess" class="auth-error" style="display:none;background:rgba(45,138,62,.08);border-color:rgba(45,138,62,.2);color:var(--accent)"></div>
+
+    <!-- Step indicators -->
+    <div style="display:flex;gap:6px;margin:24px 0 28px;justify-content:center">
+      <div class="setup-dot active" id="dot-1"></div>
+      <div class="setup-dot" id="dot-2"></div>
+      <div class="setup-dot" id="dot-3"></div>
+    </div>
+
+    <!-- Step 1: Admin Credentials -->
+    <div class="setup-step active" id="step-1">
+      <h3 class="setup-step-title">Admin Credentials</h3>
+      <p class="setup-step-desc">You must change the default email and password before continuing. These are your login credentials.</p>
+      <div class="auth-field">
+        <label class="input-label">Admin Email <span style="color:var(--main-color)">*</span></label>
+        <input type="email" id="setupEmail" class="text-input" value="" placeholder="you@yourdomain.com" required>
+      </div>
+      <div class="auth-field">
+        <label class="input-label">New Password <span style="color:var(--main-color)">*</span> <span style="opacity:.4">min 8 characters</span></label>
+        <input type="password" id="setupPassword" class="text-input" placeholder="Enter a strong password" required>
+      </div>
+      <div class="auth-field">
+        <label class="input-label">Confirm Password <span style="color:var(--main-color)">*</span></label>
+        <input type="password" id="setupPasswordConfirm" class="text-input" placeholder="Repeat password" required>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:20px">
+        <button class="butn butn-bg butn-md radius-30" onclick="nextStep(2)"><span>Next</span></button>
+      </div>
+    </div>
+
+    <!-- Step 2: Site & Security -->
+    <div class="setup-step" id="step-2">
+      <h3 class="setup-step-title">Site & Security</h3>
+      <p class="setup-step-desc">Name your instance and set a session secret to protect cookies.</p>
+      <div class="auth-field">
+        <label class="input-label">Site Name</label>
+        <input type="text" id="setupSiteName" class="text-input" value="{{{config.siteName}}}" placeholder="HermitStash">
+      </div>
+      <div class="auth-field">
+        <label class="input-label">Session Secret <span style="opacity:.4">random, 32+ characters</span></label>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="setupSessionSecret" class="text-input" style="flex:1" placeholder="{% if (config.sessionSecret === 'set') { %}Already set{% } else { %}Click Generate{% } %}">
+          <button class="butn butn-bord-thin butn-sm radius-30" onclick="genSecret()" type="button"><span>Generate</span></button>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:20px">
+        <button class="butn butn-bord-thin butn-md radius-30" onclick="nextStep(1)"><span>Back</span></button>
+        <button class="butn butn-bg butn-md radius-30" onclick="nextStep(3)"><span>Next</span></button>
+      </div>
+    </div>
+
+    <!-- Step 3: Passkeys (RP Config) -->
+    <div class="setup-step" id="step-3">
+      <h3 class="setup-step-title">Passkey Configuration</h3>
+      <p class="setup-step-desc">Set your domain info for WebAuthn passkeys. Skip if you only use passwords.</p>
+      <div class="auth-field">
+        <label class="input-label">RP Name <span style="opacity:.4">shown during passkey setup</span></label>
+        <input type="text" id="setupRpName" class="text-input" value="{{{config.rpName}}}" placeholder="HermitStash">
+      </div>
+      <div class="auth-field">
+        <label class="input-label">RP Domain <span style="opacity:.4">your domain, e.g. hermitstash.com</span></label>
+        <input type="text" id="setupRpId" class="text-input" value="{{{config.rpId}}}" placeholder="hermitstash.com">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="auth-field">
+          <label class="input-label">Protocol</label>
+          <select id="setupRpProto" class="text-input" onchange="updateRpPort()">
+            <option value="https">https</option>
+            <option value="http">http</option>
+          </select>
+        </div>
+        <div class="auth-field">
+          <label class="input-label">Port <span style="opacity:.4">blank for default</span></label>
+          <input type="number" id="setupRpPort" class="text-input" placeholder="443">
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:20px">
+        <button class="butn butn-bord-thin butn-md radius-30" onclick="nextStep(2)"><span>Back</span></button>
+        <button class="butn butn-bg butn-md radius-30" id="finishBtn" onclick="finishSetup()"><span>Complete Setup</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.setup-dot{width:8px;height:8px;border-radius:50%;background:var(--border);transition:all .3s}
+.setup-dot.active{width:24px;border-radius:4px;background:var(--main-color)}
+.setup-dot.done{background:var(--accent)}
+.setup-step{display:none}
+.setup-step.active{display:block;animation:setupFadeIn .3s ease}
+.setup-step-title{font-size:1.1rem;font-weight:600;margin-bottom:6px;letter-spacing:-.01em}
+.setup-step-desc{font-size:.85rem;color:var(--muted);margin-bottom:20px;line-height:1.5}
+@keyframes setupFadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+</style>
+
+<script>
+// Parse existing RP Origin into protocol + port
+(function(){
+  var origin='{{{config.rpOrigin}}}';
+  if(origin){
+    try{
+      var u=new URL(origin);
+      document.getElementById('setupRpProto').value=u.protocol.replace(':','');
+      if(u.port)document.getElementById('setupRpPort').value=u.port;
+      else document.getElementById('setupRpPort').placeholder=u.protocol==='https:'?'443':'80';
+    }catch(e){}
+  }
+})();
+function updateRpPort(){
+  var proto=document.getElementById('setupRpProto').value;
+  var port=document.getElementById('setupRpPort');
+  var def=proto==='https'?'443':'80';
+  var oldDef=proto==='https'?'80':'443';
+  port.placeholder=def;
+  // Clear port if it was the other protocol's default or a common dev port
+  if(!port.value||port.value===oldDef||port.value==='443'||port.value==='80'||port.value==='3000'||port.value==='8080')port.value='';
+}
+
+var currentStep=1;
+function validateStep(from,to){
+  var err=document.getElementById('setupError');
+  err.style.display='none';
+  if(from===1&&to>1){
+    var email=document.getElementById('setupEmail').value.trim();
+    var pw=document.getElementById('setupPassword').value;
+    var pw2=document.getElementById('setupPasswordConfirm').value;
+    if(!email){err.textContent='Admin email is required.';err.style.display='block';return false}
+    if(email==='admin@hermitstash.com'){err.textContent='Change the default admin email.';err.style.display='block';return false}
+    if(!pw||pw.length<8){err.textContent='Password must be at least 8 characters.';err.style.display='block';return false}
+    if(pw!==pw2){err.textContent='Passwords do not match.';err.style.display='block';return false}
+  }
+  return true;
+}
+function nextStep(n){
+  if(!validateStep(currentStep,n))return;
+  document.getElementById('step-'+currentStep).classList.remove('active');
+  document.getElementById('dot-'+currentStep).classList.remove('active');
+  if(n>currentStep)document.getElementById('dot-'+currentStep).classList.add('done');
+  currentStep=n;
+  document.getElementById('step-'+n).classList.add('active');
+  document.getElementById('dot-'+n).classList.add('active');
+  document.getElementById('dot-'+n).classList.remove('done');
+  document.getElementById('setupError').style.display='none';
+}
+
+function genSecret(){
+  var chars='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  var s='';for(var i=0;i<48;i++)s+=chars[Math.floor(Math.random()*chars.length)];
+  document.getElementById('setupSessionSecret').value=s;
+}
+
+async function finishSetup(){
+  var err=document.getElementById('setupError');
+  err.style.display='none';
+  var pw=document.getElementById('setupPassword').value;
+
+  var btn=document.getElementById('finishBtn');
+  btn.disabled=true;btn.querySelector('span').textContent='Saving...';
+
+  var data={
+    adminEmail:document.getElementById('setupEmail').value.trim(),
+    adminPassword:pw||undefined,
+    siteName:document.getElementById('setupSiteName').value.trim(),
+    sessionSecret:document.getElementById('setupSessionSecret').value.trim()||undefined,
+    rpName:document.getElementById('setupRpName').value.trim(),
+    rpId:document.getElementById('setupRpId').value.trim(),
+    rpOrigin:(function(){
+      var proto=document.getElementById('setupRpProto').value;
+      var id=document.getElementById('setupRpId').value.trim();
+      var port=document.getElementById('setupRpPort').value.trim();
+      if(!id)return '';
+      var defaultPort=proto==='https'?'443':'80';
+      return proto+'://'+id+(port&&port!==defaultPort?':'+port:'');
+    })(),
+  };
+
+  try{
+    var r=await fetch('/admin/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    var d=await r.json();
+    if(d.success){
+      document.getElementById('setupSuccess').textContent='Setup complete! Redirecting...';
+      document.getElementById('setupSuccess').style.display='block';
+      setTimeout(function(){window.location.href=d.redirect},1500);
+    }else{
+      err.textContent=d.error||'Setup failed.';err.style.display='block';
+      btn.disabled=false;btn.querySelector('span').textContent='Complete Setup';
+    }
+  }catch(e){
+    err.textContent='Network error.';err.style.display='block';
+    btn.disabled=false;btn.querySelector('span').textContent='Complete Setup';
+  }
+}
+</script>
+</main>
+{{> foot}}

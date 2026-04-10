@@ -1,0 +1,163 @@
+{{> head}}
+
+<section class="admin-hero grd-border-bottom">
+  <div class="admin-hero-inner">
+    <span class="sub-title">Management</span>
+    <h1 class="admin-title">Audit <span style="font-weight:200">Log</span></h1>
+  </div>
+</section>
+
+<section class="admin-body">
+  <div class="admin-inner">
+
+    <!-- Toolbar -->
+    <div class="users-toolbar">
+      <input type="text" id="auditSearch" class="text-input" placeholder="Search actions, details, emails..." style="flex:2">
+      <select id="filterAction" class="text-input" onchange="loadAudit(1)">
+        <option value="">All Actions</option>
+        <option value="login_success">Login Success</option>
+        <option value="login_failed_bad_password">Login Failed (Bad Password)</option>
+        <option value="login_failed_no_account">Login Failed (No Account)</option>
+        <option value="user_registered">User Registered</option>
+        <option value="logout">Logout</option>
+        <option value="bundle_initialized">Bundle Initialized</option>
+        <option value="bundle_finalized">Bundle Finalized</option>
+        <option value="upload_rejected">Upload Rejected</option>
+        <option value="file_downloaded">File Downloaded</option>
+        <option value="file_deleted">File Deleted</option>
+        <option value="admin_settings_changed">Admin Settings Changed</option>
+        <option value="user_created_by_admin">User Created by Admin</option>
+        <option value="user_role_changed">User Role Changed</option>
+        <option value="user_suspended">User Suspended</option>
+        <option value="user_deleted">User Deleted</option>
+        <option value="password_changed">Password Changed</option>
+        <option value="account_self_deleted">Account Self-Deleted</option>
+        <option value="server_started">Server Started</option>
+        <option value="suspended_user_blocked">Suspended User Blocked</option>
+        <option value="admin_access_denied">Admin Access Denied</option>
+      </select>
+      <input type="date" id="dateFrom" class="text-input" onchange="loadAudit(1)" style="flex:.7">
+      <input type="date" id="dateTo" class="text-input" onchange="loadAudit(1)" style="flex:.7">
+    </div>
+
+    <!-- Audit list -->
+    <div class="admin-panel">
+      <div class="admin-panel-head">
+        <h2>Events</h2>
+        <span class="admin-panel-count" id="auditCount">0</span>
+      </div>
+      <div class="admin-panel-body" id="auditList">
+        <div class="admin-empty">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Pagination -->
+    <div class="users-pagination" id="pagination"></div>
+
+  </div>
+</section>
+
+<style>
+.audit-row{display:flex;align-items:flex-start;gap:16px;padding:14px 28px;border-bottom:1px solid var(--border-thin);transition:background .3s;flex-wrap:wrap}
+.audit-row:last-child{border-bottom:none}
+.audit-row:hover{background:rgba(255,255,255,.015)}
+.audit-time{font-size:.75rem;color:var(--text-muted);white-space:nowrap;min-width:145px;padding-top:2px}
+.audit-badge{display:inline-block;font-size:.68rem;font-weight:600;padding:3px 10px;border-radius:20px;white-space:nowrap;letter-spacing:.02em}
+.audit-badge-green{background:rgba(76,175,80,.1);color:#66bb6a}
+.audit-badge-red{background:rgba(255,68,68,.08);color:var(--danger)}
+.audit-badge-orange{background:rgba(255,165,0,.08);color:orange}
+.audit-badge-blue{background:rgba(100,181,246,.1);color:#64b5f6}
+.audit-badge-grey{background:rgba(255,255,255,.04);color:var(--text-muted)}
+.audit-content{flex:1;min-width:200px}
+.audit-details{font-size:.82rem;color:var(--text-body);margin-top:3px}
+.audit-meta{font-size:.72rem;color:var(--text-muted);margin-top:4px;display:flex;gap:16px;flex-wrap:wrap}
+.audit-meta span{display:inline-flex;align-items:center;gap:4px}
+</style>
+
+<script>
+var currentPage=1,totalPages=1;
+
+var searchTimer;
+document.getElementById('auditSearch').addEventListener('input',function(){
+  clearTimeout(searchTimer);
+  searchTimer=setTimeout(function(){loadAudit(1)},300);
+});
+
+var ACTION_COLORS={
+  login_success:'green',user_registered:'green',bundle_finalized:'green',user_created_by_admin:'green',
+  login_failed_bad_password:'red',login_failed_no_account:'red',admin_access_denied:'red',
+  file_deleted:'red',user_deleted:'red',account_self_deleted:'red',admin_file_deleted:'red',admin_bundle_deleted:'red',
+  upload_rejected:'orange',user_suspended:'orange',suspended_user_blocked:'orange',rate_limit_hit:'orange',
+  file_downloaded:'blue',bundle_viewed:'blue',bundle_file_downloaded:'blue',bundle_zip_downloaded:'blue',
+  admin_dashboard_viewed:'blue',admin_settings_viewed:'blue',
+  server_started:'grey',default_admin_created:'grey',vault_key_generated:'grey',
+  database_migrated:'grey',settings_file_written:'grey',unexpected_error:'red',
+  storage_error:'red',encryption_error:'red',config_tampered:'red'
+};
+
+function actionColor(a){return ACTION_COLORS[a]||'grey'}
+function actionLabel(a){return a.replace(/_/g,' ')}
+
+function loadAudit(page){
+  currentPage=page||1;
+  var q=document.getElementById('auditSearch').value;
+  var action=document.getElementById('filterAction').value;
+  var dateFrom=document.getElementById('dateFrom').value;
+  var dateTo=document.getElementById('dateTo').value;
+  var params='?page='+currentPage+'&limit=50';
+  if(q)params+='&q='+encodeURIComponent(q);
+  if(action)params+='&action='+encodeURIComponent(action);
+  if(dateFrom)params+='&dateFrom='+dateFrom;
+  if(dateTo)params+='&dateTo='+dateTo;
+
+  fetch('/admin/audit/api'+params).then(function(r){return r.json()}).then(function(d){
+    document.getElementById('auditCount').textContent=d.total;
+    totalPages=d.pages;
+    renderAudit(d.entries);
+    renderPagination(d.page,d.pages);
+  });
+}
+
+function renderAudit(list){
+  var el=document.getElementById('auditList');
+  if(!list.length){el.textContent='';var e=document.createElement('div');e.className='admin-empty';e.textContent='No audit entries found.';el.appendChild(e);return}
+  var html='';
+  for(var i=0;i<list.length;i++){
+    var a=list[i];
+    var color=actionColor(a.action);
+    var ts=a.createdAt?new Date(a.createdAt).toLocaleString():'';
+    html+='<div class="audit-row">';
+    html+='<span class="audit-time">'+esc(ts)+'</span>';
+    html+='<span class="audit-badge audit-badge-'+color+'">'+esc(actionLabel(a.action||''))+'</span>';
+    html+='<div class="audit-content">';
+    if(a.details)html+='<div class="audit-details">'+esc(a.details)+'</div>';
+    html+='<div class="audit-meta">';
+    if(a.performedByEmail)html+='<span>by: '+esc(a.performedByEmail)+'</span>';
+    else if(a.performedBy)html+='<span>by: '+esc(a.performedBy)+'</span>';
+    if(a.targetEmail)html+='<span>target: '+esc(a.targetEmail)+'</span>';
+    if(a.ip)html+='<span>IP: '+esc(a.ip)+'</span>';
+    html+='</div></div></div>';
+  }
+  el.textContent='';
+  el.insertAdjacentHTML('beforeend',html);
+}
+
+function renderPagination(page,pages){
+  var el=document.getElementById('pagination');
+  if(pages<=1){el.textContent='';return}
+  var html='';
+  var start=Math.max(1,page-4),end=Math.min(pages,page+4);
+  if(start>1)html+='<button class="page-btn" onclick="loadAudit(1)">1</button><span style="color:var(--text-muted)">...</span>';
+  for(var i=start;i<=end;i++){
+    html+='<button class="page-btn'+(i===page?' active':'')+'" onclick="loadAudit('+i+')">'+i+'</button>';
+  }
+  if(end<pages)html+='<span style="color:var(--text-muted)">...</span><button class="page-btn" onclick="loadAudit('+pages+')">'+pages+'</button>';
+  el.textContent='';
+  el.insertAdjacentHTML('beforeend',html);
+}
+
+function esc(s){return window.Helpers?Helpers.esc(s):String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;').replace(/"/g,'&quot;')}
+
+window.addEventListener('load',function(){loadAudit(1)});
+</script>
+{{> foot}}
