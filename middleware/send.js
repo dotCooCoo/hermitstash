@@ -34,6 +34,7 @@ function send(res, view, data, status) {
       themeAccentColor: config.themeAccentColor || "",
       themeBgColor: config.themeBgColor || "",
       themeFont: config.themeFont || "",
+      showMaintainerSupport: config.showMaintainerSupport || false,
     },
   });
   sendHtml(res, view, merged, status);
