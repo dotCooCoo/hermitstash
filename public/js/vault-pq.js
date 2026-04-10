@@ -94,11 +94,12 @@
    * Falls back to ML-KEM-768 for seeds that were generated with the old version.
    */
   // Expand a seed to 64 bytes if needed (ML-KEM keygen requires d||z = 64 bytes per FIPS 203).
-  // Existing vaults may have 32-byte seeds; expand deterministically via SHA-512.
-  async function expandSeed(seed) {
+  // Existing vaults store 32-byte seeds; zero-pad to match the enable flow.
+  function expandSeed(seed) {
     if (seed.length >= 64) return seed.slice(0, 64);
-    var hash = await crypto.subtle.digest("SHA-512", seed);
-    return new Uint8Array(hash);
+    var full = new Uint8Array(64);
+    full.set(seed);
+    return full;
   }
 
   async function deriveKeyPair(seed) {
@@ -355,7 +356,10 @@
       body: JSON.stringify({ newPublicKey: newPkB64, newMode: "passkey", newSeed: newSeedB64, files: reencryptedFiles }),
     });
     var rotateData = await rotateRes.json();
-    if (!rotateData.success) throw new Error(rotateData.error || "Rotation failed");
+    if (!rotateData.success) {
+      console.error("Vault rotate response:", rotateRes.status, rotateData);
+      throw new Error(rotateData.error || "Server returned: " + JSON.stringify(rotateData));
+    }
 
     // Step 5: Register new passkey (non-critical — vault is already re-keyed)
     log("Registering new passkey...");
