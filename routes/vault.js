@@ -55,7 +55,7 @@ module.exports = function (app) {
         }
         // Validate seed size (32 bytes → 44 base64 chars)
         var seedBytes = Buffer.from(seed, "base64");
-        if (seedBytes.length !== 32) {
+        if (seedBytes.length !== 32 && seedBytes.length !== 64) {
           return res.status(400).json({ error: "Invalid seed size." });
         }
         update.vaultSeed = seed; // auto-sealed by field-crypto on write
@@ -369,7 +369,7 @@ module.exports = function (app) {
       if (newMode === "passkey") {
         if (!body.newSeed || body.newSeed.length < 20) return res.status(400).json({ error: "New vault seed required." });
         var seedBytes = Buffer.from(body.newSeed, "base64");
-        if (seedBytes.length !== 32) return res.status(400).json({ error: "Invalid seed size." });
+        if (seedBytes.length !== 32 && seedBytes.length !== 64) return res.status(400).json({ error: "Invalid seed size." });
         newSeed = body.newSeed;
       }
 
