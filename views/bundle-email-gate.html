@@ -47,7 +47,7 @@ async function requestCode(e){
   err.style.display='none';
   btn.disabled=true;btn.querySelector('span').textContent='Sending...';
   try{
-    var r=await fetch('/b/{{shareId}}/request-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})});
+    var r=await fetch('{% if (typeof requestCodeAction !== "undefined" && requestCodeAction) { %}{{{requestCodeAction}}}{% } else { %}/b/{{shareId}}/request-code{% } %}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})});
     var d=await r.json();
     if(d.success){
       document.getElementById('emailStep').style.display='none';
@@ -73,7 +73,7 @@ async function verifyCode(e){
   err.style.display='none';
   btn.disabled=true;btn.querySelector('span').textContent='Verifying...';
   try{
-    var r=await fetch('/b/{{shareId}}/verify-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:_email,code:code})});
+    var r=await fetch('{% if (typeof verifyCodeAction !== "undefined" && verifyCodeAction) { %}{{{verifyCodeAction}}}{% } else { %}/b/{{shareId}}/verify-code{% } %}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:_email,code:code})});
     var d=await r.json();
     if(d.success){
       window.location.reload();

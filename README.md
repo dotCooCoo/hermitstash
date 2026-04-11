@@ -218,6 +218,8 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Per-page branding -- custom title, instructions, accent color, and logo
 - Per-page upload constraints -- max file size, max files, default expiry, allowed extensions
 - Password-protected stash pages with Argon2 hashing and rate-limited unlock
+- Email/domain-gated stash access -- restrict by specific emails or entire domains (@acme.com), verified by one-time code
+- Dual protection mode -- require both email verification and password on stash pages
 - Simplified upload form -- message and files only (no name/email fields)
 - Bundle naming during stash upload
 - Dynamic slug validation with automatic reserved-word detection from registered routes
