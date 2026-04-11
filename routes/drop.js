@@ -15,6 +15,7 @@ var bundleService = require("../app/domain/uploads/bundle.service");
 var uploadValidator = require("../app/http/validators/upload.validator");
 var emailService = require("../app/domain/integrations/email.service");
 var { requireScope } = require("../app/security/scope-policy");
+var ipQuota = require("../lib/ip-quota");
 
 module.exports = function (app) {
   // Drop page
@@ -89,6 +90,13 @@ module.exports = function (app) {
         return res.status(400).json({ error: fileCheck.reason });
       }
 
+      // Validate file content matches extension
+      var magicCheck = uploadValidator.validateMagicBytes(file.filename, file.data);
+      if (!magicCheck.valid) {
+        audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + magicCheck.reason, req: req });
+        return res.status(400).json({ error: magicCheck.reason });
+      }
+
       // Validate bundle limits (file count)
       var limitsCheck = uploadValidator.validateBundleLimits(bundle.receivedFiles + 1, config.publicMaxFiles, bundle.totalSize + file.size, config.publicMaxBundleSize);
       if (!limitsCheck.valid) {
@@ -115,6 +123,15 @@ module.exports = function (app) {
         }
       }
 
+      // Per-IP quota check (anonymous uploads only)
+      if (config.publicIpQuotaBytes > 0 && !bundle.ownerId) {
+        var ipCheck = ipQuota.check(rateLimit.getIp(req), file.size, config.publicIpQuotaBytes);
+        if (!ipCheck.allowed) {
+          audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: per-IP quota exceeded", req: req });
+          return res.status(400).json({ error: "Upload quota exceeded. Try again later." });
+        }
+      }
+
       var ext = path.extname(file.filename).toLowerCase();
       const fileShareId = generateShareId();
       const storagePath = "bundles/" + bundle.shareId + "/" + Date.now() + "-" + fileShareId + ext;
@@ -137,6 +154,11 @@ module.exports = function (app) {
       } catch (dbErr) {
         await storage.deleteFile(storagePath);
         throw dbErr;
+      }
+
+      // Track IP usage after successful save
+      if (config.publicIpQuotaBytes > 0 && !bundle.ownerId) {
+        ipQuota.record(rateLimit.getIp(req), file.size);
       }
 
       audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: bundle._id, details: "file: " + file.filename + ", size: " + file.size, req: req });
@@ -246,6 +268,20 @@ module.exports = function (app) {
       if (!fileCheck.valid) {
         return res.status(400).json({ error: fileCheck.reason });
       }
+      var magicCheck = uploadValidator.validateMagicBytes(filename, fullData);
+      if (!magicCheck.valid) {
+        audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + magicCheck.reason + " (chunked)", req: req });
+        return res.status(400).json({ error: magicCheck.reason });
+      }
+
+      // Per-IP quota check (chunked, anonymous)
+      if (config.publicIpQuotaBytes > 0 && !bundle.ownerId) {
+        var ipCheck = ipQuota.check(rateLimit.getIp(req), fullData.length, config.publicIpQuotaBytes);
+        if (!ipCheck.allowed) {
+          audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: per-IP quota exceeded (chunked)", req: req });
+          return res.status(400).json({ error: "Upload quota exceeded. Try again later." });
+        }
+      }
 
       var chunkFileShareId = generateShareId();
       var storagePath = "bundles/" + bundle.shareId + "/" + Date.now() + "-" + chunkFileShareId + ext;
@@ -268,6 +304,10 @@ module.exports = function (app) {
       } catch (dbErr) {
         await storage.deleteFile(storagePath);
         throw dbErr;
+      }
+
+      if (config.publicIpQuotaBytes > 0 && !bundle.ownerId) {
+        ipQuota.record(rateLimit.getIp(req), fullData.length);
       }
 
       bundlesRepo.update(bundle._id, {
