@@ -413,23 +413,25 @@
       <!-- Uploads -->
       <div class="settings-pane" id="pane-uploads">
         <div class="settings-group">
-          <div style="display:block">
-            <label class="settings-label" style="margin-bottom:10px;display:block">Reverse Proxy Config</label>
-            <div id="proxyDetectBanner" style="display:none;padding:10px 14px;border-radius:8px;font-size:.82rem;margin-bottom:10px;line-height:1.5"></div>
-            <p style="font-size:.78rem;color:var(--muted);margin:0 0 10px;line-height:1.5">
-              Select your proxy to generate a config snippet with the correct limits for your upload settings.
-            </p>
-            <select class="text-input" id="proxyType" onchange="updateProxySnippet()" style="max-width:200px;margin-bottom:10px">
-              <option value="">Not using a proxy</option>
-              <option value="nginx">Nginx</option>
-              <option value="caddy">Caddy</option>
-              <option value="apache">Apache</option>
-            </select>
-            <div id="proxySnippet" style="display:none">
-              <pre style="background:rgba(255,255,255,.04);border:1px solid var(--border-thin);border-radius:8px;padding:14px 16px;font-size:.78rem;font-family:'JetBrains Mono',monospace;overflow-x:auto;line-height:1.6;color:var(--body-color);margin:0"><code id="proxyCode"></code></pre>
-              <button type="button" class="butn butn-bord-thin butn-sm radius-30" style="margin-top:8px" onclick="cpProxy()"><span>Copy</span></button>
+          <details class="proxy-collapse">
+            <summary class="settings-label proxy-summary">Reverse Proxy Config <span class="settings-hint">nginx, Caddy, Apache</span></summary>
+            <div class="proxy-collapse-body">
+              <div id="proxyDetectBanner" style="display:none;padding:10px 14px;border-radius:8px;font-size:.82rem;margin-bottom:10px;line-height:1.5"></div>
+              <p style="font-size:.78rem;color:var(--muted);margin:0 0 10px;line-height:1.5">
+                Select your proxy to generate a config snippet with the correct limits for your upload settings.
+              </p>
+              <select class="text-input" id="proxyType" onchange="updateProxySnippet()" style="max-width:200px;margin-bottom:10px">
+                <option value="">Not using a proxy</option>
+                <option value="nginx">Nginx</option>
+                <option value="caddy">Caddy</option>
+                <option value="apache">Apache</option>
+              </select>
+              <div id="proxySnippet" style="display:none">
+                <pre style="background:rgba(255,255,255,.04);border:1px solid var(--border-thin);border-radius:8px;padding:14px 16px;font-size:.78rem;font-family:'JetBrains Mono',monospace;overflow-x:auto;line-height:1.6;color:var(--body-color);margin:0"><code id="proxyCode"></code></pre>
+                <button type="button" class="butn butn-bord-thin butn-sm radius-30" style="margin-top:8px" onclick="cpProxy()"><span>Copy</span></button>
+              </div>
             </div>
-          </div>
+          </details>
           <div class="settings-divider"></div>
           <div class="settings-field">
             <label class="settings-label">Public Upload Enabled</label>
