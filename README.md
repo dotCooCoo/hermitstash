@@ -150,7 +150,11 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | PII exposure from DB dump | Every field vault-sealed, IPs one-way hashed |
 | Nonce collision | XChaCha20 192-bit nonce eliminates birthday-bound risk |
 | AES-NI side channels | XChaCha20 is constant-time in software, no hardware dependency |
-| SSRF via webhooks | Blocks localhost, RFC 1918, link-local, IPv6 private ranges |
+| Brute-force bundle passwords | Exponential backoff lockout after 5 failed attempts |
+| CSRF on API endpoints | Per-session XChaCha20-Poly1305 key binds requests to session |
+| CSV formula injection | Export values sanitized to prevent spreadsheet code execution |
+| DNS rebinding via webhooks | Pre-validated IP pinned to outbound connection |
+| SSRF via webhooks | Blocks localhost, RFC 1918, RFC 6598 CGNAT, link-local, IPv6 private ranges |
 | NPM supply chain | All dependencies vendored as committed bundles — zero npm runtime packages |
 
 Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f via OpenSSL 3.5, XChaCha20-Poly1305 and SHAKE256 via vendored @noble/ciphers and @noble/hashes, Argon2id via vendored native prebuilds, WebAuthn via vendored @simplewebauthn/server, and built-in SQLite via `node:sqlite`. Zero npm runtime dependencies.
@@ -164,17 +168,24 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Hybrid KEM encrypted session cookies
 - Per-session XChaCha20-Poly1305 encrypted API payloads with anti-replay and anti-tamper
 - Rate limiting on login (5/15min), registration (10/15min), 2FA verify (5/5min), passkey login (10/min)
+- Account lockout after 10 consecutive failed password attempts (30-minute cooldown)
+- Password reset flow with single-use, 1-hour-expiry tokens and anti-enumeration (always returns success)
+- User invitation system -- admin invites by email with role assignment, 48-hour expiry
+- Configurable session idle timeout (default 30 minutes, server-side enforcement)
+- OAuth CSRF state validation on Google callback
+- Password change automatically revokes all other sessions
 
 **File Management**
 - Public folder drops -- drag entire trees, no login required
 - Per-file XChaCha20-Poly1305 encryption, keys sealed with hybrid ML-KEM-1024 + P-384
 - Chunked uploads for large files (>10MB auto-split, server reassembly)
 - Pause/resume/cancel uploads, per-file progress bars
-- Password-protected share links
+- Password-protected share links with exponential backoff lockout (2^n × 30s after 5 failed attempts)
 - Custom expiry per bundle (1d, 7d, 30d, 90d, never)
 - Bundle messages, multiple recipient emails
 - File preview with SVG sanitization, HTML/JS forced download
 - Shareable links -- browse folders or download as ZIP
+- Subfolder ZIP download -- download individual subdirectories from a bundle
 
 **Zero-Knowledge Vault**
 - Client-side ML-KEM-1024 + SHAKE256 KDF + XChaCha20-Poly1305 encryption in the browser
@@ -183,11 +194,18 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Stealth mode hides vault operations from audit logs
 - Self-access links for direct vault file download with passkey auth
 - Vault key rotation with atomic re-encryption of all files
+- Batch upload and batch delete with client-generated batch IDs
+- Force-reset recovery mode for vault lockout (deletes all vault files, clears vault state)
+- ML-KEM-768 legacy decryption support (auto-detected by encapsulated key size)
 
 **Teams**
 - Create teams, add/remove members with role-based access
 - Team-scoped file visibility -- cross-team isolation enforced
 - Team admin and member roles
+
+**Profile**
+- Self-service email change with password re-authentication
+- Self-service account deletion (files reassigned, sessions revoked, last admin protected)
 
 **Admin Dashboard**
 - Stats with computed totals (size, downloads), activity feed
@@ -195,33 +213,59 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - User management -- create, suspend, delete, role toggle
 - Audit log -- searchable, filterable, date range
 - Settings panel -- 8 tabs (Branding, General, Auth, Uploads, Storage, Theme, Email, Environment)
-- API keys with scoped permissions (upload, read, admin, webhook)
-- Webhooks with HMAC-SHA3-512 signed payloads and delivery logs
+- API keys with scoped permissions (upload, read, admin, webhook) validated against canonical enum
+- Webhooks with HMAC-SHA3-512 signed payloads, per-hook delivery log, enable/disable toggle
 - IP blocklist
-- Database backup, CSV exports
-- Scheduled tasks (file expiry, audit retention)
+- Database backup (serves encrypted-at-rest copy), CSV exports (with formula injection protection)
+- Scheduled tasks -- file expiry, audit retention, stale upload cleanup, token cleanup, invite cleanup, daily SQLite vacuum
+- Danger Zone -- factory reset, purge all sessions, purge all users, purge all files (typed confirmation required)
+- Custom logo upload with magic-byte validation and SVG sanitization
+- Reverse proxy auto-detection with config snippet generator (nginx, Caddy, Apache)
+- Per-user storage quotas (separate from global quota)
+- Configurable upload concurrency, retry count, timeout, and file extension allowlist
+- Admin email list for auto-promoting OAuth users to admin role
+- Maintenance mode -- blocks non-admin access with 503 page
+- Announcement banner -- site-wide text displayed on all pages
 
 **Email**
 - SMTP or Resend API backend (switchable from admin)
+- Dual-mode failover -- SMTP-primary/Resend-fallback or Resend-primary/SMTP-fallback
 - Resend quota enforcement (daily/monthly limits per plan tier)
+- Email template customization -- subject, header, footer with named placeholders ({siteName}, {uploaderName}, {fileCount}, {totalSize})
 - Upload confirmations, admin notifications, verification emails
 - All email send/fail/quota events audit-logged
 
 **Security Hardening**
-- Security headers on all responses (CSP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy)
+- Security headers on all responses (CSP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy, COOP, CORP)
+- HSTS auto-enabled when rpOrigin uses HTTPS
 - 256-bit SHA3-derived share IDs (no brute-force, no collisions)
+- CSRF protection via per-session API payload encryption (session key acts as implicit token)
+- CSV formula injection protection on all exports
+- CORS configurable via admin (wildcard disallowed with credentials)
+- Canonical origin policy -- all URLs generated from rpOrigin, never from Host header
+- Webhook DNS pinning -- resolved IP reused for outbound connection, preventing TOCTOU rebinding
 - Input length limits on all free-text fields
 - Pagination capped at 200 results
 - X-Forwarded-For only trusted from configured proxies
 - Safe redirects (relative paths only)
-- SSRF protection covers all RFC 1918, link-local, metadata, and IPv6 ranges
+- SSRF protection covers all RFC 1918, RFC 6598 CGNAT, link-local, metadata, and IPv6 ranges
 - All crypto libraries vendored from npm to eliminate supply chain risk
+- Restrictive CSP on user-uploaded logo directory (defense-in-depth against SVG XSS)
+
+**Storage**
+- Local disk, NAS mount, or any S3-compatible bucket (MinIO, DigitalOcean Spaces, Backblaze B2)
+- S3 direct downloads with pre-signed URLs (configurable expiry, AWS Signature V4)
+- Per-file XChaCha20-Poly1305 encryption at rest, keys sealed with hybrid vault
 
 **Zero Configuration**
 - No `.env` file -- settings stored in encrypted database
 - No build step -- vanilla Node.js
 - `node server.js` is the entire setup -- no npm install needed
 - `process.env` overrides available for Docker/containers
+- Health check endpoint (`GET /health`) for load balancers and container probes
+- PWA web app manifest with dynamic site name and theme colors
+- Automatic database schema migrations on startup
+- Startup invariant checks -- validates vault key, warns on default credentials/secrets, checks directory permissions
 
 ## Docker
 
@@ -343,7 +387,9 @@ Response (secret shown once):
 
 | Event | Trigger | Payload |
 |-------|---------|---------|
-| `bundle_finalized` | Bundle upload completed and finalized | `{ shareId, uploaderName, files, size }` |
+| `bundle.finalized` | Bundle upload completed and finalized | `{ shareId, uploaderName, files, size }` |
+| `file.uploaded` | Individual file uploaded | `{ shareId, originalName, size }` |
+| `user.registered` | New user account created | `{ email, authType }` |
 
 Event filter: set to `*` for all events, or a specific event name.
 
