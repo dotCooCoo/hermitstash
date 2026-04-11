@@ -797,7 +797,14 @@ body::after {
 .admin-user-email{font-size:.78rem;color:var(--text-muted)}
 .admin-user-meta{display:flex;align-items:center;gap:16px;flex-shrink:0}
 .admin-user-date{font-size:.75rem;color:var(--text-muted)}
-.admin-user-actions{flex-shrink:0}
+.admin-user-actions{flex-shrink:0;display:flex;gap:6px}
+.user-action-btn{display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:8px;border:1px solid transparent;background:rgba(255,255,255,.04);color:var(--text-muted);font-size:.75rem;font-weight:500;cursor:pointer;transition:all .2s ease;white-space:nowrap}
+.user-action-btn:hover{background:rgba(255,255,255,.08)}
+.user-action-btn svg{flex-shrink:0;opacity:.7;transition:opacity .2s}.user-action-btn:hover svg{opacity:1}
+.user-action-role{color:var(--main-color);border-color:rgba(139,92,246,.15)}.user-action-role:hover{background:rgba(139,92,246,.1);border-color:rgba(139,92,246,.3)}
+.user-action-activate{color:var(--accent);border-color:rgba(202,255,51,.15)}.user-action-activate:hover{background:rgba(202,255,51,.08);border-color:rgba(202,255,51,.3)}
+.user-action-suspend{color:#f59e0b;border-color:rgba(245,158,11,.15)}.user-action-suspend:hover{background:rgba(245,158,11,.08);border-color:rgba(245,158,11,.3)}
+.user-action-delete{color:var(--danger);border-color:rgba(255,68,68,.12)}.user-action-delete:hover{background:rgba(255,68,68,.08);border-color:rgba(255,68,68,.3)}
 .admin-you-badge{font-size:.72rem;color:var(--text-muted);background:rgba(255,255,255,.04);padding:4px 14px;border-radius:20px}
 
 /* File/Bundle rows */
