@@ -22,7 +22,7 @@ function exportUsersCsv() {
  * Export files as CSV string.
  */
 function exportFilesCsv() {
-  var allFiles = files.find({});
+  var allFiles = files.find({ vaultEncrypted: { $ne: "true" } });
   return buildCsv(
     ["id", "shareId", "originalName", "size", "mimeType", "uploadedBy", "uploaderEmail", "status", "downloads", "createdAt"],
     allFiles,

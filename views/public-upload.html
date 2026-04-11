@@ -681,7 +681,7 @@ function esc(s){return window.Helpers?Helpers.esc(s):String(s).replace(/&/g,'&am
 function cpLink(){var i=document.getElementById('bundleUrl');i.select();navigator.clipboard.writeText(i.value);event.target.textContent='Copied!';setTimeout(function(){event.target.textContent='Copy Link'},2000)}
 
 // ---- Vault upload flow ----
-// Encrypts each file client-side with ML-KEM-768 and uploads to /vault/upload
+// Encrypts each file client-side with ML-KEM-1024 + XChaCha20-Poly1305 and uploads to /vault/upload
 async function startVaultUpload(toUpload){
   // Transition to progress
   document.getElementById('setupForm').style.opacity='0';document.getElementById('setupForm').style.transform='translateY(-10px)';
@@ -727,7 +727,7 @@ async function startVaultUpload(toUpload){
       var buf=await item.file.arrayBuffer();
       var fileBytes=new Uint8Array(buf);
 
-      // Encrypt with ML-KEM-768 + XChaCha20-Poly1305
+      // Encrypt with ML-KEM-1024 + XChaCha20-Poly1305
       var enc=await VaultPQ.encryptFile(pkBytes,fileBytes);
 
       // Upload encrypted payload to /vault/upload
@@ -783,7 +783,7 @@ async function startVaultUpload(toUpload){
   var rc=document.getElementById('resultCard');rc.textContent='';
   var d=document.createElement('div');d.className='summary-row';
   var s1=document.createElement('span');s1.textContent='Protection';
-  var s2=document.createElement('strong');s2.textContent='ML-KEM-768 + AES-256-GCM (post-quantum)';
+  var s2=document.createElement('strong');s2.textContent='ML-KEM-1024 + XChaCha20-Poly1305 (post-quantum)';
   d.appendChild(s1);d.appendChild(s2);rc.appendChild(d);
   if(errs.length){
     var d2=document.createElement('div');d2.className='summary-row summary-err';

@@ -61,7 +61,7 @@ async function decryptAndDownload(){
     status.textContent='Downloading encrypted file\u2026';btn.textContent='Decrypting\u2026';
     var r=await fetch('/vault/download/'+SHARE_ID);var d=await r.json();
     if(!d.ciphertext){btn.disabled=false;btn.textContent='Decrypt & Download';status.textContent=d.error||'Download failed.';return}
-    status.textContent='Decrypting with ML-KEM-768\u2026';
+    status.textContent='Decrypting\u2026';
     var encKey=VaultPQ.fromBase64(d.encapsulatedKey);
     var iv=VaultPQ.fromBase64(d.iv);
     var ct=VaultPQ.fromBase64(d.ciphertext);
