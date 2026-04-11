@@ -434,6 +434,16 @@
               </select>
             </div>
           </div>
+          <div class="settings-field">
+            <label class="settings-label">Public IP Quota <span class="settings-hint">0 = unlimited, 24h rolling window</span></label>
+            <div class="size-input-group">
+              <input type="number" class="text-input" id="s-publicIpQuotaBytes-val" step="1" min="0">
+              <select class="text-input size-unit" id="s-publicIpQuotaBytes-unit">
+                <option value="1048576">MB</option>
+                <option value="1073741824">GB</option>
+              </select>
+            </div>
+          </div>
           <div class="settings-divider"></div>
           <div class="settings-field">
             <label class="settings-label">Upload Timeout <span class="settings-hint">seconds</span></label>
@@ -730,6 +740,8 @@ uploads:{
 <p>The total combined size of all files in a single bundle. Prevents a single upload from consuming all storage.</p>\
 <h4>Per-User Quota</h4>\
 <p>Maximum total storage each logged-in user can consume. Set to 0 for unlimited. Anonymous uploads are not affected by this limit.</p>\
+<h4>Public IP Quota</h4>\
+<p>Maximum total storage each anonymous IP address can upload within a 24-hour rolling window. Set to 0 for unlimited. Only applies to anonymous (non-logged-in) uploads. Users behind shared NAT will share this quota. Resets on server restart.</p>\
 <h4>Upload Timeout</h4>\
 <p>Seconds before an idle upload connection is closed. Increase for large files on slow connections. Default is 300 (5 minutes).</p>\
 <h4>Concurrent Uploads</h4>\
@@ -1148,7 +1160,7 @@ var tabFields={
   branding:['siteName','customLogo','landingEnabled','heroTitle','heroSubtitle','dropTitle','dropSubtitle','showMaintainerSupport','maintenanceMode','announcementBanner'],
   general:['port','sessionSecret'],
   auth:['localAuth','registrationOpen','googleClientID','googleClientSecret','googleCallbackURL','allowedDomains','emailVerification','passkeyEnabled','rpName','rpId','rpOrigin'],
-  uploads:['publicUpload','maxFileSize','publicMaxFiles','publicMaxBundleSize','perUserQuotaBytes','uploadTimeout','uploadConcurrency','uploadRetries','allowedExtensions'],
+  uploads:['publicUpload','maxFileSize','publicMaxFiles','publicMaxBundleSize','perUserQuotaBytes','publicIpQuotaBytes','uploadTimeout','uploadConcurrency','uploadRetries','allowedExtensions'],
   storage:['storageBackend','uploadDir','s3Bucket','s3Region','s3AccessKey','s3SecretKey','s3Endpoint','s3DirectDownloads','s3PresignExpiry'],
   theme:['themeAccentColor','themeBgColor','themeFont'],
   email:['emailBackend','resendApiKey','resendQuotaDaily','resendQuotaMonthly','smtpHost','smtpPort','smtpUser','smtpPass','smtpFrom','emailTemplateMode','emailTemplateSubject','emailTemplateHeader','emailTemplateFooter']
@@ -1380,6 +1392,7 @@ function loadSettings(){
     loadSizeField('s-maxFileSize',s.maxFileSize);
     loadSizeField('s-publicMaxBundleSize',s.publicMaxBundleSize);
     loadSizeField('s-perUserQuotaBytes',s.perUserQuotaBytes||0);
+    loadSizeField('s-publicIpQuotaBytes',s.publicIpQuotaBytes||0);
     document.getElementById('s-uploadTimeout-display').value=Math.round((s.uploadTimeout||300000)/1000);
     toggleS3();
     toggleEmailBackend();
@@ -1400,7 +1413,7 @@ function saveTab(tab){
   var data={};
   tabFields[tab].forEach(function(key){
     // Handle size fields with unit selectors
-    if(key==='maxFileSize'||key==='publicMaxBundleSize'||key==='perUserQuotaBytes'){
+    if(key==='maxFileSize'||key==='publicMaxBundleSize'||key==='perUserQuotaBytes'||key==='publicIpQuotaBytes'){
       data[key]=String(getSizeField('s-'+key));
       return;
     }

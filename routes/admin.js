@@ -282,24 +282,7 @@ module.exports = function (app) {
 
   // Logo upload — with magic byte validation and SVG sanitization
   var LOGO_DIR = path.join(__dirname, "..", "public", "img", "custom");
-  var MAGIC_BYTES = {
-    ".png":  [0x89, 0x50, 0x4E, 0x47],
-    ".jpg":  [0xFF, 0xD8, 0xFF],
-    ".gif":  [0x47, 0x49, 0x46],
-    ".webp": null, // check RIFF header below
-  };
-
-  function detectImageType(buf) {
-    if (buf.length < 12) return null;
-    if (buf[0]===0x89 && buf[1]===0x50 && buf[2]===0x4E && buf[3]===0x47) return ".png";
-    if (buf[0]===0xFF && buf[1]===0xD8 && buf[2]===0xFF) return ".jpg";
-    if (buf[0]===0x47 && buf[1]===0x49 && buf[2]===0x46) return ".gif";
-    if (buf[0]===0x52 && buf[1]===0x49 && buf[2]===0x46 && buf[3]===0x46 && buf[8]===0x57 && buf[9]===0x45 && buf[10]===0x42 && buf[11]===0x50) return ".webp";
-    // SVG: check for XML/SVG text content
-    var head = buf.subarray(0, Math.min(512, buf.length)).toString("utf8").trim();
-    if (head.startsWith("<?xml") || head.startsWith("<svg") || head.includes("<svg")) return ".svg";
-    return null;
-  }
+  var { detectContentType } = require("../app/http/validators/upload.validator");
 
   app.post("/admin/logo/upload", async (req, res) => {
     if (!requireAdmin(req, res)) return;
@@ -309,7 +292,7 @@ module.exports = function (app) {
       if (!file) return res.status(400).json({ error: "No file uploaded." });
 
       // Validate actual content, not just claimed MIME type
-      var ext = detectImageType(file.data);
+      var ext = detectContentType(file.data);
       if (!ext) return res.status(400).json({ error: "Invalid image. Upload a PNG, JPG, SVG, WebP, or GIF." });
 
       var data = file.data;
