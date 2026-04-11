@@ -14,6 +14,7 @@ var rateLimit = require("../lib/rate-limit");
 var bundleService = require("../app/domain/uploads/bundle.service");
 var uploadValidator = require("../app/http/validators/upload.validator");
 var emailService = require("../app/domain/integrations/email.service");
+var { requireScope } = require("../app/security/scope-policy");
 
 module.exports = function (app) {
   // Drop page
@@ -41,7 +42,7 @@ module.exports = function (app) {
   });
 
   // Init bundle
-  app.post("/drop/init", rateLimit.middleware("drop-init", 20, 60000), async (req, res) => {
+  app.post("/drop/init", rateLimit.middleware("drop-init", 20, 60000), requireScope("upload"), async (req, res) => {
     if (!config.publicUpload) return res.status(403).json({ error: "Disabled." });
     const body = await parseJson(req);
     var rawEmail = body.uploaderEmail ? String(body.uploaderEmail).slice(0, 254) : null;
@@ -71,7 +72,7 @@ module.exports = function (app) {
   });
 
   // Upload single file to bundle
-  app.post("/drop/file/:bundleId", rateLimit.middleware("upload", 200, 60000), async (req, res) => {
+  app.post("/drop/file/:bundleId", rateLimit.middleware("upload", 200, 60000), requireScope("upload"), async (req, res) => {
     if (!config.publicUpload) return res.status(403).json({ error: "Disabled." });
     try {
       const bundle = bundlesRepo.findById(req.params.bundleId);
@@ -153,7 +154,7 @@ module.exports = function (app) {
 
   // Chunked upload — for large files split client-side
   // POST /drop/chunk/:bundleId with fields: chunkIndex, totalChunks, fileId, relativePath, filename
-  app.post("/drop/chunk/:bundleId", rateLimit.middleware("chunk", 500, 60000), async (req, res) => {
+  app.post("/drop/chunk/:bundleId", rateLimit.middleware("chunk", 500, 60000), requireScope("upload"), async (req, res) => {
     if (!config.publicUpload) return res.status(403).json({ error: "Disabled." });
     try {
       const bundle = bundlesRepo.findById(req.params.bundleId);
@@ -282,7 +283,7 @@ module.exports = function (app) {
   });
 
   // Finalize bundle (requires token from init to prevent unauthorized finalization)
-  app.post("/drop/finalize/:bundleId", rateLimit.middleware("finalize", 20, 60000), async (req, res) => {
+  app.post("/drop/finalize/:bundleId", rateLimit.middleware("finalize", 20, 60000), requireScope("upload"), async (req, res) => {
     // Pre-check: handle already-complete bundles before parsing body
     var existingBundle = bundlesRepo.findById(req.params.bundleId);
     if (!existingBundle) return res.status(404).json({ error: "Bundle not found." });

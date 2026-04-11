@@ -150,12 +150,17 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     var fs = require("fs");
     var path = require("path");
-    var dbPath = process.env.HERMITSTASH_DB_PATH || path.join(__dirname, "..", "data", "hermitstash.db");
+    // Prefer encrypted-at-rest copy; fall back to plain DB for dev/custom setups
+    var encDbPath = path.join(__dirname, "..", "data", "hermitstash.db.enc");
+    var plainDbPath = process.env.HERMITSTASH_DB_PATH || path.join(__dirname, "..", "data", "hermitstash.db");
+    var dbPath = fs.existsSync(encDbPath) ? encDbPath : plainDbPath;
+    var isEnc = dbPath === encDbPath;
     if (!fs.existsSync(dbPath)) { res.writeHead(404); return res.end("No database found"); }
-    audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Database backup downloaded", req: req });
+    audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Database backup downloaded" + (isEnc ? " (encrypted)" : ""), req: req });
+    var ext = isEnc ? ".db.enc" : ".db";
     res.writeHead(200, {
       "Content-Type": "application/octet-stream",
-      "Content-Disposition": "attachment; filename=\"hermitstash-backup-" + new Date().toISOString().slice(0,10) + ".db\""
+      "Content-Disposition": "attachment; filename=\"hermitstash-backup-" + new Date().toISOString().slice(0,10) + ext + "\""
     });
     fs.createReadStream(dbPath).pipe(res);
   });

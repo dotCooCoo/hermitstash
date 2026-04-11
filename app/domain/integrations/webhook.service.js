@@ -102,8 +102,8 @@ function dispatchSingle(hookId, eventName, payload) {
     return Promise.resolve();
   }
 
-  return isPrivateHost(check.url.hostname).then(function (priv) {
-    if (priv) {
+  return isPrivateHost(check.url.hostname).then(function (result) {
+    if (result === true || (result && result.blocked)) {
       webhookDeliveries.insert({
         webhookId: hookId, event: eventName, status: "failed",
         statusCode: 0, error: "Private/internal host blocked",
@@ -114,6 +114,9 @@ function dispatchSingle(hookId, eventName, payload) {
 
     var body = JSON.stringify({ event: eventName, data: payload, timestamp: new Date().toISOString() });
     var signature = hook.secret ? hmacSha3(hook.secret, body) : "";
+    // Pin DNS to the pre-validated IP to prevent TOCTOU rebinding
+    var pinnedAddress = result.address;
+    var pinnedFamily = result.family;
 
     return new Promise(function (resolve) {
       try {
@@ -125,6 +128,7 @@ function dispatchSingle(hookId, eventName, payload) {
             "X-Webhook-Signature": signature,
           },
           timeout: 5000,
+          lookup: function (_hostname, _opts, cb) { cb(null, pinnedAddress, pinnedFamily); },
         }, function (res) {
           var statusCode = res.statusCode;
           var ok = statusCode >= 200 && statusCode < 300;

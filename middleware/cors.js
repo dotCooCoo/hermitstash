@@ -11,11 +11,18 @@ module.exports = function cors(req, res, next) {
   var origin = req.headers.origin || "";
   if (!origin) return next();
 
-  var allowed = origins.indexOf(origin) !== -1 || origins.indexOf("*") !== -1;
+  var isWildcard = origins.indexOf("*") !== -1;
+  var allowed = origins.indexOf(origin) !== -1 || isWildcard;
   if (!allowed) return next();
 
-  res.setHeader("Access-Control-Allow-Origin", origin);
-  res.setHeader("Access-Control-Allow-Credentials", "true");
+  // Wildcard origin must not be combined with credentials (spec violation, security risk)
+  if (isWildcard) {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    // No credentials header — browsers enforce this per spec
+  } else {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+  }
 
   // Preflight
   if (req.method === "OPTIONS") {

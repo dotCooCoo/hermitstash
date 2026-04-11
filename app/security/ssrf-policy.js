@@ -14,13 +14,7 @@ var DENIED_CIDRS = [
   // IPv4 private & reserved
   { prefix: "0.",        label: "this-network" },
   { prefix: "10.",       label: "rfc1918" },
-  { prefix: "100.64.",   label: "rfc6598-cgnat" },
-  { prefix: "100.65.",   label: "rfc6598-cgnat" },
-  { prefix: "100.66.",   label: "rfc6598-cgnat" },
-  { prefix: "100.67.",   label: "rfc6598-cgnat" },
-  { prefix: "100.68.",   label: "rfc6598-cgnat" },
-  { prefix: "100.69.",   label: "rfc6598-cgnat" },
-  { prefix: "100.7",     label: "rfc6598-cgnat" },
+  // 100.64.0.0/10 (CGNAT) handled by isCgnat() below
   { prefix: "127.",       label: "loopback" },
   { prefix: "169.254.",   label: "link-local" },
   { prefix: "172.16.",    label: "rfc1918" },
@@ -74,6 +68,13 @@ var DENIED_HOSTNAMES = [
   "fd00:ec2::254",       // AWS IMDSv2 IPv6
 ];
 
+// RFC 6598 CGNAT: 100.64.0.0/10 = 100.64.0.0 – 100.127.255.255
+function isCgnat(ip) {
+  if (!ip.startsWith("100.")) return false;
+  var second = parseInt(ip.split(".")[1], 10);
+  return second >= 64 && second <= 127;
+}
+
 /**
  * Check if an IP address is in a denied range.
  */
@@ -91,6 +92,9 @@ function isPrivateIp(ip) {
   if (h.startsWith("fc") || h.startsWith("fd")) return true;       // ULA
   if (h.startsWith("fe8") || h.startsWith("fe9") || h.startsWith("fea") || h.startsWith("feb")) return true; // link-local
   if (h.startsWith("ff")) return true;                              // multicast
+
+  // CGNAT range (100.64.0.0/10) — numeric check for full coverage
+  if (isCgnat(h)) return true;
 
   // IPv4 CIDR prefix check
   for (var i = 0; i < DENIED_CIDRS.length; i++) {
@@ -119,11 +123,11 @@ function isPrivateHost(hostname) {
   // Resolve DNS and check all addresses
   return new Promise(function (resolve) {
     dns.lookup(h, { all: true }, function (err, addresses) {
-      if (err || !addresses || addresses.length === 0) return resolve(true); // fail closed
+      if (err || !addresses || addresses.length === 0) return resolve({ blocked: true });
       for (var j = 0; j < addresses.length; j++) {
-        if (isPrivateIp(addresses[j].address)) return resolve(true);
+        if (isPrivateIp(addresses[j].address)) return resolve({ blocked: true });
       }
-      resolve(false);
+      resolve({ blocked: false, address: addresses[0].address, family: addresses[0].family });
     });
   });
 }
