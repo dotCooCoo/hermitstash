@@ -16,6 +16,17 @@ async function initBundle(opts) {
   var shareId = generateShareId();
   var finalizeToken = generateToken(32);
   var bundlePassword = opts.password ? String(opts.password) : null;
+  if (bundlePassword && bundlePassword.length < 4) throw new ValidationError("Password must be at least 4 characters.");
+  // Validate uploader email format if provided
+  var uploaderEmail = opts.uploaderEmail || null;
+  if (uploaderEmail) {
+    uploaderEmail = String(uploaderEmail).slice(0, 254);
+    var { validateEmail } = require("../../shared/validate");
+    // Comma-separated recipients: validate each
+    var parts = uploaderEmail.split(",").map(function (e) { return e.trim(); }).filter(Boolean);
+    var validParts = parts.filter(function (e) { return validateEmail(e).valid; });
+    uploaderEmail = validParts.length > 0 ? validParts.join(",") : null;
+  }
   var message = opts.message ? String(opts.message).slice(0, 2000) : null;
   var expiryDays = parseInt(opts.expiryDays, 10) || 0;
   var defaultExpiry = opts.defaultExpiryDays || 0;
@@ -42,7 +53,7 @@ async function initBundle(opts) {
   var bundle = bundlesRepo.create({
     shareId: shareId,
     uploaderName: opts.uploaderName || "Anonymous",
-    uploaderEmail: opts.uploaderEmail || null,
+    uploaderEmail: uploaderEmail,
     ownerId: opts.ownerId || null,
     finalizeTokenHash: sha3Hash(finalizeToken),
     passwordHash: bundlePassword ? await hashPassword(bundlePassword) : null,

@@ -14,7 +14,7 @@
           <div class="admin-user-info" style="flex:1">
             <div class="admin-user-avatar"><span class="admin-user-initial">{{{b.files.length}}}</span></div>
             <div>
-              <div class="admin-user-name" style="cursor:pointer" title="Click to rename" onclick="renameBundle('{{b.bundle.shareId}}',this)">{{{b.bundle.bundleName || ('Bundle — ' + b.files.length + ' file' + (b.files.length !== 1 ? 's' : ''))}}}</div>
+              <div class="admin-user-name" style="cursor:pointer" title="Click to rename" onclick="renameBundle('{{b.bundle.shareId}}',this)">{{b.bundle.bundleName || ('Bundle — ' + b.files.length + ' file' + (b.files.length !== 1 ? 's' : ''))}}</div>
               <div class="admin-user-email">{{{__formatSize(b.bundle.totalSize)}}} · {{{b.bundle.downloads||0}}} downloads · {{{new Date(b.bundle.createdAt).toLocaleDateString()}}}</div>
             </div>
           </div>

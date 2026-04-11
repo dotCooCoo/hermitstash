@@ -357,7 +357,9 @@ module.exports = function (app) {
 
       var passwordHash = null;
       if (body.password && String(body.password).trim()) {
-        passwordHash = await hashPassword(String(body.password).trim());
+        var pw = String(body.password).trim();
+        if (pw.length < 4) return res.status(400).json({ error: "Password must be at least 4 characters." });
+        passwordHash = await hashPassword(pw);
       }
 
       var doc = {
@@ -439,6 +441,7 @@ module.exports = function (app) {
         if (pw === "") {
           updates.passwordHash = null;
         } else if (pw !== "********") {
+          if (pw.trim().length < 4) return res.status(400).json({ error: "Password must be at least 4 characters." });
           updates.passwordHash = await hashPassword(pw.trim());
         }
         // If "********", keep existing — don't include in updates
