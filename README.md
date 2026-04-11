@@ -156,6 +156,7 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | DNS rebinding via webhooks | Pre-validated IP pinned to outbound connection |
 | SSRF via webhooks | Blocks localhost, RFC 1918, RFC 6598 CGNAT, link-local, IPv6 private ranges |
 | Disguised file uploads | Magic byte validation rejects files whose content doesn't match extension |
+| Malicious filenames | Backend sanitization strips control chars, path traversal, dot attacks, HTML injection |
 | Anonymous storage abuse | Per-IP upload quota with 24-hour rolling window |
 | NPM supply chain | All dependencies vendored as committed bundles — zero npm runtime packages |
 
@@ -185,10 +186,13 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Password-protected share links with exponential backoff lockout (2^n × 30s after 5 failed attempts)
 - Custom expiry per bundle (1d, 7d, 30d, 90d, never)
 - Bundle messages, multiple recipient emails
+- Bundle naming -- name bundles during upload, rename inline from dashboard
+- Inline rename for files and bundles with backend-enforced sanitization (dot attack protection, path traversal prevention, extension preservation)
 - Magic byte content validation -- uploaded files verified against claimed extension (15 format signatures)
 - File preview with SVG sanitization, HTML/JS forced download
 - Shareable links -- browse folders or download as ZIP
 - Subfolder ZIP download -- download individual subdirectories from a bundle
+- Safe Content-Disposition headers with RFC 5987 encoding for non-ASCII filenames
 
 **Zero-Knowledge Vault**
 - Client-side ML-KEM-1024 + SHAKE256 KDF + XChaCha20-Poly1305 encryption in the browser
@@ -198,6 +202,7 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Self-access links for direct vault file download with passkey auth
 - Vault key rotation with atomic re-encryption of all files
 - Batch upload and batch delete with client-generated batch IDs
+- Inline rename for vault batches and individual vault files
 - Force-reset recovery mode for vault lockout (deletes all vault files, clears vault state)
 - ML-KEM-768 legacy decryption support (auto-detected by encapsulated key size)
 
@@ -207,9 +212,12 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Per-page upload constraints -- max file size, max files, default expiry, allowed extensions
 - Password-protected stash pages with Argon2 hashing and rate-limited unlock
 - Simplified upload form -- message and files only (no name/email fields)
+- Bundle naming during stash upload
 - Dynamic slug validation with automatic reserved-word detection from registered routes
 - Upload stats tracked per stash page (bundle count, total bytes)
-- Admin management via collapsible panel -- create, toggle, copy link, delete
+- Custom logo upload per stash page with magic-byte validation
+- Dedicated admin page with bundle drill-down -- view bundles, browse files, inline rename, delete, purge all
+- Admin management -- create, edit, toggle, copy link, delete stash pages
 
 **Teams**
 - Create teams, add/remove members with role-based access
@@ -222,6 +230,7 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 
 **Admin Dashboard**
 - Stats with computed totals (size, downloads), activity feed
+- Row-based bundle lists with file drill-down (My Stash + Personal Vault)
 - Paginated file/bundle browser with search
 - User management -- create, suspend, delete, role toggle
 - Audit log -- searchable, filterable, date range
@@ -503,7 +512,7 @@ These libraries are exceptional work. HermitStash wouldn't exist without them. A
 
 ## Architecture
 
-60+ JS files, 22 HTML templates, 16 database tables. Small files, one job each.
+100+ JS files, 24 HTML templates, 16 database tables. Small files, one job each.
 
 ```
 server.js             Bootstrap, middleware, scheduled tasks, default accounts
@@ -542,7 +551,7 @@ app/
   http/               Request validators (upload magic bytes, auth, admin)
   security/           CSRF, CORS, SSRF, scope, origin policies
   jobs/               Background jobs (expiry, audit retention, webhook dispatch)
-  shared/             Errors, logger, validation helpers
+  shared/             Errors, logger, validation helpers, filename sanitization
 
 routes/               18 route files (includes stash.js for Customer Stash)
 middleware/           11 files (auth, CORS, CSRF, API encryption, security headers)
