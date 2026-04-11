@@ -18,7 +18,24 @@ module.exports = function securityHeaders(req, res, next) {
       res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
     }
     if (!res.getHeader("Content-Security-Policy")) {
-      res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'");
+      // Build analytics CSP domains from auto-detection or manual override
+      var analyticsDomains = "";
+      if (config.analyticsCspDomains) {
+        // Manual override — admin-specified domains
+        analyticsDomains = " " + config.analyticsCspDomains.split(",").map(function (d) { return d.trim(); }).filter(Boolean).join(" ");
+      } else if (config.analyticsScript) {
+        // Auto-detect: extract domains from src="" and https:// URLs in the script tag
+        var srcMatches = config.analyticsScript.match(/(?:src|href)=["']https?:\/\/([^"'\s\/]+)/gi) || [];
+        var urlMatches = config.analyticsScript.match(/https?:\/\/([^"'\s\/\)]+)/gi) || [];
+        var domains = new Set();
+        srcMatches.concat(urlMatches).forEach(function (m) {
+          try { var host = m.replace(/^.*?https?:\/\//i, "").split(/[/"'\s]/)[0]; if (host && host.includes(".")) domains.add("https://" + host); } catch (_e) {}
+        });
+        if (domains.size > 0) analyticsDomains = " " + Array.from(domains).join(" ");
+      }
+      var scriptSrc = "script-src 'self' 'unsafe-inline'" + analyticsDomains;
+      var connectSrc = "connect-src 'self'" + analyticsDomains;
+      res.setHeader("Content-Security-Policy", "default-src 'self'; " + scriptSrc + "; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; " + connectSrc + "; frame-ancestors 'none'");
     }
     // Prevent caching of authenticated/dynamic pages
     var isStatic = req.pathname && /\.(css|js|png|jpg|jpeg|gif|svg|ico|woff2?|webp)$/.test(req.pathname);

@@ -295,6 +295,9 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Configurable Privacy Policy, Terms of Service, and Cookie Policy pages
 - Default legal page templates with sensible content for self-hosted deployments
 - Footer links to all legal pages
+- Configurable analytics script injection -- paste any provider's `<script>` tag (Plausible, Umami, Matomo, Fathom, PostHog, Google Analytics)
+- Analytics injected on public pages only (admin/dashboard excluded)
+- Auto-detected CSP domains from analytics script with manual override
 
 **Accessibility**
 - Skip-to-content link for keyboard navigation
