@@ -32,7 +32,7 @@ node server.js
 
 No config files. No build step. No `npm install` — all dependencies are vendored in the repo with zero npm runtime packages. First run generates the vault keypair and creates default accounts. Configure everything from the admin panel.
 
-**Default admin:** `admin@hermitstash.com` / `admin` — change immediately via the setup wizard.
+**Default admin:** `admin@hermitstash.com` / `admin` — change immediately via the setup wizard. The wizard walks you through changing the admin email and password, setting your site name, configuring the passkey relying party (rpOrigin/rpId), and generating a session secret. Once completed, password reset is available via the login page.
 
 ## Why HermitStash?
 
@@ -280,6 +280,14 @@ Uses `node:24-slim`. No config files needed -- all dependencies vendored, no npm
 
 Persist your data by mounting the `data/` and `uploads/` volumes (already configured in `docker-compose.yml`). Non-sensitive overrides like `PORT` can be set via environment variables if needed, but secrets (S3 keys, SMTP credentials, API keys) should always be configured through the admin panel so they're vault-sealed in the encrypted database.
 
+**Health check:** `GET /health` returns `{ status, uptime, timestamp }` — use it for Docker health checks and load balancer probes.
+
+**Reverse proxy:** Need nginx, Caddy, or Apache in front? The admin panel (Settings > Uploads) auto-detects your proxy and generates a ready-to-paste config snippet with the correct body size limits.
+
+**S3 storage:** Configure S3-compatible storage (AWS, MinIO, DigitalOcean Spaces, Backblaze B2) from Admin > Settings > Storage tab. All credentials are vault-sealed in the encrypted database.
+
+**Maintenance mode:** Toggle from Admin > Settings > Branding. Blocks all non-admin access and serves a 503 page. Admin routes, auth routes, and API keys with admin scope still work during maintenance.
+
 ## API Keys
 
 API keys enable programmatic access. Manage them in the admin panel under the **API Keys** collapsible section.
@@ -390,11 +398,9 @@ Response (secret shown once):
 
 | Event | Trigger | Payload |
 |-------|---------|---------|
-| `bundle.finalized` | Bundle upload completed and finalized | `{ shareId, uploaderName, files, size }` |
-| `file.uploaded` | Individual file uploaded | `{ shareId, originalName, size }` |
-| `user.registered` | New user account created | `{ email, authType }` |
+| `bundle_finalized` | Bundle upload completed and finalized | `{ shareId, uploaderName, files, size }` |
 
-Event filter: set to `*` for all events, or a specific event name.
+Event filter: set to `*` for all events, or a specific event name. Additional events may be added in future releases.
 
 ### Payload format
 
@@ -487,10 +493,10 @@ These libraries are exceptional work. HermitStash wouldn't exist without them. A
 
 ## Architecture
 
-50+ JS files, 18 HTML templates, 13 database tables. Small files, one job each.
+60+ JS files, 22 HTML templates, 15 database tables. Small files, one job each.
 
 ```
-server.js             Bootstrap, middleware, default accounts
+server.js             Bootstrap, middleware, scheduled tasks, default accounts
 lib/
   crypto.js           PQC crypto: ML-KEM-1024+P-384, XChaCha20, SHAKE256,
                       ML-DSA-87, SLH-DSA-SHAKE-256f, envelope versioning
@@ -499,11 +505,12 @@ lib/
   db.js               SQLite + auto field crypto + DB file encryption
   api-crypto.js       API payload XChaCha20-Poly1305 encrypt/decrypt
   session.js          Hybrid KEM encrypted cookies, LRU eviction
-  storage.js          Local/S3 + XChaCha20-Poly1305 file encryption
+  storage.js          Local/S3 + XChaCha20-Poly1305 file encryption + pre-signed URLs
   config.js           Settings from encrypted DB, env fallback
   audit.js            Audit logging with auto-sealed entries
   rate-limit.js       Per-IP rate limiting with proxy validation
-  email.js            SMTP + Resend API with quota tracking
+  ip-quota.js         Per-IP storage quota for anonymous uploads
+  email.js            SMTP + Resend API with dual failover + quota tracking
   router.js           HTTP server, routing, pre-compiled patterns
   multipart.js        Multipart + JSON body parser (shared accumulator)
   template.js         Custom template engine with caching
@@ -515,11 +522,21 @@ lib/
   zip.js              ZIP writer with Deflate compression
   expiry.js           File expiry cleanup
   scheduler.js        Task scheduler
+  webhook.js          Webhook dispatch queue
   vendor/             Vendored dependencies (argon2, noble-*, simplewebauthn)
 
-routes/               16 route files
-middleware/           9 files
-views/                18 templates
+app/
+  bootstrap/          Startup invariant checks
+  data/               Repositories + migration runner
+  domain/             Services (auth, uploads, teams, admin, webhooks, email)
+  http/               Request validators (upload magic bytes, auth, admin)
+  security/           CSRF, CORS, SSRF, scope, origin policies
+  jobs/               Background jobs (expiry, audit retention, webhook dispatch)
+  shared/             Errors, logger, validation helpers
+
+routes/               17 route files
+middleware/           11 files (auth, CORS, CSRF, API encryption, security headers)
+views/                22 templates
 public/               CSS, JS, logos, icons
 ```
 
