@@ -13,7 +13,7 @@ module.exports = function (app) {
     var keys = apiKeysRepo.findAll({});
     // Don't expose the hash
     var safe = keys.map(function(k) {
-      return { _id: k._id, name: k.name, prefix: k.prefix, permissions: k.permissions, userId: k.userId, lastUsed: k.lastUsed, createdAt: k.createdAt };
+      return { _id: k._id, name: k.name, prefix: k.prefix, permissions: k.permissions, userId: k.userId, lastUsed: k.lastUsed, createdAt: k.createdAt, boundStashId: k.boundStashId || null, boundBundleId: k.boundBundleId || null };
     });
     res.json({ keys: safe });
   });
@@ -36,12 +36,18 @@ module.exports = function (app) {
     var prefix = rawKey.substring(0, 7); // "hs_xxxx" for identification
     var keyHash = sha3Hash(rawKey);
 
+    // Optional resource scoping for sync tokens
+    var boundStashId = body.boundStashId ? String(body.boundStashId).trim() : null;
+    var boundBundleId = body.boundBundleId ? String(body.boundBundleId).trim() : null;
+
     apiKeysRepo.create({
       name: name,
       keyHash: keyHash,
       prefix: prefix,
       permissions: permissions,
       userId: req.user._id,
+      boundStashId: boundStashId,
+      boundBundleId: boundBundleId,
       createdAt: new Date().toISOString(),
     });
 

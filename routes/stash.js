@@ -218,13 +218,20 @@ module.exports = function (app) {
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
 
-    // If password-protected, verify session unlocked
-    if (stash.passwordHash && !req.session["stashUnlocked_" + slug]) {
-      return res.status(403).json({ error: "Stash page is locked." });
+    // Access check
+    if (isStashLocked(stash, req.session)) return res.status(403).json({ error: "Stash page is locked." });
+
+    // Sync-enabled stash: reuse persistent sync bundle
+    if (stash.syncEnabled === "true" && stash.syncBundleId) {
+      var syncBundle = bundlesRepo.findById(stash.syncBundleId);
+      if (syncBundle && syncBundle.bundleType === "sync") {
+        return res.json({ bundleId: syncBundle._id, shareId: syncBundle.shareId, finalizeToken: null, syncMode: true });
+      }
     }
 
     var body = await parseJson(req);
     var expiryDays = (stash.defaultExpiry && stash.defaultExpiry > 0) ? stash.defaultExpiry : config.fileExpiryDays;
+    var isSyncStash = stash.syncEnabled === "true";
 
     var result = await bundleService.initBundle({
       uploaderName: stash.name || "Anonymous",
@@ -233,7 +240,8 @@ module.exports = function (app) {
       password: null,
       message: body.message || null,
       bundleName: body.bundleName || null,
-      expiryDays: expiryDays,
+      bundleType: isSyncStash ? "sync" : "snapshot",
+      expiryDays: isSyncStash ? 0 : expiryDays,
       defaultExpiryDays: config.fileExpiryDays,
       fileCount: body.fileCount,
       skippedCount: body.skippedCount,
@@ -243,8 +251,13 @@ module.exports = function (app) {
     // Set stashId on the bundle
     bundlesRepo.update(result.bundleId, { $set: { stashId: stash._id } });
 
-    audit.log(audit.ACTIONS.BUNDLE_INITIALIZED, { targetId: result.bundleId, details: "stash: " + stash.slug + ", expected: " + (body.fileCount || 0), req: req });
-    res.json({ bundleId: result.bundleId, shareId: result.shareId, finalizeToken: result.finalizeToken });
+    // If sync-enabled, associate this as the persistent sync bundle
+    if (isSyncStash && !stash.syncBundleId) {
+      stashRepo.update(stash._id, { $set: { syncBundleId: result.bundleId } });
+    }
+
+    audit.log(audit.ACTIONS.BUNDLE_INITIALIZED, { targetId: result.bundleId, details: "stash: " + stash.slug + ", expected: " + (body.fileCount || 0) + (isSyncStash ? ", sync" : ""), req: req });
+    res.json({ bundleId: result.bundleId, shareId: result.shareId, finalizeToken: result.finalizeToken, syncMode: isSyncStash });
   });
 
   // Upload single file to stash bundle
@@ -363,6 +376,8 @@ module.exports = function (app) {
         hasPassword: !!p.passwordHash,
         allowedEmails: p.allowedEmails || "",
         accessMode: p.accessMode || "open",
+        syncEnabled: p.syncEnabled === "true",
+        syncBundleId: p.syncBundleId || null,
         maxFileSize: p.maxFileSize,
         maxFiles: p.maxFiles,
         maxBundleSize: p.maxBundleSize,
@@ -601,6 +616,11 @@ module.exports = function (app) {
         }
       }
 
+      // Sync mode toggle
+      if (body.syncEnabled !== undefined) {
+        updates.syncEnabled = body.syncEnabled === true || body.syncEnabled === "true" ? "true" : "false";
+      }
+
       // Recompute accessMode from current + updated state
       var finalPassword = updates.passwordHash !== undefined ? updates.passwordHash : stash.passwordHash;
       var finalEmails = updates.allowedEmails !== undefined ? updates.allowedEmails : stash.allowedEmails;
@@ -706,6 +726,40 @@ module.exports = function (app) {
     } catch (e) {
       logger.error("Stash delete error", { error: e.message || String(e) });
       res.status(500).json({ error: "Failed to delete stash page." });
+    }
+  });
+
+  // Generate a stash-scoped sync token
+  app.post("/admin/stash/:id/sync-token", async function (req, res) {
+    if (!requireAdmin(req, res)) return;
+    try {
+      var stash = stashRepo.findById(req.params.id);
+      if (!stash) return res.status(404).json({ error: "Stash page not found." });
+
+      var { generateToken } = require("../lib/crypto");
+      var { sha3Hash: sha3 } = require("../lib/crypto");
+      var apiKeysRepo = require("../app/data/repositories/apiKeys.repo");
+
+      var rawKey = "hs_" + generateToken(32);
+      var prefix = rawKey.substring(0, 7);
+      var keyHash = sha3(rawKey);
+
+      apiKeysRepo.create({
+        name: "Sync: " + (stash.name || stash.slug),
+        keyHash: keyHash,
+        prefix: prefix,
+        permissions: "sync,upload",
+        userId: req.user._id,
+        boundStashId: stash._id,
+        boundBundleId: null,
+        createdAt: new Date().toISOString(),
+      });
+
+      audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Stash sync token created: " + stash.slug, req: req });
+      res.json({ success: true, key: rawKey, prefix: prefix });
+    } catch (e) {
+      logger.error("Stash sync token error", { error: e.message || String(e) });
+      res.status(500).json({ error: "Failed to create sync token." });
     }
   });
 
