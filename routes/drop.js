@@ -51,6 +51,7 @@ module.exports = function (app) {
       uploaderName: rawName, uploaderEmail: rawEmail, ownerId: ownerId,
       password: body.password, message: body.message, bundleName: body.bundleName,
       allowedEmails: body.allowedEmails || null,
+      bundleType: body.bundleType || "snapshot",
       expiryDays: body.expiryDays, defaultExpiryDays: config.fileExpiryDays,
       fileCount: body.fileCount, skippedCount: body.skippedCount, skippedFiles: body.skippedFiles,
     });
@@ -63,7 +64,7 @@ module.exports = function (app) {
     if (!config.publicUpload) return res.status(403).json({ error: "Disabled." });
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
-      if (!bundle || bundle.status === "complete") return res.status(404).json({ error: "Bundle not found." });
+      if (!bundle || (bundle.status === "complete" && bundle.bundleType !== "sync")) return res.status(404).json({ error: "Bundle not found." });
       var limits = resolveUploadConfig(null);
       var { fields, files: uploaded } = await parseMultipart(req, limits.maxFileSize);
       var file = uploaded[0];
@@ -88,7 +89,7 @@ module.exports = function (app) {
     if (!config.publicUpload) return res.status(403).json({ error: "Disabled." });
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
-      if (!bundle || bundle.status === "complete") return res.status(404).json({ error: "Bundle not found." });
+      if (!bundle || (bundle.status === "complete" && bundle.bundleType !== "sync")) return res.status(404).json({ error: "Bundle not found." });
       var limits = resolveUploadConfig(null);
       var { fields, files: uploaded } = await parseMultipart(req, limits.maxFileSize);
       var chunk = uploaded[0];

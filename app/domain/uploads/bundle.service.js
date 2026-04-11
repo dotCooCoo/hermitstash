@@ -64,7 +64,9 @@ async function initBundle(opts) {
     skippedFiles: opts.skippedFiles || [],
     totalSize: 0,
     downloads: 0,
-    status: "uploading",
+    status: opts.bundleType === "sync" ? "complete" : "uploading",
+    bundleType: opts.bundleType === "sync" ? "sync" : "snapshot",
+    seq: 0,
     teamId: opts.teamId || null,
     bundleName: opts.bundleName ? (function() { var r = sanitizeRename(opts.bundleName, { maxLength: 200 }); return r.valid ? r.name : null; })() : null,
     allowedEmails: allowedEmails,
@@ -95,7 +97,7 @@ function checkStorageQuota(fileSize, maxStorageQuota) {
 function finalizeBundle(bundleId, token) {
   var bundle = bundlesRepo.findById(bundleId);
   if (!bundle) throw new NotFoundError("Bundle not found.");
-  if (bundle.status === "complete") throw new ValidationError("Already finalized.");
+  if (bundle.status === "complete" && bundle.bundleType !== "sync") throw new ValidationError("Already finalized.");
 
   // Verify finalize token
   var tokenHash = sha3Hash(token);
