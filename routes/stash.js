@@ -19,6 +19,44 @@ var bundleService = require("../app/domain/uploads/bundle.service");
 var uploadValidator = require("../app/http/validators/upload.validator");
 var requireAdmin = require("../middleware/require-admin");
 var { resolveUploadConfig, handleFileUpload, handleChunkUpload, handleFinalize } = require("../app/domain/uploads/upload.handler");
+var { sha3Hash } = require("../lib/crypto");
+var { HASH_PREFIX } = require("../lib/constants");
+var accessCodesRepo = require("../app/data/repositories/bundleAccessCodes.repo");
+var emailService = require("../lib/email");
+
+/**
+ * Check if a stash page is locked for the current session.
+ * Returns false (unlocked), "password", "email", or "email-then-password".
+ */
+function isStashLocked(stash, session) {
+  var mode = stash.accessMode || (stash.passwordHash ? "password" : "open");
+  if (mode === "open") return false;
+  var s = session["stashUnlocked_" + stash.slug];
+  if (mode === "password") return s ? false : "password";
+  if (mode === "email") return s ? false : "email";
+  if (mode === "both") {
+    if (!s) return "email";
+    if (typeof s === "object" && s.emailVerified && !s.passwordVerified) return "email-then-password";
+    return (s === true || (typeof s === "object" && s.passwordVerified)) ? false : "email";
+  }
+  return false;
+}
+
+/**
+ * Check if an email matches the stash's allowed list.
+ * Supports exact email (alice@example.com) and domain patterns (@example.com).
+ */
+function emailMatchesAllowedList(email, allowedEmails) {
+  if (!allowedEmails) return false;
+  var list = allowedEmails.split(",").map(function (e) { return e.trim().toLowerCase(); }).filter(Boolean);
+  var emailLower = email.toLowerCase();
+  var domain = "@" + emailLower.split("@")[1];
+  for (var i = 0; i < list.length; i++) {
+    if (list[i] === emailLower) return true;
+    if (list[i].startsWith("@") && list[i] === domain) return true;
+  }
+  return false;
+}
 
 module.exports = function (app) {
 
@@ -32,13 +70,23 @@ module.exports = function (app) {
       return send(res, "error", { user: req.user || null, title: "Not Found", message: "This page doesn't exist or has been disabled." }, 404);
     }
 
-    // Password protection check
-    if (stash.passwordHash && !req.session["stashUnlocked_" + slug]) {
+    // Access protection (password, email, or both)
+    var locked = isStashLocked(stash, req.session);
+    if (locked === "email") {
+      return send(res, "bundle-email-gate", {
+        user: req.user || null,
+        shareId: stash.slug,
+        requestCodeAction: "/stash/" + stash.slug + "/request-code",
+        verifyCodeAction: "/stash/" + stash.slug + "/verify-code",
+      });
+    }
+    if (locked === "password" || locked === "email-then-password") {
       return send(res, "bundle-locked", {
         user: req.user || null,
         shareId: stash.slug,
         unlockAction: "/stash/" + stash.slug + "/unlock",
         title: stash.title || config.dropTitle,
+        emailVerified: locked === "email-then-password",
       });
     }
 
@@ -80,11 +128,104 @@ module.exports = function (app) {
 
     var valid = await verifyPassword(password, stash.passwordHash);
     if (valid) {
-      req.session["stashUnlocked_" + slug] = true;
+      var mode = stash.accessMode || "password";
+      if (mode === "both") {
+        var prev = req.session["stashUnlocked_" + slug];
+        req.session["stashUnlocked_" + slug] = { emailVerified: (prev && prev.emailVerified) || true, passwordVerified: true };
+      } else {
+        req.session["stashUnlocked_" + slug] = true;
+      }
       return res.json({ success: true });
     }
 
     return res.status(401).json({ error: "Incorrect password." });
+  });
+
+  // Request email access code for stash page
+  app.post("/stash/:slug/request-code", rateLimit.middleware("stash-email-code", 5, 300000), async function (req, res) {
+    var stash = stashRepo.findBySlug(req.params.slug);
+    if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
+
+    var body = await parseJson(req);
+    var email = String(body.email || "").trim().toLowerCase();
+    var { validateEmail } = require("../app/shared/validate");
+    if (!validateEmail(email).valid) return res.status(400).json({ error: "Valid email required." });
+
+    var genericMsg = "If this email has access, a code has been sent.";
+    var mode = stash.accessMode || "open";
+    if (mode !== "email" && mode !== "both") return res.json({ success: true, message: genericMsg });
+
+    // Check if email matches allowed list (supports @domain patterns)
+    if (!emailMatchesAllowedList(email, stash.allowedEmails)) {
+      return res.json({ success: true, message: genericMsg });
+    }
+
+    // Rate limit per email+stash: max 3 codes in 10 minutes
+    var emailHash = sha3Hash(HASH_PREFIX.EMAIL + email);
+    var tenMinAgo = new Date(Date.now() - 600000).toISOString();
+    var recentCount = accessCodesRepo.countRecentCodes("stash:" + stash._id, emailHash, tenMinAgo);
+    if (recentCount >= 3) return res.json({ success: true, message: genericMsg });
+
+    accessCodesRepo.invalidatePending("stash:" + stash._id, emailHash);
+
+    var crypto = require("crypto");
+    var code = String(crypto.randomInt(0, 1000000)).padStart(6, "0");
+
+    accessCodesRepo.create({
+      bundleShareId: "stash:" + stash._id,
+      email: email,
+      code: code,
+      attempts: 0,
+      status: "pending",
+      expiresAt: new Date(Date.now() + 600000).toISOString(),
+      createdAt: new Date().toISOString(),
+    });
+
+    try {
+      await emailService.sendBundleAccessCode({
+        to: email, code: code,
+        bundleName: stash.name || stash.title || null,
+        senderName: null, expiresMinutes: 10,
+      });
+      audit.log(audit.ACTIONS.BUNDLE_ACCESS_CODE_SENT, { details: "stash: " + stash.slug, req: req });
+    } catch (e) { logger.error("Stash access code email failed", { error: e.message || String(e) }); }
+
+    res.json({ success: true, message: genericMsg });
+  });
+
+  // Verify email access code for stash page
+  app.post("/stash/:slug/verify-code", rateLimit.middleware("stash-verify-code", 10, 900000), async function (req, res) {
+    var stash = stashRepo.findBySlug(req.params.slug);
+    if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
+
+    var body = await parseJson(req);
+    var email = String(body.email || "").trim().toLowerCase();
+    var code = String(body.code || "").trim();
+    if (!email || !code) return res.status(400).json({ error: "Email and code required." });
+
+    var emailHash = sha3Hash(HASH_PREFIX.EMAIL + email);
+    var codeRecord = accessCodesRepo.findPendingCode("stash:" + stash._id, emailHash);
+    if (!codeRecord) return res.status(401).json({ error: "Invalid or expired code." });
+    if (codeRecord.attempts >= 5) return res.status(429).json({ error: "Too many attempts. Request a new code." });
+
+    var submittedHash = sha3Hash(HASH_PREFIX.ACCESS_CODE + code);
+    if (submittedHash !== codeRecord.codeHash) {
+      accessCodesRepo.update(codeRecord._id, { $set: { attempts: codeRecord.attempts + 1 } });
+      audit.log(audit.ACTIONS.BUNDLE_ACCESS_CODE_FAILED, { details: "stash: " + stash.slug + ", attempts: " + (codeRecord.attempts + 1), req: req });
+      return res.status(401).json({ error: "Incorrect code." });
+    }
+
+    accessCodesRepo.update(codeRecord._id, { $set: { status: "used" } });
+
+    var mode = stash.accessMode || "email";
+    if (mode === "both") {
+      req.session["stashUnlocked_" + stash.slug] = { emailVerified: email, passwordVerified: false };
+    } else {
+      req.session["stashUnlocked_" + stash.slug] = email;
+    }
+
+    audit.log(audit.ACTIONS.BUNDLE_ACCESS_CODE_VERIFIED, { details: "stash: " + stash.slug + ", email verified", req: req });
+    res.json({ success: true, needsPassword: mode === "both" });
   });
 
   // Init bundle from stash page
@@ -127,7 +268,7 @@ module.exports = function (app) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
-    if (stash.passwordHash && !req.session["stashUnlocked_" + slug]) return res.status(403).json({ error: "Stash page is locked." });
+    if (isStashLocked(stash, req.session)) return res.status(403).json({ error: "Stash page is locked." });
 
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
@@ -158,7 +299,7 @@ module.exports = function (app) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
-    if (stash.passwordHash && !req.session["stashUnlocked_" + slug]) return res.status(403).json({ error: "Stash page is locked." });
+    if (isStashLocked(stash, req.session)) return res.status(403).json({ error: "Stash page is locked." });
 
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
@@ -189,7 +330,7 @@ module.exports = function (app) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
-    if (stash.passwordHash && !req.session["stashUnlocked_" + slug]) return res.status(403).json({ error: "Stash page is locked." });
+    if (isStashLocked(stash, req.session)) return res.status(403).json({ error: "Stash page is locked." });
 
     var existingBundle = bundlesRepo.findById(req.params.bundleId);
     if (!existingBundle) return res.status(404).json({ error: "Bundle not found." });
@@ -236,6 +377,8 @@ module.exports = function (app) {
         accentColor: p.accentColor,
         logoUrl: p.logoUrl,
         hasPassword: !!p.passwordHash,
+        allowedEmails: p.allowedEmails || "",
+        accessMode: p.accessMode || "open",
         maxFileSize: p.maxFileSize,
         maxFiles: p.maxFiles,
         maxBundleSize: p.maxBundleSize,
@@ -362,6 +505,19 @@ module.exports = function (app) {
         passwordHash = await hashPassword(pw);
       }
 
+      // Email-gated access: clean allowed emails/domains
+      var allowedEmails = null;
+      if (body.allowedEmails) {
+        var cleaned = String(body.allowedEmails).split(",")
+          .map(function (e) { return e.trim().toLowerCase(); })
+          .filter(function (e) { return e && (e.startsWith("@") ? e.length > 1 : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)); });
+        if (cleaned.length > 0) allowedEmails = cleaned.join(",");
+      }
+
+      var hasPassword = !!passwordHash;
+      var hasEmailGate = !!allowedEmails;
+      var accessMode = hasPassword && hasEmailGate ? "both" : hasPassword ? "password" : hasEmailGate ? "email" : "open";
+
       var doc = {
         slug: slug,
         name: name,
@@ -370,6 +526,8 @@ module.exports = function (app) {
         accentColor: (function(c) { c = String(c || "").trim(); return /^#[0-9a-fA-F]{3,8}$/.test(c) ? c : ""; })(body.accentColor),
         logoUrl: (function(u) { u = String(u || "").trim().slice(0, 500); return (u && !u.startsWith("https://") && !u.startsWith("/")) ? "" : u; })(body.logoUrl),
         passwordHash: passwordHash,
+        allowedEmails: allowedEmails,
+        accessMode: accessMode,
         maxFileSize: parseInt(body.maxFileSize, 10) || 0,
         maxFiles: parseInt(body.maxFiles, 10) || 0,
         maxBundleSize: parseInt(body.maxBundleSize, 10) || 0,
@@ -444,8 +602,27 @@ module.exports = function (app) {
           if (pw.trim().length < 4) return res.status(400).json({ error: "Password must be at least 4 characters." });
           updates.passwordHash = await hashPassword(pw.trim());
         }
-        // If "********", keep existing — don't include in updates
       }
+
+      // Email-gated access
+      if (body.allowedEmails !== undefined) {
+        var rawEmails = String(body.allowedEmails).trim();
+        if (!rawEmails) {
+          updates.allowedEmails = null;
+        } else {
+          var cleaned = rawEmails.split(",")
+            .map(function (e) { return e.trim().toLowerCase(); })
+            .filter(function (e) { return e && (e.startsWith("@") ? e.length > 1 : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)); });
+          updates.allowedEmails = cleaned.length > 0 ? cleaned.join(",") : null;
+        }
+      }
+
+      // Recompute accessMode from current + updated state
+      var finalPassword = updates.passwordHash !== undefined ? updates.passwordHash : stash.passwordHash;
+      var finalEmails = updates.allowedEmails !== undefined ? updates.allowedEmails : stash.allowedEmails;
+      var hasPass = !!finalPassword;
+      var hasEmail = !!finalEmails;
+      updates.accessMode = hasPass && hasEmail ? "both" : hasPass ? "password" : hasEmail ? "email" : "open";
 
       stashRepo.update(stash._id, { $set: updates });
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Stash page updated: " + (updates.slug || stash.slug), req: req });

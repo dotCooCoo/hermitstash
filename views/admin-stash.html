@@ -65,6 +65,7 @@
             <input type="hidden" id="seLogoUrl" value="">
           </div>
           <div><label class="input-label">Password <span style="color:var(--muted);font-weight:400">(blank = remove)</span></label><input type="password" class="text-input" id="sePassword" placeholder="********"></div>
+          <div style="grid-column:1/-1"><label class="input-label">Restrict to emails/domains <span style="color:var(--muted);font-weight:400">(blank = open, use @domain.com for entire domains)</span></label><input type="text" class="text-input" id="seAllowedEmails" placeholder="alice@example.com, @acme.com"></div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
           <div><label class="input-label">Max File Size</label><div class="size-input-group"><input type="number" class="text-input" id="seMaxFileSize" min="0" step="1"><select class="text-input size-unit" id="seMaxFileSizeUnit"><option value="1048576">MB</option><option value="1073741824">GB</option></select></div></div>
@@ -101,6 +102,7 @@ function loadStash(){
       html+='<div class="admin-user-info" style="flex:1"><div class="admin-user-avatar" style="'+(sf?'background:'+sf+'20;border-color:'+sf+'40':'')+'"><span class="admin-user-initial" style="'+(sf?'color:'+sf:'')+'">'+esc((p.name||p.slug).charAt(0).toUpperCase())+'</span></div>';
       html+='<div><div class="admin-user-name">'+esc(p.name||p.slug)+'</div><div class="admin-user-email"><a href="/stash/'+esc(p.slug)+'" target="_blank" style="color:var(--main-color);font-family:monospace;font-size:.8rem">/stash/'+esc(p.slug)+'</a>';
       if(p.hasPassword)html+=' <span style="color:var(--muted);font-size:.7rem" title="Password protected">&#128274;</span>';
+      if(p.allowedEmails)html+=' <span style="color:var(--muted);font-size:.7rem" title="Email restricted: '+esc(p.allowedEmails)+'">&#9993;</span>';
       html+='</div></div></div><div class="admin-user-meta"><span class="badge '+sc+'">'+st+'</span><span class="admin-user-date">'+(p.bundleCount||0)+' uploads</span>';
       if(p.totalBytes>0)html+='<span class="admin-user-date">'+formatSize(p.totalBytes)+'</span>';
       html+='</div><div class="admin-user-actions">';
@@ -133,6 +135,7 @@ function openStashModal(p){
   document.getElementById('seColor').value=(p&&p.accentColor)||'#8B5CF6';
   document.getElementById('seColorText').value=(p&&p.accentColor)||'#8B5CF6';
   document.getElementById('sePassword').value=(p&&p.hasPassword)?'********':'';
+  document.getElementById('seAllowedEmails').value=(p&&p.allowedEmails)||'';
   var mfs=(p&&p.maxFileSize)||0;
   if(mfs>=1073741824){document.getElementById('seMaxFileSize').value=Math.round(mfs/1073741824);document.getElementById('seMaxFileSizeUnit').value='1073741824'}
   else{document.getElementById('seMaxFileSize').value=Math.round(mfs/1048576);document.getElementById('seMaxFileSizeUnit').value='1048576'}
@@ -157,7 +160,7 @@ function saveStashEdit(){
   if(!slug&&!isEdit)slug=name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,50);
   var mfsVal=parseFloat(document.getElementById('seMaxFileSize').value)||0;
   var mfsUnit=parseInt(document.getElementById('seMaxFileSizeUnit').value)||1048576;
-  var body={name:name,slug:slug,title:document.getElementById('seTitle').value.trim(),subtitle:document.getElementById('seSubtitle').value.trim(),accentColor:document.getElementById('seColorText').value.trim()||document.getElementById('seColor').value,password:document.getElementById('sePassword').value,maxFileSize:Math.round(mfsVal*mfsUnit),maxFiles:parseInt(document.getElementById('seMaxFiles').value)||0,defaultExpiry:parseInt(document.getElementById('seExpiry').value)||0,allowedExtensions:document.getElementById('seAllowedExtensions').value.trim()};
+  var body={name:name,slug:slug,title:document.getElementById('seTitle').value.trim(),subtitle:document.getElementById('seSubtitle').value.trim(),accentColor:document.getElementById('seColorText').value.trim()||document.getElementById('seColor').value,password:document.getElementById('sePassword').value,allowedEmails:document.getElementById('seAllowedEmails').value.trim(),maxFileSize:Math.round(mfsVal*mfsUnit),maxFiles:parseInt(document.getElementById('seMaxFiles').value)||0,defaultExpiry:parseInt(document.getElementById('seExpiry').value)||0,allowedExtensions:document.getElementById('seAllowedExtensions').value.trim()};
   var btn=document.getElementById('seSubmitBtn');var msg=document.getElementById('stashEditMsg');
   btn.disabled=true;btn.querySelector('span').textContent=isEdit?'Saving...':'Creating...';
   fetch(isEdit?'/admin/stash/'+_stashEditId+'/update':'/admin/stash/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json()}).then(function(d){
