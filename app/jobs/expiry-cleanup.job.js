@@ -60,4 +60,14 @@ async function cleanupStaleBundles() {
   return removed;
 }
 
-module.exports = { cleanupExpiredFiles, cleanupStaleBundles };
+/**
+ * Clean up expired bundle access codes (older than 1 hour).
+ */
+function cleanupExpiredAccessCodes() {
+  try {
+    var accessCodesRepo = require("../data/repositories/bundleAccessCodes.repo");
+    return accessCodesRepo.cleanupExpired();
+  } catch (_e) { return 0; }
+}
+
+module.exports = { cleanupExpiredFiles, cleanupStaleBundles, cleanupExpiredAccessCodes };

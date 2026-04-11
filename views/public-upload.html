@@ -84,6 +84,10 @@
             <label class="input-label">Password <span style="opacity:.4">(optional)</span></label>
             <input type="password" id="bundlePassword" class="text-input" placeholder="Leave empty for none">
           </div>
+          <div class="drop-field" style="grid-column:1/-1">
+            <label class="input-label">Restrict to emails <span style="opacity:.4">(optional — only these people can view)</span></label>
+            <input type="text" id="bundleAllowedEmails" class="text-input" placeholder="alice@example.com, bob@example.com">
+          </div>
         </div>
         {% } else { %}
         <h3 class="drop-step-title">Who's <span class="fw-200">sending?</span></h3>
@@ -124,6 +128,10 @@
             <div class="drop-field">
               <label class="input-label">Password <span style="opacity:.4">(optional)</span></label>
               <input type="password" id="bundlePassword" class="text-input" placeholder="Leave empty for none">
+            </div>
+            <div class="drop-field" style="grid-column:1/-1">
+              <label class="input-label">Restrict to emails <span style="opacity:.4">(optional — only these people can view)</span></label>
+              <input type="text" id="bundleAllowedEmails" class="text-input" placeholder="alice@example.com, bob@example.com">
             </div>
           </div>
         </div>
@@ -606,14 +614,16 @@ async function startUpload(){
 
   uploadPaused=false;uploadCancelled=false;activeControllers=[];
 
-  // Init bundle with password, message, expiry
+  // Init bundle with password, message, expiry, email restriction
   var password=document.getElementById('bundlePassword').value;
   var message=document.getElementById('bundleMessage').value.trim();
   var expiryDays=parseInt(document.getElementById('bundleExpiry').value,10)||0;
   var bundleNameEl=document.getElementById('bundleName');
   var bundleName=bundleNameEl?bundleNameEl.value.trim():'';
+  var allowedEmailsEl=document.getElementById('bundleAllowedEmails');
+  var allowedEmails=allowedEmailsEl?allowedEmailsEl.value.trim():'';
 
-  var ir=await fetch(uploadBase+'/init',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uploaderName:name,uploaderEmail:email||null,password:password||null,message:message||null,bundleName:bundleName||null,expiryDays:expiryDays,fileCount:toUpload.length,skippedCount:skipped.length,skippedFiles:skipped.map(function(f){return{path:f.rel,reason:f.reason}})})});
+  var ir=await fetch(uploadBase+'/init',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uploaderName:name,uploaderEmail:email||null,password:password||null,message:message||null,bundleName:bundleName||null,allowedEmails:allowedEmails||null,expiryDays:expiryDays,fileCount:toUpload.length,skippedCount:skipped.length,skippedFiles:skipped.map(function(f){return{path:f.rel,reason:f.reason}})})});
   var bd=await ir.json();var bundleId=bd.bundleId;var finalizeToken=bd.finalizeToken;
 
   // Concurrent queue with per-file status

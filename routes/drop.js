@@ -64,6 +64,7 @@ module.exports = function (app) {
       password: body.password,
       message: body.message,
       bundleName: body.bundleName,
+      allowedEmails: body.allowedEmails || null,
       expiryDays: body.expiryDays,
       defaultExpiryDays: config.fileExpiryDays,
       fileCount: body.fileCount,
