@@ -155,6 +155,8 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | CSV formula injection | Export values sanitized to prevent spreadsheet code execution |
 | DNS rebinding via webhooks | Pre-validated IP pinned to outbound connection |
 | SSRF via webhooks | Blocks localhost, RFC 1918, RFC 6598 CGNAT, link-local, IPv6 private ranges |
+| Disguised file uploads | Magic byte validation rejects files whose content doesn't match extension |
+| Anonymous storage abuse | Per-IP upload quota with 24-hour rolling window |
 | NPM supply chain | All dependencies vendored as committed bundles — zero npm runtime packages |
 
 Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f via OpenSSL 3.5, XChaCha20-Poly1305 and SHAKE256 via vendored @noble/ciphers and @noble/hashes, Argon2id via vendored native prebuilds, WebAuthn via vendored @simplewebauthn/server, and built-in SQLite via `node:sqlite`. Zero npm runtime dependencies.
@@ -183,6 +185,7 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Password-protected share links with exponential backoff lockout (2^n × 30s after 5 failed attempts)
 - Custom expiry per bundle (1d, 7d, 30d, 90d, never)
 - Bundle messages, multiple recipient emails
+- Magic byte content validation -- uploaded files verified against claimed extension (15 format signatures)
 - File preview with SVG sanitization, HTML/JS forced download
 - Shareable links -- browse folders or download as ZIP
 - Subfolder ZIP download -- download individual subdirectories from a bundle
@@ -221,7 +224,7 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Danger Zone -- factory reset, purge all sessions, purge all users, purge all files (typed confirmation required)
 - Custom logo upload with magic-byte validation and SVG sanitization
 - Reverse proxy auto-detection with config snippet generator (nginx, Caddy, Apache)
-- Per-user storage quotas (separate from global quota)
+- Per-user storage quotas (separate from global quota) and per-IP public upload quota (24h rolling window)
 - Configurable upload concurrency, retry count, timeout, and file extension allowlist
 - Admin email list for auto-promoting OAuth users to admin role
 - Maintenance mode -- blocks non-admin access with 503 page
