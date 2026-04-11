@@ -7,10 +7,11 @@
  *   "upload"   — create bundles, upload files
  *   "read"     — list files, download files, view bundles
  *   "webhook"  — manage webhooks
+ *   "sync"     — connect WebSocket, upload/replace/delete files in sync bundles
  *   "*"        — all scopes (alias for admin)
  */
 
-var VALID_SCOPES = ["admin", "upload", "read", "webhook"];
+var VALID_SCOPES = ["admin", "upload", "read", "webhook", "sync"];
 
 /**
  * Parse a permissions string into a set of scopes.

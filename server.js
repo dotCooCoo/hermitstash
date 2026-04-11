@@ -195,19 +195,272 @@ scheduler.register("incremental_vacuum", 86400000, function () { // daily
 });
 scheduler.start();
 
+// TLS configuration — conditional HTTPS with PQC hybrid key exchange
+var TLS_CERT = process.env.TLS_CERT || "/app/data/tls/fullchain.pem";
+var TLS_KEY = process.env.TLS_KEY || "/app/data/tls/privkey.pem";
+var tlsOptions = null;
+var tlsEnabled = false;
+
+if (fs.existsSync(TLS_CERT) && fs.existsSync(TLS_KEY)) {
+  try {
+    tlsOptions = {
+      cert: fs.readFileSync(TLS_CERT),
+      key: fs.readFileSync(TLS_KEY),
+      groups: ["X25519MLKEM768", "SecP256r1MLKEM768"],
+      minVersion: "TLSv1.3",
+    };
+    tlsEnabled = true;
+    logger.info("[TLS] PQC TLS enabled", { groups: "X25519MLKEM768 + SecP256r1MLKEM768" });
+  } catch (e) {
+    logger.error("[TLS] Failed to load certificates", { error: e.message });
+  }
+} else {
+  logger.warn("[TLS] No certificate found — starting in HTTP mode (no PQC protection)", { certPath: TLS_CERT });
+}
+
 // Start
+var protocol = tlsEnabled ? "https" : "http";
 const server = app.listen(config.port, () => {
   logger.info("HermitStash is running", {
-    url: "http://localhost:" + config.port,
+    url: protocol + "://localhost:" + config.port,
+    tls: tlsEnabled ? "PQC (X25519MLKEM768)" : "disabled",
     storage: config.storage.backend + " -> " + storage.uploadDir,
     email: config.email.host || "disabled",
     auth: (config.localAuth ? "local" : "") + (config.localAuth && config.google.clientID ? " + " : "") + (config.google.clientID ? "google" : ""),
     timeout: config.uploadTimeout / 1000 + "s",
     concurrency: config.uploadConcurrency,
   });
-  audit.log(audit.ACTIONS.SERVER_STARTED, { performedBy: "system", details: "port: " + config.port + ", storage: " + config.storage.backend });
-});
+  audit.log(audit.ACTIONS.SERVER_STARTED, { performedBy: "system", details: "port: " + config.port + ", tls: " + (tlsEnabled ? "pqc" : "none") + ", storage: " + config.storage.backend });
+}, tlsOptions);
 server.timeout = config.uploadTimeout;
+
+// Certificate reload on renewal (Let's Encrypt certs update on disk)
+if (tlsEnabled) {
+  fs.watchFile(TLS_CERT, { interval: 3600000 }, function () {
+    try {
+      server.setSecureContext({
+        cert: fs.readFileSync(TLS_CERT),
+        key: fs.readFileSync(TLS_KEY),
+        groups: ["X25519MLKEM768", "SecP256r1MLKEM768"],
+        minVersion: "TLSv1.3",
+      });
+      logger.info("[TLS] Certificate reloaded");
+    } catch (e) {
+      logger.error("[TLS] Certificate reload failed", { error: e.message });
+    }
+  });
+}
+
+// ---- WebSocket Sync Channel ----
+var { acceptUpgrade, rejectUpgrade } = require("./lib/ws");
+var syncEmitter = require("./lib/sync-emitter");
+var bundlesRepo = require("./app/data/repositories/bundles.repo");
+var filesRepo = require("./app/data/repositories/files.repo");
+
+// Connection registry: Map<bundleId, Set<{ws, apiKeyId}>>
+var syncConnections = new Map();
+// Per-API-key connection count
+var apiKeyConnectionCount = new Map();
+
+var SYNC_MAX_CONNECTIONS_PER_KEY = 5;
+var SYNC_HEARTBEAT_INTERVAL = 30000;
+var SYNC_MAX_MESSAGES_PER_MIN = 60;
+var SYNC_MAX_MESSAGE_SIZE = 65536;
+
+server.on("upgrade", function (req, socket, head) {
+  // Parse URL
+  var url = require("node:url");
+  var parsed = url.parse(req.url, true);
+  if (parsed.pathname !== "/sync/ws") {
+    // Not a sync WebSocket — ignore (let other handlers take it, or close)
+    socket.destroy();
+    return;
+  }
+
+  // Auth: Bearer token from header or ?token= query param
+  var token = null;
+  var authHeader = req.headers.authorization || "";
+  if (authHeader.startsWith("Bearer ")) {
+    token = authHeader.slice(7).trim();
+  } else if (parsed.query.token) {
+    token = String(parsed.query.token);
+  }
+
+  if (!token) {
+    return rejectUpgrade(socket, 401, "Unauthorized");
+  }
+
+  // Validate API key using the same mechanism as api-auth middleware
+  var { sha3Hash: sha3 } = require("./lib/crypto");
+  var apiKeysDb = require("./lib/db").apiKeys;
+  var usersRepo = require("./app/data/repositories/users.repo");
+  var keyHash = sha3(token);
+  var apiKey = apiKeysDb.findOne({ keyHash: keyHash });
+  if (!apiKey) {
+    return rejectUpgrade(socket, 401, "Unauthorized");
+  }
+
+  // Check sync scope
+  var { hasScope } = require("./app/security/scope-policy");
+  if (!hasScope(apiKey, "sync") && !hasScope(apiKey, "admin")) {
+    return rejectUpgrade(socket, 403, "Forbidden");
+  }
+
+  var user = usersRepo.findById(apiKey.userId);
+  if (!user || user.status !== "active") {
+    return rejectUpgrade(socket, 403, "Forbidden");
+  }
+
+  // Validate bundleId
+  var bundleId = parsed.query.bundleId;
+  if (!bundleId) {
+    return rejectUpgrade(socket, 400, "Bad Request");
+  }
+  var bundle = bundlesRepo.findById(bundleId);
+  if (!bundle || bundle.bundleType !== "sync") {
+    return rejectUpgrade(socket, 404, "Not Found");
+  }
+  // Ownership check: must be the key's user or admin
+  if (bundle.ownerId !== user._id && user.role !== "admin") {
+    return rejectUpgrade(socket, 403, "Forbidden");
+  }
+
+  // Connection limit per API key
+  var keyId = apiKey._id;
+  var keyCount = apiKeyConnectionCount.get(keyId) || 0;
+  if (keyCount >= SYNC_MAX_CONNECTIONS_PER_KEY) {
+    return rejectUpgrade(socket, 429, "Too Many Requests");
+  }
+
+  // Validate since param
+  var since = parseInt(parsed.query.since, 10);
+  if (isNaN(since) || since < 0) since = 0;
+
+  // Complete WebSocket handshake
+  var ws = acceptUpgrade(req, socket, head);
+  if (!ws) {
+    return rejectUpgrade(socket, 400, "Bad Request");
+  }
+
+  // Register connection
+  if (!syncConnections.has(bundleId)) syncConnections.set(bundleId, new Set());
+  var connEntry = { ws: ws, apiKeyId: keyId };
+  syncConnections.get(bundleId).add(connEntry);
+  apiKeyConnectionCount.set(keyId, keyCount + 1);
+
+  // Inbound message rate limiting
+  var msgCount = 0;
+  var msgResetTimer = setInterval(function () { msgCount = 0; }, 60000);
+  var violations = 0;
+
+  // Catch-up: send events since the given seq
+  if (since > 0) {
+    var catchupFiles = filesRepo.findAll({ bundleId: bundle._id })
+      .filter(function (f) { return (f.seq || 0) > since; })
+      .sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
+    for (var i = 0; i < catchupFiles.length; i++) {
+      var f = catchupFiles[i];
+      var evType = f.deletedAt ? "file_removed" : "file_added";
+      var ev = { type: evType, fileId: f._id, relativePath: f.relativePath, seq: f.seq || 0 };
+      if (!f.deletedAt) { ev.checksum = f.checksum; ev.size = f.size; }
+      ws.send(JSON.stringify(ev));
+    }
+  }
+  // Signal catch-up complete
+  ws.send(JSON.stringify({ type: "heartbeat", seq: bundle.seq || 0, timestamp: new Date().toISOString() }));
+
+  // Real-time event listener
+  var syncListener = function (event) {
+    try { ws.send(JSON.stringify(event)); } catch (_e) {}
+  };
+  syncEmitter.on("sync:" + bundleId, syncListener);
+
+  // Heartbeat interval
+  var heartbeatTimer = setInterval(function () {
+    try {
+      var freshBundle = bundlesRepo.findById(bundleId);
+      ws.send(JSON.stringify({ type: "heartbeat", seq: freshBundle ? freshBundle.seq || 0 : 0, timestamp: new Date().toISOString() }));
+      ws.ping();
+    } catch (_e) {}
+  }, SYNC_HEARTBEAT_INTERVAL);
+
+  // Pong timeout detection
+  var pongReceived = true;
+  var pongCheckTimer = setInterval(function () {
+    if (!pongReceived) {
+      ws.close(1001, "Pong timeout");
+      return;
+    }
+    pongReceived = false;
+  }, SYNC_HEARTBEAT_INTERVAL);
+
+  ws.on("pong", function () { pongReceived = true; });
+
+  // Inbound message handling
+  ws.on("message", function (data) {
+    msgCount++;
+    if (msgCount > SYNC_MAX_MESSAGES_PER_MIN) {
+      violations++;
+      ws.send(JSON.stringify({ type: "error", code: "rate_limited", message: "Too many messages", retryAfter: 60 }));
+      if (violations >= 3) { ws.close(1008, "Rate limit exceeded"); }
+      return;
+    }
+    if (data.length > SYNC_MAX_MESSAGE_SIZE) {
+      ws.send(JSON.stringify({ type: "error", code: "message_too_large", message: "Max 64KB per message" }));
+      return;
+    }
+    try {
+      var msg = JSON.parse(data);
+      if (!msg || !msg.type) {
+        ws.send(JSON.stringify({ type: "error", code: "invalid_json", message: "Missing type field" }));
+        return;
+      }
+      if (msg.type === "ack") {
+        // Client acknowledges receipt — no server action needed in v1
+      } else if (msg.type === "catch_up") {
+        var catchSince = parseInt(msg.since, 10) || 0;
+        var files = filesRepo.findAll({ bundleId: bundle._id })
+          .filter(function (f) { return (f.seq || 0) > catchSince; })
+          .sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
+        for (var j = 0; j < files.length; j++) {
+          var cf = files[j];
+          var t = cf.deletedAt ? "file_removed" : "file_added";
+          var e = { type: t, fileId: cf._id, relativePath: cf.relativePath, seq: cf.seq || 0 };
+          if (!cf.deletedAt) { e.checksum = cf.checksum; e.size = cf.size; }
+          ws.send(JSON.stringify(e));
+        }
+        var fb = bundlesRepo.findById(bundleId);
+        ws.send(JSON.stringify({ type: "heartbeat", seq: fb ? fb.seq || 0 : 0, timestamp: new Date().toISOString() }));
+      } else if (msg.type === "ping") {
+        var pb = bundlesRepo.findById(bundleId);
+        ws.send(JSON.stringify({ type: "heartbeat", seq: pb ? pb.seq || 0 : 0, timestamp: new Date().toISOString() }));
+      } else {
+        ws.send(JSON.stringify({ type: "error", code: "unknown_type", message: "Unrecognized message type: " + msg.type }));
+      }
+    } catch (_e) {
+      ws.send(JSON.stringify({ type: "error", code: "invalid_json", message: "Invalid JSON" }));
+    }
+  });
+
+  // Cleanup on close
+  ws.on("close", function () {
+    syncEmitter.off("sync:" + bundleId, syncListener);
+    clearInterval(heartbeatTimer);
+    clearInterval(pongCheckTimer);
+    clearInterval(msgResetTimer);
+    if (syncConnections.has(bundleId)) {
+      syncConnections.get(bundleId).delete(connEntry);
+      if (syncConnections.get(bundleId).size === 0) syncConnections.delete(bundleId);
+    }
+    var currentCount = apiKeyConnectionCount.get(keyId) || 0;
+    if (currentCount > 1) apiKeyConnectionCount.set(keyId, currentCount - 1);
+    else apiKeyConnectionCount.delete(keyId);
+  });
+
+  // Strip token from logged URL
+  var logUrl = parsed.pathname + "?bundleId=" + bundleId + "&since=" + since;
+  logger.info("[Sync] WebSocket connected", { bundleId: bundleId, user: user._id, url: logUrl });
+});
 
 // Graceful shutdown — stop accepting connections, drain in-flight requests, then exit
 var shuttingDown = false;

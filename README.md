@@ -275,6 +275,12 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Structured audit log events for file mutations (JSON details with action, bundleId, checksum, size)
 - Shared access control middleware (`require-access.js`) -- centralized lock checks for bundles and stash
 - JSON-aware auth -- API/sync clients receive 401 JSON, browsers get login redirect
+- WebSocket sync channel -- `GET /sync/ws` with auth during upgrade handshake, scoped to single bundle
+- Real-time file change events over WebSocket (file_added, file_replaced, file_removed, heartbeat)
+- Catch-up on reconnect via seq cursor (`?since=N` on WebSocket upgrade)
+- PQC TLS -- conditional HTTPS with X25519MLKEM768 + SecP256r1MLKEM768 hybrid key exchange (TLS 1.3 only)
+- Certificate auto-reload on Let's Encrypt renewal (hourly file poll)
+- New `sync` API key scope for WebSocket connections and sync bundle operations
 
 **Security Hardening**
 - Security headers on all responses (CSP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy, COOP, CORP)
