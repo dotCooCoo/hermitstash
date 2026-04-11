@@ -4,6 +4,12 @@
   <div class="auth-card">
     <div class="auth-logo"><img src="{{{brand.logo}}}" alt="" class="auth-logo-img"></div>
     <h2 class="auth-title">Protected <span style="font-weight:200">Bundle</span></h2>
+    {% if (typeof emailVerified !== 'undefined' && emailVerified) { %}
+    <div style="display:flex;align-items:center;gap:6px;justify-content:center;margin-bottom:12px;font-size:.82rem;color:var(--main-color)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+      Email verified
+    </div>
+    {% } %}
     <p class="auth-desc">This bundle is password-protected. Enter the password to view the files.</p>
 
     <div id="lockError" class="auth-error" style="display:none"></div>

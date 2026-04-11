@@ -1,8 +1,10 @@
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
 var filesRepo = require("../app/data/repositories/files.repo");
+var accessCodesRepo = require("../app/data/repositories/bundleAccessCodes.repo");
+var accessLogRepo = require("../app/data/repositories/bundleAccessLog.repo");
 var logger = require("../app/shared/logger");
 const config = require("../lib/config");
-const { sha3Hash } = require("../lib/crypto");
+const { sha3Hash, generateShareId } = require("../lib/crypto");
 const { verifyPassword } = require("../lib/crypto");
 const { parseJson } = require("../lib/multipart");
 const storage = require("../lib/storage");
@@ -12,7 +14,28 @@ const { safeContentDisposition } = require("../app/shared/sanitize-filename");
 const { send, host } = require("../middleware/send");
 var audit = require("../lib/audit");
 var rateLimit = require("../lib/rate-limit");
+var emailService = require("../lib/email");
 const requireAuth = require("../middleware/require-auth");
+const { HASH_PREFIX } = require("../lib/constants");
+
+/**
+ * Check if a bundle is locked for the current session.
+ * Returns false (unlocked), "password" (needs password), "email" (needs email verification),
+ * or "email-then-password" (email verified, password still needed).
+ */
+function isBundleLocked(bundle, session) {
+  var mode = bundle.accessMode || (bundle.passwordHash ? "password" : "open");
+  if (mode === "open") return false;
+  var s = session["bundle_" + bundle.shareId];
+  if (mode === "password") return s ? false : "password";
+  if (mode === "email") return s ? false : "email";
+  if (mode === "both") {
+    if (!s) return "email";
+    if (typeof s === "object" && s.emailVerified && !s.passwordVerified) return "email-then-password";
+    return (s === true || (typeof s === "object" && s.passwordVerified)) ? false : "email";
+  }
+  return false;
+}
 
 // Exponential backoff tracking for bundle password attempts
 var bundleLockouts = new Map();
@@ -56,7 +79,14 @@ module.exports = function (app) {
     }
     var valid = await verifyPassword(password, bundle.passwordHash);
     if (valid) {
-      req.session["bundle_" + shareId] = true;
+      // For "both" mode: preserve the email verification, add password flag
+      var mode = bundle.accessMode || "password";
+      if (mode === "both") {
+        var prev = req.session["bundle_" + shareId];
+        req.session["bundle_" + shareId] = { emailVerified: (prev && prev.emailVerified) || true, passwordVerified: true };
+      } else {
+        req.session["bundle_" + shareId] = true;
+      }
       bundleLockouts.delete(shareId);
       return res.json({ success: true });
     }
@@ -79,6 +109,122 @@ module.exports = function (app) {
     return res.status(401).json({ error: "Incorrect password." });
   });
 
+  // Request email access code (rate limited)
+  app.post("/b/:shareId/request-code", rateLimit.middleware("bundle-email-code", 5, 300000), async (req, res) => {
+    var bundle = bundlesRepo.findByShareId(req.params.shareId);
+    if (!bundle || bundle.status !== "complete") return res.status(404).json({ error: "Bundle not found." });
+
+    var body = await parseJson(req);
+    var email = String(body.email || "").trim().toLowerCase();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: "Valid email required." });
+    }
+
+    // Always return same response to prevent email enumeration
+    var genericMsg = "If this email has access, a code has been sent.";
+    var mode = bundle.accessMode || "open";
+    if (mode !== "email" && mode !== "both") return res.json({ success: true, message: genericMsg });
+
+    // Check if email is in the allowed list
+    var allowedList = (bundle.allowedEmails || "").split(",").map(function (e) { return e.trim().toLowerCase(); }).filter(Boolean);
+    if (!allowedList.includes(email)) {
+      // Anti-enumeration: respond identically
+      return res.json({ success: true, message: genericMsg });
+    }
+
+    // Rate limit per email+bundle: max 3 codes in 10 minutes
+    var emailHash = sha3Hash(HASH_PREFIX.EMAIL + email);
+    var tenMinAgo = new Date(Date.now() - 600000).toISOString();
+    var recentCount = accessCodesRepo.countRecentCodes(bundle.shareId, emailHash, tenMinAgo);
+    if (recentCount >= 3) {
+      return res.json({ success: true, message: genericMsg });
+    }
+
+    // Invalidate previous pending codes
+    accessCodesRepo.invalidatePending(bundle.shareId, emailHash);
+
+    // Generate 6-digit code
+    var crypto = require("crypto");
+    var codeNum = crypto.randomInt(0, 1000000);
+    var code = String(codeNum).padStart(6, "0");
+
+    accessCodesRepo.create({
+      bundleShareId: bundle.shareId,
+      email: email,
+      code: code,
+      attempts: 0,
+      status: "pending",
+      expiresAt: new Date(Date.now() + 600000).toISOString(),
+      createdAt: new Date().toISOString(),
+    });
+
+    // Send the code
+    try {
+      await emailService.sendBundleAccessCode({
+        to: email,
+        code: code,
+        bundleName: bundle.bundleName || null,
+        senderName: bundle.uploaderName || null,
+        expiresMinutes: 10,
+      });
+      audit.log(audit.ACTIONS.BUNDLE_ACCESS_CODE_SENT, { targetId: bundle._id, details: "shareId: " + bundle.shareId, req: req });
+    } catch (e) {
+      logger.error("Access code email failed", { error: e.message || String(e) });
+    }
+
+    res.json({ success: true, message: genericMsg });
+  });
+
+  // Verify email access code (rate limited)
+  app.post("/b/:shareId/verify-code", rateLimit.middleware("bundle-verify-code", 10, 900000), async (req, res) => {
+    var bundle = bundlesRepo.findByShareId(req.params.shareId);
+    if (!bundle || bundle.status !== "complete") return res.status(404).json({ error: "Bundle not found." });
+
+    var body = await parseJson(req);
+    var email = String(body.email || "").trim().toLowerCase();
+    var code = String(body.code || "").trim();
+    if (!email || !code) return res.status(400).json({ error: "Email and code required." });
+
+    var emailHash = sha3Hash(HASH_PREFIX.EMAIL + email);
+    var codeRecord = accessCodesRepo.findPendingCode(bundle.shareId, emailHash);
+    if (!codeRecord) return res.status(401).json({ error: "Invalid or expired code." });
+
+    // Check attempt limit
+    if (codeRecord.attempts >= 5) {
+      return res.status(429).json({ error: "Too many attempts. Request a new code." });
+    }
+
+    // Verify code via hash comparison
+    var submittedHash = sha3Hash(HASH_PREFIX.ACCESS_CODE + code);
+    if (submittedHash !== codeRecord.codeHash) {
+      accessCodesRepo.update(codeRecord._id, { $set: { attempts: codeRecord.attempts + 1 } });
+      audit.log(audit.ACTIONS.BUNDLE_ACCESS_CODE_FAILED, { targetId: bundle._id, details: "shareId: " + bundle.shareId + ", attempts: " + (codeRecord.attempts + 1), req: req });
+      return res.status(401).json({ error: "Incorrect code." });
+    }
+
+    // Success — mark code as used
+    accessCodesRepo.update(codeRecord._id, { $set: { status: "used" } });
+
+    // Set session
+    var mode = bundle.accessMode || "email";
+    if (mode === "both") {
+      req.session["bundle_" + bundle.shareId] = { emailVerified: email, passwordVerified: false };
+    } else {
+      req.session["bundle_" + bundle.shareId] = email;
+    }
+
+    // Log verified access
+    accessLogRepo.create({
+      bundleShareId: bundle.shareId,
+      email: email,
+      accessedAt: new Date().toISOString(),
+      ip: rateLimit.getIp(req),
+    });
+
+    audit.log(audit.ACTIONS.BUNDLE_ACCESS_CODE_VERIFIED, { targetId: bundle._id, details: "shareId: " + bundle.shareId + ", email verified", req: req });
+    res.json({ success: true, needsPassword: mode === "both" });
+  });
+
   // Bundle browse page
   app.get("/b/:shareId", (req, res) => {
     const bundle = bundlesRepo.findByShareId(req.params.shareId);
@@ -89,15 +235,23 @@ module.exports = function (app) {
       return send(res, "error", { title: "Expired", message: "This bundle has expired.", user: req.user }, 410);
     }
 
-    // Password protection
-    if (bundle.passwordHash && !req.session["bundle_" + req.params.shareId]) {
-      return send(res, "bundle-locked", { shareId: req.params.shareId, user: req.user });
+    // Access protection (password, email, or both)
+    var locked = isBundleLocked(bundle, req.session);
+    if (locked === "email") {
+      return send(res, "bundle-email-gate", { shareId: req.params.shareId, user: req.user });
+    }
+    if (locked === "password" || locked === "email-then-password") {
+      var emailVerified = locked === "email-then-password";
+      return send(res, "bundle-locked", { shareId: req.params.shareId, user: req.user, emailVerified: emailVerified });
     }
     const bundleFiles = filesRepo.findByBundleShareId(bundle.shareId)
       .sort((a, b) => (a.relativePath || "").localeCompare(b.relativePath || ""));
-    audit.log(audit.ACTIONS.BUNDLE_VIEWED, { targetId: bundle._id, details: "shareId: " + bundle.shareId, req: req });
+    var verifiedEmail = req.session["bundle_" + req.params.shareId];
+    var viewerEmail = (typeof verifiedEmail === "object" && verifiedEmail.emailVerified && typeof verifiedEmail.emailVerified === "string") ? verifiedEmail.emailVerified : (typeof verifiedEmail === "string" ? verifiedEmail : null);
+    audit.log(audit.ACTIONS.BUNDLE_VIEWED, { targetId: bundle._id, details: "shareId: " + bundle.shareId + (viewerEmail ? ", viewer: " + viewerEmail : ""), req: req });
     var displayBundle = Object.assign({}, bundle);
     displayBundle.hasPassword = !!bundle.passwordHash;
+    displayBundle.accessMode = bundle.accessMode || "open";
     send(res, "bundle", { bundle: displayBundle, files: bundleFiles, user: req.user, host: host(req) });
   });
 
@@ -106,10 +260,10 @@ module.exports = function (app) {
     const doc = filesRepo.findByShareId(req.params.fileShareId);
     if (!doc || doc.bundleShareId !== req.params.shareId) { res.writeHead(404); return res.end("Not found"); }
     if (doc.expiresAt && doc.expiresAt < new Date().toISOString()) { res.writeHead(410); return res.end("File expired"); }
-    // Enforce bundle password protection on single file downloads
+    // Enforce bundle access protection on single file downloads
     var parentBundle = bundlesRepo.findByShareId(req.params.shareId);
-    if (parentBundle && parentBundle.passwordHash && !req.session["bundle_" + req.params.shareId]) {
-      res.writeHead(401); return res.end("Password required");
+    if (parentBundle && isBundleLocked(parentBundle, req.session)) {
+      res.writeHead(401); return res.end("Access restricted");
     }
     filesRepo.update(doc._id, { $set: { downloads: (doc.downloads || 0) + 1 } });
     audit.log(audit.ACTIONS.BUNDLE_FILE_DOWNLOADED, { targetId: doc._id, details: "file: " + doc.originalName + ", bundle: " + req.params.shareId, req: req });
@@ -135,9 +289,9 @@ module.exports = function (app) {
   app.get("/b/:shareId/download", async (req, res) => {
     const bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle || bundle.status !== "complete") { res.writeHead(404); return res.end("Not found"); }
-    // Enforce bundle password protection on ZIP downloads
-    if (bundle.passwordHash && !req.session["bundle_" + req.params.shareId]) {
-      res.writeHead(401); return res.end("Password required");
+    // Enforce bundle access protection on ZIP downloads
+    if (isBundleLocked(bundle, req.session)) {
+      res.writeHead(401); return res.end("Access restricted");
     }
     var bundleFiles = filesRepo.findByBundleShareId(bundle.shareId);
     if (bundleFiles.length === 0) { res.writeHead(404); return res.end("Empty bundle"); }
@@ -172,8 +326,8 @@ module.exports = function (app) {
   app.get("/b/:shareId/folder/*", async (req, res) => {
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle || bundle.status !== "complete") { res.writeHead(404); return res.end("Not found"); }
-    if (bundle.passwordHash && !req.session["bundle_" + req.params.shareId]) {
-      res.writeHead(401); return res.end("Password required");
+    if (isBundleLocked(bundle, req.session)) {
+      res.writeHead(401); return res.end("Access restricted");
     }
     // The folder prefix is everything after /folder/
     var prefix = req.params[0];

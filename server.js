@@ -178,6 +178,9 @@ scheduler.register("expired_invites_cleanup", 86400000, function () { // daily
     db.rawExec("DELETE FROM invites WHERE status = 'pending' AND expiresAt < ?", now);
   } catch (_e) {}
 });
+scheduler.register("expired_access_codes_cleanup", 3600000, function () { // hourly
+  try { require("./app/jobs/expiry-cleanup.job").cleanupExpiredAccessCodes(); } catch (_e) {}
+});
 scheduler.register("incremental_vacuum", 86400000, function () { // daily
   try { db.rawExec("PRAGMA incremental_vacuum(100)"); } catch (_e) {} // reclaim ~100 pages
 });

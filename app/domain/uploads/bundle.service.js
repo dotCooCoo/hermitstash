@@ -22,6 +22,23 @@ async function initBundle(opts) {
   var expiresAt = (expiryDays > 0) ? new Date(Date.now() + expiryDays * 86400000).toISOString()
     : (defaultExpiry > 0 ? new Date(Date.now() + defaultExpiry * 86400000).toISOString() : null);
 
+  // Email-gated access: clean and validate allowed emails
+  var allowedEmails = null;
+  if (opts.allowedEmails) {
+    var cleaned = String(opts.allowedEmails).split(",")
+      .map(function (e) { return e.trim().toLowerCase(); })
+      .filter(function (e) { return e && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); });
+    if (cleaned.length > 0) allowedEmails = cleaned.join(",");
+  }
+
+  // Compute access mode
+  var hasPassword = !!bundlePassword;
+  var hasEmailGate = !!allowedEmails;
+  var accessMode = hasPassword && hasEmailGate ? "both"
+    : hasPassword ? "password"
+    : hasEmailGate ? "email"
+    : "open";
+
   var bundle = bundlesRepo.create({
     shareId: shareId,
     uploaderName: opts.uploaderName || "Anonymous",
@@ -39,6 +56,8 @@ async function initBundle(opts) {
     status: "uploading",
     teamId: opts.teamId || null,
     bundleName: opts.bundleName ? (function() { var r = sanitizeRename(opts.bundleName, { maxLength: 200 }); return r.valid ? r.name : null; })() : null,
+    allowedEmails: allowedEmails,
+    accessMode: accessMode,
     expiresAt: expiresAt,
     createdAt: new Date().toISOString(),
   });

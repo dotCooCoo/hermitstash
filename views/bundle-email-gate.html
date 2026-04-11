@@ -1,0 +1,109 @@
+{{> head}}
+<main class="main">
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-logo"><img src="{{{brand.logo}}}" alt="" class="auth-logo-img"></div>
+    <h2 class="auth-title">Restricted <span style="font-weight:200">Bundle</span></h2>
+    <p class="auth-desc">This bundle is restricted to specific recipients. Enter your email to receive an access code.</p>
+
+    <div id="gateError" class="auth-error" style="display:none"></div>
+    <div id="gateSuccess" class="auth-success" style="display:none;color:var(--main-color);font-size:.85rem;margin-bottom:16px;text-align:center"></div>
+
+    <!-- Step 1: Email input -->
+    <form class="auth-form" id="emailStep" onsubmit="return requestCode(event)">
+      <div class="auth-field">
+        <label class="input-label">Your email</label>
+        <input type="email" id="gateEmail" class="text-input" placeholder="you@example.com" required autofocus>
+      </div>
+      <button type="submit" class="butn butn-bg butn-full radius-30" id="sendCodeBtn"><span>Send Code</span></button>
+    </form>
+
+    <!-- Step 2: Code input (hidden initially) -->
+    <form class="auth-form" id="codeStep" style="display:none" onsubmit="return verifyCode(event)">
+      <div class="auth-field">
+        <label class="input-label">Verification code</label>
+        <input type="text" id="gateCode" class="text-input" placeholder="000000" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" autocomplete="one-time-code" required style="text-align:center;letter-spacing:6px;font-size:1.3rem;font-weight:700;font-family:monospace">
+      </div>
+      <button type="submit" class="butn butn-bg butn-full radius-30" id="verifyBtn"><span>Verify</span></button>
+      <div style="text-align:center;margin-top:12px">
+        <button type="button" class="text-btn" onclick="resendCode()" id="resendBtn" style="font-size:.8rem;color:var(--muted);cursor:pointer;background:none;border:none">Resend code</button>
+        <div id="codeTimer" style="font-size:.75rem;color:var(--muted);margin-top:4px"></div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+var _email='';
+var _timerInterval=null;
+
+async function requestCode(e){
+  if(e)e.preventDefault();
+  var email=document.getElementById('gateEmail').value.trim();
+  if(!email)return false;
+  _email=email;
+  var btn=document.getElementById('sendCodeBtn');
+  var err=document.getElementById('gateError');
+  err.style.display='none';
+  btn.disabled=true;btn.querySelector('span').textContent='Sending...';
+  try{
+    var r=await fetch('/b/{{shareId}}/request-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})});
+    var d=await r.json();
+    if(d.success){
+      document.getElementById('emailStep').style.display='none';
+      document.getElementById('codeStep').style.display='block';
+      document.getElementById('gateSuccess').textContent='Code sent to '+email.replace(/(.{2})(.*)(@.*)/, function(_,a,b,c){return a+'*'.repeat(b.length)+c});
+      document.getElementById('gateSuccess').style.display='block';
+      document.getElementById('gateCode').focus();
+      startTimer(600);
+    } else {
+      err.textContent=d.error||'Something went wrong.';err.style.display='block';
+    }
+  }catch(_e){err.textContent='Something went wrong.';err.style.display='block'}
+  btn.disabled=false;btn.querySelector('span').textContent='Send Code';
+  return false;
+}
+
+async function verifyCode(e){
+  if(e)e.preventDefault();
+  var code=document.getElementById('gateCode').value.trim();
+  if(!code)return false;
+  var btn=document.getElementById('verifyBtn');
+  var err=document.getElementById('gateError');
+  err.style.display='none';
+  btn.disabled=true;btn.querySelector('span').textContent='Verifying...';
+  try{
+    var r=await fetch('/b/{{shareId}}/verify-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:_email,code:code})});
+    var d=await r.json();
+    if(d.success){
+      window.location.reload();
+    } else {
+      err.textContent=d.error||'Incorrect code.';err.style.display='block';
+      btn.disabled=false;btn.querySelector('span').textContent='Verify';
+    }
+  }catch(_e){err.textContent='Something went wrong.';err.style.display='block';btn.disabled=false;btn.querySelector('span').textContent='Verify'}
+  return false;
+}
+
+function resendCode(){
+  document.getElementById('gateError').style.display='none';
+  document.getElementById('gateCode').value='';
+  requestCode();
+}
+
+function startTimer(seconds){
+  if(_timerInterval)clearInterval(_timerInterval);
+  var el=document.getElementById('codeTimer');
+  var end=Date.now()+seconds*1000;
+  function tick(){
+    var left=Math.max(0,Math.ceil((end-Date.now())/1000));
+    if(left<=0){el.textContent='Code expired';clearInterval(_timerInterval);return}
+    var m=Math.floor(left/60);var s=left%60;
+    el.textContent='Expires in '+m+':'+String(s).padStart(2,'0');
+  }
+  tick();
+  _timerInterval=setInterval(tick,1000);
+}
+</script>
+</main>
+{{> foot}}
