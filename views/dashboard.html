@@ -72,7 +72,7 @@
       <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="1.5" style="margin-bottom:12px"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
       <h3 style="font-size:1.1rem;font-weight:600;margin-bottom:8px">Enable Your Personal Vault</h3>
       <p style="font-size:.85rem;color:var(--muted);margin-bottom:20px;max-width:400px;margin-left:auto;margin-right:auto;line-height:1.6">
-        Encrypt files with post-quantum ML-KEM-768 using your passkey. Only you can decrypt them — not even admins.
+        Encrypt files with post-quantum ML-KEM-1024 using your passkey. Only you can decrypt them — not even admins.
       </p>
       <button class="butn butn-bg butn-md radius-30" id="enableVaultBtn" onclick="enableVault()"><span>Enable with Passkey</span></button>
       <p style="font-size:.72rem;color:var(--muted);margin-top:12px;opacity:.6">Works with any passkey — hardware keys, password managers, or platform authenticators.</p>
@@ -261,15 +261,14 @@ async function enableVault(){
       // PRF mode: derive keypair from PRF seed (zero-knowledge)
       mode='prf';
       var fullSeed=new Uint8Array(64);fullSeed.set(new Uint8Array(prfResults.results.first).slice(0,64));
-      var kp=mlkem.ml_kem768.keygen(fullSeed);
+      var kp=mlkem.ml_kem1024.keygen(fullSeed);
       pkB64=VaultPQ.toBase64(kp.publicKey);
       setVaultKey(kp.secretKey);
     }else{
       // Passkey-gated mode: random seed, stored server-side
       mode='passkey';
-      var seed=crypto.getRandomValues(new Uint8Array(32));
-      var fullSeed=new Uint8Array(64);fullSeed.set(seed);
-      var kp=mlkem.ml_kem768.keygen(fullSeed);
+      var seed=crypto.getRandomValues(new Uint8Array(64));
+      var kp=mlkem.ml_kem1024.keygen(seed);
       pkB64=VaultPQ.toBase64(kp.publicKey);
       seedB64=VaultPQ.toBase64(seed);
       setVaultKey(kp.secretKey);

@@ -24,6 +24,8 @@ function lookupFile(shareId, opts) {
   opts = opts || {};
   var doc = filesRepo.findAll({ shareId: shareId, status: "complete" })[0];
   if (!doc) throw new NotFoundError("File not found.");
+  // Vault files must only be accessed through /vault/ routes
+  if (doc.vaultEncrypted === "true") throw new NotFoundError("File not found.");
   if (opts.checkExpiry && doc.expiresAt && doc.expiresAt < new Date().toISOString()) {
     throw new ValidationError("File expired.");
   }

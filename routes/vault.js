@@ -1,7 +1,7 @@
 /**
  * Zero-Knowledge Personal Vault routes.
  *
- * Files in the vault are encrypted client-side with ML-KEM-768 + AES-256-GCM.
+ * Files in the vault are encrypted client-side with ML-KEM-1024 + XChaCha20-Poly1305.
  * The server stores only ciphertext — it cannot decrypt vault files.
  *
  * Two vault modes:
