@@ -73,6 +73,14 @@
           <div><label class="input-label">Default Expiry</label><select class="text-input" id="seExpiry"><option value="0">Use global</option><option value="1">1 day</option><option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option><option value="-1">Never</option></select></div>
         </div>
         <div><label class="input-label">Allowed Extensions <span style="color:var(--muted);font-weight:400">(blank = use global)</span></label><input type="text" class="text-input" id="seAllowedExtensions"></div>
+        <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
+          <label class="toggle" style="flex-shrink:0"><input type="checkbox" id="seSyncEnabled"><span class="toggle-slider"></span></label>
+          <label class="input-label" style="margin:0">Enable Sync <span style="color:var(--muted);font-weight:400">(persistent mutable bundle for desktop sync client)</span></label>
+        </div>
+        <div id="seSyncTokenArea" style="display:none;margin-top:8px">
+          <button type="button" class="butn butn-bord-thin butn-sm radius-30" onclick="generateSyncToken()"><span>Generate Sync Token</span></button>
+          <div id="seSyncTokenResult" style="display:none;margin-top:8px;padding:12px;background:rgba(139,92,246,.06);border-radius:8px;font-family:monospace;font-size:.8rem;word-break:break-all"></div>
+        </div>
       </div>
     </div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;padding-top:12px;border-top:1px solid var(--border-thin)">
@@ -103,6 +111,7 @@ function loadStash(){
       html+='<div><div class="admin-user-name">'+esc(p.name||p.slug)+'</div><div class="admin-user-email"><a href="/stash/'+esc(p.slug)+'" target="_blank" style="color:var(--main-color);font-family:monospace;font-size:.8rem">/stash/'+esc(p.slug)+'</a>';
       if(p.hasPassword)html+=' <span style="color:var(--muted);font-size:.7rem" title="Password protected">&#128274;</span>';
       if(p.allowedEmails)html+=' <span style="color:var(--muted);font-size:.7rem" title="Email restricted: '+esc(p.allowedEmails)+'">&#9993;</span>';
+      if(p.syncEnabled)html+=' <span style="color:var(--main-color);font-size:.7rem" title="Sync enabled">&#8635;</span>';
       html+='</div></div></div><div class="admin-user-meta"><span class="badge '+sc+'">'+st+'</span><span class="admin-user-date">'+(p.bundleCount||0)+' uploads</span>';
       if(p.totalBytes>0)html+='<span class="admin-user-date">'+formatSize(p.totalBytes)+'</span>';
       html+='</div><div class="admin-user-actions">';
@@ -136,6 +145,10 @@ function openStashModal(p){
   document.getElementById('seColorText').value=(p&&p.accentColor)||'#8B5CF6';
   document.getElementById('sePassword').value=(p&&p.hasPassword)?'********':'';
   document.getElementById('seAllowedEmails').value=(p&&p.allowedEmails)||'';
+  document.getElementById('seSyncEnabled').checked=!!(p&&p.syncEnabled);
+  document.getElementById('seSyncTokenArea').style.display=(p&&p.syncEnabled)?'block':'none';
+  document.getElementById('seSyncTokenResult').style.display='none';
+  document.getElementById('seSyncEnabled').onchange=function(){document.getElementById('seSyncTokenArea').style.display=this.checked?'block':'none'};
   var mfs=(p&&p.maxFileSize)||0;
   if(mfs>=1073741824){document.getElementById('seMaxFileSize').value=Math.round(mfs/1073741824);document.getElementById('seMaxFileSizeUnit').value='1073741824'}
   else{document.getElementById('seMaxFileSize').value=Math.round(mfs/1048576);document.getElementById('seMaxFileSizeUnit').value='1048576'}
@@ -160,7 +173,7 @@ function saveStashEdit(){
   if(!slug&&!isEdit)slug=name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,50);
   var mfsVal=parseFloat(document.getElementById('seMaxFileSize').value)||0;
   var mfsUnit=parseInt(document.getElementById('seMaxFileSizeUnit').value)||1048576;
-  var body={name:name,slug:slug,title:document.getElementById('seTitle').value.trim(),subtitle:document.getElementById('seSubtitle').value.trim(),accentColor:document.getElementById('seColorText').value.trim()||document.getElementById('seColor').value,password:document.getElementById('sePassword').value,allowedEmails:document.getElementById('seAllowedEmails').value.trim(),maxFileSize:Math.round(mfsVal*mfsUnit),maxFiles:parseInt(document.getElementById('seMaxFiles').value)||0,defaultExpiry:parseInt(document.getElementById('seExpiry').value)||0,allowedExtensions:document.getElementById('seAllowedExtensions').value.trim()};
+  var body={name:name,slug:slug,title:document.getElementById('seTitle').value.trim(),subtitle:document.getElementById('seSubtitle').value.trim(),accentColor:document.getElementById('seColorText').value.trim()||document.getElementById('seColor').value,password:document.getElementById('sePassword').value,allowedEmails:document.getElementById('seAllowedEmails').value.trim(),syncEnabled:document.getElementById('seSyncEnabled').checked,maxFileSize:Math.round(mfsVal*mfsUnit),maxFiles:parseInt(document.getElementById('seMaxFiles').value)||0,defaultExpiry:parseInt(document.getElementById('seExpiry').value)||0,allowedExtensions:document.getElementById('seAllowedExtensions').value.trim()};
   var btn=document.getElementById('seSubmitBtn');var msg=document.getElementById('stashEditMsg');
   btn.disabled=true;btn.querySelector('span').textContent=isEdit?'Saving...':'Creating...';
   fetch(isEdit?'/admin/stash/'+_stashEditId+'/update':'/admin/stash/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json()}).then(function(d){
@@ -261,6 +274,18 @@ function toggleFiles(stashId,bundleId,btn){
     }
     el.textContent='';el.insertAdjacentHTML('beforeend',html);el.style.display='block';
   }).catch(function(){btn.querySelector('span').textContent='Files'});
+}
+function generateSyncToken(){
+  if(!_stashEditId)return;
+  var btn=event.target;btn.disabled=true;
+  fetch('/admin/stash/'+_stashEditId+'/sync-token',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
+    btn.disabled=false;
+    if(d.success){
+      var el=document.getElementById('seSyncTokenResult');
+      el.innerHTML='<strong>Token (shown once):</strong><br>'+esc(d.key)+'<br><br><button type="button" onclick="navigator.clipboard.writeText(\''+d.key+'\');this.textContent=\'Copied!\'" style="cursor:pointer;background:var(--main-color);color:#fff;border:none;padding:4px 12px;border-radius:6px;font-size:.75rem">Copy</button>';
+      el.style.display='block';
+    } else { alert(d.error||'Failed to create token') }
+  }).catch(function(){btn.disabled=false;alert('Failed')});
 }
 function renameStashBundleName(shareId,el){
   var current=el.textContent;

@@ -320,8 +320,15 @@ server.on("upgrade", function (req, socket, head) {
   if (!bundle || bundle.bundleType !== "sync") {
     return rejectUpgrade(socket, 404, "Not Found");
   }
-  // Ownership check: must be the key's user or admin
-  if (bundle.ownerId !== user._id && user.role !== "admin") {
+  // Resource scoping: if the key is bound to a specific bundle/stash, enforce it
+  if (apiKey.boundBundleId && apiKey.boundBundleId !== bundleId) {
+    return rejectUpgrade(socket, 403, "Forbidden");
+  }
+  if (apiKey.boundStashId && bundle.stashId !== apiKey.boundStashId) {
+    return rejectUpgrade(socket, 403, "Forbidden");
+  }
+  // Ownership check: must be the key's user, admin, or a stash-scoped token
+  if (bundle.ownerId !== user._id && user.role !== "admin" && !apiKey.boundStashId) {
     return rejectUpgrade(socket, 403, "Forbidden");
   }
 

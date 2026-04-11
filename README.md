@@ -281,6 +281,10 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - PQC TLS -- conditional HTTPS with X25519MLKEM768 + SecP256r1MLKEM768 hybrid key exchange (TLS 1.3 only)
 - Certificate auto-reload on Let's Encrypt renewal (hourly file poll)
 - New `sync` API key scope for WebSocket connections and sync bundle operations
+- Resource-scoped API keys -- `boundStashId` and `boundBundleId` columns restrict keys to specific resources
+- Stash-scoped sync tokens -- admin generates tokens that grant sync access to a single stash only
+- Stash sync mode -- persistent mutable bundle per stash for desktop sync clients
+- Admin UI: sync toggle per stash, one-click sync token generation with copy button
 
 **Security Hardening**
 - Security headers on all responses (CSP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy, COOP, CORP)
