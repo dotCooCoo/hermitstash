@@ -4,6 +4,7 @@ var { sha3Hash, generateToken } = require("../lib/crypto");
 var { parseJson } = require("../lib/multipart");
 var requireAdmin = require("../middleware/require-admin");
 var audit = require("../lib/audit");
+var { VALID_SCOPES } = require("../app/security/scope-policy");
 
 module.exports = function (app) {
   // List API keys
@@ -22,7 +23,10 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     var body = await parseJson(req);
     var name = String(body.name || "").trim().slice(0, 100);
-    var permissions = String(body.permissions || "upload").slice(0, 50);
+    var rawPerms = String(body.permissions || "upload").trim().toLowerCase();
+    var permList = rawPerms.split(",").map(function(s) { return s.trim(); }).filter(function(s) { return VALID_SCOPES.indexOf(s) !== -1; });
+    if (permList.length === 0) return res.status(400).json({ error: "Invalid permissions. Valid scopes: " + VALID_SCOPES.join(", ") });
+    var permissions = permList.join(",");
     if (!name) return res.status(400).json({ error: "Name required." });
 
     // Generate a random key with a recognizable prefix

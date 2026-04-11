@@ -10,8 +10,11 @@ var config = require("../../lib/config");
  */
 function getOrigin() {
   if (config.rpOrigin) return config.rpOrigin;
-  // Dev fallback only — log warning
+  // Dev fallback only — not safe for production
   var port = config.port || 3000;
+  if (process.env.NODE_ENV === "production") {
+    console.error("  ⚠ SECURITY: rpOrigin not configured — falling back to localhost. Set RP_ORIGIN in admin settings.");
+  }
   return "http://localhost:" + port;
 }
 

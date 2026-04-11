@@ -511,7 +511,8 @@ async function rotateVaultPasskey(){
     alert('Vault passkey rotated successfully! '+result.filesUpdated+' files re-encrypted.\n\nYou can now remove the old passkey from your profile.');
     loadVaultFiles();
   }catch(e){
-    alert('Vault rotation failed: '+e.message);
+    console.error('Vault rotation error:', e);
+    alert('Vault rotation failed: '+(e.message||e.name||String(e)));
   }
   prog.style.display='none';
   btn.disabled=false;btn.querySelector('span').textContent='Rotate Passkey';
