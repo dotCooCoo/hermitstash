@@ -60,6 +60,7 @@ function sanitizeFilename(input, maxLength) {
   return String(input || "")
     .replace(/[\x00-\x1f\x7f]/g, "")
     .replace(/[<>"'`]/g, "")
+    .split(/[/\\]+/).filter(function (s) { return s && s !== "." && s !== ".."; }).join("/")
     .trim()
     .slice(0, maxLength || 255);
 }

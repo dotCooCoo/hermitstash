@@ -153,12 +153,13 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | Brute-force bundle passwords | Exponential backoff lockout after 5 failed attempts |
 | Email enumeration on bundles | Identical response regardless of whether email is in allow list |
 | Brute-force access codes | 5 attempt limit per code, rate limiting, 10-minute expiry |
-| CSRF on API endpoints | Per-session XChaCha20-Poly1305 key binds requests to session |
+| CSRF on API endpoints | Per-session XChaCha20-Poly1305 key binds requests to session; non-JSON POST rejected |
 | CSV formula injection | Export values sanitized to prevent spreadsheet code execution |
 | DNS rebinding via webhooks | Pre-validated IP pinned to outbound connection |
 | SSRF via webhooks | Blocks localhost, RFC 1918, RFC 6598 CGNAT, link-local, IPv6 private ranges |
 | Disguised file uploads | Magic byte validation rejects files whose content doesn't match extension |
 | Malicious filenames | Backend sanitization strips control chars, path traversal, dot attacks, HTML injection |
+| ZIP path traversal (Zip Slip) | Entry names sanitized to remove `..` segments; paths normalized on both upload and archive |
 | Anonymous storage abuse | Per-IP upload quota with 24-hour rolling window |
 | NPM supply chain | All dependencies vendored as committed bundles — zero npm runtime packages |
 

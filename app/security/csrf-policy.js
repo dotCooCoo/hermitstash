@@ -80,16 +80,27 @@ function csrfMiddleware(req, res, next) {
   if (isExempt(req.pathname)) return next();
 
   // API-encrypted requests are inherently CSRF-safe (encrypted body includes session key)
-  // Check if the request body was encrypted (api-encrypt would have decrypted it)
+  // The api-encrypt middleware validates the per-session XChaCha20 key,
+  // which serves as an implicit CSRF token — cross-site requests can't produce valid payloads.
   if (req.headers && req.headers["content-type"] && req.headers["content-type"].includes("application/json")) {
-    // JSON POST requests from the app use API encryption which binds to the session.
-    // The api-encrypt middleware validates the per-session AES key,
-    // which serves as an implicit CSRF token.
     return next();
   }
 
   // For non-JSON POST (form submissions), validate CSRF token
-  // Currently all POST routes use JSON, so this is defense-in-depth
+  if (req.session) {
+    // Try to parse body for _csrf token (multipart handled separately by their routes)
+    var contentType = (req.headers && req.headers["content-type"]) || "";
+    if (contentType.includes("multipart/")) {
+      // Multipart uploads are exempt — they use bundle tokens (finalizeToken) for auth
+      return next();
+    }
+    // Form-encoded or unknown content type: require CSRF token
+    // All legitimate app requests use JSON, so rejecting non-JSON state-changing requests
+    // is defense-in-depth against cross-site form POSTs
+    return res.writeHead(403, { "Content-Type": "application/json" }),
+      res.end(JSON.stringify({ error: "CSRF validation failed." }));
+  }
+
   return next();
 }
 
