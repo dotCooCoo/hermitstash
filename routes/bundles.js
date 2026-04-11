@@ -116,7 +116,9 @@ module.exports = function (app) {
 
     var body = await parseJson(req);
     var email = String(body.email || "").trim().toLowerCase();
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    var { validateEmail } = require("../app/shared/validate");
+    var emailCheck = validateEmail(email);
+    if (!emailCheck.valid) {
       return res.status(400).json({ error: "Valid email required." });
     }
 

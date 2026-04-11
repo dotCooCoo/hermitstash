@@ -144,13 +144,7 @@
 </div>
 
 <script>
-function showRenameError(input,msg){
-  var err=input.parentNode.querySelector('.rename-error');
-  if(!err){err=document.createElement('div');err.className='rename-error';err.style.cssText='font-size:.72rem;color:var(--danger);margin-top:2px';input.parentNode.appendChild(err)}
-  err.textContent=msg;
-  input.style.borderColor='var(--danger)';
-  setTimeout(function(){if(err.parentNode)err.remove();input.style.borderColor=''},3000);
-}
+var showRenameError=Helpers.showRenameError;
 async function del(id){if(!confirm('Delete?'))return;const r=await fetch('/files/'+id+'/delete',{method:'POST'});if(r.ok){document.getElementById('file-'+id).remove();if(!document.querySelector('.admin-user-row'))location.reload()}}
 async function delBundle(shareId,count){if(!confirm('Delete this bundle and all '+count+' file'+(count!==1?'s':'')+'?'))return;var r=await fetch('/bundles/'+shareId+'/delete',{method:'POST'});var d=await r.json();if(d.success){var el=document.getElementById('bundle-'+shareId);var fl=document.getElementById('bfiles-'+shareId);if(el)el.remove();if(fl)fl.remove();if(!document.querySelector('.admin-user-row'))location.reload()}else{alert(d.error||'Delete failed')}}
 function toggleDashFiles(shareId,btn){var el=document.getElementById('bfiles-'+shareId);if(el.style.display!=='none'){el.style.display='none';btn.querySelector('span').textContent='Files'}else{el.style.display='block';btn.querySelector('span').textContent='Hide'}}
