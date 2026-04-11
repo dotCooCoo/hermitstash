@@ -22,6 +22,7 @@ var uploadValidator = require("../app/http/validators/upload.validator");
 var emailService = require("../app/domain/integrations/email.service");
 var requireAdmin = require("../middleware/require-admin");
 var ipQuota = require("../lib/ip-quota");
+var { sanitizeFilename } = require("../app/shared/sanitize-filename");
 
 module.exports = function (app) {
 
@@ -38,6 +39,7 @@ module.exports = function (app) {
     // Password protection check
     if (stash.passwordHash && !req.session["stashUnlocked_" + slug]) {
       return send(res, "bundle-locked", {
+        user: req.user || null,
         shareId: stash.slug,
         unlockAction: "/stash/" + stash.slug + "/unlock",
         title: stash.title || config.dropTitle,
@@ -113,6 +115,7 @@ module.exports = function (app) {
       ownerId: null,
       password: null,
       message: body.message || null,
+      bundleName: body.bundleName || null,
       expiryDays: expiryDays,
       defaultExpiryDays: config.fileExpiryDays,
       fileCount: body.fileCount,
@@ -212,7 +215,8 @@ module.exports = function (app) {
           shareId: fileShareId,
           bundleId: bundle._id,
           bundleShareId: bundle.shareId,
-          originalName: file.filename, relativePath: fields.relativePath || file.filename,
+          originalName: sanitizeFilename(file.filename),
+          relativePath: sanitizeFilename(fields.relativePath || file.filename, 500),
           storagePath: storagePath, mimeType: file.mimetype, size: file.size,
           checksum: checksum, encryptionKey: saved.encryptionKey,
           uploadedBy: "public", uploaderEmail: null,
@@ -375,7 +379,8 @@ module.exports = function (app) {
           shareId: chunkFileShareId,
           bundleId: bundle._id,
           bundleShareId: bundle.shareId,
-          originalName: filename, relativePath: relativePath,
+          originalName: sanitizeFilename(filename),
+          relativePath: sanitizeFilename(relativePath, 500),
           storagePath: storagePath, mimeType: fields.mimeType || "application/octet-stream",
           size: fullData.length, checksum: checksum, encryptionKey: saved.encryptionKey,
           uploadedBy: "public", uploaderEmail: null,
@@ -466,6 +471,12 @@ module.exports = function (app) {
 
   // ---- Admin routes ----
 
+  // Stash management page
+  app.get("/admin/stash", function (req, res) {
+    if (!requireAdmin(req, res)) return;
+    send(res, "admin-stash", { user: req.user });
+  });
+
   // List all stash pages
   app.get("/admin/stash/api", function (req, res) {
     if (!requireAdmin(req, res)) return;
@@ -491,6 +502,80 @@ module.exports = function (app) {
       };
     });
     res.json({ pages: pages });
+  });
+
+  // List bundles for a stash page
+  app.get("/admin/stash/:id/bundles", function (req, res) {
+    if (!requireAdmin(req, res)) return;
+    var stash = stashRepo.findById(req.params.id);
+    if (!stash) return res.status(404).json({ error: "Stash page not found." });
+    var allBundles = bundlesRepo.findAll({}).filter(function (b) { return b.stashId === stash._id && b.status === "complete"; });
+    var result = allBundles.map(function (b) {
+      var bundleFiles = filesRepo.findByBundleShareId(b.shareId);
+      return {
+        _id: b._id,
+        shareId: b.shareId,
+        uploaderName: b.uploaderName,
+        bundleName: b.bundleName,
+        message: b.message,
+        receivedFiles: b.receivedFiles || 0,
+        totalSize: b.totalSize || 0,
+        downloads: b.downloads || 0,
+        createdAt: b.createdAt,
+        fileCount: bundleFiles.length,
+      };
+    });
+    res.json({ bundles: result, total: result.length });
+  });
+
+  // List files for a stash bundle
+  app.get("/admin/stash/:id/bundles/:bundleId/files", function (req, res) {
+    if (!requireAdmin(req, res)) return;
+    var stash = stashRepo.findById(req.params.id);
+    if (!stash) return res.status(404).json({ error: "Stash page not found." });
+    var bundle = bundlesRepo.findById(req.params.bundleId);
+    if (!bundle || bundle.stashId !== stash._id) return res.status(404).json({ error: "Bundle not found." });
+    var bundleFiles = filesRepo.findByBundleShareId(bundle.shareId);
+    var result = bundleFiles.map(function (f) {
+      return {
+        _id: f._id,
+        shareId: f.shareId,
+        originalName: f.originalName,
+        relativePath: f.relativePath,
+        mimeType: f.mimeType,
+        size: f.size || 0,
+        downloads: f.downloads || 0,
+        createdAt: f.createdAt,
+      };
+    });
+    res.json({ files: result, total: result.length });
+  });
+
+  // Delete a stash bundle (and its files)
+  app.post("/admin/stash/:id/bundles/:bundleId/delete", async function (req, res) {
+    if (!requireAdmin(req, res)) return;
+    try {
+      var stash = stashRepo.findById(req.params.id);
+      if (!stash) return res.status(404).json({ error: "Stash page not found." });
+      var bundle = bundlesRepo.findById(req.params.bundleId);
+      if (!bundle || bundle.stashId !== stash._id) return res.status(404).json({ error: "Bundle not found." });
+      var bundleFiles = filesRepo.findByBundleShareId(bundle.shareId);
+      for (var i = 0; i < bundleFiles.length; i++) {
+        if (bundleFiles[i].storagePath) { try { await storage.deleteFile(bundleFiles[i].storagePath); } catch (_e) {} }
+        filesRepo.remove(bundleFiles[i]._id);
+      }
+      // Decrement stash stats
+      stashRepo.update(stash._id, { $set: {
+        bundleCount: Math.max(0, (parseInt(stash.bundleCount, 10) || 0) - 1),
+        totalBytes: Math.max(0, (parseInt(stash.totalBytes, 10) || 0) - (bundle.totalSize || 0)),
+      }});
+      bundlesRepo.remove(bundle._id);
+      audit.log(audit.ACTIONS.ADMIN_BUNDLE_DELETED, { targetId: bundle._id, details: "stash bundle deleted, stash: " + stash.slug + ", files: " + bundleFiles.length, req: req });
+      res.json({ success: true, filesDeleted: bundleFiles.length });
+    } catch (e) {
+      logger.error("Stash bundle delete error", { error: e.message || String(e) });
+      res.status(500).json({ error: "Failed to delete bundle." });
+    }
   });
 
   // Create stash page

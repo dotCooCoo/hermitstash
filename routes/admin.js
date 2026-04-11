@@ -470,6 +470,12 @@ module.exports = function (app) {
         teamsRepo.removeAllMembers(allTeams[t]._id);
         teamsRepo.removeTeam(allTeams[t]._id);
       }
+      // Purge customer stash pages
+      try {
+        var stashRepo = require("../app/data/repositories/stash.repo");
+        var allStash = stashRepo.findAll();
+        for (var st = 0; st < allStash.length; st++) stashRepo.remove(allStash[st]._id);
+      } catch (_e) {}
 
       sessionService.revokeAll(req);
       // Log after purge so at least one audit entry exists

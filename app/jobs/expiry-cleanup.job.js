@@ -28,13 +28,33 @@ async function cleanupExpiredFiles() {
 
 /**
  * Clean up stale bundles (stuck in "uploading" state for >24h).
+ * Removes the bundle record, any associated files from disk and DB,
+ * and cleans up orphaned chunk directories.
  */
-function cleanupStaleBundles() {
+async function cleanupStaleBundles() {
+  var path = require("path");
+  var fs = require("fs");
   var cutoff = new Date(Date.now() - 24 * 3600000).toISOString();
   var stale = bundles.find({ status: "uploading" }).filter(function (b) { return b.createdAt && b.createdAt < cutoff; });
   var removed = 0;
   for (var i = 0; i < stale.length; i++) {
-    bundles.remove({ _id: stale[i]._id });
+    var bundle = stale[i];
+    // Delete any complete files uploaded to this bundle
+    var bundleFiles = files.find({}).filter(function (f) { return f.bundleId === bundle._id; });
+    for (var j = 0; j < bundleFiles.length; j++) {
+      if (bundleFiles[j].storagePath) {
+        try { await storage.deleteFile(bundleFiles[j].storagePath); } catch (_e) {}
+      }
+      files.remove({ _id: bundleFiles[j]._id });
+    }
+    // Clean up chunk directory if it exists
+    if (bundle.shareId) {
+      var chunkDir = path.join(storage.uploadDir, "chunks", bundle.shareId);
+      try {
+        if (fs.existsSync(chunkDir)) fs.rmSync(chunkDir, { recursive: true, force: true });
+      } catch (_e) {}
+    }
+    bundles.remove({ _id: bundle._id });
     removed++;
   }
   return removed;

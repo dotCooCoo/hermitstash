@@ -6,6 +6,7 @@ var bundlesRepo = require("../../data/repositories/bundles.repo");
 var { hashPassword, sha3Hash, generateShareId, generateToken } = require("../../../lib/crypto");
 var { getTotalStorageUsed } = require("../../../lib/db");
 var { ValidationError, NotFoundError, ForbiddenError } = require("../../shared/errors");
+var { sanitizeRename } = require("../../shared/sanitize-filename");
 
 /**
  * Initialize a new upload bundle.
@@ -37,6 +38,7 @@ async function initBundle(opts) {
     downloads: 0,
     status: "uploading",
     teamId: opts.teamId || null,
+    bundleName: opts.bundleName ? (function() { var r = sanitizeRename(opts.bundleName, { maxLength: 200 }); return r.valid ? r.name : null; })() : null,
     expiresAt: expiresAt,
     createdAt: new Date().toISOString(),
   });
