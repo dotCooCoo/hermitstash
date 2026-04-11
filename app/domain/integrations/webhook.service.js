@@ -28,8 +28,8 @@ async function create(url, events, createdBy) {
   var check = validateOutboundUrl(url);
   if (!check.valid) throw new ValidationError(check.reason);
 
-  var isPrivate = await isPrivateHost(check.url.hostname);
-  if (isPrivate) throw new ValidationError("Cannot use private/internal URLs.");
+  var hostCheck = await isPrivateHost(check.url.hostname);
+  if (hostCheck === true || (hostCheck && hostCheck.blocked)) throw new ValidationError("Cannot use private/internal URLs.");
 
   var secret = generateToken(32);
   var webhook = webhooksRepo.create({
