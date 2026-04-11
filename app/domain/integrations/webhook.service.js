@@ -29,7 +29,7 @@ async function create(url, events, createdBy) {
   if (!check.valid) throw new ValidationError(check.reason);
 
   var hostCheck = await isPrivateHost(check.url.hostname);
-  if (hostCheck === true || (hostCheck && hostCheck.blocked)) throw new ValidationError("Cannot use private/internal URLs.");
+  if (hostCheck && hostCheck.blocked) throw new ValidationError("Cannot use private/internal URLs.");
 
   var secret = generateToken(32);
   var webhook = webhooksRepo.create({
@@ -103,7 +103,7 @@ function dispatchSingle(hookId, eventName, payload) {
   }
 
   return isPrivateHost(check.url.hostname).then(function (result) {
-    if (result === true || (result && result.blocked)) {
+    if (result && result.blocked) {
       webhookDeliveries.insert({
         webhookId: hookId, event: eventName, status: "failed",
         statusCode: 0, error: "Private/internal host blocked",

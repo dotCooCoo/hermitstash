@@ -78,8 +78,13 @@ function detectContentType(buf) {
   if (b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 &&
       b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return ".webp";
   // Documents / archives
-  if (b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) return ".pdf";
-  if (b[0] === 0x50 && b[1] === 0x4B && (b[2] === 0x03 || b[2] === 0x05)) return ".zip";
+  // PDF: %PDF within first 1024 bytes (per Adobe spec — allows BOM, whitespace, or preamble)
+  var pdfLimit = Math.min(1024, b.length - 3);
+  for (var pi = 0; pi < pdfLimit; pi++) {
+    if (b[pi] === 0x25 && b[pi+1] === 0x50 && b[pi+2] === 0x44 && b[pi+3] === 0x46) return ".pdf";
+  }
+  // ZIP: any PK signature (local header, central dir, end of central dir, spanned)
+  if (b[0] === 0x50 && b[1] === 0x4B) return ".zip";
   if (b.length >= 6 && b[0] === 0x52 && b[1] === 0x61 && b[2] === 0x72 && b[3] === 0x21 && b[4] === 0x1A && b[5] === 0x07) return ".rar";
   if (b.length >= 6 && b[0] === 0x37 && b[1] === 0x7A && b[2] === 0xBC && b[3] === 0xAF && b[4] === 0x27 && b[5] === 0x1C) return ".7z";
   if (b[0] === 0x1F && b[1] === 0x8B) return ".gz";

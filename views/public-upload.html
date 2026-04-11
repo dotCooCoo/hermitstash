@@ -1,8 +1,18 @@
 {{> head}}
+{% if (typeof stashAccentColor !== 'undefined' && stashAccentColor) { %}
+<style>:root{--main-color: {{stashAccentColor}} !important}</style>
+{% } %}
 
 <section class="drop-hero">
   <div class="drop-hero-content">
-    {% if (user) { %}
+    {% if (typeof stashLogoUrl !== 'undefined' && stashLogoUrl) { %}
+    <div style="margin-bottom:20px"><img src="{{stashLogoUrl}}" alt="" style="height:96px;width:auto;max-width:280px;object-fit:contain;filter:drop-shadow(0 0 20px rgba(139,92,246,.3))"></div>
+    {% } else { %}
+    <div class="drop-logo-shimmer" style="margin-bottom:16px"><img src="{{{brand.logoColor}}}" alt="{{{brand.siteName}}}" width="96" height="96" style="height:96px;width:auto;max-width:280px;object-fit:contain"></div>
+    {% } %}
+    {% if (typeof stashMode !== 'undefined' && stashMode) { %}
+    <span class="sub-title">Secure Upload</span>
+    {% } else if (user) { %}
     <span class="sub-title">Stash Files</span>
     {% } else { %}
     <span class="sub-title">Public Upload</span>
@@ -12,14 +22,25 @@
   </div>
 </section>
 
-<section class="drop-section" id="setupForm">
+<section class="drop-section{% if (typeof stashMode !== 'undefined' && stashMode) { %} stash-mode{% } %}" id="setupForm">
   <div class="drop-container">
 
     <!-- Step 1: Identity / Options -->
     <div class="drop-step fade-in">
       <div class="drop-step-num">01</div>
       <div class="drop-step-content">
-        {% if (user) { %}
+        {% if (typeof stashMode !== 'undefined' && stashMode) { %}
+        <h3 class="drop-step-title">Include a <span class="fw-200">note.</span></h3>
+        <input type="hidden" id="uploaderName" value="">
+        <input type="hidden" id="uploaderEmail" value="">
+        <input type="hidden" id="bundlePassword" value="">
+        <input type="hidden" id="bundleExpiry" value="0">
+        <div class="drop-fields">
+          <div class="drop-field" style="grid-column:1/-1">
+            <textarea id="bundleMessage" class="text-input" rows="2" maxlength="2000" placeholder="Add a message for the recipient... (optional)" style="resize:vertical"></textarea>
+          </div>
+        </div>
+        {% } else if (user) { %}
         <h3 class="drop-step-title">Upload <span class="fw-200">options.</span></h3>
         <input type="hidden" id="uploaderName" value="{{user.displayName}}">
         <input type="hidden" id="uploaderEmail" value="{{user.email}}">
@@ -236,7 +257,7 @@
         </div>
       </div>
       <div id="emailNotice" style="display:none" class="email-sent-notice">Confirmation email sent</div>
-      {% if (!user) { %}
+      {% if (!user && !(typeof stashMode !== 'undefined' && stashMode)) { %}
       <div id="accountPrompt" style="display:none" class="account-prompt">
         <div class="account-prompt-icon">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -266,6 +287,9 @@ var IS_AUTHED={% if (user) { %}true{% } else { %}false{% } %};
 var VAULT_ENABLED={% if (vaultEnabled) { %}true{% } else { %}false{% } %};
 var VAULT_PK={% if (vaultPublicKey) { %}"{{{vaultPublicKey}}}"{% } else { %}null{% } %};
 var VAULT_MODE=false;
+var STASH_MODE={% if (typeof stashMode !== 'undefined' && stashMode) { %}true{% } else { %}false{% } %};
+var STASH_SLUG={% if (typeof stashSlug !== 'undefined' && stashSlug) { %}"{{{stashSlug}}}"{% } else { %}""{% } %};
+var uploadBase=STASH_SLUG?'/stash/'+STASH_SLUG:'/drop';
 // Auto-enable vault mode when linked from dashboard with ?vault=1
 if(VAULT_ENABLED&&new URLSearchParams(location.search).get('vault')==='1'){
   var vt=document.getElementById('vaultToggle');
@@ -453,7 +477,7 @@ function uploadFile(file,rel,bundleId,onProgress){
       var fm=new FormData();fm.append('file',file);fm.append('relativePath',rel);
       var xhr=new XMLHttpRequest();
       activeControllers.push(xhr);
-      xhr.open('POST','/drop/file/'+bundleId);
+      xhr.open('POST',uploadBase+'/file/'+bundleId);
       xhr.timeout=TIMEOUT;
       if(onProgress)xhr.upload.addEventListener('progress',function(e){if(e.lengthComputable)onProgress(e.loaded,e.total)});
       xhr.onload=function(){
@@ -483,7 +507,7 @@ function uploadChunked(file,rel,bundleId,onProgress){
       fm.append('fileId',fileId);fm.append('filename',file.name);fm.append('relativePath',rel);
       fm.append('mimeType',file.type||'application/octet-stream');
       try{
-        var r=await fetch('/drop/chunk/'+bundleId,{method:'POST',body:fm});
+        var r=await fetch(uploadBase+'/chunk/'+bundleId,{method:'POST',body:fm});
         if(!r.ok){var d=await r.json().catch(function(){return{}});return resolve({ok:false,rel:rel,error:d.error||'Chunk failed'})}
         uploaded+=blob.size;
         if(onProgress)onProgress(uploaded,file.size);
@@ -573,7 +597,7 @@ async function startUpload(){
   var message=document.getElementById('bundleMessage').value.trim();
   var expiryDays=parseInt(document.getElementById('bundleExpiry').value,10)||0;
 
-  var ir=await fetch('/drop/init',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uploaderName:name,uploaderEmail:email||null,password:password||null,message:message||null,expiryDays:expiryDays,fileCount:toUpload.length,skippedCount:skipped.length,skippedFiles:skipped.map(function(f){return{path:f.rel,reason:f.reason}})})});
+  var ir=await fetch(uploadBase+'/init',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uploaderName:name,uploaderEmail:email||null,password:password||null,message:message||null,expiryDays:expiryDays,fileCount:toUpload.length,skippedCount:skipped.length,skippedFiles:skipped.map(function(f){return{path:f.rel,reason:f.reason}})})});
   var bd=await ir.json();var bundleId=bd.bundleId;var finalizeToken=bd.finalizeToken;
 
   // Concurrent queue with per-file status
@@ -629,7 +653,7 @@ async function startUpload(){
   if(uploadCancelled)return;
 
   // Finalize
-  var fr=await fetch('/drop/finalize/'+bundleId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({finalizeToken:finalizeToken})});var fd=await fr.json();
+  var fr=await fetch(uploadBase+'/finalize/'+bundleId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({finalizeToken:finalizeToken})});var fd=await fr.json();
   var elapsed=(Date.now()-t0)/1000;
   var speed=bUp/(elapsed||1);
 

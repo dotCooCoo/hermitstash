@@ -822,6 +822,20 @@ body::after {
 .danger-btn:hover{background:rgba(255,68,68,.12);border-color:rgba(255,68,68,.4)}
 .danger-btn-critical{background:rgba(255,68,68,.1);border-color:rgba(255,68,68,.35)}.danger-btn-critical:hover{background:rgba(255,68,68,.2);border-color:rgba(255,68,68,.5)}
 
+/* Customer Stash admin form */
+.stash-create-details{border:1px solid var(--border-thin);border-radius:12px;overflow:hidden;margin-top:20px}
+.stash-create-summary{display:flex;align-items:center;gap:8px;padding:14px 20px;cursor:pointer;list-style:none;font-size:.85rem;font-weight:600;color:var(--text);background:rgba(255,255,255,.02);transition:background .2s;user-select:none}
+.stash-create-summary::-webkit-details-marker{display:none}
+.stash-create-summary:hover{background:rgba(255,255,255,.04)}
+.stash-create-summary svg{color:var(--main-color);flex-shrink:0;transition:transform .2s}
+.stash-create-details[open] .stash-create-summary svg{transform:rotate(45deg)}
+.stash-create-body{padding:0 20px 20px}
+.stash-form-section{padding:16px 0;border-bottom:1px solid var(--border-thin)}
+.stash-form-section:last-of-type{border-bottom:none}
+.stash-form-section-label{display:flex;align-items:center;gap:6px;font-size:.78rem;font-weight:600;color:var(--main-color);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px}
+.stash-form-section-label svg{opacity:.7}
+.stash-slug-prefix{padding:8px 10px;background:rgba(139,92,246,.06);border:1px solid var(--border-thin);border-right:none;border-radius:8px 0 0 8px;font-size:.8rem;color:var(--main-color);white-space:nowrap;font-family:monospace}
+
 /* Collapsible proxy config */
 .proxy-collapse{margin-bottom:4px}
 .proxy-summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;user-select:none}
@@ -1033,6 +1047,12 @@ select.text-input option{background:var(--bg,#0f0f0f);color:var(--text,#e8e8e8)}
 .footer{text-align:center;padding:28px;font-size:.75rem;color:var(--text-muted);border-top:1px solid var(--border-thin);letter-spacing:.04em;opacity:.7}
 
 /* ---- Drop Page ---- */
+.drop-logo-shimmer{display:block;position:relative}
+.drop-logo-shimmer img{position:relative;z-index:2;animation:drop-logo-float 4s ease-in-out infinite;filter:brightness(1.4) drop-shadow(0 0 8px rgba(139,92,246,.6))}
+.drop-logo-shimmer::before{content:'';position:absolute;top:50%;left:50%;width:140px;height:140px;transform:translate(-50%,-50%);background:conic-gradient(from 0deg,#8B5CF6,#c084fc,#e879f9,#f0abfc,#c084fc,#8B5CF6);border-radius:50%;filter:blur(50px);opacity:.35;animation:drop-logo-orbit 6s linear infinite;z-index:1}
+.drop-logo-shimmer::after{content:'';position:absolute;top:50%;left:50%;width:100px;height:100px;transform:translate(-50%,-50%);background:conic-gradient(from 180deg,#e879f9,#8B5CF6,#6d28d9,#8B5CF6,#e879f9);border-radius:50%;filter:blur(40px);opacity:.25;animation:drop-logo-orbit 6s linear infinite reverse;z-index:1}
+@keyframes drop-logo-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+@keyframes drop-logo-orbit{0%{transform:translate(-50%,-50%) rotate(0deg) translateX(25px)}100%{transform:translate(-50%,-50%) rotate(360deg) translateX(25px)}}
 .drop-hero{padding:100px 40px 40px;text-align:center;position:relative;overflow:hidden}
 .drop-hero::before{content:'';position:absolute;width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(139,92,246,.06) 0%,transparent 70%);top:-200px;left:50%;transform:translateX(-50%);pointer-events:none}
 .drop-hero-content{position:relative;z-index:2;max-width:600px;margin:0 auto}
@@ -1055,6 +1075,12 @@ select.text-input option{background:var(--bg,#0f0f0f);color:var(--text,#e8e8e8)}
 .drop-step-content{flex:1;min-width:0}
 .drop-step-title{font-size:1.2rem;font-weight:600;margin-bottom:16px;letter-spacing:-.02em}
 .drop-step-title .fw-200{font-weight:200}
+
+/* Stash mode — simplified layout */
+.stash-mode .drop-step-num{display:none}
+.stash-mode .drop-step::before{display:none}
+.stash-mode .drop-step{gap:0}
+.stash-mode .drop-step-title{font-size:1rem;margin-bottom:12px;color:var(--text-muted);font-weight:400}
 
 .drop-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .drop-field .input-label{margin-bottom:6px;font-size:.82rem}

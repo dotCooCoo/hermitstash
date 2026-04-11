@@ -26,7 +26,7 @@ async function unlock(e){
   errEl.style.display='none';
   btn.disabled=true;btn.querySelector('span').textContent='Unlocking...';
   try{
-    var r=await fetch('/b/{{shareId}}/unlock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('bundlePassword').value})});
+    var r=await fetch('{% if (typeof unlockAction !== "undefined" && unlockAction) { %}{{{unlockAction}}}{% } else { %}/b/{{shareId}}/unlock{% } %}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('bundlePassword').value})});
     var d=await r.json();
     if(d.success){window.location.reload()}
     else{errEl.textContent=d.error||'Incorrect password.';errEl.style.display='block';btn.disabled=false;btn.querySelector('span').textContent='Unlock'}

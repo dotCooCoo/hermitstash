@@ -90,11 +90,15 @@ module.exports = function (app) {
         return res.status(400).json({ error: fileCheck.reason });
       }
 
-      // Validate file content matches extension
-      var magicCheck = uploadValidator.validateMagicBytes(file.filename, file.data);
-      if (!magicCheck.valid) {
-        audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + magicCheck.reason, req: req });
-        return res.status(400).json({ error: magicCheck.reason });
+      // Validate file content matches claimed extension
+      try {
+        var magicCheck = uploadValidator.validateMagicBytes(file.filename, file.data);
+        if (!magicCheck.valid) {
+          audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + magicCheck.reason, req: req });
+          return res.status(400).json({ error: magicCheck.reason });
+        }
+      } catch (_magicErr) {
+        logger.error("Magic byte validation error", { file: file.filename, error: _magicErr.message });
       }
 
       // Validate bundle limits (file count)
@@ -268,10 +272,14 @@ module.exports = function (app) {
       if (!fileCheck.valid) {
         return res.status(400).json({ error: fileCheck.reason });
       }
-      var magicCheck = uploadValidator.validateMagicBytes(filename, fullData);
-      if (!magicCheck.valid) {
-        audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + magicCheck.reason + " (chunked)", req: req });
-        return res.status(400).json({ error: magicCheck.reason });
+      try {
+        var magicCheck = uploadValidator.validateMagicBytes(filename, fullData);
+        if (!magicCheck.valid) {
+          audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + magicCheck.reason + " (chunked)", req: req });
+          return res.status(400).json({ error: magicCheck.reason });
+        }
+      } catch (_magicErr) {
+        logger.error("Magic byte validation error (chunked)", { file: filename, error: _magicErr.message });
       }
 
       // Per-IP quota check (chunked, anonymous)
