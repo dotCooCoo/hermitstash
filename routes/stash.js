@@ -24,23 +24,7 @@ var { HASH_PREFIX } = require("../lib/constants");
 var accessCodesRepo = require("../app/data/repositories/bundleAccessCodes.repo");
 var emailService = require("../lib/email");
 
-/**
- * Check if a stash page is locked for the current session.
- * Returns false (unlocked), "password", "email", or "email-then-password".
- */
-function isStashLocked(stash, session) {
-  var mode = stash.accessMode || (stash.passwordHash ? "password" : "open");
-  if (mode === "open") return false;
-  var s = session["stashUnlocked_" + stash.slug];
-  if (mode === "password") return s ? false : "password";
-  if (mode === "email") return s ? false : "email";
-  if (mode === "both") {
-    if (!s) return "email";
-    if (typeof s === "object" && s.emailVerified && !s.passwordVerified) return "email-then-password";
-    return (s === true || (typeof s === "object" && s.passwordVerified)) ? false : "email";
-  }
-  return false;
-}
+var { isStashLocked } = require("../middleware/require-access");
 
 /**
  * Check if an email matches the stash's allowed list.
