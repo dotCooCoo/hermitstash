@@ -151,6 +151,8 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | Nonce collision | XChaCha20 192-bit nonce eliminates birthday-bound risk |
 | AES-NI side channels | XChaCha20 is constant-time in software, no hardware dependency |
 | Brute-force bundle passwords | Exponential backoff lockout after 5 failed attempts |
+| Email enumeration on bundles | Identical response regardless of whether email is in allow list |
+| Brute-force access codes | 5 attempt limit per code, rate limiting, 10-minute expiry |
 | CSRF on API endpoints | Per-session XChaCha20-Poly1305 key binds requests to session |
 | CSV formula injection | Export values sanitized to prevent spreadsheet code execution |
 | DNS rebinding via webhooks | Pre-validated IP pinned to outbound connection |
@@ -184,6 +186,8 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Chunked uploads for large files (>10MB auto-split, server reassembly)
 - Pause/resume/cancel uploads, per-file progress bars
 - Password-protected share links with exponential backoff lockout (2^n × 30s after 5 failed attempts)
+- Email-gated access -- restrict bundles to specific recipient emails, verified by one-time code (anti-enumeration, rate limited, SHA3-hashed codes)
+- Dual protection mode -- require both email verification and password for maximum security
 - Custom expiry per bundle (1d, 7d, 30d, 90d, never)
 - Bundle messages, multiple recipient emails
 - Bundle naming -- name bundles during upload, rename inline from dashboard
@@ -512,7 +516,7 @@ These libraries are exceptional work. HermitStash wouldn't exist without them. A
 
 ## Architecture
 
-100+ JS files, 24 HTML templates, 16 database tables. Small files, one job each.
+100+ JS files, 25 HTML templates, 18 database tables. Small files, one job each.
 
 ```
 server.js             Bootstrap, middleware, scheduled tasks, default accounts
