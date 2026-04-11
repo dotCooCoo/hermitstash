@@ -508,6 +508,7 @@
             <div style="display:flex;gap:8px;margin-top:8px">
               <input type="text" class="text-input" id="extCustomInput" placeholder="Add custom, e.g. .dwg" style="flex:1;font-size:.82rem" onkeydown="if(event.key==='Enter'){event.preventDefault();addCustomExt()}">
               <button type="button" class="butn butn-bord-thin butn-sm radius-30" onclick="addCustomExt()"><span>Add</span></button>
+              <button type="button" class="butn butn-bord-thin butn-sm radius-30" onclick="clearAllExt()" title="Remove all restrictions — allow any file type"><span>Allow All</span></button>
             </div>
             <input type="hidden" id="s-allowedExtensions" data-key="allowedExtensions">
           </div>
@@ -792,7 +793,7 @@ uploads:{
 <h4>Retry Attempts</h4>\
 <p>How many times to automatically retry a failed file upload before giving up. Set to 0 to disable retries.</p>\
 <h4>Allowed Extensions</h4>\
-<p>Comma-separated list of file extensions (with dots) that are allowed. Any file with an extension not in this list will be rejected. Example: <code>.pdf, .jpg, .png, .zip, .docx</code></p>'
+<p>File extensions that are allowed for upload. Any file with an extension not in this list will be rejected. Click <strong>Allow All</strong> to remove all restrictions and accept any file type. Use category buttons to toggle groups, or add custom extensions manually.</p>'
 },
 storage:{
   title:'Storage Setup',
@@ -1059,6 +1060,13 @@ function removeExt(e){
   syncExtHidden();
 }
 
+function clearAllExt(){
+  extSet.clear();
+  renderExtTags();
+  syncExtCatButtons();
+  syncExtHidden();
+}
+
 function addCustomExt(){
   var inp=document.getElementById('extCustomInput');
   var val=inp.value.trim().toLowerCase();
@@ -1079,7 +1087,7 @@ function addCustomExt(){
 function renderExtTags(){
   var box=document.getElementById('extSelected');box.textContent='';
   var sorted=Array.from(extSet).sort();
-  if(!sorted.length){box.textContent='No extensions selected';box.style.color='var(--muted)';box.style.fontSize='.82rem';return}
+  if(!sorted.length){box.innerHTML='<span style="color:var(--muted);font-size:.82rem">All file types allowed</span>';return}
   box.style.color='';box.style.fontSize='';
   sorted.forEach(function(e){
     var tag=document.createElement('span');tag.className='ext-tag';

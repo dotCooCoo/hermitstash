@@ -332,6 +332,7 @@ function onVaultToggle(){
 (function(){
   var EXT_SHOW=8;
   var box=document.getElementById('extPills');if(!box)return;
+  if(!ALLOWED.length){document.getElementById('extSection').style.display='none';return}
   var all=ALLOWED.slice();
   var shown=all.slice(0,EXT_SHOW),rest=all.slice(EXT_SHOW);
   shown.forEach(function(e){var s=document.createElement('span');s.className='ext-pill';s.textContent=e;box.appendChild(s)});
@@ -373,7 +374,7 @@ function process(c,append){
     var f=c[i].file,rel=c[i].rel;var e=ext(f.name);
     // Deduplicate by relative path
     if(accepted.some(function(a){return a.rel===rel}))continue;
-    if(!ALLOWED.includes(e))skipped.push({rel:rel,reason:e?e+' not allowed':'no ext'});
+    if(ALLOWED.length&&!ALLOWED.includes(e))skipped.push({rel:rel,reason:e?e+' not allowed':'no ext'});
     else if(f.size>MAX_FILE)skipped.push({rel:rel,reason:'too big'});
     else if(f.size===0)skipped.push({rel:rel,reason:'empty'});
     else accepted.push({file:f,rel:rel});
