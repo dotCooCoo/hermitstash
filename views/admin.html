@@ -169,6 +169,155 @@
       </div>
     </div>
 
+    <!-- Customer Stash -->
+    <div class="admin-panel collapsible collapsed" id="panel-stash">
+      <div class="admin-panel-head" onclick="togglePanel('panel-stash');loadStash()">
+        <h2>Customer Stash</h2>
+        <svg class="collapse-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="admin-panel-collapse">
+        <div class="admin-panel-body" style="padding:24px 28px">
+
+          <!-- Existing stash pages list (shown first) -->
+          <div id="stashList"></div>
+          <div id="stashEmpty" style="display:none;text-align:center;padding:40px 20px;color:var(--muted);font-size:.85rem;border:1px dashed var(--border-thin);border-radius:12px;margin-bottom:24px">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--main-color)" stroke-width="1.5" style="margin-bottom:12px;opacity:.4"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg><br>
+            No stash pages yet.<br><span style="font-size:.78rem;opacity:.6">Create one below to get a branded upload link for your clients.</span>
+          </div>
+
+          <!-- Create form (collapsible) -->
+          <details class="stash-create-details">
+            <summary class="stash-create-summary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              New Stash Page
+            </summary>
+            <div class="stash-create-body">
+
+              <!-- Section: Identity -->
+              <div class="stash-form-section">
+                <div class="stash-form-section-label">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                  Identity
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                  <div>
+                    <label class="input-label">Name</label>
+                    <input type="text" class="text-input" id="stashName" placeholder="Acme Corp Q2">
+                  </div>
+                  <div>
+                    <label class="input-label">URL Slug</label>
+                    <div style="display:flex;align-items:center;gap:0">
+                      <span class="stash-slug-prefix">/stash/</span>
+                      <input type="text" class="text-input" id="stashSlug" placeholder="acme-q2" style="font-family:monospace;border-radius:0 8px 8px 0">
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Section: Branding -->
+              <div class="stash-form-section">
+                <div class="stash-form-section-label">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+                  Branding
+                </div>
+                <div style="display:grid;gap:12px">
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                    <div>
+                      <label class="input-label">Page Title</label>
+                      <input type="text" class="text-input" id="stashTitle" placeholder="Drop your files here">
+                    </div>
+                    <div>
+                      <label class="input-label">Accent Color</label>
+                      <div style="display:flex;align-items:center;gap:8px">
+                        <input type="color" id="stashColor" value="#8B5CF6" style="width:42px;height:36px;padding:2px;border:1px solid var(--border-thin);border-radius:8px;background:none;cursor:pointer">
+                        <input type="text" class="text-input" id="stashColorText" value="#8B5CF6" placeholder="#8B5CF6" style="font-family:monospace;flex:1">
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <label class="input-label">Instructions</label>
+                    <textarea class="text-input" id="stashSubtitle" placeholder="Drag entire folders or select files. We'll handle the rest." rows="2" style="resize:vertical"></textarea>
+                  </div>
+                  <div>
+                    <label class="input-label">Logo</label>
+                    <div id="stashLogoPreview" style="display:none;margin-bottom:8px">
+                      <div style="display:flex;align-items:center;gap:10px">
+                        <img id="stashLogoPreviewImg" src="" alt="" style="height:36px;max-width:140px;object-fit:contain;border-radius:8px;background:rgba(255,255,255,.04);padding:4px 8px">
+                        <button type="button" class="user-action-btn user-action-delete" onclick="clearStashLogo()" style="padding:4px 10px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span>Remove</span></button>
+                      </div>
+                    </div>
+                    <div id="stashLogoUploadArea">
+                      <input type="file" id="stashLogoFileInput" accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif" style="display:none">
+                      <button type="button" class="butn butn-bord-thin butn-sm radius-30" onclick="document.getElementById('stashLogoFileInput').click()" style="font-size:.78rem"><span>Upload Image</span></button>
+                      <span style="font-size:.72rem;color:var(--muted);margin-left:8px">PNG, JPG, SVG, WebP, GIF (max 2MB)</span>
+                    </div>
+                    <input type="hidden" id="stashLogoUrl" value="">
+                  </div>
+                </div>
+              </div>
+
+              <!-- Section: Access -->
+              <div class="stash-form-section">
+                <div class="stash-form-section-label">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                  Access
+                </div>
+                <div>
+                  <label class="input-label">Password <span style="color:var(--muted);font-weight:400">(leave empty for open access)</span></label>
+                  <input type="password" class="text-input" id="stashPassword" placeholder="Optional password protection">
+                </div>
+              </div>
+
+              <!-- Section: Upload Limits -->
+              <div class="stash-form-section">
+                <div class="stash-form-section-label">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                  Limits <span style="color:var(--muted);font-weight:400;font-size:.72rem;margin-left:4px">0 or blank = use global settings</span>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+                  <div>
+                    <label class="input-label">Max File Size</label>
+                    <div class="size-input-group">
+                      <input type="number" class="text-input" id="stashMaxFileSize" value="0" min="0" step="1">
+                      <select class="text-input size-unit" id="stashMaxFileSizeUnit">
+                        <option value="1048576">MB</option>
+                        <option value="1073741824">GB</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label class="input-label">Max Files</label>
+                    <input type="number" class="text-input" id="stashMaxFiles" value="0" min="0">
+                  </div>
+                  <div>
+                    <label class="input-label">Default Expiry</label>
+                    <select class="text-input" id="stashExpiry">
+                      <option value="0">Use global</option>
+                      <option value="1">1 day</option>
+                      <option value="7">7 days</option>
+                      <option value="30">30 days</option>
+                      <option value="90">90 days</option>
+                      <option value="-1">Never</option>
+                    </select>
+                  </div>
+                </div>
+                <div style="margin-top:12px">
+                  <label class="input-label">Allowed Extensions</label>
+                  <input type="text" class="text-input" id="stashAllowedExtensions" placeholder=".pdf, .doc, .jpg, .png — blank = use global">
+                </div>
+              </div>
+
+              <!-- Submit -->
+              <div style="display:flex;justify-content:flex-end;padding-top:8px">
+                <button class="butn butn-bg butn-sm radius-30" onclick="createStash()"><span>+ Create Stash Page</span></button>
+              </div>
+            </div>
+          </details>
+
+        </div>
+      </div>
+    </div>
+
   </div>
 </section>
 
@@ -973,6 +1122,147 @@ function createWebhook(){
   });
 }
 
+// ---- Customer Stash ----
+var _stashLoaded=false;
+function loadStash(){
+  if(_stashLoaded)return;_stashLoaded=true;
+  fetch('/admin/stash/api').then(function(r){return r.json()}).then(function(d){
+    var el=document.getElementById('stashList');
+    var empty=document.getElementById('stashEmpty');
+    if(!d.pages||!d.pages.length){el.innerHTML='';empty.style.display='block';return}
+    empty.style.display='none';
+    var html='';
+    for(var i=0;i<d.pages.length;i++){
+      var p=d.pages[i];
+      var statusClass=p.enabled?'badge-admin':'badge-suspended';
+      var statusText=p.enabled?'active':'disabled';
+      var safeColor=p.accentColor&&/^#[0-9a-fA-F]{3,8}$/.test(p.accentColor)?p.accentColor:'';
+      html+='<div class="admin-user-row" style="'+(safeColor?'border-left:3px solid '+safeColor:'')+'">';
+      html+='<div class="admin-user-info" style="flex:1">';
+      html+='<div class="admin-user-avatar" style="'+(safeColor?'background:'+safeColor+'20;border-color:'+safeColor+'40':'')+'"><span class="admin-user-initial" style="'+(safeColor?'color:'+safeColor:'')+'">'+esc((p.name||p.slug).charAt(0).toUpperCase())+'</span></div>';
+      html+='<div><div class="admin-user-name">'+esc(p.name||p.slug)+'</div>';
+      html+='<div class="admin-user-email"><a href="/stash/'+esc(p.slug)+'" target="_blank" style="color:var(--main-color);font-family:monospace;font-size:.8rem">/stash/'+esc(p.slug)+'</a>';
+      if(p.hasPassword) html+=' <span style="color:var(--muted);font-size:.7rem" title="Password protected">&#128274;</span>';
+      html+='</div></div></div>';
+      html+='<div class="admin-user-meta">';
+      html+='<span class="badge '+statusClass+'">'+statusText+'</span>';
+      html+='<span class="admin-user-date">'+(p.bundleCount||0)+' uploads</span>';
+      if(p.totalBytes>0) html+='<span class="admin-user-date">'+formatSize(p.totalBytes)+'</span>';
+      html+='</div>';
+      html+='<div class="admin-user-actions">';
+      html+='<button class="user-action-btn user-action-role" title="Copy link" onclick="cpStash(\''+esc(p.slug)+'\',this)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span>Copy</span></button>';
+      html+='<button class="user-action-btn" title="Open in new tab" onclick="window.open(\'/stash/'+esc(p.slug)+'\',\'_blank\')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg><span>Open</span></button>';
+      html+='<button class="user-action-btn '+(p.enabled?'user-action-suspend':'user-action-activate')+'" onclick="toggleStash(\''+p._id+'\')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">'+(p.enabled?'<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>':'<polyline points="20 6 9 17 4 12"/>')+'</svg><span>'+(p.enabled?'Disable':'Enable')+'</span></button>';
+      html+='<button class="user-action-btn user-action-delete" onclick="deleteStash(\''+p._id+'\',\''+esc(p.name||p.slug)+'\')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg><span>Delete</span></button>';
+      html+='</div></div>';
+    }
+    el.innerHTML=html;
+  });
+}
+
+function createStash(){
+  var name=document.getElementById('stashName').value.trim();
+  var slug=document.getElementById('stashSlug').value.trim().toLowerCase();
+  if(!name){alert('Name required');return}
+  if(!slug) slug=name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,50);
+  var maxFileSizeVal=parseFloat(document.getElementById('stashMaxFileSize').value)||0;
+  var maxFileSizeUnit=parseInt(document.getElementById('stashMaxFileSizeUnit').value)||1048576;
+  var body={
+    name:name, slug:slug,
+    title:document.getElementById('stashTitle').value.trim(),
+    subtitle:document.getElementById('stashSubtitle').value.trim(),
+    accentColor:document.getElementById('stashColorText').value.trim()||document.getElementById('stashColor').value,
+    logoUrl:document.getElementById('stashLogoUrl').value.trim(),
+    password:document.getElementById('stashPassword').value,
+    maxFileSize:Math.round(maxFileSizeVal*maxFileSizeUnit),
+    maxFiles:parseInt(document.getElementById('stashMaxFiles').value)||0,
+    defaultExpiry:parseInt(document.getElementById('stashExpiry').value)||0,
+    allowedExtensions:document.getElementById('stashAllowedExtensions').value.trim(),
+  };
+  fetch('/admin/stash/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json()}).then(function(d){
+    if(d.success){
+      var newId=d.stash&&d.stash._id;
+      var hasPendingLogo=document.getElementById('stashLogoFileInput')._pendingFile;
+      function resetForm(){
+        document.getElementById('stashName').value='';
+        document.getElementById('stashSlug').value='';
+        document.getElementById('stashTitle').value='';
+        document.getElementById('stashSubtitle').value='';
+        document.getElementById('stashPassword').value='';
+        document.getElementById('stashMaxFileSize').value='0';
+        document.getElementById('stashMaxFiles').value='0';
+        document.getElementById('stashAllowedExtensions').value='';
+        clearStashLogo();
+        _stashLoaded=false;loadStash();
+      }
+      if(hasPendingLogo&&newId){uploadStashLogo(newId,resetForm)}
+      else{resetForm()}
+    }else{alert(d.error||'Failed to create')}
+  });
+}
+
+function toggleStash(id){
+  fetch('/admin/stash/'+id+'/toggle',{method:'POST'}).then(function(r){return r.json()}).then(function(d){
+    if(d.success){_stashLoaded=false;loadStash()}else{alert(d.error)}
+  });
+}
+
+function deleteStash(id,name){
+  if(!confirm('Delete stash page "'+name+'"? Existing uploads will remain but the page will no longer be accessible.'))return;
+  fetch('/admin/stash/'+id+'/delete',{method:'POST'}).then(function(r){return r.json()}).then(function(d){
+    if(d.success){_stashLoaded=false;loadStash()}else{alert(d.error)}
+  });
+}
+
+function cpStash(slug,btn){
+  var url=location.origin+'/stash/'+slug;
+  navigator.clipboard.writeText(url).then(function(){
+    var s=btn.querySelector('span');s.textContent='Copied!';setTimeout(function(){s.textContent='Copy'},2000);
+  });
+}
+
+function formatSize(b){if(b<1024)return b+' B';if(b<1048576)return(b/1024).toFixed(0)+' KB';if(b<1073741824)return(b/1048576).toFixed(1)+' MB';return(b/1073741824).toFixed(2)+' GB'}
+
+// Stash logo upload — uploads immediately to get a path, stores in hidden input
+document.getElementById('stashLogoFileInput').addEventListener('change',function(){
+  var file=this.files[0];if(!file)return;
+  if(file.size>2*1024*1024){alert('Logo must be under 2MB');this.value='';return}
+  // Need a stash ID to upload to — for new stash, we'll store the file and upload after create
+  // For now, show preview and store as data URL, then upload on create
+  var reader=new FileReader();
+  reader.onload=function(e){
+    document.getElementById('stashLogoPreviewImg').src=e.target.result;
+    document.getElementById('stashLogoPreview').style.display='block';
+    document.getElementById('stashLogoUrl').value='__pending_upload__';
+    document.getElementById('stashLogoFileInput')._pendingFile=file;
+  };
+  reader.readAsDataURL(file);
+});
+function clearStashLogo(){
+  document.getElementById('stashLogoPreview').style.display='none';
+  document.getElementById('stashLogoPreviewImg').src='';
+  document.getElementById('stashLogoUrl').value='';
+  document.getElementById('stashLogoFileInput').value='';
+  delete document.getElementById('stashLogoFileInput')._pendingFile;
+}
+function uploadStashLogo(stashId,callback){
+  var fileInput=document.getElementById('stashLogoFileInput');
+  var pendingFile=fileInput._pendingFile;
+  if(!pendingFile){callback();return}
+  var fm=new FormData();fm.append('file',pendingFile);
+  fetch('/admin/stash/'+stashId+'/logo',{method:'POST',body:fm}).then(function(r){return r.json()}).then(function(d){
+    if(d.success){delete fileInput._pendingFile;callback()}
+    else{alert('Logo upload failed: '+(d.error||'unknown'));callback()}
+  }).catch(function(){alert('Logo upload failed');callback()});
+}
+
+document.getElementById('stashName').addEventListener('input',function(){
+  var slug=this.value.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,50);
+  document.getElementById('stashSlug').value=slug;
+});
+document.getElementById('stashColor').addEventListener('input',function(){document.getElementById('stashColorText').value=this.value});
+document.getElementById('stashColorText').addEventListener('input',function(){if(/^#[0-9a-fA-F]{6}$/.test(this.value))document.getElementById('stashColor').value=this.value});
+
 // ---- Logo upload ----
 function showLogoPreview(src){
   if(src){
@@ -1489,47 +1779,49 @@ function saveTab(tab){
   });
 }
 
+function dangerBtnText(btn,text){var s=btn.querySelector('span');if(s)s.textContent=text;else btn.lastChild.textContent=' '+text}
+
 function revokeAllSessions(){
   if(!confirm('Purge ALL sessions? Every user (including you) will be logged out immediately.'))return;
   var btn=document.getElementById('revokeAllBtn');
-  btn.disabled=true;btn.querySelector('span').textContent='Purging...';
+  btn.disabled=true;dangerBtnText(btn,'Purging...');
   fetch('/admin/sessions/revoke-all',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
     if(d.success){alert('All sessions purged. You will be redirected to login.');window.location.href='/auth/login'}
-    else{alert(d.error||'Failed.');btn.disabled=false;btn.querySelector('span').textContent='Purge Sessions'}
-  }).catch(function(){alert('Network error.');btn.disabled=false;btn.querySelector('span').textContent='Purge Sessions'});
+    else{alert(d.error||'Failed.');btn.disabled=false;dangerBtnText(btn,'Purge Sessions')}
+  }).catch(function(){alert('Network error.');btn.disabled=false;dangerBtnText(btn,'Purge Sessions')});
 }
 
 function purgeUsers(){
   if(!confirm('Delete ALL user accounts except yours? This cannot be undone.'))return;
   if(!confirm('Are you absolutely sure? All user accounts will be permanently deleted.'))return;
   var btn=document.getElementById('purgeUsersBtn');
-  btn.disabled=true;btn.querySelector('span').textContent='Purging...';
+  btn.disabled=true;dangerBtnText(btn,'Purging...');
   fetch('/admin/purge/users',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
     if(d.success){alert('Purged '+d.deleted+' users. Sessions cleared.');location.reload()}
-    else{alert(d.error||'Failed.');btn.disabled=false;btn.querySelector('span').textContent='Purge Users'}
-  }).catch(function(){alert('Network error.');btn.disabled=false;btn.querySelector('span').textContent='Purge Users'});
+    else{alert(d.error||'Failed.');btn.disabled=false;dangerBtnText(btn,'Purge Users')}
+  }).catch(function(){alert('Network error.');btn.disabled=false;dangerBtnText(btn,'Purge Users')});
 }
 
 function purgeFiles(){
   if(!confirm('Delete ALL files and bundles? This removes files from disk and cannot be undone.'))return;
   if(!confirm('Are you absolutely sure? Every uploaded file and bundle will be permanently deleted.'))return;
   var btn=document.getElementById('purgeFilesBtn');
-  btn.disabled=true;btn.querySelector('span').textContent='Purging...';
+  btn.disabled=true;dangerBtnText(btn,'Purging...');
   fetch('/admin/purge/files',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
     if(d.success){alert('Purged '+d.deletedFiles+' files and '+d.deletedBundles+' bundles.');location.reload()}
-    else{alert(d.error||'Failed.');btn.disabled=false;btn.querySelector('span').textContent='Purge Files'}
-  }).catch(function(){alert('Network error.');btn.disabled=false;btn.querySelector('span').textContent='Purge Files'});
+    else{alert(d.error||'Failed.');btn.disabled=false;dangerBtnText(btn,'Purge Files')}
+  }).catch(function(){alert('Network error.');btn.disabled=false;dangerBtnText(btn,'Purge Files')});
 }
 
 function purgeDatabase(){
   var confirm=document.getElementById('purgeDbConfirm').value;
   if(confirm!=='PURGE')return alert('Type PURGE to confirm.');
   var btn=document.getElementById('purgeDbBtn');
-  btn.disabled=true;btn.querySelector('span').textContent='Purging...';
+  btn.disabled=true;dangerBtnText(btn,'Purging...');
   fetch('/admin/purge/database',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:'PURGE'})}).then(function(r){return r.json()}).then(function(d){
     if(d.success){alert('Database purged. You will be redirected to login.');window.location.href='/auth/login'}
-    else{alert(d.error||'Failed.');btn.disabled=false;btn.querySelector('span').textContent='Purge Database'}
-  }).catch(function(){alert('Network error.');btn.disabled=false;btn.querySelector('span').textContent='Purge Database'});
+    else{alert(d.error||'Failed.');btn.disabled=false;dangerBtnText(btn,'Factory Reset')}
+  }).catch(function(){alert('Network error.');btn.disabled=false;dangerBtnText(btn,'Factory Reset')});
 }
 
 // Defer all API calls until api.js has loaded and overridden fetch

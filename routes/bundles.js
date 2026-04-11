@@ -224,6 +224,19 @@ module.exports = function (app) {
       try { await storage.deleteFile(bundleFiles[i].storagePath); } catch (_e) {}
       filesRepo.remove(bundleFiles[i]._id);
     }
+    // Decrement stash stats if bundle belongs to a stash page
+    if (bundle.stashId) {
+      try {
+        var stashRepo = require("../app/data/repositories/stash.repo");
+        var stash = stashRepo.findById(bundle.stashId);
+        if (stash) {
+          stashRepo.update(stash._id, { $set: {
+            bundleCount: Math.max(0, (parseInt(stash.bundleCount, 10) || 0) - 1),
+            totalBytes: Math.max(0, (parseInt(stash.totalBytes, 10) || 0) - (bundle.totalSize || 0)),
+          }});
+        }
+      } catch (_e) {}
+    }
     bundlesRepo.remove(bundle._id);
     audit.log(audit.ACTIONS.ADMIN_BUNDLE_DELETED, { targetId: bundle._id, targetEmail: bundle.uploaderEmail, details: "owner delete, shareId: " + bundle.shareId + ", files: " + bundleFiles.length, req: req });
     res.json({ success: true, filesDeleted: bundleFiles.length });

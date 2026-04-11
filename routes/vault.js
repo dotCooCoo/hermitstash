@@ -25,7 +25,7 @@ var { send, host } = require("../middleware/send");
 
 module.exports = function (app) {
 
-  // Enable vault — stores the user's ML-KEM-768 public key
+  // Enable vault — stores the user's ML-KEM-1024 public key (accepts ML-KEM-768 legacy)
   // Supports two modes:
   //   "prf"     — keypair derived from passkey PRF (zero-knowledge, server never sees seed)
   //   "passkey" — keypair from random seed, seed stored server-side vault-sealed,

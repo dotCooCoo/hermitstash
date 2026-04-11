@@ -201,6 +201,16 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Force-reset recovery mode for vault lockout (deletes all vault files, clears vault state)
 - ML-KEM-768 legacy decryption support (auto-detected by encapsulated key size)
 
+**Customer Stash — Branded Upload Portals**
+- Create custom-branded upload pages at `/stash/:slug` for clients and partners
+- Per-page branding -- custom title, instructions, accent color, and logo
+- Per-page upload constraints -- max file size, max files, default expiry, allowed extensions
+- Password-protected stash pages with Argon2 hashing and rate-limited unlock
+- Simplified upload form -- message and files only (no name/email fields)
+- Dynamic slug validation with automatic reserved-word detection from registered routes
+- Upload stats tracked per stash page (bundle count, total bytes)
+- Admin management via collapsible panel -- create, toggle, copy link, delete
+
 **Teams**
 - Create teams, add/remove members with role-based access
 - Team-scoped file visibility -- cross-team isolation enforced
@@ -493,7 +503,7 @@ These libraries are exceptional work. HermitStash wouldn't exist without them. A
 
 ## Architecture
 
-60+ JS files, 22 HTML templates, 15 database tables. Small files, one job each.
+60+ JS files, 22 HTML templates, 16 database tables. Small files, one job each.
 
 ```
 server.js             Bootstrap, middleware, scheduled tasks, default accounts
@@ -534,7 +544,7 @@ app/
   jobs/               Background jobs (expiry, audit retention, webhook dispatch)
   shared/             Errors, logger, validation helpers
 
-routes/               17 route files
+routes/               18 route files (includes stash.js for Customer Stash)
 middleware/           11 files (auth, CORS, CSRF, API encryption, security headers)
 views/                22 templates
 public/               CSS, JS, logos, icons

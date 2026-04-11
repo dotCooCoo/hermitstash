@@ -109,16 +109,16 @@ function isPrivateIp(ip) {
  * Resolves DNS to prevent rebinding attacks.
  */
 function isPrivateHost(hostname) {
-  if (!hostname) return Promise.resolve(true);
+  if (!hostname) return Promise.resolve({ blocked: true });
   var h = String(hostname).toLowerCase();
 
   // Check denied hostnames
   for (var i = 0; i < DENIED_HOSTNAMES.length; i++) {
-    if (h === DENIED_HOSTNAMES[i]) return Promise.resolve(true);
+    if (h === DENIED_HOSTNAMES[i]) return Promise.resolve({ blocked: true });
   }
 
   // Check if hostname is a literal IP
-  if (isPrivateIp(h)) return Promise.resolve(true);
+  if (isPrivateIp(h)) return Promise.resolve({ blocked: true });
 
   // Resolve DNS and check all addresses
   return new Promise(function (resolve) {

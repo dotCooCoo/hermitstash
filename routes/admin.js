@@ -111,6 +111,16 @@ module.exports = function (app) {
       var bundle = bundlesRepo.findById(doc.bundleId);
       if (bundle) {
         bundlesRepo.update(doc.bundleId, { $set: { receivedFiles: Math.max(0, (bundle.receivedFiles || 0) - 1) } });
+        // Decrement stash totalBytes if bundle belongs to a stash page
+        if (bundle.stashId) {
+          try {
+            var stashRepo = require("../app/data/repositories/stash.repo");
+            var stash = stashRepo.findById(bundle.stashId);
+            if (stash) {
+              stashRepo.update(stash._id, { $set: { totalBytes: Math.max(0, (parseInt(stash.totalBytes, 10) || 0) - (doc.size || 0)) } });
+            }
+          } catch (_e) {}
+        }
       }
     }
     audit.log(audit.ACTIONS.ADMIN_FILE_DELETED, { targetId: doc._id, targetEmail: doc.uploaderEmail, details: "file: " + doc.originalName + ", size: " + doc.size, req: req });
@@ -126,6 +136,19 @@ module.exports = function (app) {
     for (const f of bf) {
       if (f.storagePath) await storage.deleteFile(f.storagePath);
       filesRepo.remove(f._id);
+    }
+    // Decrement stash stats if bundle belongs to a stash page
+    if (bundle.stashId) {
+      try {
+        var stashRepo = require("../app/data/repositories/stash.repo");
+        var stash = stashRepo.findById(bundle.stashId);
+        if (stash) {
+          stashRepo.update(stash._id, { $set: {
+            bundleCount: Math.max(0, (parseInt(stash.bundleCount, 10) || 0) - 1),
+            totalBytes: Math.max(0, (parseInt(stash.totalBytes, 10) || 0) - (bundle.totalSize || 0)),
+          }});
+        }
+      } catch (_e) { /* stash may have been deleted */ }
     }
     bundlesRepo.remove(bundle._id);
     audit.log(audit.ACTIONS.ADMIN_BUNDLE_DELETED, { targetId: bundle._id, targetEmail: bundle.uploaderEmail, details: "shareId: " + req.params.shareId + ", files: " + bf.length, req: req });
@@ -293,7 +316,7 @@ module.exports = function (app) {
 
       // Validate actual content, not just claimed MIME type
       var ext = detectContentType(file.data);
-      if (!ext) return res.status(400).json({ error: "Invalid image. Upload a PNG, JPG, SVG, WebP, or GIF." });
+      if (!ext || [".png", ".jpg", ".gif", ".webp", ".svg"].indexOf(ext) === -1) return res.status(400).json({ error: "Invalid image. Upload a PNG, JPG, SVG, WebP, or GIF." });
 
       var data = file.data;
 
@@ -393,6 +416,14 @@ module.exports = function (app) {
       for (var j = 0; j < allBundles.length; j++) {
         bundlesRepo.remove(allBundles[j]._id);
       }
+      // Reset all stash stats since their bundles are gone
+      try {
+        var stashRepo = require("../app/data/repositories/stash.repo");
+        var allStash = stashRepo.findAll();
+        for (var k = 0; k < allStash.length; k++) {
+          stashRepo.update(allStash[k]._id, { $set: { bundleCount: 0, totalBytes: 0 } });
+        }
+      } catch (_e) {}
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Purged " + fileCount + " files, " + bundleCount + " bundles", req: req });
       res.json({ success: true, deletedFiles: fileCount, deletedBundles: bundleCount });
     } catch (e) {

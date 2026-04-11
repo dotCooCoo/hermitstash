@@ -50,7 +50,7 @@ app.use(require("./middleware/request-id"));
 app.use(require("./middleware/security-headers"));
 // Restrictive CSP for user-uploaded content (custom logos) — defense in depth against SVG XSS
 app.use(function (req, res, next) {
-  if (req.pathname && req.pathname.startsWith("/img/custom/")) {
+  if (req.pathname && (req.pathname.startsWith("/img/custom/") || req.pathname.startsWith("/img/stash/"))) {
     res.setHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'");
     res.setHeader("X-Content-Type-Options", "nosniff");
   }
@@ -135,6 +135,7 @@ require("./routes/passkey")(app);
 require("./routes/two-factor")(app);
 require("./routes/teams")(app);
 require("./routes/vault")(app);
+require("./routes/stash")(app);
 
 // Custom 404 page
 app.onNotFound(function (req, res) {
