@@ -821,6 +821,14 @@ body::after {
 .danger-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 18px;border-radius:8px;border:1px solid rgba(255,68,68,.25);background:rgba(255,68,68,.06);color:var(--danger);font-size:.78rem;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .2s ease}
 .danger-btn:hover{background:rgba(255,68,68,.12);border-color:rgba(255,68,68,.4)}
 .danger-btn-critical{background:rgba(255,68,68,.1);border-color:rgba(255,68,68,.35)}.danger-btn-critical:hover{background:rgba(255,68,68,.2);border-color:rgba(255,68,68,.5)}
+
+/* Collapsible proxy config */
+.proxy-collapse{margin-bottom:4px}
+.proxy-summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;user-select:none}
+.proxy-summary::-webkit-details-marker{display:none}
+.proxy-summary::before{content:'';display:inline-block;width:6px;height:6px;border-right:2px solid var(--text-muted);border-bottom:2px solid var(--text-muted);transform:rotate(-45deg);transition:transform .2s ease;flex-shrink:0}
+.proxy-collapse[open] .proxy-summary::before{transform:rotate(45deg)}
+.proxy-collapse-body{padding:12px 0 0 14px}
 .admin-you-badge{font-size:.72rem;color:var(--text-muted);background:rgba(255,255,255,.04);padding:4px 14px;border-radius:20px}
 
 /* File/Bundle rows */
