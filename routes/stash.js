@@ -256,7 +256,7 @@ module.exports = function (app) {
 
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
-      if (!bundle || bundle.status === "complete") return res.status(404).json({ error: "Bundle not found." });
+      if (!bundle || (bundle.status === "complete" && bundle.bundleType !== "sync")) return res.status(404).json({ error: "Bundle not found." });
       if (bundle.stashId !== stash._id) return res.status(403).json({ error: "Bundle does not belong to this stash." });
 
       var limits = resolveUploadConfig(stash);
@@ -287,7 +287,7 @@ module.exports = function (app) {
 
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
-      if (!bundle || bundle.status === "complete") return res.status(404).json({ error: "Bundle not found." });
+      if (!bundle || (bundle.status === "complete" && bundle.bundleType !== "sync")) return res.status(404).json({ error: "Bundle not found." });
       if (bundle.stashId !== stash._id) return res.status(403).json({ error: "Bundle does not belong to this stash." });
 
       var limits = resolveUploadConfig(stash);

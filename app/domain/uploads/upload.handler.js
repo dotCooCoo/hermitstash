@@ -126,24 +126,51 @@ async function handleFileUpload(ctx) {
   var storagePath = "bundles/" + bundle.shareId + "/" + Date.now() + "-" + fileShareId + ext;
   var checksum = sha3Hash(file.data);
   var saved = await storage.saveFile(file.data, storagePath);
+  var cleanRelPath = sanitizeFilename(fields.relativePath || file.filename, 500);
+  var now = new Date().toISOString();
 
-  try {
-    filesRepo.create({
-      shareId: fileShareId,
-      bundleId: bundle._id,
-      bundleShareId: bundle.shareId,
-      originalName: sanitizeFilename(file.filename),
-      relativePath: sanitizeFilename(fields.relativePath || file.filename, 500),
-      storagePath: storagePath, mimeType: file.mimetype, size: file.size,
-      checksum: checksum, encryptionKey: saved.encryptionKey,
-      uploadedBy: ctx.uploadedBy, uploaderEmail: ctx.uploaderEmail,
-      downloads: 0, status: "complete",
-      createdAt: new Date().toISOString(),
-      expiresAt: ctx.expiresAt,
-    });
-  } catch (dbErr) {
-    await storage.deleteFile(storagePath);
-    throw dbErr;
+  // Sync bundle: check for existing file with same relativePath → replace
+  var replaced = false;
+  var oldSize = 0;
+  if (bundle.bundleType === "sync") {
+    var existing = filesRepo.findAll({ bundleId: bundle._id })
+      .filter(function (f) { return f.relativePath === cleanRelPath && !f.deletedAt; });
+    if (existing.length > 0) {
+      var old = existing[0];
+      oldSize = old.size || 0;
+      // Delete old encrypted blob and sealed key
+      try { await storage.deleteFile(old.storagePath); } catch (_e) {}
+      // Update in place: new key, new content, new checksum
+      filesRepo.update(old._id, { $set: {
+        originalName: sanitizeFilename(file.filename),
+        storagePath: storagePath, mimeType: file.mimetype, size: file.size,
+        checksum: checksum, encryptionKey: saved.encryptionKey,
+        updatedAt: now, seq: (bundle.seq || 0) + 1,
+      }});
+      replaced = true;
+    }
+  }
+
+  if (!replaced) {
+    try {
+      filesRepo.create({
+        shareId: fileShareId,
+        bundleId: bundle._id,
+        bundleShareId: bundle.shareId,
+        originalName: sanitizeFilename(file.filename),
+        relativePath: cleanRelPath,
+        storagePath: storagePath, mimeType: file.mimetype, size: file.size,
+        checksum: checksum, encryptionKey: saved.encryptionKey,
+        uploadedBy: ctx.uploadedBy, uploaderEmail: ctx.uploaderEmail,
+        downloads: 0, status: "complete",
+        createdAt: now, updatedAt: now,
+        seq: (bundle.seq || 0) + 1,
+        expiresAt: ctx.expiresAt,
+      });
+    } catch (dbErr) {
+      await storage.deleteFile(storagePath);
+      throw dbErr;
+    }
   }
 
   // Track IP after save
@@ -151,13 +178,21 @@ async function handleFileUpload(ctx) {
     ipQuota.record(rateLimit.getIp(ctx.req), file.size);
   }
 
-  audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: bundle._id, details: auditDetail({ action: "file_added", bundleId: bundle._id, file: file.filename, size: file.size, checksum: checksum }), req: ctx.req });
+  var action = replaced ? "file_replaced" : "file_added";
+  audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: bundle._id, details: auditDetail({ action: action, bundleId: bundle._id, file: file.filename, relativePath: cleanRelPath, size: file.size, checksum: checksum }), req: ctx.req });
 
+  // Update bundle counters and seq
+  var sizeChange = replaced ? (file.size - oldSize) : file.size;
+  var fileCountChange = replaced ? 0 : 1;
   bundlesRepo.update(bundle._id, {
-    $set: { receivedFiles: bundle.receivedFiles + 1, totalSize: bundle.totalSize + file.size },
+    $set: {
+      receivedFiles: bundle.receivedFiles + fileCountChange,
+      totalSize: bundle.totalSize + sizeChange,
+      seq: (bundle.seq || 0) + 1,
+    },
   });
 
-  return { success: true, received: bundle.receivedFiles + 1, total: bundle.expectedFiles };
+  return { success: true, replaced: replaced, received: bundle.receivedFiles + fileCountChange, total: bundle.expectedFiles };
 }
 
 /**
@@ -345,4 +380,39 @@ function handleFinalize(ctx) {
   return { success: true, shareId: refreshed.shareId, shareUrl: bundleUrl, emailSent: emailSent, refreshed: refreshed };
 }
 
-module.exports = { resolveUploadConfig, checkAllQuotas, handleFileUpload, handleChunkUpload, handleFinalize };
+/**
+ * Handle file deletion from a sync bundle (soft delete with tombstone).
+ * @param {object} ctx - { bundle, fileId, req }
+ */
+async function handleSyncFileDelete(ctx) {
+  var bundle = ctx.bundle;
+  if (bundle.bundleType !== "sync") return { error: "Only sync bundles support file deletion." };
+
+  var file = filesRepo.findById(ctx.fileId);
+  if (!file || file.bundleId !== bundle._id) return { error: "File not found.", status: 404 };
+  if (file.deletedAt) return { error: "File already deleted.", status: 404 };
+
+  // Delete encrypted blob and sealed key from storage
+  try { await storage.deleteFile(file.storagePath); } catch (_e) {}
+
+  // Tombstone: set deletedAt, keep sealed fields for event emission
+  var now = new Date().toISOString();
+  var newSeq = (bundle.seq || 0) + 1;
+  filesRepo.update(file._id, { $set: {
+    deletedAt: now, updatedAt: now, seq: newSeq,
+    storagePath: null, encryptionKey: null,
+  }});
+
+  // Update bundle counters
+  bundlesRepo.update(bundle._id, { $set: {
+    receivedFiles: Math.max(0, bundle.receivedFiles - 1),
+    totalSize: Math.max(0, bundle.totalSize - (file.size || 0)),
+    seq: newSeq,
+  }});
+
+  audit.log(audit.ACTIONS.FILE_DELETED, { targetId: file._id, details: auditDetail({ action: "file_removed", bundleId: bundle._id, file: file.originalName, relativePath: file.relativePath }), req: ctx.req });
+
+  return { success: true, seq: newSeq };
+}
+
+module.exports = { resolveUploadConfig, checkAllQuotas, handleFileUpload, handleChunkUpload, handleFinalize, handleSyncFileDelete };

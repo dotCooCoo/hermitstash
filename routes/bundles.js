@@ -230,6 +230,7 @@ module.exports = function (app) {
       return send(res, "bundle-locked", { shareId: req.params.shareId, user: req.user, emailVerified: emailVerified });
     }
     const bundleFiles = filesRepo.findByBundleShareId(bundle.shareId)
+      .filter(f => !f.deletedAt)
       .sort((a, b) => (a.relativePath || "").localeCompare(b.relativePath || ""));
     var verifiedEmail = req.session["bundle_" + req.params.shareId];
     var viewerEmail = (typeof verifiedEmail === "object" && verifiedEmail.emailVerified && typeof verifiedEmail.emailVerified === "string") ? verifiedEmail.emailVerified : (typeof verifiedEmail === "string" ? verifiedEmail : null);
@@ -396,6 +397,20 @@ module.exports = function (app) {
     if (!result.valid) return res.status(400).json({ error: result.error || "Invalid name." });
     bundlesRepo.update(bundle._id, { $set: { bundleName: result.name } });
     res.json({ success: true, name: result.name });
+  });
+
+  // Delete a single file from a sync bundle (soft delete with tombstone)
+  app.post("/bundles/:shareId/file/:fileId/delete", rateLimit.middleware("sync-file-delete", 100, 60000), async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    var bundle = bundlesRepo.findByShareId(req.params.shareId);
+    if (!bundle) return res.status(404).json({ error: "Not found." });
+    if (bundle.ownerId !== req.user._id && req.user.role !== "admin") {
+      return res.status(403).json({ error: "Not authorized." });
+    }
+    var { handleSyncFileDelete } = require("../app/domain/uploads/upload.handler");
+    var result = await handleSyncFileDelete({ bundle: bundle, fileId: req.params.fileId, req: req });
+    if (result.error) return res.status(result.status || 400).json({ error: result.error });
+    res.json(result);
   });
 
   app.post("/bundles/:shareId/delete", async (req, res) => {

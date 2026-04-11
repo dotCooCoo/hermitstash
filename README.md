@@ -266,7 +266,11 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Upload confirmations, admin notifications, verification emails
 - All email send/fail/quota events audit-logged
 
-**API**
+**Sync and API**
+- Mutable sync bundles -- `bundleType: "sync"` creates persistent, mutable bundles that accept file additions, replacements, and deletions after creation
+- File replace -- uploading to a sync bundle with an existing `relativePath` overwrites the file with a new encryption key (old key and blob fully removed)
+- File delete -- individual files can be removed from sync bundles with tombstone-based soft delete (30-day cleanup)
+- Per-file change tracking -- `seq` monotonic counter and `updatedAt` timestamp on files and bundles for sync change feeds
 - JSON content negotiation on bundle view -- `Accept: application/json` returns file list with checksums and metadata
 - Structured audit log events for file mutations (JSON details with action, bundleId, checksum, size)
 - Shared access control middleware (`require-access.js`) -- centralized lock checks for bundles and stash

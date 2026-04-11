@@ -61,6 +61,20 @@ async function cleanupStaleBundles() {
 }
 
 /**
+ * Clean up tombstoned files (soft-deleted sync bundle files older than 30 days).
+ */
+function cleanupTombstones() {
+  var cutoff = new Date(Date.now() - 30 * 86400000).toISOString();
+  var tombstones = files.find({}).filter(function (f) { return f.deletedAt && f.deletedAt < cutoff; });
+  var removed = 0;
+  for (var i = 0; i < tombstones.length; i++) {
+    files.remove({ _id: tombstones[i]._id });
+    removed++;
+  }
+  return removed;
+}
+
+/**
  * Clean up expired bundle access codes (older than 1 hour).
  */
 function cleanupExpiredAccessCodes() {
@@ -70,4 +84,4 @@ function cleanupExpiredAccessCodes() {
   } catch (_e) { return 0; }
 }
 
-module.exports = { cleanupExpiredFiles, cleanupStaleBundles, cleanupExpiredAccessCodes };
+module.exports = { cleanupExpiredFiles, cleanupStaleBundles, cleanupTombstones, cleanupExpiredAccessCodes };

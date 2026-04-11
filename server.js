@@ -184,6 +184,9 @@ scheduler.register("expired_invites_cleanup", 86400000, function () { // daily
     db.rawExec("DELETE FROM invites WHERE status = 'pending' AND expiresAt < ?", now);
   } catch (_e) {}
 });
+scheduler.register("tombstone_cleanup", 86400000, function () { // daily
+  try { require("./app/jobs/expiry-cleanup.job").cleanupTombstones(); } catch (_e) {}
+});
 scheduler.register("expired_access_codes_cleanup", 3600000, function () { // hourly
   try { require("./app/jobs/expiry-cleanup.job").cleanupExpiredAccessCodes(); } catch (_e) {}
 });
