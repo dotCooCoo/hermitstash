@@ -1,5 +1,5 @@
 {{> head}}
-<main class="main">
+<main class="main" id="main-content">
 <div class="page-header"><div><span class="sub-title">Dashboard</span><h1>My <span style="font-weight:200">Stash</span></h1></div><a href="/drop" class="butn butn-bg butn-sm radius-30"><span>+ Drop Files</span></a></div>
 {% if (files.length === 0 && bundles.length === 0) { %}
   <div class="empty-state"><div class="empty-icon"><img src="{{{brand.logo}}}" alt="" style="width:64px;height:auto;opacity:.4"></div><p>Your stash is empty.</p><a href="/drop" class="btn btn-primary">Upload your first file</a></div>
