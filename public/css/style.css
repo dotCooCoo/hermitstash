@@ -805,6 +805,22 @@ body::after {
 .user-action-activate{color:var(--accent);border-color:rgba(202,255,51,.15)}.user-action-activate:hover{background:rgba(202,255,51,.08);border-color:rgba(202,255,51,.3)}
 .user-action-suspend{color:#f59e0b;border-color:rgba(245,158,11,.15)}.user-action-suspend:hover{background:rgba(245,158,11,.08);border-color:rgba(245,158,11,.3)}
 .user-action-delete{color:var(--danger);border-color:rgba(255,68,68,.12)}.user-action-delete:hover{background:rgba(255,68,68,.08);border-color:rgba(255,68,68,.3)}
+
+/* Danger Zone */
+.danger-zone{padding:0 28px 28px}
+.danger-zone-header{display:flex;align-items:center;gap:10px;margin-bottom:20px;color:var(--danger)}.danger-zone-header h3{font-size:.95rem;font-weight:700;margin:0;color:var(--danger)}
+.danger-card{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:16px 20px;border:1px solid rgba(255,68,68,.1);border-radius:12px;margin-bottom:10px;background:rgba(255,68,68,.02);transition:all .2s ease}
+.danger-card:hover{border-color:rgba(255,68,68,.2);background:rgba(255,68,68,.04)}
+.danger-card-critical{border-color:rgba(255,68,68,.2);background:rgba(255,68,68,.04)}
+.danger-card-critical:hover{border-color:rgba(255,68,68,.35);background:rgba(255,68,68,.07)}
+.danger-card-info{flex:1;min-width:0}
+.danger-card-title{display:flex;align-items:center;gap:8px;font-size:.85rem;font-weight:600;color:var(--text);margin-bottom:4px}.danger-card-title svg{color:var(--danger);flex-shrink:0;opacity:.7}
+.danger-card-desc{font-size:.75rem;color:var(--text-muted);margin:0;line-height:1.5}
+.danger-card-confirm{display:flex;align-items:center;gap:10px;flex-shrink:0;flex-wrap:wrap}
+.danger-confirm-input{width:180px !important;font-size:.8rem !important;border-color:rgba(255,68,68,.2) !important}
+.danger-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 18px;border-radius:8px;border:1px solid rgba(255,68,68,.25);background:rgba(255,68,68,.06);color:var(--danger);font-size:.78rem;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .2s ease}
+.danger-btn:hover{background:rgba(255,68,68,.12);border-color:rgba(255,68,68,.4)}
+.danger-btn-critical{background:rgba(255,68,68,.1);border-color:rgba(255,68,68,.35)}.danger-btn-critical:hover{background:rgba(255,68,68,.2);border-color:rgba(255,68,68,.5)}
 .admin-you-badge{font-size:.72rem;color:var(--text-muted);background:rgba(255,255,255,.04);padding:4px 14px;border-radius:20px}
 
 /* File/Bundle rows */
