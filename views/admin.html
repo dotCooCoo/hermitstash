@@ -243,6 +243,15 @@
             <label class="settings-label">Announcement Banner <span class="settings-hint">shown on all pages when set</span></label>
             <input type="text" class="text-input" id="s-announcementBanner" data-key="announcementBanner" placeholder="We're upgrading! Files may be slow.">
           </div>
+          <div class="settings-divider"></div>
+          <div class="settings-field">
+            <label class="settings-label">Analytics Script <span class="settings-hint">injected on public pages only (not admin/dashboard) — paste the full &lt;script&gt; tag from your analytics provider</span></label>
+            <textarea class="text-input" id="s-analyticsScript" data-key="analyticsScript" rows="3" placeholder='<script defer data-domain="example.com" src="https://plausible.io/js/script.js"></script>' style="font-family:monospace;font-size:.8rem"></textarea>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Analytics CSP Domains <span class="settings-hint">comma-separated override if auto-detection fails (e.g. https://plausible.io, https://cdn.usefathom.com)</span></label>
+            <input type="text" class="text-input" id="s-analyticsCspDomains" data-key="analyticsCspDomains" placeholder="Auto-detected from script — override only if needed">
+          </div>
         </div>
         <div class="settings-actions">
           <button class="butn butn-bord-thin butn-sm radius-30" onclick="openHelp('branding')"><span>? Setup Guide</span></button>
@@ -728,7 +737,11 @@ branding:{
 <h4>Maintenance Mode</h4>\
 <p>When <strong>on</strong>, all non-admin visitors see a maintenance message. Admin accounts can still access everything normally. Use this during upgrades or migrations.</p>\
 <h4>Announcement Banner</h4>\
-<p>A text banner shown at the top of every page. Useful for planned downtime notices or new feature announcements. Leave empty to hide.</p>'
+<p>A text banner shown at the top of every page. Useful for planned downtime notices or new feature announcements. Leave empty to hide.</p>\
+<h4>Analytics Script</h4>\
+<p>Paste the full <code>&lt;script&gt;</code> tag from your analytics provider (Plausible, Umami, Matomo, Fathom, PostHog, Google Analytics, etc). It will be injected into the <code>&lt;head&gt;</code> of public pages only — admin, dashboard, and authenticated pages are excluded. Leave empty to disable analytics entirely.</p>\
+<h4>Analytics CSP Domains</h4>\
+<p>The system auto-detects domains from your analytics script and adds them to the Content Security Policy. If auto-detection fails (script loads from a different domain than the one in the tag), enter the domains here as a comma-separated list. Example: <code>https://plausible.io, https://cdn.example.com</code></p>'
 },
 general:{
   title:'General Setup',
@@ -1210,7 +1223,7 @@ function loadBundles(page){
 }
 // Settings
 var tabFields={
-  branding:['siteName','customLogo','landingEnabled','heroTitle','heroSubtitle','dropTitle','dropSubtitle','showMaintainerSupport','maintenanceMode','announcementBanner'],
+  branding:['siteName','customLogo','landingEnabled','heroTitle','heroSubtitle','dropTitle','dropSubtitle','showMaintainerSupport','maintenanceMode','announcementBanner','analyticsScript','analyticsCspDomains'],
   general:['port','sessionSecret'],
   auth:['localAuth','registrationOpen','googleClientID','googleClientSecret','googleCallbackURL','allowedDomains','emailVerification','passkeyEnabled','rpName','rpId','rpOrigin'],
   uploads:['publicUpload','maxFileSize','publicMaxFiles','publicMaxBundleSize','perUserQuotaBytes','publicIpQuotaBytes','uploadTimeout','uploadConcurrency','uploadRetries','allowedExtensions'],
