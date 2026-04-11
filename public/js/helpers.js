@@ -12,5 +12,11 @@
   function esc(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;').replace(/"/g,'&quot;');
   }
-  window.Helpers = { formatSize: formatSize, esc: esc };
+  function showRenameError(input, msg) {
+    var err = input.parentNode.querySelector('.rename-error');
+    if (!err) { err = document.createElement('div'); err.className = 'rename-error'; err.style.cssText = 'font-size:.72rem;color:var(--danger);margin-top:2px'; input.parentNode.appendChild(err); }
+    err.textContent = msg; input.style.borderColor = 'var(--danger)';
+    setTimeout(function() { if (err.parentNode) err.remove(); input.style.borderColor = ''; }, 3000);
+  }
+  window.Helpers = { formatSize: formatSize, esc: esc, showRenameError: showRenameError };
 })();

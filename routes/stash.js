@@ -5,24 +5,20 @@
  */
 var path = require("path");
 var config = require("../lib/config");
-var { sha3Hash, generateShareId, hashPassword, verifyPassword } = require("../lib/crypto");
+var { hashPassword, verifyPassword } = require("../lib/crypto");
 var stashRepo = require("../app/data/repositories/stash.repo");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
 var filesRepo = require("../app/data/repositories/files.repo");
-var usersRepo = require("../app/data/repositories/users.repo");
 var { parseMultipart, parseJson } = require("../lib/multipart");
 var storage = require("../lib/storage");
 var { send, host } = require("../middleware/send");
 var audit = require("../lib/audit");
 var logger = require("../app/shared/logger");
-var webhook = require("../app/domain/integrations/webhook.service");
 var rateLimit = require("../lib/rate-limit");
 var bundleService = require("../app/domain/uploads/bundle.service");
 var uploadValidator = require("../app/http/validators/upload.validator");
-var emailService = require("../app/domain/integrations/email.service");
 var requireAdmin = require("../middleware/require-admin");
-var ipQuota = require("../lib/ip-quota");
-var { sanitizeFilename } = require("../app/shared/sanitize-filename");
+var { resolveUploadConfig, handleFileUpload, handleChunkUpload, handleFinalize } = require("../app/domain/uploads/upload.handler");
 
 module.exports = function (app) {
 
@@ -46,18 +42,14 @@ module.exports = function (app) {
       });
     }
 
-    // Parse stash overrides
-    var maxFileSize = (stash.maxFileSize && stash.maxFileSize > 0) ? stash.maxFileSize : config.maxFileSize;
-    var maxFiles = (stash.maxFiles && stash.maxFiles > 0) ? stash.maxFiles : config.publicMaxFiles;
-    var maxBundleSize = (stash.maxBundleSize && stash.maxBundleSize > 0) ? stash.maxBundleSize : config.publicMaxBundleSize;
-    var allowedExtensions = stash.allowedExtensions ? stash.allowedExtensions.split(",").map(function (e) { return e.trim(); }).filter(Boolean) : config.allowedExtensions;
+    var limits = resolveUploadConfig(stash);
 
     send(res, "public-upload", {
       user: req.user,
-      maxSize: maxFileSize,
-      maxFiles: maxFiles,
-      maxBundleSize: maxBundleSize,
-      allowedExtensions: allowedExtensions,
+      maxSize: limits.maxFileSize,
+      maxFiles: limits.maxFiles,
+      maxBundleSize: limits.maxBundleSize,
+      allowedExtensions: limits.allowedExtensions,
       uploadTimeout: config.uploadTimeout,
       uploadConcurrency: config.uploadConcurrency,
       uploadRetries: config.uploadRetries,
@@ -142,105 +134,19 @@ module.exports = function (app) {
       if (!bundle || bundle.status === "complete") return res.status(404).json({ error: "Bundle not found." });
       if (bundle.stashId !== stash._id) return res.status(403).json({ error: "Bundle does not belong to this stash." });
 
-      // Stash overrides
-      var maxFileSize = (stash.maxFileSize && stash.maxFileSize > 0) ? stash.maxFileSize : config.maxFileSize;
-      var maxFiles = (stash.maxFiles && stash.maxFiles > 0) ? stash.maxFiles : config.publicMaxFiles;
-      var maxBundleSize = (stash.maxBundleSize && stash.maxBundleSize > 0) ? stash.maxBundleSize : config.publicMaxBundleSize;
-      var allowedExtensions = stash.allowedExtensions ? stash.allowedExtensions.split(",").map(function (e) { return e.trim(); }).filter(Boolean) : config.allowedExtensions;
-
-      var parsed = await parseMultipart(req, maxFileSize);
-      var fields = parsed.fields;
+      var limits = resolveUploadConfig(stash);
+      var parsed = await parseMultipart(req, limits.maxFileSize);
       var file = parsed.files[0];
       if (!file) return res.status(400).json({ error: "No file." });
 
-      // Validate file extension and size
-      var fileCheck = uploadValidator.validateFile(file.filename, file.size, allowedExtensions, maxFileSize);
-      if (!fileCheck.valid) {
-        audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + fileCheck.reason + ", stash: " + slug, req: req });
-        return res.status(400).json({ error: fileCheck.reason });
-      }
-
-      // Validate file content matches claimed extension
-      try {
-        var magicCheck = uploadValidator.validateMagicBytes(file.filename, file.data);
-        if (!magicCheck.valid) {
-          audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + magicCheck.reason + ", stash: " + slug, req: req });
-          return res.status(400).json({ error: magicCheck.reason });
-        }
-      } catch (_magicErr) { logger.error("Magic byte validation error", { file: file.filename, error: _magicErr.message }); }
-
-      // Validate bundle limits
-      var limitsCheck = uploadValidator.validateBundleLimits(bundle.receivedFiles + 1, maxFiles, bundle.totalSize + file.size, maxBundleSize);
-      if (!limitsCheck.valid) {
-        audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + limitsCheck.reason + ", stash: " + slug, req: req });
-        return res.status(400).json({ error: limitsCheck.reason });
-      }
-
-      // Storage quota check
-      try {
-        bundleService.checkStorageQuota(file.size, config.storageQuotaBytes);
-      } catch (quotaErr) {
-        audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: storage quota exceeded, stash: " + slug, req: req });
-        return res.status(400).json({ error: quotaErr.message });
-      }
-
-      // Per-user quota check (if an authenticated user uploads through a stash page)
-      if (config.perUserQuotaBytes > 0 && bundle.ownerId) {
-        var userFiles = filesRepo.findAll({ uploadedBy: bundle.ownerId });
-        var userTotal = 0;
-        for (var ui = 0; ui < userFiles.length; ui++) { userTotal += Number(userFiles[ui].size) || 0; }
-        if (userTotal + file.size > config.perUserQuotaBytes) {
-          audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: per-user quota exceeded, stash: " + slug, req: req });
-          return res.status(400).json({ error: "Personal storage quota exceeded." });
-        }
-      }
-
-      // Per-IP quota check (anonymous stash uploads)
-      if (config.publicIpQuotaBytes > 0 && !bundle.ownerId) {
-        var ipCheck = ipQuota.check(rateLimit.getIp(req), file.size, config.publicIpQuotaBytes);
-        if (!ipCheck.allowed) {
-          audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: per-IP quota exceeded, stash: " + slug, req: req });
-          return res.status(400).json({ error: "Upload quota exceeded. Try again later." });
-        }
-      }
-
-      var ext = path.extname(file.filename).toLowerCase();
-      var fileShareId = generateShareId();
-      var storagePath = "bundles/" + bundle.shareId + "/" + Date.now() + "-" + fileShareId + ext;
-      var checksum = sha3Hash(file.data);
-      var saved = await storage.saveFile(file.data, storagePath);
-
-      try {
-        filesRepo.create({
-          shareId: fileShareId,
-          bundleId: bundle._id,
-          bundleShareId: bundle.shareId,
-          originalName: sanitizeFilename(file.filename),
-          relativePath: sanitizeFilename(fields.relativePath || file.filename, 500),
-          storagePath: storagePath, mimeType: file.mimetype, size: file.size,
-          checksum: checksum, encryptionKey: saved.encryptionKey,
-          uploadedBy: "public", uploaderEmail: null,
-          downloads: 0, status: "complete",
-          createdAt: new Date().toISOString(),
-          expiresAt: bundle.expiresAt || null,
-        });
-      } catch (dbErr) {
-        await storage.deleteFile(storagePath);
-        throw dbErr;
-      }
-
-      // Track IP usage after successful save (anonymous only)
-      if (config.publicIpQuotaBytes > 0 && !bundle.ownerId) {
-        ipQuota.record(rateLimit.getIp(req), file.size);
-      }
-
-      audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: bundle._id, details: "file: " + file.filename + ", size: " + file.size + ", stash: " + slug, req: req });
-
-      bundlesRepo.update(bundle._id, {
-        $set: { receivedFiles: bundle.receivedFiles + 1, totalSize: bundle.totalSize + file.size },
+      var result = await handleFileUpload({
+        bundle: bundle, file: file, fields: parsed.fields, limits: limits,
+        uploadedBy: "public", uploaderEmail: null,
+        expiresAt: bundle.expiresAt || null,
+        auditSuffix: ", stash: " + slug, req: req,
       });
-
-      res.json({ success: true, received: bundle.receivedFiles + 1, total: bundle.expectedFiles });
+      if (result.error) return res.status(400).json({ error: result.error });
+      res.json(result);
     } catch (e) {
       logger.error("Stash file upload error", { error: e.message || String(e), stash: slug });
       res.status(500).json({ error: "Upload failed." });
@@ -259,150 +165,19 @@ module.exports = function (app) {
       if (!bundle || bundle.status === "complete") return res.status(404).json({ error: "Bundle not found." });
       if (bundle.stashId !== stash._id) return res.status(403).json({ error: "Bundle does not belong to this stash." });
 
-      // Stash overrides
-      var maxFileSize = (stash.maxFileSize && stash.maxFileSize > 0) ? stash.maxFileSize : config.maxFileSize;
-      var maxFiles = (stash.maxFiles && stash.maxFiles > 0) ? stash.maxFiles : config.publicMaxFiles;
-      var maxBundleSize = (stash.maxBundleSize && stash.maxBundleSize > 0) ? stash.maxBundleSize : config.publicMaxBundleSize;
-      var allowedExtensions = stash.allowedExtensions ? stash.allowedExtensions.split(",").map(function (e) { return e.trim(); }).filter(Boolean) : config.allowedExtensions;
-
-      var parsed = await parseMultipart(req, maxFileSize);
-      var fields = parsed.fields;
+      var limits = resolveUploadConfig(stash);
+      var parsed = await parseMultipart(req, limits.maxFileSize);
       var chunk = parsed.files[0];
       if (!chunk) return res.status(400).json({ error: "No chunk." });
 
-      var chunkIndex = parseInt(fields.chunkIndex, 10);
-      var totalChunks = parseInt(fields.totalChunks, 10);
-      var fileId = String(fields.fileId || "");
-      if (isNaN(chunkIndex) || isNaN(totalChunks) || !fileId) {
-        return res.status(400).json({ error: "Missing chunk metadata." });
-      }
-      var chunkCheck = uploadValidator.validateChunk(chunkIndex, totalChunks, fileId);
-      if (!chunkCheck.valid) {
-        return res.status(400).json({ error: chunkCheck.reason });
-      }
-      if (!/^[a-zA-Z0-9_-]{1,64}$/.test(fileId)) {
-        return res.status(400).json({ error: "Invalid file ID." });
-      }
-
-      // Early extension validation (reject disallowed types before writing any chunks to disk)
-      var earlyFilename = fields.filename || "file";
-      var earlyExt = path.extname(earlyFilename).toLowerCase();
-      if (earlyExt && allowedExtensions && allowedExtensions.length > 0 && !allowedExtensions.includes(earlyExt)) {
-        return res.status(400).json({ error: "File type not allowed: " + earlyExt });
-      }
-
-      // Store chunk to temp path
-      var fs = require("fs");
-      var chunkDir = path.join(config.storage.uploadDir, "chunks", bundle.shareId, fileId);
-      var resolvedDir = path.resolve(chunkDir);
-      var resolvedBase = path.resolve(config.storage.uploadDir);
-      if (!resolvedDir.startsWith(resolvedBase)) {
-        return res.status(400).json({ error: "Invalid path." });
-      }
-      if (!fs.existsSync(chunkDir)) fs.mkdirSync(chunkDir, { recursive: true });
-      fs.writeFileSync(path.join(chunkDir, String(chunkIndex)), chunk.data);
-
-      // Check if all chunks received
-      var received = fs.readdirSync(chunkDir).length;
-      if (received < totalChunks) {
-        return res.json({ success: true, chunksReceived: received, totalChunks: totalChunks });
-      }
-
-      // Storage quota check
-      var estimatedSize = 0;
-      for (var ce = 0; ce < totalChunks; ce++) {
-        try { estimatedSize += fs.statSync(path.join(chunkDir, String(ce))).size; } catch (_e) {}
-      }
-      try {
-        bundleService.checkStorageQuota(estimatedSize, config.storageQuotaBytes);
-      } catch (quotaErr) {
-        audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: storage quota exceeded (chunked), stash: " + slug, req: req });
-        return res.status(400).json({ error: quotaErr.message });
-      }
-
-      // Reassemble
-      var reassembled = [];
-      for (var ci = 0; ci < totalChunks; ci++) {
-        reassembled.push(fs.readFileSync(path.join(chunkDir, String(ci))));
-      }
-      var fullData = Buffer.concat(reassembled);
-
-      // Clean up chunks
-      for (var cj = 0; cj < totalChunks; cj++) {
-        try { fs.unlinkSync(path.join(chunkDir, String(cj))); } catch (_e) {}
-      }
-      try { fs.rmdirSync(chunkDir); } catch (_e) {}
-
-      // Process like a normal file
-      var filename = fields.filename || "file";
-      var relativePath = fields.relativePath || filename;
-      var ext = path.extname(filename).toLowerCase();
-      var fileCheck = uploadValidator.validateFile(filename, fullData.length, allowedExtensions, maxFileSize);
-      if (!fileCheck.valid) {
-        return res.status(400).json({ error: fileCheck.reason });
-      }
-      try {
-        var magicCheck = uploadValidator.validateMagicBytes(filename, fullData);
-        if (!magicCheck.valid) {
-          audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + magicCheck.reason + " (chunked), stash: " + slug, req: req });
-          return res.status(400).json({ error: magicCheck.reason });
-        }
-      } catch (_magicErr) { logger.error("Magic byte validation error (chunked)", { file: filename, error: _magicErr.message }); }
-
-      // Per-user quota check (chunked, stash)
-      if (config.perUserQuotaBytes > 0 && bundle.ownerId) {
-        var userFiles = filesRepo.findAll({ uploadedBy: bundle.ownerId });
-        var userTotal = 0;
-        for (var ui = 0; ui < userFiles.length; ui++) { userTotal += Number(userFiles[ui].size) || 0; }
-        if (userTotal + fullData.length > config.perUserQuotaBytes) {
-          audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: per-user quota exceeded (chunked), stash: " + slug, req: req });
-          return res.status(400).json({ error: "Personal storage quota exceeded." });
-        }
-      }
-
-      // Per-IP quota check (chunked, stash)
-      if (config.publicIpQuotaBytes > 0 && !bundle.ownerId) {
-        var ipCheck = ipQuota.check(rateLimit.getIp(req), fullData.length, config.publicIpQuotaBytes);
-        if (!ipCheck.allowed) {
-          audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: per-IP quota exceeded (chunked), stash: " + slug, req: req });
-          return res.status(400).json({ error: "Upload quota exceeded. Try again later." });
-        }
-      }
-
-      var chunkFileShareId = generateShareId();
-      var storagePath = "bundles/" + bundle.shareId + "/" + Date.now() + "-" + chunkFileShareId + ext;
-      var checksum = sha3Hash(fullData);
-      var saved = await storage.saveFile(fullData, storagePath);
-
-      try {
-        filesRepo.create({
-          shareId: chunkFileShareId,
-          bundleId: bundle._id,
-          bundleShareId: bundle.shareId,
-          originalName: sanitizeFilename(filename),
-          relativePath: sanitizeFilename(relativePath, 500),
-          storagePath: storagePath, mimeType: fields.mimeType || "application/octet-stream",
-          size: fullData.length, checksum: checksum, encryptionKey: saved.encryptionKey,
-          uploadedBy: "public", uploaderEmail: null,
-          downloads: 0, status: "complete",
-          createdAt: new Date().toISOString(),
-          expiresAt: bundle.expiresAt || null,
-        });
-      } catch (dbErr) {
-        await storage.deleteFile(storagePath);
-        throw dbErr;
-      }
-
-      if (config.publicIpQuotaBytes > 0 && !bundle.ownerId) {
-        ipQuota.record(rateLimit.getIp(req), fullData.length);
-      }
-
-      bundlesRepo.update(bundle._id, {
-        $set: { receivedFiles: bundle.receivedFiles + 1, totalSize: bundle.totalSize + fullData.length },
+      var result = await handleChunkUpload({
+        bundle: bundle, chunk: chunk, fields: parsed.fields, limits: limits,
+        uploadedBy: "public", uploaderEmail: null,
+        expiresAt: bundle.expiresAt || null,
+        auditSuffix: ", stash: " + slug, req: req,
       });
-
-      audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: bundle._id, details: "chunked file: " + filename + ", size: " + fullData.length + ", chunks: " + totalChunks + ", stash: " + slug, req: req });
-      res.json({ success: true, assembled: true, received: bundle.receivedFiles + 1 });
+      if (result.error) return res.status(400).json({ error: result.error });
+      res.json(result);
     } catch (e) {
       logger.error("Stash chunk upload error", { error: e.message || String(e), stash: slug });
       res.status(500).json({ error: "Chunk upload failed." });
@@ -419,54 +194,25 @@ module.exports = function (app) {
     var existingBundle = bundlesRepo.findById(req.params.bundleId);
     if (!existingBundle) return res.status(404).json({ error: "Bundle not found." });
     if (existingBundle.stashId !== stash._id) return res.status(403).json({ error: "Bundle does not belong to this stash." });
-    if (existingBundle.status === "complete") {
-      return res.json({ success: true, shareId: existingBundle.shareId, shareUrl: host(req) + "/b/" + existingBundle.shareId, emailSent: false });
-    }
 
     var body = await parseJson(req);
     var token = String(body.finalizeToken || req.query.finalizeToken || "");
+    var result = handleFinalize({
+      bundleId: req.params.bundleId, token: token,
+      uploaderName: stash.name || "Anonymous", sendUploaderEmail: false,
+      stashSlug: slug, stashId: stash._id,
+      auditSuffix: ", stash: " + slug, req: req,
+    });
+    if (result.error) return res.status(result.status || 400).json({ error: result.error });
 
-    var refreshed;
-    try {
-      refreshed = bundleService.finalizeBundle(req.params.bundleId, token);
-    } catch (err) {
-      if (err.statusCode === 403 || err.name === "ForbiddenError") return res.status(403).json({ error: err.message });
-      if (err.statusCode === 404 || err.name === "NotFoundError") return res.status(404).json({ error: err.message });
-      return res.status(400).json({ error: err.message });
-    }
-
-    var bundleUrl = host(req) + "/b/" + refreshed.shareId;
-    var emailSent = false;
-
-    // Update stash stats (re-read to get current values since fields are sealed)
+    // Update stash stats
     var freshStash = stashRepo.findById(stash._id);
     stashRepo.update(stash._id, { $set: {
       bundleCount: (parseInt(freshStash.bundleCount, 10) || 0) + 1,
-      totalBytes: (parseInt(freshStash.totalBytes, 10) || 0) + (refreshed.totalSize || 0),
+      totalBytes: (parseInt(freshStash.totalBytes, 10) || 0) + (result.refreshed ? result.refreshed.totalSize || 0 : 0),
     }});
 
-    if (refreshed.receivedFiles > 0) {
-      var uploadedFiles = filesRepo.findAll({ bundleShareId: refreshed.shareId, status: "complete" })
-        .map(function (f) { return { path: f.relativePath || f.originalName, size: f.size }; });
-
-      var emailData = {
-        uploaderName: stash.name || "Anonymous", uploaderEmail: null, bundleUrl: bundleUrl,
-        uploadedCount: refreshed.receivedFiles, uploadedFiles: uploadedFiles,
-        skippedCount: refreshed.skippedCount || 0, skippedFiles: refreshed.skippedFiles || [],
-        totalSize: refreshed.totalSize,
-      };
-
-      // Notify admins about stash upload
-      var adminUsers = usersRepo.findAll({ role: "admin" }).map(function (u) { return u.email; }).filter(Boolean);
-      if (adminUsers.length > 0) {
-        emailService.sendAdminNotification({ adminEmails: adminUsers, ...emailData }).catch(function (e) { logger.error("Email send failed", { error: e.message }); });
-      }
-    }
-
-    webhook.fire("bundle_finalized", { shareId: refreshed.shareId, uploaderName: stash.name || "Anonymous", files: refreshed.receivedFiles, size: refreshed.totalSize, stashSlug: slug });
-
-    audit.log(audit.ACTIONS.BUNDLE_FINALIZED, { targetId: existingBundle._id, details: "files: " + refreshed.receivedFiles + ", size: " + refreshed.totalSize + ", stash: " + slug + ", emailSent: " + emailSent, req: req });
-    res.json({ success: true, shareId: refreshed.shareId, shareUrl: bundleUrl, emailSent: emailSent });
+    res.json({ success: true, shareId: result.shareId, shareUrl: result.shareUrl, emailSent: result.emailSent });
   });
 
   // ---- Admin routes ----

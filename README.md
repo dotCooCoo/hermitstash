@@ -555,12 +555,13 @@ app/
   domain/             Services (auth, uploads, teams, admin, webhooks, email)
   http/               Request validators (upload magic bytes, auth, admin)
   security/           CSRF, CORS, SSRF, scope, origin policies
+  domain/uploads/     Shared upload handler, bundle service, chunk service
   jobs/               Background jobs (expiry, audit retention, webhook dispatch)
   shared/             Errors, logger, validation helpers, filename sanitization
 
 routes/               18 route files (includes stash.js for Customer Stash)
 middleware/           11 files (auth, CORS, CSRF, API encryption, security headers)
-views/                22 templates
+views/                25 templates
 public/               CSS, JS, logos, icons
 ```
 
