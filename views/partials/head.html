@@ -14,6 +14,13 @@
   <meta property="og:description" content="Post-quantum encrypted file uploads. ML-KEM-1024 + P-384 hybrid, XChaCha20-Poly1305, zero-knowledge vault. Self-hosted.">
   <meta property="og:image" content="{{{assets.ogImage}}}">
   <meta property="og:type" content="website">
+  <meta property="og:url" content="{{{site.origin}}}">
+  <link rel="canonical" href="{{{site.origin}}}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{{brand.siteName}}}">
+  <meta name="twitter:description" content="Post-quantum encrypted, self-hosted file uploads.">
+  <meta name="twitter:image" content="{{{assets.ogImage}}}">
+  {% if (user) { %}<meta name="robots" content="noindex, nofollow">{% } %}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@200;300;400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{{assets.css}}}">
@@ -28,6 +35,7 @@
   {% } %}
 </head>
 <body>
+<a href="#main-content" class="skip-link">Skip to content</a>
 <script>
 // Apply saved theme immediately to prevent flash
 (function(){var t=localStorage.getItem('theme');if(t)document.documentElement.setAttribute('data-theme',t)})();
@@ -46,8 +54,8 @@ function toggleTheme(){
   {% } %}
   <nav class="navbar" id="navbar">
     <a href="/" class="navbar-logo">
-      <img src="{{{brand.logo}}}" alt="" class="navbar-logo-img logo-light">
-      <img src="{{{brand.logoDark}}}" alt="" class="navbar-logo-img logo-dark">
+      <img src="{{{brand.logo}}}" alt="{{brand.siteName}} logo" class="navbar-logo-img logo-light">
+      <img src="{{{brand.logoDark}}}" alt="{{brand.siteName}} logo" class="navbar-logo-img logo-dark">
       <span>{{{brand.siteName}}}</span>
     </a>
     <div class="navbar-links">
@@ -63,11 +71,11 @@ function toggleTheme(){
         <span class="navbar-divider"></span>
         <div class="navbar-right">
           <a href="/profile"><span class="rolling-text" data-text="Profile">Profile</span></a>
-          {% if (user.avatar) { %}<img src="{{user.avatar}}" alt="" class="navbar-avatar">{% } %}
+          {% if (user.avatar) { %}<img src="{{user.avatar}}" alt="Profile" class="navbar-avatar">{% } %}
           <a href="/auth/logout" class="btn-logout"><span class="rolling-text" data-text="Sign Out">Sign Out</span></a>
-          <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
-            <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-            <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle dark and light theme">
+            <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
           </button>
         </div>
       {% } else { %}

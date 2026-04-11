@@ -1,0 +1,14 @@
+User-agent: *
+Allow: /
+Allow: /drop
+Disallow: /admin/
+Disallow: /dashboard
+Disallow: /profile
+Disallow: /auth/
+Disallow: /vault/
+Disallow: /b/
+Disallow: /s/
+Disallow: /stash/
+Disallow: /bundles/
+Disallow: /files/
+Disallow: /health

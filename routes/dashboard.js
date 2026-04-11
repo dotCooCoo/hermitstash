@@ -62,4 +62,15 @@ module.exports = function (app) {
 
     send(res, "dashboard", { user: req.user, files: standaloneFiles, bundles: bundlesWithFiles, host: host(req) });
   });
+
+  // Legal pages — configurable via admin settings, sensible defaults
+  app.get("/privacy", (req, res) => {
+    send(res, "legal", { user: req.user || null, pageTitle: "Privacy Policy", content: config.privacyPolicy || null, defaultPage: "privacy" });
+  });
+  app.get("/terms", (req, res) => {
+    send(res, "legal", { user: req.user || null, pageTitle: "Terms of Service", content: config.termsOfService || null, defaultPage: "terms" });
+  });
+  app.get("/cookies", (req, res) => {
+    send(res, "legal", { user: req.user || null, pageTitle: "Cookie Policy", content: config.cookiePolicy || null, defaultPage: "cookies" });
+  });
 };

@@ -1,0 +1,102 @@
+{{> head}}
+<main class="main" id="main-content">
+<div class="legal-page">
+  <div class="legal-container">
+    <h1 class="legal-title">{{pageTitle}}</h1>
+    <div class="legal-updated">Last updated: {{{new Date().toLocaleDateString('en-US', {year:'numeric',month:'long',day:'numeric'})}}}</div>
+
+    {% if (content) { %}
+    <div class="legal-content">{{{content}}}</div>
+    {% } else if (defaultPage === 'privacy') { %}
+    <div class="legal-content">
+      <h2>Overview</h2>
+      <p>{{brand.siteName}} is a self-hosted file sharing application. This privacy policy describes how your data is handled by this specific deployment.</p>
+
+      <h2>Data We Collect</h2>
+      <ul>
+        <li><strong>Account information</strong> &mdash; email address, display name, and authentication credentials if you register an account.</li>
+        <li><strong>Uploaded files</strong> &mdash; files you upload and associated metadata (file names, sizes, timestamps).</li>
+        <li><strong>Session data</strong> &mdash; an encrypted session cookie is set to maintain your login state.</li>
+        <li><strong>Audit logs</strong> &mdash; security-relevant actions are logged with hashed IP addresses for abuse prevention.</li>
+      </ul>
+
+      <h2>How Data Is Protected</h2>
+      <ul>
+        <li>All files are encrypted at rest using XChaCha20-Poly1305 with keys sealed by a hybrid ML-KEM-1024 + P-384 vault.</li>
+        <li>All database fields are encrypted or hashed before storage.</li>
+        <li>IP addresses are one-way hashed &mdash; the original IP is never stored.</li>
+        <li>Session cookies are encrypted with post-quantum cryptography.</li>
+      </ul>
+
+      <h2>Data Retention</h2>
+      <ul>
+        <li>Uploaded files are retained until they expire or are manually deleted.</li>
+        <li>Audit logs are retained according to the configured retention period.</li>
+        <li>You may delete your account and all associated data from the Profile page.</li>
+      </ul>
+
+      <h2>Third Parties</h2>
+      <p>This is a self-hosted application. Your data remains on this server unless the administrator has configured external services (S3 storage, SMTP email, Google OAuth). No data is sold or shared with advertisers.</p>
+
+      <h2>Contact</h2>
+      <p>For privacy inquiries, contact the administrator of this {{brand.siteName}} deployment.</p>
+    </div>
+
+    {% } else if (defaultPage === 'terms') { %}
+    <div class="legal-content">
+      <h2>Acceptance</h2>
+      <p>By using {{brand.siteName}}, you agree to these terms. If you do not agree, do not use the service.</p>
+
+      <h2>Service Description</h2>
+      <p>{{brand.siteName}} is a self-hosted file sharing platform with post-quantum encryption. The service is provided as-is by the server administrator.</p>
+
+      <h2>Acceptable Use</h2>
+      <ul>
+        <li>Do not upload illegal content or content that infringes on others' rights.</li>
+        <li>Do not attempt to circumvent access controls or security measures.</li>
+        <li>Do not use the service for spam, phishing, or distributing malware.</li>
+        <li>Do not attempt to access files or accounts that do not belong to you.</li>
+      </ul>
+
+      <h2>Content Responsibility</h2>
+      <p>You are solely responsible for the content you upload. The administrator reserves the right to remove content or terminate accounts that violate these terms.</p>
+
+      <h2>No Warranty</h2>
+      <p>This service is provided "as is" without warranties of any kind. The administrator is not liable for data loss, service interruptions, or security incidents.</p>
+
+      <h2>File Expiry</h2>
+      <p>Files may be automatically deleted after their expiry period. It is your responsibility to download files before they expire.</p>
+    </div>
+
+    {% } else if (defaultPage === 'cookies') { %}
+    <div class="legal-content">
+      <h2>What Cookies We Use</h2>
+      <p>{{brand.siteName}} uses a single essential cookie:</p>
+      <table class="legal-table">
+        <thead><tr><th>Cookie</th><th>Purpose</th><th>Duration</th><th>Type</th></tr></thead>
+        <tbody>
+          <tr><td><code>hs_sid</code></td><td>Session authentication</td><td>7 days</td><td>Essential</td></tr>
+        </tbody>
+      </table>
+
+      <h2>How It Works</h2>
+      <p>The session cookie is set when you log in and is required for the application to function. It is:</p>
+      <ul>
+        <li><strong>HttpOnly</strong> &mdash; not accessible to JavaScript (prevents XSS theft)</li>
+        <li><strong>Secure</strong> &mdash; only sent over HTTPS (when configured)</li>
+        <li><strong>SameSite=Lax</strong> &mdash; prevents cross-site request forgery</li>
+        <li><strong>Encrypted</strong> &mdash; the session ID is sealed with post-quantum cryptography</li>
+      </ul>
+
+      <h2>No Tracking Cookies</h2>
+      <p>{{brand.siteName}} does not use analytics cookies, advertising cookies, or any third-party tracking. The theme preference (light/dark) is stored in your browser's localStorage, not as a cookie.</p>
+    </div>
+    {% } %}
+
+    <div class="legal-back">
+      <a href="/" class="butn butn-bord-thin butn-sm radius-30"><span>Back to Home</span></a>
+    </div>
+  </div>
+</div>
+</main>
+{{> foot}}

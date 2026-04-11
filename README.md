@@ -286,6 +286,22 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - S3 direct downloads with pre-signed URLs (configurable expiry, AWS Signature V4)
 - Per-file XChaCha20-Poly1305 encryption at rest, keys sealed with hybrid vault
 
+**SEO and Legal**
+- Open Graph and Twitter card meta tags with dynamic site name and origin
+- Canonical URL tag derived from rpOrigin
+- robots.txt blocks admin, dashboard, vault, and auth pages from search engines
+- Dynamic sitemap.xml (`GET /sitemap.xml`) with public pages
+- noindex/nofollow meta tag on all authenticated pages
+- Configurable Privacy Policy, Terms of Service, and Cookie Policy pages
+- Default legal page templates with sensible content for self-hosted deployments
+- Footer links to all legal pages
+
+**Accessibility**
+- Skip-to-content link for keyboard navigation
+- ARIA labels on interactive controls (theme toggle, icon buttons)
+- Alt text on all logo and avatar images
+- Semantic HTML with `<main>` landmark on all pages
+
 **Zero Configuration**
 - No `.env` file -- settings stored in encrypted database
 - No build step -- vanilla Node.js
@@ -519,7 +535,7 @@ These libraries are exceptional work. HermitStash wouldn't exist without them. A
 
 ## Architecture
 
-100+ JS files, 25 HTML templates, 18 database tables. Small files, one job each.
+100+ JS files, 26 HTML templates, 18 database tables. Small files, one job each.
 
 ```
 server.js             Bootstrap, middleware, scheduled tasks, default accounts

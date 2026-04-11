@@ -3,6 +3,7 @@
 <style>:root{--main-color: {{stashAccentColor}} !important}</style>
 {% } %}
 
+<main id="main-content">
 <section class="drop-hero">
   <div class="drop-hero-content">
     {% if (typeof stashLogoUrl !== 'undefined' && stashLogoUrl) { %}
@@ -847,4 +848,5 @@ async function startVaultUpload(toUpload){
   var linkCard=document.querySelector('.result-link-card');if(linkCard)linkCard.style.display='none';
 }
 </script>
+</main>
 {{> foot}}

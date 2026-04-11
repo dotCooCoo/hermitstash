@@ -64,6 +64,12 @@ app.get("/health", function (req, res) {
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ status: "ok", uptime: process.uptime(), timestamp: new Date().toISOString() }));
 });
+app.get("/sitemap.xml", function (req, res) {
+  var origin = require("./app/security/origin-policy").getOrigin();
+  var today = new Date().toISOString().split("T")[0];
+  res.writeHead(200, { "Content-Type": "application/xml", "Cache-Control": "public, max-age=86400" });
+  res.end('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n<url><loc>' + origin + '/</loc><lastmod>' + today + '</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>\n<url><loc>' + origin + '/drop</loc><lastmod>' + today + '</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>\n<url><loc>' + origin + '/privacy</loc><changefreq>monthly</changefreq><priority>0.3</priority></url>\n<url><loc>' + origin + '/terms</loc><changefreq>monthly</changefreq><priority>0.3</priority></url>\n</urlset>');
+});
 app.use(sessionMiddleware);
 app.use(attachUser);
 app.use(require("./middleware/api-auth"));

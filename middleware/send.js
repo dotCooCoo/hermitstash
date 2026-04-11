@@ -29,6 +29,7 @@ function send(res, view, data, status) {
       themeColor: C.theme.color,
     },
     site: {
+      origin: getOrigin(),
       announcement: config.announcementBanner || "",
       maintenance: config.maintenanceMode || false,
       themeAccentColor: config.themeAccentColor || "",
