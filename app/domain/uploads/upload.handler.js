@@ -17,6 +17,7 @@ var uploadValidator = require("../../http/validators/upload.validator");
 var ipQuota = require("../../../lib/ip-quota");
 var rateLimit = require("../../../lib/rate-limit");
 var { sanitizeFilename } = require("../../shared/sanitize-filename");
+var syncEmitter = require("../../../lib/sync-emitter");
 
 /**
  * Build structured audit detail JSON for file mutation events.
@@ -191,6 +192,15 @@ async function handleFileUpload(ctx) {
       seq: (bundle.seq || 0) + 1,
     },
   });
+
+  // Emit sync event for WebSocket subscribers
+  if (bundle.bundleType === "sync") {
+    var newSeq = (bundle.seq || 0) + 1;
+    syncEmitter.emit("sync:" + bundle._id, {
+      type: action, fileId: replaced ? existing[0]._id : fileShareId,
+      relativePath: cleanRelPath, checksum: checksum, size: file.size, seq: newSeq,
+    });
+  }
 
   return { success: true, replaced: replaced, received: bundle.receivedFiles + fileCountChange, total: bundle.expectedFiles };
 }
@@ -411,6 +421,11 @@ async function handleSyncFileDelete(ctx) {
   }});
 
   audit.log(audit.ACTIONS.FILE_DELETED, { targetId: file._id, details: auditDetail({ action: "file_removed", bundleId: bundle._id, file: file.originalName, relativePath: file.relativePath }), req: ctx.req });
+
+  // Emit sync event
+  syncEmitter.emit("sync:" + bundle._id, {
+    type: "file_removed", fileId: file._id, relativePath: file.relativePath, seq: newSeq,
+  });
 
   return { success: true, seq: newSeq };
 }
