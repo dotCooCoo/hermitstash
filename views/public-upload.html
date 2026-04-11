@@ -30,14 +30,17 @@
       <div class="drop-step-num">01</div>
       <div class="drop-step-content">
         {% if (typeof stashMode !== 'undefined' && stashMode) { %}
-        <h3 class="drop-step-title">Include a <span class="fw-200">note.</span></h3>
+        <h3 class="drop-step-title">Include <span class="fw-200">details.</span></h3>
         <input type="hidden" id="uploaderName" value="">
         <input type="hidden" id="uploaderEmail" value="">
         <input type="hidden" id="bundlePassword" value="">
         <input type="hidden" id="bundleExpiry" value="0">
         <div class="drop-fields">
           <div class="drop-field" style="grid-column:1/-1">
-            <textarea id="bundleMessage" class="text-input" rows="2" maxlength="2000" placeholder="Add a message for the recipient... (optional)" style="resize:vertical"></textarea>
+            <input type="text" id="bundleName" class="text-input" placeholder="Name this upload (optional)" maxlength="200">
+          </div>
+          <div class="drop-field" style="grid-column:1/-1">
+            <textarea id="bundleMessage" class="text-input" rows="2" maxlength="2000" placeholder="Add a message... (optional)" style="resize:vertical"></textarea>
           </div>
         </div>
         {% } else if (user) { %}
@@ -60,6 +63,12 @@
           </span>
         </label>
         {% } %}
+        <div class="drop-fields" style="margin-bottom:12px">
+          <div class="drop-field" style="grid-column:1/-1">
+            <label class="input-label">Bundle Name <span style="opacity:.4">(optional)</span></label>
+            <input type="text" id="bundleName" class="text-input" placeholder="e.g. Project Files Q2" maxlength="200">
+          </div>
+        </div>
         <div class="drop-fields" id="bundleOptionsFields">
           <div class="drop-field">
             <label class="input-label">Expires in</label>
@@ -94,6 +103,10 @@
         </button>
         <div class="drop-more-fields" id="moreFields">
           <div class="drop-fields">
+            <div class="drop-field" style="grid-column:1/-1">
+              <label class="input-label">Bundle Name <span style="opacity:.4">(optional — used for ZIP download filename)</span></label>
+              <input type="text" id="bundleName" class="text-input" placeholder="e.g. Project Files Q2" maxlength="200">
+            </div>
             <div class="drop-field" style="grid-column:1/-1">
               <label class="input-label">Message <span style="opacity:.4">(optional)</span></label>
               <textarea id="bundleMessage" class="text-input" rows="2" maxlength="2000" placeholder="Add a note for the recipients..." style="resize:vertical"></textarea>
@@ -596,8 +609,10 @@ async function startUpload(){
   var password=document.getElementById('bundlePassword').value;
   var message=document.getElementById('bundleMessage').value.trim();
   var expiryDays=parseInt(document.getElementById('bundleExpiry').value,10)||0;
+  var bundleNameEl=document.getElementById('bundleName');
+  var bundleName=bundleNameEl?bundleNameEl.value.trim():'';
 
-  var ir=await fetch(uploadBase+'/init',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uploaderName:name,uploaderEmail:email||null,password:password||null,message:message||null,expiryDays:expiryDays,fileCount:toUpload.length,skippedCount:skipped.length,skippedFiles:skipped.map(function(f){return{path:f.rel,reason:f.reason}})})});
+  var ir=await fetch(uploadBase+'/init',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uploaderName:name,uploaderEmail:email||null,password:password||null,message:message||null,bundleName:bundleName||null,expiryDays:expiryDays,fileCount:toUpload.length,skippedCount:skipped.length,skippedFiles:skipped.map(function(f){return{path:f.rel,reason:f.reason}})})});
   var bd=await ir.json();var bundleId=bd.bundleId;var finalizeToken=bd.finalizeToken;
 
   // Concurrent queue with per-file status

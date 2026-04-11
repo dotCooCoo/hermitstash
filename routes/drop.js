@@ -16,6 +16,7 @@ var uploadValidator = require("../app/http/validators/upload.validator");
 var emailService = require("../app/domain/integrations/email.service");
 var { requireScope } = require("../app/security/scope-policy");
 var ipQuota = require("../lib/ip-quota");
+var { sanitizeFilename } = require("../app/shared/sanitize-filename");
 
 module.exports = function (app) {
   // Drop page
@@ -62,6 +63,7 @@ module.exports = function (app) {
       ownerId: ownerId,
       password: body.password,
       message: body.message,
+      bundleName: body.bundleName,
       expiryDays: body.expiryDays,
       defaultExpiryDays: config.fileExpiryDays,
       fileCount: body.fileCount,
@@ -147,7 +149,8 @@ module.exports = function (app) {
           shareId: fileShareId,
           bundleId: bundle._id,
           bundleShareId: bundle.shareId,
-          originalName: file.filename, relativePath: fields.relativePath || file.filename,
+          originalName: sanitizeFilename(file.filename),
+          relativePath: sanitizeFilename(fields.relativePath || file.filename, 500),
           storagePath: storagePath, mimeType: file.mimetype, size: file.size,
           checksum: checksum, encryptionKey: saved.encryptionKey,
           uploadedBy: bundle.ownerId || "public", uploaderEmail: bundle.uploaderEmail,
@@ -204,6 +207,13 @@ module.exports = function (app) {
       // Additional path traversal guard for fileId with underscores/hyphens
       if (!/^[a-zA-Z0-9_-]{1,64}$/.test(fileId)) {
         return res.status(400).json({ error: "Invalid file ID." });
+      }
+
+      // Early extension validation (reject disallowed types before writing any chunks to disk)
+      var earlyFilename = fields.filename || "file";
+      var earlyExt = path.extname(earlyFilename).toLowerCase();
+      if (earlyExt && config.allowedExtensions && config.allowedExtensions.length > 0 && !config.allowedExtensions.includes(earlyExt)) {
+        return res.status(400).json({ error: "File type not allowed: " + earlyExt });
       }
 
       // Store chunk to temp path
@@ -301,7 +311,8 @@ module.exports = function (app) {
           shareId: chunkFileShareId,
           bundleId: bundle._id,
           bundleShareId: bundle.shareId,
-          originalName: filename, relativePath: relativePath,
+          originalName: sanitizeFilename(filename),
+          relativePath: sanitizeFilename(relativePath, 500),
           storagePath: storagePath, mimeType: fields.mimeType || "application/octet-stream",
           size: fullData.length, checksum: checksum, encryptionKey: saved.encryptionKey,
           uploadedBy: bundle.ownerId || "public", uploaderEmail: bundle.uploaderEmail,

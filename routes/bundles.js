@@ -147,7 +147,7 @@ module.exports = function (app) {
 
     res.writeHead(200, {
       "Content-Type": "application/zip",
-      "Content-Disposition": safeContentDisposition("hermitstash-" + bundle.shareId + ".zip", "attachment"),
+      "Content-Disposition": safeContentDisposition((bundle.bundleName || "hermitstash-" + bundle.shareId) + ".zip", "attachment"),
     });
 
     const zip = new ZipWriter(res);
@@ -211,6 +211,23 @@ module.exports = function (app) {
   });
 
   // Delete bundle + all its files (owner or admin)
+  // Rename bundle
+  app.post("/bundles/:shareId/rename", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    var bundle = bundlesRepo.findByShareId(req.params.shareId);
+    if (!bundle) return res.status(404).json({ error: "Not found." });
+    if (bundle.ownerId !== req.user._id && req.user.role !== "admin") {
+      return res.status(403).json({ error: "Not authorized." });
+    }
+    var { parseJson } = require("../lib/multipart");
+    var { sanitizeRename } = require("../app/shared/sanitize-filename");
+    var body = await parseJson(req);
+    var result = sanitizeRename(body.name, { maxLength: 200 });
+    if (!result.valid) return res.status(400).json({ error: result.error || "Invalid name." });
+    bundlesRepo.update(bundle._id, { $set: { bundleName: result.name } });
+    res.json({ success: true, name: result.name });
+  });
+
   app.post("/bundles/:shareId/delete", async (req, res) => {
     if (!requireAuth(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);

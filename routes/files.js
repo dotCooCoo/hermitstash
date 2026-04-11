@@ -97,6 +97,23 @@ module.exports = function (app) {
     }
   });
 
+  // Rename file (owner or admin)
+  app.post("/files/:shareId/rename", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    var doc = filesRepo.findAll({ shareId: req.params.shareId, status: "complete" })[0];
+    if (!doc) return res.status(404).json({ error: "Not found." });
+    if (doc.uploadedBy !== req.user._id && req.user.role !== "admin") {
+      return res.status(403).json({ error: "Not authorized." });
+    }
+    var { parseJson } = require("../lib/multipart");
+    var { sanitizeRename } = require("../app/shared/sanitize-filename");
+    var body = await parseJson(req);
+    var result = sanitizeRename(body.name, { originalName: doc.originalName });
+    if (!result.valid) return res.status(400).json({ error: result.error });
+    filesRepo.update(doc._id, { $set: { originalName: result.name } });
+    res.json({ success: true, name: result.name });
+  });
+
   // Delete file (owner or admin)
   app.post("/files/:shareId/delete", async (req, res) => {
     if (!requireAuth(req, res)) return;

@@ -14,6 +14,7 @@ var logger = require("../app/shared/logger");
 var usersRepo = require("../app/data/repositories/users.repo");
 var filesRepo = require("../app/data/repositories/files.repo");
 var credentialsRepo = require("../app/data/repositories/credentials.repo");
+var { sanitizeFilename } = require("../app/shared/sanitize-filename");
 var { parseMultipart, parseJson } = require("../lib/multipart");
 var { generateShareId, generateBytes } = require("../lib/crypto");
 var config = require("../lib/config");
@@ -258,8 +259,8 @@ module.exports = function (app) {
 
       filesRepo.create({
         shareId: fileShareId,
-        originalName: body.filename,
-        relativePath: body.filename,
+        originalName: sanitizeFilename(body.filename),
+        relativePath: sanitizeFilename(body.filename, 500),
         storagePath: storagePath,
         mimeType: body.mimeType || "application/octet-stream",
         size: ciphertext.length,
@@ -342,6 +343,7 @@ module.exports = function (app) {
         downloads: f.downloads,
         createdAt: f.createdAt,
         vaultBatchId: f.vaultBatchId || null,
+        vaultBatchName: f.vaultBatchName || null,
       };
     });
     res.json({ files: safe });
@@ -445,13 +447,42 @@ module.exports = function (app) {
     res.json({ success: true });
   });
 
+  // Rename vault batch
+  app.post("/vault/batch/:batchId/rename", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    var body = await parseJson(req);
+    var { sanitizeRename } = require("../app/shared/sanitize-filename");
+    var result = sanitizeRename(body.name, { maxLength: 200 });
+    if (!result.valid) return res.status(400).json({ error: result.error || "Invalid name." });
+    var batchFiles = filesRepo.findAll({ uploadedBy: req.user._id, vaultEncrypted: "true" })
+      .filter(function (f) { return f.vaultBatchId === req.params.batchId; });
+    if (batchFiles.length === 0) return res.status(404).json({ error: "Batch not found." });
+    for (var i = 0; i < batchFiles.length; i++) {
+      filesRepo.update(batchFiles[i]._id, { $set: { vaultBatchName: result.name } });
+    }
+    res.json({ success: true, name: result.name });
+  });
+
+  // Rename vault file
+  app.post("/vault/file/:shareId/rename", async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    var doc = filesRepo.findAll({ shareId: req.params.shareId, uploadedBy: req.user._id, vaultEncrypted: "true", status: "complete" })[0];
+    if (!doc) return res.status(404).json({ error: "Not found." });
+    var body = await parseJson(req);
+    var { sanitizeRename } = require("../app/shared/sanitize-filename");
+    var result = sanitizeRename(body.name, { originalName: doc.originalName });
+    if (!result.valid) return res.status(400).json({ error: result.error });
+    filesRepo.update(doc._id, { $set: { originalName: result.name } });
+    res.json({ success: true, name: result.name });
+  });
+
   // Delete all vault files in a batch
   app.post("/vault/batch/delete", async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {
       var body = await parseJson(req);
       if (!body.batchId) return res.status(400).json({ error: "Batch ID required." });
-      var vaultFiles = filesRepo.findAll({ uploadedBy: req.user._id, vaultEncrypted: "true", vaultBatchId: body.batchId });
+      var vaultFiles = filesRepo.findAll({ uploadedBy: req.user._id, vaultEncrypted: "true" }).filter(function (f) { return f.vaultBatchId === body.batchId; });
       if (vaultFiles.length === 0) return res.status(404).json({ error: "No files in batch." });
       var fsmod = require("fs");
       for (var i = 0; i < vaultFiles.length; i++) {

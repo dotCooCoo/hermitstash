@@ -6,49 +6,74 @@
 {% } %}
 
 {% if (bundles.length > 0) { %}
-  <div style="margin-bottom:32px">
-    {% for (const b of bundles) { %}
-      <div class="bundle-group" id="bundle-{{b.bundle.shareId}}" style="background:var(--bg-sub);border:1px solid var(--border-thin);border-radius:12px;padding:20px 24px;margin-bottom:16px">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
-          <div>
-            <div style="font-size:.95rem;font-weight:600;color:var(--text)">Bundle — {{{b.files.length}}} file{{{b.files.length !== 1 ? 's' : ''}}}</div>
-            <div style="font-size:.78rem;color:var(--text-muted)">{{{__formatSize(b.bundle.totalSize)}}} · {{{b.bundle.downloads||0}}} downloads · {{{new Date(b.bundle.createdAt).toLocaleDateString()}}}</div>
+  <div class="admin-panel" style="margin-bottom:24px">
+    <div class="admin-panel-head"><h2>Bundles</h2><span class="admin-panel-count">{{{bundles.length}}}</span></div>
+    <div class="admin-panel-body">
+      {% for (const b of bundles) { %}
+        <div class="admin-user-row" id="bundle-{{b.bundle.shareId}}">
+          <div class="admin-user-info" style="flex:1">
+            <div class="admin-user-avatar"><span class="admin-user-initial">{{{b.files.length}}}</span></div>
+            <div>
+              <div class="admin-user-name" style="cursor:pointer" title="Click to rename" onclick="renameBundle('{{b.bundle.shareId}}',this)">{{{b.bundle.bundleName || ('Bundle — ' + b.files.length + ' file' + (b.files.length !== 1 ? 's' : ''))}}}</div>
+              <div class="admin-user-email">{{{__formatSize(b.bundle.totalSize)}}} · {{{b.bundle.downloads||0}}} downloads · {{{new Date(b.bundle.createdAt).toLocaleDateString()}}}</div>
+            </div>
           </div>
-          <div style="display:flex;gap:8px;align-items:center">
-            <a href="/b/{{b.bundle.shareId}}/download" class="butn butn-bg butn-sm radius-30"><span>⬇ ZIP</span></a>
-            <button class="butn butn-sm radius-30" style="border-color:rgba(255,255,255,.25);color:var(--text)" onclick="navigator.clipboard.writeText('{{host}}/b/{{b.bundle.shareId}}');this.querySelector('span').textContent='Copied!';var _b=this;setTimeout(function(){_b.querySelector('span').textContent='Copy Link'},1500)"><span>Copy Link</span></button>
-            <button class="butn butn-sm radius-30" style="border-color:rgba(255,68,68,.5);color:var(--danger)" onclick="delBundle('{{b.bundle.shareId}}',{{{b.files.length}}})"><span>Delete</span></button>
+          <div class="admin-user-actions">
+            <button class="user-action-btn" onclick="toggleDashFiles('{{b.bundle.shareId}}',this)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>Files</span></button>
+            <a href="/b/{{b.bundle.shareId}}/download" class="user-action-btn user-action-role" style="text-decoration:none"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>ZIP</span></a>
+            <button class="user-action-btn user-action-role" onclick="navigator.clipboard.writeText('{{host}}/b/{{b.bundle.shareId}}');this.querySelector('span').textContent='Copied!';var _b=this;setTimeout(function(){_b.querySelector('span').textContent='Copy'},1500)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span>Copy</span></button>
+            <button class="user-action-btn user-action-delete" onclick="delBundle('{{b.bundle.shareId}}',{{{b.files.length}}})"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg><span>Delete</span></button>
           </div>
         </div>
-        <div class="file-grid" style="gap:12px">
+        <div id="bfiles-{{b.bundle.shareId}}" style="display:none">
           {% for (const f of b.files) { %}
-            <div class="file-card" id="file-{{f.shareId}}" style="margin:0">
-              <div class="file-card-top"><div class="file-ext">{{{f.originalName.split('.').pop().toUpperCase()}}}</div><button class="file-delete" onclick="del('{{f.shareId}}')" title="Delete">✕</button></div>
-              <div class="file-card-body">
-                <p class="file-name" title="{{f.originalName}}">{{f.originalName}}</p>
-                <div class="file-meta"><span>{{{__formatSize(f.size)}}}</span><span>{{{f.downloads||0}}} downloads</span></div>
+            <div class="admin-user-row" id="file-{{f.shareId}}" style="padding-left:52px;background:rgba(255,255,255,.01);min-height:auto">
+              <div style="flex:1;min-width:0;display:flex;align-items:center;gap:10px">
+                <span style="font-size:.8rem;font-weight:700;color:var(--main-color);background:rgba(139,92,246,.1);padding:2px 8px;border-radius:4px;flex-shrink:0">{{{f.originalName.split('.').pop().toUpperCase()}}}</span>
+                <div style="min-width:0">
+                  <div style="font-size:.82rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer" title="Click to rename" onclick="renameFile('{{f.shareId}}',this)">{{f.originalName}}</div>
+                  {% if (f.relativePath && f.relativePath !== f.originalName) { %}<div style="font-size:.7rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{f.relativePath}}</div>{% } %}
+                </div>
               </div>
-              <div class="file-card-actions"><div class="share-link-box compact"><input type="text" value="{{host}}/s/{{f.shareId}}" readonly class="share-input" onclick="this.select()"><button class="btn btn-sm" onclick="navigator.clipboard.writeText('{{host}}/s/{{f.shareId}}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000)">Copy</button></div></div>
+              <div class="admin-user-meta">
+                <span class="admin-user-date" style="font-size:.75rem">{{{__formatSize(f.size)}}}</span>
+                <span class="admin-user-date" style="font-size:.75rem">{{{f.downloads||0}}} DL</span>
+              </div>
+              <div class="admin-user-actions">
+                <button class="user-action-btn" onclick="navigator.clipboard.writeText('{{host}}/s/{{f.shareId}}');this.querySelector('span').textContent='Copied!';var _b=this;setTimeout(function(){_b.querySelector('span').textContent='Copy'},1500)" style="padding:4px 10px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span>Copy</span></button>
+                <button class="user-action-btn user-action-delete" onclick="del('{{f.shareId}}')" style="padding:4px 10px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg><span>Delete</span></button>
+              </div>
             </div>
           {% } %}
         </div>
-      </div>
-    {% } %}
+      {% } %}
+    </div>
   </div>
 {% } %}
 
 {% if (files.length > 0) { %}
-  <div class="file-grid">
-    {% for (const f of files) { %}
-      <div class="file-card" id="file-{{f.shareId}}">
-        <div class="file-card-top"><div class="file-ext">{{{f.originalName.split('.').pop().toUpperCase()}}}</div><button class="file-delete" onclick="del('{{f.shareId}}')" title="Delete">✕</button></div>
-        <div class="file-card-body">
-          <p class="file-name" title="{{f.originalName}}">{{f.originalName}}</p>
-          <div class="file-meta"><span>{{{__formatSize(f.size)}}}</span><span>{{{f.downloads||0}}} downloads</span></div>
+  <div class="admin-panel" style="margin-bottom:24px">
+    <div class="admin-panel-head"><h2>Standalone Files</h2><span class="admin-panel-count">{{{files.length}}}</span></div>
+    <div class="admin-panel-body">
+      {% for (const f of files) { %}
+        <div class="admin-user-row" id="file-{{f.shareId}}" style="min-height:auto">
+          <div style="flex:1;min-width:0;display:flex;align-items:center;gap:10px">
+            <span style="font-size:.8rem;font-weight:700;color:var(--main-color);background:rgba(139,92,246,.1);padding:2px 8px;border-radius:4px;flex-shrink:0">{{{f.originalName.split('.').pop().toUpperCase()}}}</span>
+            <div style="min-width:0">
+              <div style="font-size:.82rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer" title="Click to rename" onclick="renameFile('{{f.shareId}}',this)">{{f.originalName}}</div>
+            </div>
+          </div>
+          <div class="admin-user-meta">
+            <span class="admin-user-date" style="font-size:.75rem">{{{__formatSize(f.size)}}}</span>
+            <span class="admin-user-date" style="font-size:.75rem">{{{f.downloads||0}}} DL</span>
+          </div>
+          <div class="admin-user-actions">
+            <button class="user-action-btn" onclick="navigator.clipboard.writeText('{{host}}/s/{{f.shareId}}');this.querySelector('span').textContent='Copied!';var _b=this;setTimeout(function(){_b.querySelector('span').textContent='Copy'},1500)" style="padding:4px 10px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span>Copy</span></button>
+            <button class="user-action-btn user-action-delete" onclick="del('{{f.shareId}}')" style="padding:4px 10px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg><span>Delete</span></button>
+          </div>
         </div>
-        <div class="file-card-actions"><div class="share-link-box compact"><input type="text" value="{{host}}/s/{{f.shareId}}" readonly class="share-input" onclick="this.select()"><button class="btn btn-sm" onclick="navigator.clipboard.writeText('{{host}}/s/{{f.shareId}}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000)">Copy</button></div></div>
-      </div>
-    {% } %}
+      {% } %}
+    </div>
   </div>
 {% } %}
 <!-- Personal Vault -->
@@ -119,8 +144,75 @@
 </div>
 
 <script>
-async function del(id){if(!confirm('Delete?'))return;const r=await fetch('/files/'+id+'/delete',{method:'POST'});if(r.ok){document.getElementById('file-'+id).remove();if(!document.querySelector('.file-card')&&!document.querySelector('.bundle-group'))location.reload()}}
-async function delBundle(shareId,count){if(!confirm('Delete this bundle and all '+count+' file'+(count!==1?'s':'')+'?'))return;var r=await fetch('/bundles/'+shareId+'/delete',{method:'POST'});var d=await r.json();if(d.success){var el=document.getElementById('bundle-'+shareId);if(el)el.remove();if(!document.querySelector('.file-card')&&!document.querySelector('.bundle-group'))location.reload()}else{alert(d.error||'Delete failed')}}
+function showRenameError(input,msg){
+  var err=input.parentNode.querySelector('.rename-error');
+  if(!err){err=document.createElement('div');err.className='rename-error';err.style.cssText='font-size:.72rem;color:var(--danger);margin-top:2px';input.parentNode.appendChild(err)}
+  err.textContent=msg;
+  input.style.borderColor='var(--danger)';
+  setTimeout(function(){if(err.parentNode)err.remove();input.style.borderColor=''},3000);
+}
+async function del(id){if(!confirm('Delete?'))return;const r=await fetch('/files/'+id+'/delete',{method:'POST'});if(r.ok){document.getElementById('file-'+id).remove();if(!document.querySelector('.admin-user-row'))location.reload()}}
+async function delBundle(shareId,count){if(!confirm('Delete this bundle and all '+count+' file'+(count!==1?'s':'')+'?'))return;var r=await fetch('/bundles/'+shareId+'/delete',{method:'POST'});var d=await r.json();if(d.success){var el=document.getElementById('bundle-'+shareId);var fl=document.getElementById('bfiles-'+shareId);if(el)el.remove();if(fl)fl.remove();if(!document.querySelector('.admin-user-row'))location.reload()}else{alert(d.error||'Delete failed')}}
+function toggleDashFiles(shareId,btn){var el=document.getElementById('bfiles-'+shareId);if(el.style.display!=='none'){el.style.display='none';btn.querySelector('span').textContent='Files'}else{el.style.display='block';btn.querySelector('span').textContent='Hide'}}
+function renameBundle(shareId,el){
+  var current=el.textContent;
+  var input=document.createElement('input');input.type='text';input.value=current.startsWith('Bundle')?'':current;
+  input.className='text-input';input.style.cssText='font-size:.82rem;padding:2px 8px;width:100%;max-width:300px';input.placeholder='Bundle name';
+  input.onblur=function(){saveBundleRename(shareId,input,el)};
+  input.onkeydown=function(e){if(e.key==='Enter'){e.preventDefault();input.blur()}if(e.key==='Escape'){el.style.display='';input.remove()}};
+  el.style.display='none';el.parentNode.insertBefore(input,el);input.focus();input.select();
+}
+function saveBundleRename(shareId,input,el){
+  var name=input.value.trim();
+  fetch('/bundles/'+shareId+'/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})}).then(function(r){return r.json()}).then(function(d){
+    if(d.success){el.textContent=d.name||name||'Unnamed Bundle';el.style.display='';input.remove()}
+    else{showRenameError(input,d.error||'Rename failed')}
+  }).catch(function(){el.style.display='';input.remove()});
+}
+function renameFile(shareId,el){
+  var current=el.textContent;
+  var input=document.createElement('input');input.type='text';input.value=current;
+  input.className='text-input';input.style.cssText='font-size:.82rem;padding:2px 8px;width:100%;max-width:300px';
+  input.onblur=function(){saveFileRename(shareId,input,el)};
+  input.onkeydown=function(e){if(e.key==='Enter'){e.preventDefault();input.blur()}if(e.key==='Escape'){el.style.display='';input.remove()}};
+  el.style.display='none';el.parentNode.insertBefore(input,el);input.focus();input.select();
+}
+function renameVaultBatch(batchId,el){
+  var current=el.textContent;
+  var input=document.createElement('input');input.type='text';input.value=current.startsWith('Vault Batch')?'':current;
+  input.className='text-input';input.style.cssText='font-size:.82rem;padding:2px 8px;width:100%;max-width:300px';input.placeholder='Batch name';
+  input.onblur=function(){
+    var name=input.value.trim();
+    fetch('/vault/batch/'+batchId+'/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})}).then(function(r){return r.json()}).then(function(d){
+      if(d.success){el.textContent=d.name||name||'Unnamed Batch';el.style.display='';input.remove()}
+      else{showRenameError(input,d.error||'Rename failed')}
+    }).catch(function(){el.style.display='';input.remove()});
+  };
+  input.onkeydown=function(e){if(e.key==='Enter'){e.preventDefault();input.blur()}if(e.key==='Escape'){el.style.display='';input.remove()}};
+  el.style.display='none';el.parentNode.insertBefore(input,el);input.focus();input.select();
+}
+function renameVaultFile(shareId,el){
+  var current=el.textContent;
+  var input=document.createElement('input');input.type='text';input.value=current;
+  input.className='text-input';input.style.cssText='font-size:.82rem;padding:2px 8px;width:100%;max-width:300px';
+  input.onblur=function(){saveVaultFileRename(shareId,input,el)};
+  input.onkeydown=function(e){if(e.key==='Enter'){e.preventDefault();input.blur()}if(e.key==='Escape'){el.style.display='';input.remove()}};
+  el.style.display='none';el.parentNode.insertBefore(input,el);input.focus();input.select();
+}
+function saveVaultFileRename(shareId,input,el){
+  var name=input.value.trim();
+  fetch('/vault/file/'+shareId+'/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})}).then(function(r){return r.json()}).then(function(d){
+    if(d.success){el.textContent=d.name||name;el.title='Click to rename';el.style.display='';input.remove()}
+    else{showRenameError(input,d.error||'Rename failed')}
+  }).catch(function(){el.style.display='';input.remove()});
+}
+function saveFileRename(shareId,input,el){
+  var name=input.value.trim();
+  fetch('/files/'+shareId+'/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})}).then(function(r){return r.json()}).then(function(d){
+    if(d.success){el.textContent=d.name||name;el.title=d.name||name;el.style.display='';input.remove()}
+    else{showRenameError(input,d.error||'Rename failed')}
+  }).catch(function(){el.style.display='';input.remove()});
+}
 
 // ---- Vault Disable ----
 var _vaultFileCount=0;
@@ -324,28 +416,34 @@ async function unlockVault(){
   }catch(e){console.error('Unlock error:',e);return null}
 }
 
-function buildVaultCard(f){
-  var card=document.createElement('div');card.className='file-card';card.id='vf-'+f.shareId;
-  var ext=f.originalName.split('.').pop().toUpperCase();
-  var top=document.createElement('div');top.className='file-card-top';
-  var extDiv=document.createElement('div');extDiv.className='file-ext';extDiv.textContent=ext;
-  var delBtn=document.createElement('button');delBtn.className='file-delete';delBtn.textContent='\u2715';delBtn.title='Delete';
-  delBtn.onclick=function(){vaultDel(f.shareId)};
-  top.appendChild(extDiv);top.appendChild(delBtn);
-  var body=document.createElement('div');body.className='file-card-body';
-  var name=document.createElement('p');name.className='file-name';name.title=f.originalName;name.textContent=f.originalName;
-  var meta=document.createElement('div');meta.className='file-meta';
-  var sz=document.createElement('span');sz.textContent=Helpers.formatSize(f.size);
-  var pq=document.createElement('span');pq.textContent='PQ Encrypted';pq.style.color='var(--main-color)';
+function buildVaultRow(f){
+  var row=document.createElement('div');row.className='admin-user-row';row.id='vf-'+f.shareId;row.style.minHeight='auto';
+  var info=document.createElement('div');info.style.cssText='flex:1;min-width:0;display:flex;align-items:center;gap:10px';
+  var ext=document.createElement('span');ext.style.cssText='font-size:.75rem;font-weight:700;color:var(--main-color);background:rgba(139,92,246,.1);padding:2px 8px;border-radius:4px;flex-shrink:0';
+  ext.textContent=f.originalName.split('.').pop().toUpperCase();
+  var nameWrap=document.createElement('div');nameWrap.style.minWidth='0';
+  var nameEl=document.createElement('div');nameEl.style.cssText='font-size:.82rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer';nameEl.title='Click to rename';nameEl.textContent=f.originalName;
+  nameEl.onclick=(function(sid,el){return function(){renameVaultFile(sid,el)}})(f.shareId,nameEl);
+  nameWrap.appendChild(nameEl);info.appendChild(ext);info.appendChild(nameWrap);
+  var meta=document.createElement('div');meta.className='admin-user-meta';
+  var sz=document.createElement('span');sz.className='admin-user-date';sz.style.fontSize='.75rem';sz.textContent=Helpers.formatSize(f.size);
+  var pq=document.createElement('span');pq.className='admin-user-date';pq.style.cssText='font-size:.75rem;color:var(--main-color)';pq.textContent='PQ Encrypted';
   meta.appendChild(sz);meta.appendChild(pq);
-  body.appendChild(name);body.appendChild(meta);
-  var actions=document.createElement('div');actions.className='file-card-actions';
-  var dlBtn=document.createElement('button');dlBtn.className='butn butn-bg butn-sm radius-30';
-  var dlSpan=document.createElement('span');dlSpan.textContent='Decrypt & Download';
-  dlBtn.appendChild(dlSpan);dlBtn.onclick=function(){vaultDownload(f.shareId)};
-  actions.appendChild(dlBtn);
-  card.appendChild(top);card.appendChild(body);card.appendChild(actions);
-  return card;
+  var actions=document.createElement('div');actions.className='admin-user-actions';
+  var dlBtn=document.createElement('button');dlBtn.className='user-action-btn user-action-role';dlBtn.style.padding='4px 10px';
+  var dlIcon=document.createElementNS('http://www.w3.org/2000/svg','svg');dlIcon.setAttribute('width','13');dlIcon.setAttribute('height','13');dlIcon.setAttribute('viewBox','0 0 24 24');dlIcon.setAttribute('fill','none');dlIcon.setAttribute('stroke','currentColor');dlIcon.setAttribute('stroke-width','2');
+  var p1=document.createElementNS('http://www.w3.org/2000/svg','path');p1.setAttribute('d','M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4');
+  var p2=document.createElementNS('http://www.w3.org/2000/svg','polyline');p2.setAttribute('points','7 10 12 15 17 10');
+  var p3=document.createElementNS('http://www.w3.org/2000/svg','line');p3.setAttribute('x1','12');p3.setAttribute('y1','15');p3.setAttribute('x2','12');p3.setAttribute('y2','3');
+  dlIcon.appendChild(p1);dlIcon.appendChild(p2);dlIcon.appendChild(p3);dlBtn.appendChild(dlIcon);
+  var dlSpan=document.createElement('span');dlSpan.textContent='Decrypt';dlBtn.appendChild(dlSpan);
+  dlBtn.onclick=function(){vaultDownload(f.shareId)};
+  var delBtn=document.createElement('button');delBtn.className='user-action-btn user-action-delete';delBtn.style.padding='4px 10px';
+  var delSpan=document.createElement('span');delSpan.textContent='Delete';delBtn.appendChild(delSpan);
+  delBtn.onclick=function(){vaultDel(f.shareId)};
+  actions.appendChild(dlBtn);actions.appendChild(delBtn);
+  row.appendChild(info);row.appendChild(meta);row.appendChild(actions);
+  return row;
 }
 
 function loadVaultFiles(){
@@ -365,42 +463,45 @@ function loadVaultFiles(){
       }else{solo.push(f)}
     });
 
-    // Render batches
+    // Render batches as collapsible rows
     var batchIds=Object.keys(batches);
     for(var bi=0;bi<batchIds.length;bi++){
       var bid=batchIds[bi];var bFiles=batches[bid];
       var totalSize=0;for(var bs=0;bs<bFiles.length;bs++)totalSize+=bFiles[bs].size||0;
-      var group=document.createElement('div');group.className='bundle-group';group.id='vbatch-'+bid;
-      group.style.cssText='background:var(--bg-sub);border:1px solid var(--border-thin);border-radius:12px;padding:20px 24px;margin-bottom:16px';
-      var header=document.createElement('div');
-      header.style.cssText='display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px';
-      var info=document.createElement('div');
-      var title=document.createElement('div');title.style.cssText='font-size:.95rem;font-weight:600;color:var(--text)';
-      title.textContent='Vault Batch \u2014 '+bFiles.length+' file'+(bFiles.length!==1?'s':'');
-      var sub=document.createElement('div');sub.style.cssText='font-size:.78rem;color:var(--text-muted)';
-      sub.textContent=Helpers.formatSize(totalSize)+' \xb7 PQ Encrypted';
-      info.appendChild(title);info.appendChild(sub);
-      var btns=document.createElement('div');btns.style.cssText='display:flex;gap:8px;align-items:center';
-      var dlAllBtn=document.createElement('button');dlAllBtn.className='butn butn-bg butn-sm radius-30';
-      var dlAllSpan=document.createElement('span');dlAllSpan.textContent='\u2b07 Decrypt All';
-      dlAllBtn.appendChild(dlAllSpan);dlAllBtn.onclick=(function(files,span){return function(){vaultBatchDownload(files,span)}})(bFiles,dlAllSpan);
-      var delAllBtn=document.createElement('button');delAllBtn.className='butn butn-sm radius-30';
-      delAllBtn.style.cssText='border-color:rgba(255,68,68,.5);color:var(--danger)';
-      var delAllSpan=document.createElement('span');delAllSpan.textContent='Delete Batch';
-      delAllBtn.appendChild(delAllSpan);delAllBtn.onclick=(function(id,count){return function(){vaultBatchDel(id,count)}})(bid,bFiles.length);
-      btns.appendChild(dlAllBtn);btns.appendChild(delAllBtn);
-      header.appendChild(info);header.appendChild(btns);group.appendChild(header);
-      var grid=document.createElement('div');grid.className='file-grid';grid.style.gap='12px';
-      bFiles.forEach(function(f){grid.appendChild(buildVaultCard(f))});
-      group.appendChild(grid);list.appendChild(group);
+
+      var batchRow=document.createElement('div');batchRow.className='admin-user-row';batchRow.id='vbatch-'+bid;
+      var bInfo=document.createElement('div');bInfo.className='admin-user-info';bInfo.style.flex='1';
+      var bAvatar=document.createElement('div');bAvatar.className='admin-user-avatar';
+      var bInitial=document.createElement('span');bInitial.className='admin-user-initial';bInitial.textContent=bFiles.length;
+      bAvatar.appendChild(bInitial);
+      var bText=document.createElement('div');
+      var batchName=bFiles[0].vaultBatchName||('Vault Batch \u2014 '+bFiles.length+' file'+(bFiles.length!==1?'s':''));
+      var bName=document.createElement('div');bName.className='admin-user-name';bName.style.cursor='pointer';bName.title='Click to rename';bName.textContent=batchName;
+      bName.onclick=(function(id,el){return function(){renameVaultBatch(id,el)}})(bid,bName);
+      var bSub=document.createElement('div');bSub.className='admin-user-email';bSub.textContent=Helpers.formatSize(totalSize)+' \xb7 PQ Encrypted';
+      bText.appendChild(bName);bText.appendChild(bSub);bInfo.appendChild(bAvatar);bInfo.appendChild(bText);
+
+      var bActions=document.createElement('div');bActions.className='admin-user-actions';
+      var filesBtn=document.createElement('button');filesBtn.className='user-action-btn';
+      var filesSpan=document.createElement('span');filesSpan.textContent='Files';filesBtn.appendChild(filesSpan);
+      filesBtn.onclick=(function(id){return function(){var el=document.getElementById('vbfiles-'+id);if(el.style.display!=='none'){el.style.display='none';this.querySelector('span').textContent='Files'}else{el.style.display='block';this.querySelector('span').textContent='Hide'}}})(bid);
+      var dlAllBtn=document.createElement('button');dlAllBtn.className='user-action-btn user-action-role';
+      var dlAllSpan=document.createElement('span');dlAllSpan.textContent='Decrypt All';dlAllBtn.appendChild(dlAllSpan);
+      dlAllBtn.onclick=(function(files,span){return function(){vaultBatchDownload(files,span)}})(bFiles,dlAllSpan);
+      var delAllBtn=document.createElement('button');delAllBtn.className='user-action-btn user-action-delete';
+      var delAllSpan=document.createElement('span');delAllSpan.textContent='Delete';delAllBtn.appendChild(delAllSpan);
+      delAllBtn.onclick=(function(id,count){return function(){vaultBatchDel(id,count)}})(bid,bFiles.length);
+      bActions.appendChild(filesBtn);bActions.appendChild(dlAllBtn);bActions.appendChild(delAllBtn);
+
+      batchRow.appendChild(bInfo);batchRow.appendChild(bActions);list.appendChild(batchRow);
+
+      var fileContainer=document.createElement('div');fileContainer.id='vbfiles-'+bid;fileContainer.style.display='none';
+      bFiles.forEach(function(f){var r=buildVaultRow(f);r.style.paddingLeft='52px';r.style.background='rgba(255,255,255,.01)';fileContainer.appendChild(r)});
+      list.appendChild(fileContainer);
     }
 
     // Render solo files
-    if(solo.length>0){
-      var grid=document.createElement('div');grid.className='file-grid';
-      solo.forEach(function(f){grid.appendChild(buildVaultCard(f))});
-      list.appendChild(grid);
-    }
+    solo.forEach(function(f){list.appendChild(buildVaultRow(f))});
   });
 }
 
@@ -475,7 +576,7 @@ async function vaultBatchDel(batchId,count){
   if(!confirm('Delete all '+count+' files in this batch? This cannot be undone.'))return;
   var r=await fetch('/vault/batch/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({batchId:batchId})});
   var d=await r.json();
-  if(d.success){var el=document.getElementById('vbatch-'+batchId);if(el)el.remove();if(!document.querySelector('#vaultFileList .file-card'))document.getElementById('vaultEmpty').style.display='block'}
+  if(d.success){var el=document.getElementById('vbatch-'+batchId);if(el)el.remove();var fl=document.getElementById('vbfiles-'+batchId);if(fl)fl.remove();if(!document.querySelector('#vaultFileList .admin-user-row'))document.getElementById('vaultEmpty').style.display='block'}
   else{alert(d.error||'Delete failed')}
 }
 
@@ -483,7 +584,7 @@ async function vaultDel(shareId){
   if(!confirm('Delete this vault file? This cannot be undone.'))return;
   await fetch('/vault/delete/'+shareId,{method:'POST'});
   var el=document.getElementById('vf-'+shareId);if(el)el.remove();
-  if(!document.querySelector('#vaultFileList .file-card'))document.getElementById('vaultEmpty').style.display='block';
+  if(!document.querySelector('#vaultFileList .admin-user-row'))document.getElementById('vaultEmpty').style.display='block';
 }
 
 async function forceResetVault(){
