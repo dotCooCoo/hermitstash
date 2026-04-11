@@ -19,6 +19,13 @@ var rateLimit = require("../../../lib/rate-limit");
 var { sanitizeFilename } = require("../../shared/sanitize-filename");
 
 /**
+ * Build structured audit detail JSON for file mutation events.
+ */
+function auditDetail(obj) {
+  return JSON.stringify(obj);
+}
+
+/**
  * Resolve stash config overrides, falling back to global config.
  * Pass null for stash to get global config.
  */
@@ -144,7 +151,7 @@ async function handleFileUpload(ctx) {
     ipQuota.record(rateLimit.getIp(ctx.req), file.size);
   }
 
-  audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: bundle._id, details: "file: " + file.filename + ", size: " + file.size + suffix, req: ctx.req });
+  audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: bundle._id, details: auditDetail({ action: "file_added", bundleId: bundle._id, file: file.filename, size: file.size, checksum: checksum }), req: ctx.req });
 
   bundlesRepo.update(bundle._id, {
     $set: { receivedFiles: bundle.receivedFiles + 1, totalSize: bundle.totalSize + file.size },
@@ -267,7 +274,7 @@ async function handleChunkUpload(ctx) {
     $set: { receivedFiles: bundle.receivedFiles + 1, totalSize: bundle.totalSize + fullData.length },
   });
 
-  audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: bundle._id, details: "chunked file: " + filename + ", size: " + fullData.length + ", chunks: " + totalChunks + suffix, req: ctx.req });
+  audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: bundle._id, details: auditDetail({ action: "file_added", bundleId: bundle._id, file: filename, size: fullData.length, chunks: totalChunks, checksum: checksum }), req: ctx.req });
   return { success: true, assembled: true, received: bundle.receivedFiles + 1 };
 }
 
@@ -333,7 +340,7 @@ function handleFinalize(ctx) {
   if (ctx.stashSlug) webhookData.stashSlug = ctx.stashSlug;
   webhook.fire("bundle_finalized", webhookData);
 
-  audit.log(audit.ACTIONS.BUNDLE_FINALIZED, { targetId: existing._id, targetEmail: refreshed.uploaderEmail, details: "files: " + refreshed.receivedFiles + ", size: " + refreshed.totalSize + ", emailSent: " + emailSent + suffix, req: ctx.req });
+  audit.log(audit.ACTIONS.BUNDLE_FINALIZED, { targetId: existing._id, targetEmail: refreshed.uploaderEmail, details: auditDetail({ action: "bundle_finalized", bundleId: existing._id, files: refreshed.receivedFiles, size: refreshed.totalSize, emailSent: emailSent }), req: ctx.req });
 
   return { success: true, shareId: refreshed.shareId, shareUrl: bundleUrl, emailSent: emailSent, refreshed: refreshed };
 }

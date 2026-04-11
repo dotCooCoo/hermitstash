@@ -18,24 +18,7 @@ var emailService = require("../lib/email");
 const requireAuth = require("../middleware/require-auth");
 const { HASH_PREFIX } = require("../lib/constants");
 
-/**
- * Check if a bundle is locked for the current session.
- * Returns false (unlocked), "password" (needs password), "email" (needs email verification),
- * or "email-then-password" (email verified, password still needed).
- */
-function isBundleLocked(bundle, session) {
-  var mode = bundle.accessMode || (bundle.passwordHash ? "password" : "open");
-  if (mode === "open") return false;
-  var s = session["bundle_" + bundle.shareId];
-  if (mode === "password") return s ? false : "password";
-  if (mode === "email") return s ? false : "email";
-  if (mode === "both") {
-    if (!s) return "email";
-    if (typeof s === "object" && s.emailVerified && !s.passwordVerified) return "email-then-password";
-    return (s === true || (typeof s === "object" && s.passwordVerified)) ? false : "email";
-  }
-  return false;
-}
+var { isBundleLocked, prefersJson } = require("../middleware/require-access");
 
 // Exponential backoff tracking for bundle password attempts
 var bundleLockouts = new Map();
@@ -251,6 +234,37 @@ module.exports = function (app) {
     var verifiedEmail = req.session["bundle_" + req.params.shareId];
     var viewerEmail = (typeof verifiedEmail === "object" && verifiedEmail.emailVerified && typeof verifiedEmail.emailVerified === "string") ? verifiedEmail.emailVerified : (typeof verifiedEmail === "string" ? verifiedEmail : null);
     audit.log(audit.ACTIONS.BUNDLE_VIEWED, { targetId: bundle._id, details: "shareId: " + bundle.shareId + (viewerEmail ? ", viewer: " + viewerEmail : ""), req: req });
+
+    // JSON content negotiation for API/sync clients
+    if (prefersJson(req)) {
+      return res.json({
+        bundleId: bundle._id,
+        shareId: bundle.shareId,
+        status: bundle.status,
+        bundleType: bundle.bundleType || "snapshot",
+        bundleName: bundle.bundleName || null,
+        uploaderName: bundle.uploaderName || "Anonymous",
+        accessMode: bundle.accessMode || "open",
+        fileCount: bundleFiles.length,
+        totalSize: bundle.totalSize || 0,
+        downloads: bundle.downloads || 0,
+        createdAt: bundle.createdAt,
+        expiresAt: bundle.expiresAt || null,
+        files: bundleFiles.map(function (f) {
+          return {
+            id: f._id,
+            shareId: f.shareId,
+            name: f.originalName,
+            relativePath: f.relativePath || f.originalName,
+            size: f.size || 0,
+            mime: f.mimeType,
+            checksum: f.checksum || null,
+            createdAt: f.createdAt,
+          };
+        }),
+      });
+    }
+
     var displayBundle = Object.assign({}, bundle);
     displayBundle.hasPassword = !!bundle.passwordHash;
     displayBundle.accessMode = bundle.accessMode || "open";

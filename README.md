@@ -266,6 +266,12 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Upload confirmations, admin notifications, verification emails
 - All email send/fail/quota events audit-logged
 
+**API**
+- JSON content negotiation on bundle view -- `Accept: application/json` returns file list with checksums and metadata
+- Structured audit log events for file mutations (JSON details with action, bundleId, checksum, size)
+- Shared access control middleware (`require-access.js`) -- centralized lock checks for bundles and stash
+- JSON-aware auth -- API/sync clients receive 401 JSON, browsers get login redirect
+
 **Security Hardening**
 - Security headers on all responses (CSP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy, COOP, CORP)
 - HSTS auto-enabled when rpOrigin uses HTTPS
