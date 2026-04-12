@@ -14,11 +14,6 @@ var { encryptPayload, decryptPayload, generateApiKey } = require("../lib/api-cry
 var REPLAY_WINDOW = 30000; // 30 seconds
 
 module.exports = function apiEncrypt(req, res, next) {
-  // Test mode: disable API encryption when NODE_ENV=test
-  // This allows test suites to interact with plain JSON without the encryption layer.
-  // NEVER set NODE_ENV=test in production.
-  if (process.env.NODE_ENV === "test") return next();
-
   // Ensure session has an API encryption key (vault-sealed for PQC at rest)
   if (!req.session.apiKey) {
     req.session.apiKey = vault.seal(generateApiKey());
