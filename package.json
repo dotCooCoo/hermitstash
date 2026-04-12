@@ -1,0 +1,25 @@
+{
+  "name": "hermitstash",
+  "version": "3.4.1",
+  "description": "Stash it quietly. Share it instantly. Post-quantum encrypted, self-hosted file upload server.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [
+    "file-upload",
+    "self-hosted",
+    "post-quantum",
+    "encryption",
+    "ml-kem-1024",
+    "xchacha20-poly1305",
+    "hybrid-kem",
+    "fips-203",
+    "ml-dsa-87",
+    "file-sharing",
+    "webauthn",
+    "zero-knowledge"
+  ],
+  "license": "MIT"
+}
