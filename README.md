@@ -64,12 +64,14 @@ Every encrypted blob starts with a 4-byte header encoding the algorithms used:
 
 ```
 byte 0: 0xE1  (envelope magic)
-byte 1: KEM   (0x01 ML-KEM-768 / 0x02 ML-KEM-1024 / 0x03 ML-KEM-1024+P-384)
-byte 2: Cipher(0x01 AES-256-GCM / 0x02 XChaCha20-Poly1305)
-byte 3: KDF   (0x01 SHA3-256 / 0x02 SHAKE256)
+byte 1: KEM   (0x02 ML-KEM-1024 / 0x03 ML-KEM-1024+P-384)
+byte 2: Cipher(0x02 XChaCha20-Poly1305)
+byte 3: KDF   (0x02 SHAKE256)
 ```
 
-Any component can be swapped independently without re-encrypting existing data. When HQC or future algorithms are standardized, add a new ID and change one line.
+Any component can be swapped independently without re-encrypting existing data. When HQC or future algorithms are standardized, assign a new ID and existing blobs remain readable.
+
+API payload encryption (ECIES key exchange) has its own protocol version byte — the `_ek` field is prefixed with `0x01` identifying ML-KEM-1024 + P-384 + HKDF-SHA3-512 + XChaCha20-Poly1305. Future KEMs get a new version byte; clients reject unknown versions.
 
 ### Hybrid KEM
 
@@ -220,7 +222,7 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Folder structure preserved in vault uploads and batch ZIP downloads
 - Inline rename for vault batches and individual vault files
 - Force-reset recovery mode for vault lockout (deletes all vault files, clears vault state)
-- ML-KEM-768 legacy decryption support (auto-detected by encapsulated key size)
+- ML-KEM-1024 only (ML-KEM-768 fully removed — server rejects 768 keys at startup)
 
 **Customer Stash — Branded Upload Portals**
 - Create custom-branded upload pages at `/stash/:slug` for clients and partners
@@ -311,10 +313,15 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 **Security Hardening**
 - Security headers on all responses (CSP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy, COOP, CORP)
 - HSTS auto-enabled when rpOrigin uses HTTPS
+- Content Security Policy with no external domains -- fonts vendored locally, `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`
 - 256-bit SHA3-derived share IDs (no brute-force, no collisions)
-- CSRF protection via per-session API payload encryption (session key acts as implicit token)
+- CSRF protection: JSON requests bound by per-session encryption key; form POSTs validated with constant-time CSRF token; non-JSON/non-exempt POSTs rejected
+- Logout is POST-only with CSRF token validation (no GET logout CSRF)
+- Bot guard middleware -- request fingerprinting (accept-language, sec-fetch-dest, sec-fetch-mode) blocks automated scanners on public routes without relying on user-agent strings
+- WebSocket API keys accepted only via Authorization header -- query string tokens rejected to prevent proxy/log/Referer leaks
 - CSV formula injection protection on all exports
 - CORS configurable via admin (wildcard disallowed with credentials)
+- Health endpoint CORS configurable from admin for PQC gateway status checks
 - Canonical origin policy -- all URLs generated from rpOrigin, never from Host header
 - Webhook DNS pinning -- resolved IP reused for outbound connection, preventing TOCTOU rebinding
 - Input length limits on all free-text fields
@@ -322,7 +329,7 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - X-Forwarded-For only trusted from configured proxies
 - Safe redirects (relative paths only)
 - SSRF protection covers all RFC 1918, RFC 6598 CGNAT, link-local, metadata, and IPv6 ranges
-- All crypto libraries vendored from npm to eliminate supply chain risk
+- All crypto and font dependencies vendored from npm -- zero external CDN requests, zero runtime packages
 - Restrictive CSP on user-uploaded logo directory (defense-in-depth against SVG XSS)
 
 **Storage**
@@ -355,7 +362,8 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - No build step -- vanilla Node.js
 - `node server.js` is the entire setup -- no npm install needed
 - `process.env` overrides available for Docker/containers
-- Health check endpoint (`GET /health`) for load balancers and container probes
+- Health check endpoint (`GET /health`) for load balancers, container probes, and PQC gateway status checks (CORS configurable)
+- Zero external CDN dependencies -- fonts vendored locally, no requests to Google, Cloudflare, or any third-party on page load
 - PWA web app manifest with dynamic site name and theme colors
 - Automatic database schema migrations on startup
 - Startup invariant checks -- validates vault key, warns on default credentials/secrets, checks directory permissions
@@ -559,7 +567,7 @@ All in the `data/` directory (gitignored):
 | `data/db.key.enc` | DB file encryption key (vault-sealed) | Database file unreadable |
 | `data/hermitstash.db.enc` | Encrypted database at rest | All settings, users, audit logs lost |
 
-**Back up `data/vault.key`.** This is the root of the entire encryption chain. Every sealed value, every encrypted file, every protected key traces back to this keypair. It cannot be regenerated. On upgrade from ML-KEM-768, the legacy key is preserved in vault.key for decrypting existing data.
+**Back up `data/vault.key`.** This is the root of the entire encryption chain. Every sealed value, every encrypted file, every protected key traces back to this keypair. It cannot be regenerated.
 
 ## Vendored Dependencies
 
@@ -575,7 +583,7 @@ All runtime dependencies are committed to the repo -- no `npm install` needed. M
 |---------|---------|--------|---------|
 | [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) | 2.1.1 | [Paul Miller](https://github.com/paulmillr) | XChaCha20-Poly1305 (server + browser) |
 | [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) | 2.0.1 | [Paul Miller](https://github.com/paulmillr) | SHAKE256 KDF (browser) |
-| [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) | 0.6.0 | [Paul Miller](https://github.com/paulmillr) | ML-KEM-768/1024 (browser vault encryption) |
+| [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) | 0.6.0 | [Paul Miller](https://github.com/paulmillr) | ML-KEM-1024 (browser vault + server ECIES) |
 | [`@simplewebauthn/server`](https://github.com/MasterKale/SimpleWebAuthn) | 13.3.0 | [Matthew Miller](https://github.com/MasterKale) | WebAuthn/passkey verification |
 | [`argon2`](https://github.com/ranisalt/node-argon2) | 0.44.0 | [Ranieri Althoff](https://github.com/ranisalt) | Password hashing (native prebuilds, 8 platforms) |
 
@@ -583,7 +591,7 @@ These libraries are exceptional work. HermitStash wouldn't exist without them. A
 
 ## Architecture
 
-100+ JS files, 26 HTML templates, 19 database tables. Small files, one job each.
+100+ JS files, 26 HTML templates, 20 database tables. Small files, one job each.
 
 ```
 server.js             Bootstrap, middleware, scheduled tasks, default accounts
@@ -613,6 +621,8 @@ lib/
   expiry.js           File expiry cleanup
   scheduler.js        Task scheduler
   webhook.js          Webhook dispatch queue
+  pqc-gate.js         ClientHello PQC group inspection at TCP level
+  pqc-agent.js        PQC-only outbound HTTPS agent
   vendor/             Vendored dependencies (argon2, noble-*, simplewebauthn)
 
 app/
@@ -625,10 +635,11 @@ app/
   jobs/               Background jobs (expiry, audit retention, webhook dispatch)
   shared/             Errors, logger, validation helpers, filename sanitization
 
+scripts/              vendor-update.sh, vendor-font.js, sync-to-public.sh
 routes/               18 route files (includes stash.js for Customer Stash)
-middleware/           11 files (auth, CORS, CSRF, API encryption, security headers)
+middleware/           12 files (auth, CORS, CSRF, API encryption, security headers, bot guard)
 views/                25 templates
-public/               CSS, JS, logos, icons
+public/               CSS, JS, logos, icons, vendored fonts
 ```
 
 ## Contributing
