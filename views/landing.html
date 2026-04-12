@@ -13,7 +13,7 @@
         <span>Share it <span class="main-color">instantly.</span></span>
       </h1>
     {% } %}
-    <p class="hero-sub">{{{heroSubtitle || 'Post-quantum encrypted file uploads. Self-hosted. Your server, your keys, your data.'}}}</p>
+    <p class="hero-sub">{{{heroSubtitle || 'Post-quantum encrypted file sharing. Self-hosted. Your server, your keys, your data.'}}}</p>
     <div class="hero-buttons">
       <a href="/drop" class="butn butn-bg butn-md radius-30"><span>Public Drop</span></a>
       <a href="/auth/login" class="butn butn-bord butn-md radius-30"><span>Team Sign In</span></a>
@@ -26,36 +26,36 @@
 <section class="marquee-section grd-border-top grd-border-bottom">
   <div class="marquee-track">
     <div class="marquee-box">
-      <div class="marquee-item">XChaCha20-Poly1305 <span class="sep">&#9670;</span></div>
       <div class="marquee-item">ML-KEM-1024 Hybrid KEM <span class="sep">&#9670;</span></div>
-      <div class="marquee-item">Argon2id Auth <span class="sep">&#9670;</span></div>
-      <div class="marquee-item">Passkey Login <span class="sep">&#9670;</span></div>
+      <div class="marquee-item">XChaCha20-Poly1305 <span class="sep">&#9670;</span></div>
+      <div class="marquee-item">PQC TLS Enforcement <span class="sep">&#9670;</span></div>
+      <div class="marquee-item">Hybrid ECIES Key Exchange <span class="sep">&#9670;</span></div>
       <div class="marquee-item">Zero-Knowledge Vault <span class="sep">&#9670;</span></div>
-      <div class="marquee-item">Two-Factor Auth <span class="sep">&#9670;</span></div>
-      <div class="marquee-item">Folder Drops <span class="sep">&#9670;</span></div>
-      <div class="marquee-item">Chunked Uploads <span class="sep">&#9670;</span></div>
-      <div class="marquee-item">Teams <span class="sep">&#9670;</span></div>
-      <div class="marquee-item">Audit Logging <span class="sep">&#9670;</span></div>
-      <div class="marquee-item">Webhooks & API <span class="sep">&#9670;</span></div>
+      <div class="marquee-item">Passkey Login <span class="sep">&#9670;</span></div>
+      <div class="marquee-item">Customer Stash Portals <span class="sep">&#9670;</span></div>
+      <div class="marquee-item">Desktop File Sync <span class="sep">&#9670;</span></div>
+      <div class="marquee-item">WebSocket Real-Time <span class="sep">&#9670;</span></div>
+      <div class="marquee-item">mTLS Client Certs <span class="sep">&#9670;</span></div>
+      <div class="marquee-item">Email-Gated Access <span class="sep">&#9670;</span></div>
+      <div class="marquee-item">Argon2id Auth <span class="sep">&#9670;</span></div>
       <div class="marquee-item">Zero npm Deps <span class="sep">&#9670;</span></div>
       <div class="marquee-item">Self-Hosted <span class="sep">&#9670;</span></div>
-      <div class="marquee-item">SHAKE256 KDF <span class="sep">&#9670;</span></div>
     </div>
     <div class="marquee-box">
-      <div class="marquee-item">XChaCha20-Poly1305 <span class="sep">&#9670;</span></div>
       <div class="marquee-item">ML-KEM-1024 Hybrid KEM <span class="sep">&#9670;</span></div>
-      <div class="marquee-item">Argon2id Auth <span class="sep">&#9670;</span></div>
-      <div class="marquee-item">Passkey Login <span class="sep">&#9670;</span></div>
+      <div class="marquee-item">XChaCha20-Poly1305 <span class="sep">&#9670;</span></div>
+      <div class="marquee-item">PQC TLS Enforcement <span class="sep">&#9670;</span></div>
+      <div class="marquee-item">Hybrid ECIES Key Exchange <span class="sep">&#9670;</span></div>
       <div class="marquee-item">Zero-Knowledge Vault <span class="sep">&#9670;</span></div>
-      <div class="marquee-item">Two-Factor Auth <span class="sep">&#9670;</span></div>
-      <div class="marquee-item">Folder Drops <span class="sep">&#9670;</span></div>
-      <div class="marquee-item">Chunked Uploads <span class="sep">&#9670;</span></div>
-      <div class="marquee-item">Teams <span class="sep">&#9670;</span></div>
-      <div class="marquee-item">Audit Logging <span class="sep">&#9670;</span></div>
-      <div class="marquee-item">Webhooks & API <span class="sep">&#9670;</span></div>
+      <div class="marquee-item">Passkey Login <span class="sep">&#9670;</span></div>
+      <div class="marquee-item">Customer Stash Portals <span class="sep">&#9670;</span></div>
+      <div class="marquee-item">Desktop File Sync <span class="sep">&#9670;</span></div>
+      <div class="marquee-item">WebSocket Real-Time <span class="sep">&#9670;</span></div>
+      <div class="marquee-item">mTLS Client Certs <span class="sep">&#9670;</span></div>
+      <div class="marquee-item">Email-Gated Access <span class="sep">&#9670;</span></div>
+      <div class="marquee-item">Argon2id Auth <span class="sep">&#9670;</span></div>
       <div class="marquee-item">Zero npm Deps <span class="sep">&#9670;</span></div>
       <div class="marquee-item">Self-Hosted <span class="sep">&#9670;</span></div>
-      <div class="marquee-item">SHAKE256 KDF <span class="sep">&#9670;</span></div>
     </div>
   </div>
 </section>
@@ -80,24 +80,24 @@
       <div class="svc-item grd-border-bottom">
         <span class="svc-num">02</span>
         <div class="svc-body">
-          <h3>Post-Quantum <span class="fw-200">Crypto</span></h3>
-          <p>Hybrid ML-KEM-1024 + P-384 ECDH key encapsulation with SHAKE256 KDF. Algorithm-agile envelope versioning enables future cipher swaps without re-encrypting existing data.</p>
+          <h3>PQC <span class="fw-200">Transport</span></h3>
+          <p>TLS 1.3 with X25519MLKEM768 hybrid key exchange enforced at the TCP level. ClientHello inspection rejects non-PQC connections before the handshake completes. PQC on all outbound connections too.</p>
         </div>
         <div class="svc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg></div>
       </div>
       <div class="svc-item grd-border-bottom">
         <span class="svc-num">03</span>
         <div class="svc-body">
-          <h3>Argon2id <span class="fw-200">Authentication</span></h3>
-          <p>Passwords hashed with Argon2id — memory-hard, GPU-resistant, the winner of the Password Hashing Competition. Passkey/WebAuthn login with no password at all.</p>
+          <h3>Hybrid <span class="fw-200">ECIES</span></h3>
+          <p>API key exchange uses ML-KEM-1024 + ECDH P-384 + HKDF-SHA3-512 + XChaCha20-Poly1305. Session keys encrypted to the client's certificate. No plaintext keys in any HTTP payload.</p>
         </div>
-        <div class="svc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
+        <div class="svc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
       </div>
       <div class="svc-item grd-border-bottom">
         <span class="svc-num">04</span>
         <div class="svc-body">
           <h3>Full <span class="fw-200">Audit Trail</span></h3>
-          <p>Every login, upload, download, and admin action is logged. IPs hashed, emails vault-sealed, zero plaintext in audit records. Searchable, filterable, with configurable retention.</p>
+          <p>Every login, upload, download, and admin action is logged with structured JSON. IPs hashed, emails vault-sealed, zero plaintext in audit records.</p>
         </div>
         <div class="svc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
       </div>
@@ -105,7 +105,7 @@
         <span class="svc-num">05</span>
         <div class="svc-body">
           <h3>Self-Hosted <span class="main-color">Control</span></h3>
-          <p>Your server, your data. No third-party cloud. Store on local disk, NAS mount, or S3-compatible bucket. Docker-ready.</p>
+          <p>Your server, your data. No third-party cloud. Store on local disk, NAS mount, or S3-compatible bucket. Docker-ready with zero npm runtime dependencies.</p>
         </div>
         <div class="svc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg></div>
       </div>
@@ -113,7 +113,7 @@
         <span class="svc-num">06</span>
         <div class="svc-body">
           <h3>Folder <span class="fw-200">Drops</span></h3>
-          <p>Drag entire folder trees. Bad file types silently skipped. Concurrent uploads with retry. Recipients browse folders or download as ZIP.</p>
+          <p>Drag entire folder trees. Bad file types silently skipped. Magic byte validation. Concurrent uploads with retry. Recipients browse folders or download as ZIP.</p>
         </div>
         <div class="svc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><polyline points="9 14 12 11 15 14"/></svg></div>
       </div>
@@ -155,14 +155,14 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
           <div>
             <strong>PRF Mode</strong>
-            <span>Derive keys from passkey PRF extension for true zero-knowledge where no seed touches the server</span>
+            <span>Derive keys from passkey PRF extension for true zero-knowledge</span>
           </div>
         </div>
         <div class="vault-landing-feat">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 6l-9.5 9.5-5-5L1 18"/><polyline points="17 6 23 6 23 12"/></svg>
           <div>
-            <strong>Stealth Mode</strong>
-            <span>Hide vault operations from audit logs with passkey re-authentication</span>
+            <strong>Key Rotation</strong>
+            <span>Rotate vault passkey with atomic re-encryption of all files</span>
           </div>
         </div>
       </div>
@@ -170,8 +170,40 @@
   </div>
 </section>
 
+<!-- Customer Stash -->
+<section class="feat-section sub-bg grd-border-top">
+  <div class="feat-inner">
+    <div class="feat-head" data-anim>
+      <span class="sub-title">Customer Stash</span>
+      <h2 class="feat-title"><span>Branded portals. <span class="fw-200">For your</span> <span class="main-color">clients.</span></span></h2>
+    </div>
+    <div class="cap-grid" data-anim>
+      <div class="cap-card">
+        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div>
+        <h4>Branded Upload Pages</h4>
+        <p>Custom title, instructions, accent color, and logo per page. Your clients see your brand, not ours.</p>
+      </div>
+      <div class="cap-card">
+        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+        <h4>Access Control</h4>
+        <p>Password protection, email-gated access with one-time codes, domain restrictions (@acme.com), or dual protection with both.</p>
+      </div>
+      <div class="cap-card">
+        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg></div>
+        <h4>Desktop Sync</h4>
+        <p>Enable sync mode for persistent mutable bundles. Customers run the <a href="https://github.com/dotCooCoo/hermitstash-sync" style="color:var(--main-color)">sync client</a> to keep a local folder in sync via WebSocket.</p>
+      </div>
+      <div class="cap-card">
+        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 18v3c0 .6.4 1 1 1h4v-3h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg></div>
+        <h4>One-Code Setup</h4>
+        <p>Generate an enrollment code. Customer enters it in the sync client. API key and mTLS certificates are exchanged automatically. No file transfers.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- Platform Features -->
-<section class="platform-section sub-bg grd-border-top">
+<section class="platform-section grd-border-top">
   <div class="feat-inner">
     <div class="feat-head" data-anim>
       <span class="sub-title">Platform</span>
@@ -179,68 +211,68 @@
     </div>
     <div class="cap-grid" data-anim>
       <div class="cap-card">
-        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
         <h4>Teams</h4>
-        <p>Create teams, assign roles, and isolate file access. Team admins manage their own members and uploads.</p>
+        <p>Create teams, assign roles, and isolate file access across your organization.</p>
       </div>
       <div class="cap-card">
-        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
-        <h4>Password Bundles</h4>
-        <p>Protect shared bundles with a password. Argon2id-hashed, rate-limited unlock, and session-based access.</p>
+        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+        <h4>Bundle Protection</h4>
+        <p>Password, email verification, or both. Argon2id-hashed, rate-limited, with verified audit trail of who accessed what.</p>
       </div>
       <div class="cap-card">
-        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
         <h4>Admin Dashboard</h4>
-        <p>Manage users, files, bundles, and 40+ settings across 8 config tabs. Environment tab shows Docker config and runtime info. Export data as CSV. Download database backups.</p>
+        <p>Manage users, files, bundles, and 40+ settings. Environment info, CSV exports, database backups, maintenance mode.</p>
       </div>
       <div class="cap-card">
-        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
+        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
         <h4>Webhooks & API</h4>
-        <p>Trigger webhooks on events like bundle finalization. API keys with scoped permissions. SSRF-safe URL validation.</p>
+        <p>HMAC-SHA3-512 signed webhooks. Scoped API keys. Resource-scoped sync tokens. SSRF-safe URL validation.</p>
       </div>
       <div class="cap-card">
-        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
-        <h4>Bundle Expiry</h4>
-        <p>Set bundles to auto-expire in 1, 7, 30, or 90 days. Or keep them forever. Expired files cleaned up automatically.</p>
+        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg></div>
+        <h4>Multi-Factor Auth</h4>
+        <p>Argon2id passwords, WebAuthn passkeys, Google OAuth, and TOTP 2FA. All simultaneous. Account lockout after failed attempts.</p>
       </div>
       <div class="cap-card">
-        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div>
-        <h4>Email Notifications</h4>
-        <p>Send upload confirmations and admin alerts via SMTP or Resend API. Recipients notified when bundles are ready.</p>
-      </div>
-      <div class="cap-card">
-        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg></div>
-        <h4>Two-Factor Auth</h4>
-        <p>TOTP with authenticator apps. One-time backup codes. Replay-protected. Works alongside passkeys and passwords.</p>
-      </div>
-      <div class="cap-card">
-        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>
+        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>
         <h4>Chunked Uploads</h4>
-        <p>Large files split into 10MB chunks with concurrent transfer, per-file progress, pause, resume, and retry on failure.</p>
+        <p>Large files auto-split into 10MB chunks. Concurrent transfer, per-file progress, pause, resume, retry.</p>
       </div>
       <div class="cap-card">
-        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg></div>
+        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg></div>
         <h4>S3 & Local Storage</h4>
-        <p>Store on local disk, NAS, or any S3-compatible bucket. S3 direct mode with server-side encryption. Pre-signed downloads.</p>
+        <p>Local disk, NAS, or any S3-compatible bucket. Per-file encryption at rest. Pre-signed direct downloads.</p>
+      </div>
+      <div class="cap-card">
+        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div>
+        <h4>Email Notifications</h4>
+        <p>SMTP or Resend API with dual failover. Upload confirmations, admin alerts, verification emails, password resets.</p>
+      </div>
+      <div class="cap-card">
+        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
+        <h4>File Expiry</h4>
+        <p>Auto-expire bundles in 1, 7, 30, or 90 days. Stale upload cleanup. Tombstone-based soft delete for sync bundles.</p>
       </div>
     </div>
   </div>
 </section>
 
 <!-- How It Works -->
-<section class="how-section grd-border-top">
+<section class="how-section sub-bg grd-border-top">
   <div class="how-inner">
     <div class="how-head" data-anim>
       <span class="sub-title">How It Works</span>
-      <h2 class="feat-title"><span>Two ways <span class="fw-200">in.</span></span></h2>
-      <p class="how-lead">Both encrypted at rest. Vault uploads are end-to-end. Shareable links in seconds.</p>
+      <h2 class="feat-title"><span>Three ways <span class="fw-200">in.</span></span></h2>
+      <p class="how-lead">All encrypted at rest. Vault uploads are end-to-end. Shareable links in seconds.</p>
     </div>
 
     <div class="how-flows" data-anim>
       <div class="flow-card flow-public">
         <div class="flow-top">
           <div class="flow-badge">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           </div>
           <div class="flow-label">Public</div>
         </div>
@@ -248,11 +280,10 @@
         <p class="flow-desc">No login required. Files encrypted on arrival.</p>
         <div class="flow-divider"></div>
         <ol class="flow-steps">
-          <li><span class="flow-step-text">Visit <span class="flow-code">/drop</span></span></li>
-          <li><span class="flow-step-text">Drag folders or files onto the page</span></li>
-          <li><span class="flow-step-text">Set expiry, password, or message</span></li>
+          <li><span class="flow-step-text">Drag folders or files onto <span class="flow-code">/drop</span></span></li>
+          <li><span class="flow-step-text">Set expiry, password, or email restriction</span></li>
           <li><span class="flow-step-text">Files encrypted and stored instantly</span></li>
-          <li><span class="flow-step-text">Recipients browse folders or download as ZIP</span></li>
+          <li><span class="flow-step-text">Share link — browse folders or download ZIP</span></li>
         </ol>
         <div class="flow-bottom">
           <a href="/drop" class="butn butn-bg butn-sm radius-30"><span>Try It</span></a>
@@ -262,22 +293,42 @@
       <div class="flow-card flow-team">
         <div class="flow-top">
           <div class="flow-badge flow-badge-alt">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
           </div>
           <div class="flow-label flow-label-alt">Team</div>
         </div>
         <h3>Sign In <span class="fw-200">& Upload</span></h3>
-        <p class="flow-desc">Passkey, password, Google, or 2FA. Full audit trail.</p>
+        <p class="flow-desc">Passkey, password, Google, or 2FA.</p>
         <div class="flow-divider"></div>
         <ol class="flow-steps">
           <li><span class="flow-step-text">Sign in with passkey, password, or Google</span></li>
           <li><span class="flow-step-text">Upload from your encrypted dashboard</span></li>
           <li><span class="flow-step-text">Vault-encrypt files only you can decrypt</span></li>
           <li><span class="flow-step-text">Manage teams, users, and settings</span></li>
-          <li><span class="flow-step-text">Every action logged and auditable</span></li>
         </ol>
         <div class="flow-bottom">
           <a href="/auth/login" class="butn butn-bord butn-sm radius-30"><span>Sign In</span></a>
+        </div>
+      </div>
+
+      <div class="flow-card flow-public">
+        <div class="flow-top">
+          <div class="flow-badge">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
+          </div>
+          <div class="flow-label">Sync</div>
+        </div>
+        <h3>Desktop <span class="fw-200">Sync</span></h3>
+        <p class="flow-desc">Keep a local folder synced over PQC TLS.</p>
+        <div class="flow-divider"></div>
+        <ol class="flow-steps">
+          <li><span class="flow-step-text">Admin generates an enrollment code</span></li>
+          <li><span class="flow-step-text">Run <span class="flow-code">hermitstash-sync init</span></span></li>
+          <li><span class="flow-step-text">API key + mTLS certs exchanged automatically</span></li>
+          <li><span class="flow-step-text">Real-time sync via WebSocket</span></li>
+        </ol>
+        <div class="flow-bottom">
+          <a href="https://github.com/dotCooCoo/hermitstash-sync" target="_blank" rel="noopener noreferrer" class="butn butn-bord butn-sm radius-30"><span>Sync Client</span></a>
         </div>
       </div>
     </div>
@@ -293,14 +344,9 @@
     </div>
     <div class="hardening-grid" data-anim>
       <div class="hardening-item">
-        <div class="hardening-num">12</div>
+        <div class="hardening-num">22+</div>
         <div class="hardening-label">Rate-limited endpoints</div>
-        <div class="hardening-detail">Login, register, 2FA, passkey, uploads, bundle unlock, and more. Per-IP sliding windows with auto-lockout.</div>
-      </div>
-      <div class="hardening-item">
-        <div class="hardening-num">6</div>
-        <div class="hardening-label">HTTP security headers</div>
-        <div class="hardening-detail">CSP, X-Frame-Options, no-sniff, no-referrer, restrictive permissions policy, and clickjacking protection.</div>
+        <div class="hardening-detail">Login, register, 2FA, passkey, uploads, bundle unlock, email codes, enrollment, sync. Per-IP sliding windows.</div>
       </div>
       <div class="hardening-item">
         <div class="hardening-num">0</div>
@@ -308,9 +354,14 @@
         <div class="hardening-detail">Every database field is vault-sealed. IPs are SHA3-hashed. Audit logs, emails, names, metadata — all encrypted.</div>
       </div>
       <div class="hardening-item">
-        <div class="hardening-num">7</div>
-        <div class="hardening-label">Crypto primitives</div>
-        <div class="hardening-detail">ML-KEM-1024 + P-384 hybrid KEM, XChaCha20-Poly1305, SHAKE256 KDF, SHA3-512 hashing, Argon2id passwords, ML-DSA-87 and SLH-DSA-SHAKE-256f signatures.</div>
+        <div class="hardening-num">0</div>
+        <div class="hardening-label">Classical-only crypto</div>
+        <div class="hardening-detail">No AES-GCM. No SHA-256. No P-256. Every cryptographic operation uses post-quantum algorithms with no backwards compatibility.</div>
+      </div>
+      <div class="hardening-item">
+        <div class="hardening-num">0</div>
+        <div class="hardening-label">npm runtime dependencies</div>
+        <div class="hardening-detail">All crypto libraries vendored and committed. No supply chain risk. No npm install. Entire codebase is auditable.</div>
       </div>
     </div>
   </div>
@@ -333,7 +384,7 @@
         <div class="code-line code-output">  Vault keypair generated (ML-KEM-1024 + P-384 hybrid)</div>
         <div class="code-line code-output">  Default admin: admin@hermitstash.com / admin</div>
         <div class="code-line code-output">  HermitStash is running!</div>
-        <div class="code-line code-output">  http://localhost:3000</div>
+        <div class="code-line code-output">  https://localhost:3000</div>
       </div>
     </div>
     <p class="start-note">No config files. No build step. No npm install. All dependencies vendored. Settings live in the encrypted database. Configure everything from the admin panel.</p>
