@@ -35,7 +35,7 @@ module.exports = function securityHeaders(req, res, next) {
       }
       var scriptSrc = "script-src 'self' 'unsafe-inline'" + analyticsDomains;
       var connectSrc = "connect-src 'self'" + analyticsDomains;
-      res.setHeader("Content-Security-Policy", "default-src 'self'; " + scriptSrc + "; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; " + connectSrc + "; frame-ancestors 'none'");
+      res.setHeader("Content-Security-Policy", "default-src 'self'; " + scriptSrc + "; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https:; " + connectSrc + "; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
     }
     // Prevent caching of authenticated/dynamic pages
     var isStatic = req.pathname && /\.(css|js|png|jpg|jpeg|gif|svg|ico|woff2?|webp)$/.test(req.pathname);

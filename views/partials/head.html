@@ -22,8 +22,7 @@
   <meta name="twitter:image" content="{{{assets.ogImage}}}">
   {% if (user) { %}<meta name="robots" content="noindex, nofollow">{% } %}
   {% if (!user && site.analyticsScript) { %}{{{site.analyticsScript}}}{% } %}
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@200;300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/fonts/font.css">
   <link rel="stylesheet" href="{{{assets.css}}}">
   {% if (site && (site.themeAccentColor || site.themeBgColor || site.themeFont)) { %}
   <style>
