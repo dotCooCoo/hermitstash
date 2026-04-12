@@ -160,24 +160,24 @@ function renderPagination(page,pages){
 }
 
 function toggleRole(id){
-  fetch('/admin/users/'+id+'/role',{method:'POST'}).then(function(r){return r.json()}).then(function(d){
+  fetch('/admin/users/'+id+'/role',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
     if(d.success)loadUsers(currentPage);else alert(d.error);
   });
 }
 function suspend(id){
   if(!confirm('Suspend this user?'))return;
-  fetch('/admin/users/'+id+'/suspend',{method:'POST'}).then(function(r){return r.json()}).then(function(d){
+  fetch('/admin/users/'+id+'/suspend',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
     if(d.success)loadUsers(currentPage);else alert(d.error);
   });
 }
 function unsuspend(id){
-  fetch('/admin/users/'+id+'/unsuspend',{method:'POST'}).then(function(r){return r.json()}).then(function(d){
+  fetch('/admin/users/'+id+'/unsuspend',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
     if(d.success)loadUsers(currentPage);else alert(d.error);
   });
 }
 function deleteUser(id,email){
   if(!confirm('Delete user '+email+'? Their files will be preserved but unlinked.'))return;
-  fetch('/admin/users/'+id+'/delete',{method:'POST'}).then(function(r){return r.json()}).then(function(d){
+  fetch('/admin/users/'+id+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
     if(d.success)loadUsers(currentPage);else alert(d.error);
   });
 }
