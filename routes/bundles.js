@@ -399,6 +399,26 @@ module.exports = function (app) {
     res.json({ success: true, name: result.name });
   });
 
+  // Rename/move a file within a sync bundle (metadata-only, no re-upload)
+  app.post("/bundles/:shareId/file/rename", rateLimit.middleware("sync-file-rename", 100, 60000), async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    var bundle = bundlesRepo.findByShareId(req.params.shareId);
+    if (!bundle) return res.status(404).json({ error: "Not found." });
+    if (bundle.ownerId !== req.user._id && req.user.role !== "admin") {
+      return res.status(403).json({ error: "Not authorized." });
+    }
+    var body = await parseJson(req);
+    var { handleSyncFileRename } = require("../app/domain/uploads/upload.handler");
+    var result = await handleSyncFileRename({
+      bundleId: bundle._id,
+      oldRelativePath: body.oldRelativePath,
+      newRelativePath: body.newRelativePath,
+      req: req,
+    });
+    if (result.error) return res.status(result.status || 400).json({ error: result.error });
+    res.json(result);
+  });
+
   // Delete a single file from a sync bundle (soft delete with tombstone)
   app.post("/bundles/:shareId/file/:fileId/delete", rateLimit.middleware("sync-file-delete", 100, 60000), async (req, res) => {
     if (!requireAuth(req, res)) return;

@@ -205,6 +205,28 @@ require("./routes/teams")(app);
 require("./routes/vault")(app);
 require("./routes/stash")(app);
 
+// Sync file rename — API key authed, uses bundleId directly (sync clients don't have shareId)
+app.post("/sync/rename", require("./lib/rate-limit").middleware("sync-file-rename", 100, 60000), async function (req, res) {
+  if (!req.apiKey) { res.writeHead(401, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: "Unauthorized." })); }
+  var { parseJson } = require("./lib/multipart");
+  var { handleSyncFileRename } = require("./app/domain/uploads/upload.handler");
+  try {
+    var body = await parseJson(req);
+    var result = await handleSyncFileRename({
+      bundleId: body.bundleId,
+      oldRelativePath: body.oldRelativePath,
+      newRelativePath: body.newRelativePath,
+      req: req,
+    });
+    if (result.error) { res.writeHead(result.status || 400, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: result.error })); }
+    res.json(result);
+  } catch (err) {
+    console.error("[sync/rename] Error:", err.message, err.stack);
+    res.writeHead(500, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Rename failed: " + err.message }));
+  }
+});
+
 // Custom 404 page
 app.onNotFound(function (req, res) {
   send(res, "error", { user: req.user || null, title: "Page Not Found", message: "The page you're looking for doesn't exist or has been moved." }, 404);

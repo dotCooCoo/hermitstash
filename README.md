@@ -281,6 +281,7 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 **Sync and API**
 - Mutable sync bundles -- `bundleType: "sync"` creates persistent, mutable bundles that accept file additions, replacements, and deletions after creation
 - File replace -- uploading to a sync bundle with an existing `relativePath` overwrites the file with a new encryption key (old key and blob fully removed)
+- File rename/move -- `POST /sync/rename` updates relativePath without re-uploading the file (metadata-only, emits `file_renamed` WebSocket event). Sync client detects local renames by checksum matching within the debounce window
 - File delete -- individual files can be removed from sync bundles with tombstone-based soft delete (30-day cleanup)
 - Per-file change tracking -- `seq` monotonic counter and `updatedAt` timestamp on files and bundles for sync change feeds
 - JSON content negotiation on bundle view -- `Accept: application/json` returns file list with checksums and metadata
