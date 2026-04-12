@@ -198,6 +198,8 @@ scheduler.start();
 // TLS configuration — conditional HTTPS with PQC hybrid key exchange
 var TLS_CERT = process.env.TLS_CERT || "/app/data/tls/fullchain.pem";
 var TLS_KEY = process.env.TLS_KEY || "/app/data/tls/privkey.pem";
+var PQC_ENFORCE = process.env.PQC_ENFORCE !== "false"; // default: true
+var INTERNAL_TLS_PORT = parseInt(process.env.INTERNAL_TLS_PORT, 10) || 3001;
 var tlsOptions = null;
 var tlsEnabled = false;
 
@@ -218,32 +220,60 @@ if (fs.existsSync(TLS_CERT) && fs.existsSync(TLS_KEY)) {
   logger.warn("[TLS] No certificate found — starting in HTTP mode (no PQC protection)", { certPath: TLS_CERT });
 }
 
-// Start
+// Start — with PQC gate if TLS enabled and enforcement is on
 var protocol = tlsEnabled ? "https" : "http";
-const server = app.listen(config.port, () => {
-  logger.info("HermitStash is running", {
-    url: protocol + "://localhost:" + config.port,
-    tls: tlsEnabled ? "PQC (X25519MLKEM768)" : "disabled",
-    storage: config.storage.backend + " -> " + storage.uploadDir,
-    email: config.email.host || "disabled",
-    auth: (config.localAuth ? "local" : "") + (config.localAuth && config.google.clientID ? " + " : "") + (config.google.clientID ? "google" : ""),
-    timeout: config.uploadTimeout / 1000 + "s",
-    concurrency: config.uploadConcurrency,
+var server; // the HTTPS/HTTP server (WebSocket upgrade handler attaches here)
+var gateServer = null; // the TCP gate (public-facing, if PQC enforcement enabled)
+
+if (tlsEnabled && PQC_ENFORCE) {
+  // PQC enforcement: internal HTTPS on 127.0.0.1, PQC gate on public port
+  server = app.listen(INTERNAL_TLS_PORT, function () {
+    logger.info("[PQC] Internal HTTPS server listening on 127.0.0.1:" + INTERNAL_TLS_PORT);
+  }, tlsOptions, "127.0.0.1");
+
+  var { createPQCGate } = require("./lib/pqc-gate");
+  gateServer = createPQCGate(INTERNAL_TLS_PORT);
+  gateServer.listen(config.port, function () {
+    logger.info("HermitStash is running", {
+      url: protocol + "://localhost:" + config.port,
+      tls: "PQC enforced (X25519MLKEM768)",
+      pqcGate: "active on port " + config.port + " → 127.0.0.1:" + INTERNAL_TLS_PORT,
+      storage: config.storage.backend + " -> " + storage.uploadDir,
+      email: config.email.host || "disabled",
+      auth: (config.localAuth ? "local" : "") + (config.localAuth && config.google.clientID ? " + " : "") + (config.google.clientID ? "google" : ""),
+      timeout: config.uploadTimeout / 1000 + "s",
+      concurrency: config.uploadConcurrency,
+    });
+    audit.log(audit.ACTIONS.SERVER_STARTED, { performedBy: "system", details: "port: " + config.port + ", tls: pqc-enforced, storage: " + config.storage.backend });
   });
-  audit.log(audit.ACTIONS.SERVER_STARTED, { performedBy: "system", details: "port: " + config.port + ", tls: " + (tlsEnabled ? "pqc" : "none") + ", storage: " + config.storage.backend });
-}, tlsOptions);
+} else {
+  // No PQC enforcement: HTTPS directly on public port (or HTTP fallback)
+  server = app.listen(config.port, function () {
+    logger.info("HermitStash is running", {
+      url: protocol + "://localhost:" + config.port,
+      tls: tlsEnabled ? "PQC preferred (not enforced)" : "disabled",
+      storage: config.storage.backend + " -> " + storage.uploadDir,
+      email: config.email.host || "disabled",
+      auth: (config.localAuth ? "local" : "") + (config.localAuth && config.google.clientID ? " + " : "") + (config.google.clientID ? "google" : ""),
+      timeout: config.uploadTimeout / 1000 + "s",
+      concurrency: config.uploadConcurrency,
+    });
+    audit.log(audit.ACTIONS.SERVER_STARTED, { performedBy: "system", details: "port: " + config.port + ", tls: " + (tlsEnabled ? "pqc-preferred" : "none") + ", storage: " + config.storage.backend });
+  }, tlsOptions);
+}
 server.timeout = config.uploadTimeout;
 
 // Certificate reload on renewal (Let's Encrypt certs update on disk)
 if (tlsEnabled) {
   fs.watchFile(TLS_CERT, { interval: 3600000 }, function () {
     try {
-      server.setSecureContext({
+      var newContext = {
         cert: fs.readFileSync(TLS_CERT),
         key: fs.readFileSync(TLS_KEY),
         groups: ["X25519MLKEM768", "SecP256r1MLKEM768"],
         minVersion: "TLSv1.3",
-      });
+      };
+      server.setSecureContext(newContext);
       logger.info("[TLS] Certificate reloaded");
     } catch (e) {
       logger.error("[TLS] Certificate reload failed", { error: e.message });
@@ -477,6 +507,7 @@ function gracefulShutdown(signal) {
   logger.info("Shutdown initiated", { signal: signal });
 
   // Stop accepting new connections
+  if (gateServer) gateServer.close();
   server.close(function () {
     logger.info("All connections drained, exiting");
     process.exit(0); // db.js "exit" handler encrypts the DB
