@@ -1226,7 +1226,7 @@ function loadBundles(page){
 var tabFields={
   branding:['siteName','customLogo','landingEnabled','heroTitle','heroSubtitle','dropTitle','dropSubtitle','showMaintainerSupport','maintenanceMode','announcementBanner','analyticsScript','analyticsCspDomains'],
   general:['port','sessionSecret'],
-  auth:['localAuth','registrationOpen','googleClientID','googleClientSecret','googleCallbackURL','allowedDomains','emailVerification','passkeyEnabled','rpName','rpId','rpOrigin'],
+  auth:['localAuth','registrationOpen','googleClientID','googleClientSecret','allowedDomains','emailVerification','passkeyEnabled','rpName','rpId','rpOrigin'],
   uploads:['publicUpload','maxFileSize','publicMaxFiles','publicMaxBundleSize','perUserQuotaBytes','publicIpQuotaBytes','uploadTimeout','uploadConcurrency','uploadRetries','allowedExtensions'],
   storage:['storageBackend','uploadDir','s3Bucket','s3Region','s3AccessKey','s3SecretKey','s3Endpoint','s3DirectDownloads','s3PresignExpiry'],
   theme:['themeAccentColor','themeBgColor','themeFont'],
@@ -1465,9 +1465,9 @@ function loadSettings(){
     toggleEmailBackend();
     loadExtFromValue(s.allowedExtensions);
     showLogoPreview(s.customLogo||'');
-    // Auto-fill Google callback URL from current domain if empty
+    // Auto-fill Google callback URL from rpOrigin (always keep in sync with domain)
     var cbEl=document.getElementById('s-googleCallbackURL');
-    if(cbEl&&!s.googleCallbackURL){cbEl.value=window.location.origin+'/auth/google/callback'}
+    if(cbEl){var cbOrigin=s.rpOrigin||window.location.origin;cbEl.value=cbOrigin+'/auth/google/callback'}
     initExtPicker();
     setTplMode(s.emailTemplateMode||'text');
     // Parse rpOrigin into protocol + port
