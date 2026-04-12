@@ -30,6 +30,11 @@ var { ml_kem1024 } = require("../lib/vendor/noble-pq.cjs");
 var REPLAY_WINDOW = 30000; // 30 seconds
 var HYBRID_HKDF_INFO = "hermitstash-hybrid-ecies-v1";
 
+// ECIES protocol version — prefixed to _ek for algorithm agility.
+// Clients read this byte to determine which KEM/ECDH/KDF to use for decapsulation.
+// 0x01 = ML-KEM-1024 + ECDH P-384 + HKDF-SHA3-512 + XChaCha20-Poly1305
+var ECIES_PROTOCOL_VERSION = 0x01;
+
 /**
  * Hybrid ECIES encrypt: encrypt a session key using ML-KEM-1024 + ECDH P-384.
  *
@@ -63,8 +68,8 @@ function hybridEciesEncrypt(sessionKeyBuffer, clientKemPubKeyBytes, clientEcdhPu
   // --- Encrypt session key with XChaCha20-Poly1305 using the wrapping key ---
   var nonce = crypto.randomBytes(24);
   var ct = xchacha20poly1305(new Uint8Array(Buffer.from(wrappingKey)), nonce).encrypt(new Uint8Array(sessionKeyBuffer));
-  // Pack: nonce(24) + ciphertext_with_tag
-  var encryptedSessionKey = Buffer.concat([Buffer.from(nonce), Buffer.from(ct)]);
+  // Pack: version(1) + nonce(24) + ciphertext_with_tag
+  var encryptedSessionKey = Buffer.concat([Buffer.from([ECIES_PROTOCOL_VERSION]), Buffer.from(nonce), Buffer.from(ct)]);
 
   // Export ephemeral ECDH public key as SPKI DER
   var epkDer = ephemeral.publicKey.export({ type: "spki", format: "der" });
