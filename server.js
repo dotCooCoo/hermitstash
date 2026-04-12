@@ -61,7 +61,10 @@ app.use(require("./middleware/cors"));
 app.use(serveStatic(path.join(__dirname, "public")));
 // Health check — before auth so it's fast and unauthenticated
 app.get("/health", function (req, res) {
-  res.writeHead(200, { "Content-Type": "application/json" });
+  res.writeHead(200, {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": "https://go.hermitstash.com",
+  });
   res.end(JSON.stringify({ status: "ok", uptime: process.uptime(), timestamp: new Date().toISOString() }));
 });
 app.get("/sitemap.xml", function (req, res) {
