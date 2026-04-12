@@ -260,7 +260,7 @@ scheduler.register("incremental_vacuum", 86400000, function () { // daily
 });
 if (config.backup && config.backup.enabled) {
   scheduler.register("backup", config.backup.schedule || 86400000, function () {
-    try { require("./app/jobs/backup.job").run(); } catch (_e) { console.error("[scheduler] backup:", _e.message); }
+    return require("./app/jobs/backup.job").run();
   });
 }
 scheduler.start();
