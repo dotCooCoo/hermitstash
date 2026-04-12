@@ -91,9 +91,9 @@
 </div>
 
 <script>
-var esc=Helpers.esc;
-var showRenameError=Helpers.showRenameError;
-var formatSize=Helpers.formatSize;
+function esc(s){return window.Helpers?Helpers.esc(s):String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;').replace(/"/g,'&quot;')}
+function showRenameError(input,msg){if(window.Helpers)return Helpers.showRenameError(input,msg);var err=input.parentNode.querySelector('.rename-error');if(!err){err=document.createElement('div');err.className='rename-error';err.style.cssText='font-size:.72rem;color:var(--danger);margin-top:2px';input.parentNode.appendChild(err)}err.textContent=msg;input.style.borderColor='var(--danger)';setTimeout(function(){if(err.parentNode)err.remove();input.style.borderColor=''},3000)}
+function formatSize(b){if(b<1024)return b+' B';if(b<1048576)return(b/1024).toFixed(0)+' KB';if(b<1073741824)return(b/1048576).toFixed(1)+' MB';return(b/1073741824).toFixed(2)+' GB'}
 
 function loadStash(){
   fetch('/admin/stash/api').then(function(r){return r.json()}).then(function(d){
@@ -234,6 +234,7 @@ function toggleBundles(stashId,btn){
       html+='<div class="admin-user-actions">';
       html+='<button class="user-action-btn" title="View files" onclick="toggleFiles(\''+stashId+'\',\''+b._id+'\',this)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>Files</span></button>';
       html+='<button class="user-action-btn user-action-role" title="Copy link" onclick="cpBundle(\''+esc(b.shareId)+'\',this)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span>Copy</span></button>';
+      html+='<button class="user-action-btn" title="Download ZIP" onclick="window.open(\'/b/'+esc(b.shareId)+'/download\',\'_blank\')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>ZIP</span></button>';
       html+='<button class="user-action-btn" title="Open" onclick="window.open(\'/b/'+esc(b.shareId)+'\',\'_blank\')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg><span>Open</span></button>';
       html+='<button class="user-action-btn user-action-delete" onclick="deleteStashBundle(\''+stashId+'\',\''+b._id+'\',this)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg><span>Delete</span></button>';
       html+='</div></div>';
@@ -336,7 +337,7 @@ function renameStashFile(shareId,el){
 function deleteStashBundle(stashId,bundleId,btn){
   if(!confirm('Delete this bundle and all its files?'))return;
   btn.querySelector('span').textContent='Deleting...';btn.disabled=true;
-  fetch('/admin/stash/'+stashId+'/bundles/'+bundleId+'/delete',{method:'POST'}).then(function(r){return r.json()}).then(function(d){
+  fetch('/admin/stash/'+stashId+'/bundles/'+bundleId+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
     if(d.success){btn.closest('.admin-user-row').remove();loadStash()}
     else{alert(d.error||'Failed');btn.querySelector('span').textContent='Delete';btn.disabled=false}
   }).catch(function(){btn.querySelector('span').textContent='Delete';btn.disabled=false});
@@ -344,8 +345,8 @@ function deleteStashBundle(stashId,bundleId,btn){
 function cpBundle(shareId,btn){
   navigator.clipboard.writeText(location.origin+'/b/'+shareId).then(function(){var s=btn.querySelector('span');s.textContent='Copied!';setTimeout(function(){s.textContent='Copy'},2000)});
 }
-function toggleStash(id){fetch('/admin/stash/'+id+'/toggle',{method:'POST'}).then(function(r){return r.json()}).then(function(d){if(d.success)loadStash();else alert(d.error)})}
-function deleteStash(id,name){if(!confirm('Delete stash page "'+name+'"?'))return;fetch('/admin/stash/'+id+'/delete',{method:'POST'}).then(function(r){return r.json()}).then(function(d){if(d.success)loadStash();else alert(d.error)})}
+function toggleStash(id){fetch('/admin/stash/'+id+'/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){if(d.success)loadStash();else alert(d.error)})}
+function deleteStash(id,name){if(!confirm('Delete stash page "'+name+'"?'))return;fetch('/admin/stash/'+id+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){if(d.success)loadStash();else alert(d.error)})}
 function cpStash(slug,btn){navigator.clipboard.writeText(location.origin+'/stash/'+slug).then(function(){var s=btn.querySelector('span');s.textContent='Copied!';setTimeout(function(){s.textContent='Copy'},2000)})}
 document.getElementById('seColor').addEventListener('input',function(){document.getElementById('seColorText').value=this.value});
 document.getElementById('seColorText').addEventListener('input',function(){if(/^#[0-9a-fA-F]{6}$/.test(this.value))document.getElementById('seColor').value=this.value});

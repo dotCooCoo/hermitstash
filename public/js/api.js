@@ -69,12 +69,20 @@
 
   // --- Override fetch ---
 
+  // Check if a URL targets the same origin (only encrypt/decrypt same-origin requests)
+  function isSameOrigin(url) {
+    if (typeof url !== "string") return true; // Request object — assume same origin
+    if (url.startsWith("/") && !url.startsWith("//")) return true; // relative path
+    try { return new URL(url).origin === location.origin; } catch (e) { return true; }
+  }
+
   window.fetch = async function (url, opts) {
     var ak = getKey();
     opts = opts || {};
+    var sameOrigin = isSameOrigin(url);
 
-    // Encrypt outgoing JSON body
-    if (ak && opts.body && opts.headers) {
+    // Encrypt outgoing JSON body (same-origin only — don't encrypt analytics, webhooks, etc.)
+    if (ak && sameOrigin && opts.body && opts.headers) {
       var ct = opts.headers["Content-Type"] || opts.headers["content-type"] || "";
       if (ct.includes("application/json")) {
         try {
@@ -89,8 +97,8 @@
 
     var resp = await _fetch(url, opts);
 
-    // Decrypt incoming JSON response
-    if (ak && resp.headers.get("content-type") && resp.headers.get("content-type").includes("application/json")) {
+    // Decrypt incoming JSON response (same-origin only)
+    if (ak && sameOrigin && resp.headers.get("content-type") && resp.headers.get("content-type").includes("application/json")) {
       var clone = resp.clone();
       try {
         var body = await clone.json();

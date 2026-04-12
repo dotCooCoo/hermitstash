@@ -260,7 +260,7 @@ module.exports = function (app) {
       filesRepo.create({
         shareId: fileShareId,
         originalName: sanitizeFilename(body.filename),
-        relativePath: sanitizeFilename(body.filename, 500),
+        relativePath: sanitizeFilename(body.relativePath || body.filename, 500),
         storagePath: storagePath,
         mimeType: body.mimeType || "application/octet-stream",
         size: ciphertext.length,
@@ -317,6 +317,7 @@ module.exports = function (app) {
 
       res.json({
         filename: doc.originalName,
+        relativePath: doc.relativePath || doc.originalName,
         mimeType: doc.mimeType,
         size: doc.size,
         ciphertext: ciphertext.toString("base64"),

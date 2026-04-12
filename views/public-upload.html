@@ -787,6 +787,7 @@ async function startVaultUpload(toUpload){
         encapsulatedKey:VaultPQ.toBase64(enc.encapsulatedKey),
         iv:VaultPQ.toBase64(enc.iv),
         filename:item.rel.split('/').pop(),
+        relativePath:item.rel,
         mimeType:item.file.type||'application/octet-stream',
         originalSize:item.file.size,
       };

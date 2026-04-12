@@ -144,9 +144,9 @@
 </div>
 
 <script>
-var showRenameError=Helpers.showRenameError;
-async function del(id){if(!confirm('Delete?'))return;const r=await fetch('/files/'+id+'/delete',{method:'POST'});if(r.ok){document.getElementById('file-'+id).remove();if(!document.querySelector('.admin-user-row'))location.reload()}}
-async function delBundle(shareId,count){if(!confirm('Delete this bundle and all '+count+' file'+(count!==1?'s':'')+'?'))return;var r=await fetch('/bundles/'+shareId+'/delete',{method:'POST'});var d=await r.json();if(d.success){var el=document.getElementById('bundle-'+shareId);var fl=document.getElementById('bfiles-'+shareId);if(el)el.remove();if(fl)fl.remove();if(!document.querySelector('.admin-user-row'))location.reload()}else{alert(d.error||'Delete failed')}}
+function showRenameError(input,msg){if(window.Helpers)return Helpers.showRenameError(input,msg);var err=input.parentNode.querySelector('.rename-error');if(!err){err=document.createElement('div');err.className='rename-error';err.style.cssText='font-size:.72rem;color:var(--danger);margin-top:2px';input.parentNode.appendChild(err)}err.textContent=msg;input.style.borderColor='var(--danger)';setTimeout(function(){if(err.parentNode)err.remove();input.style.borderColor=''},3000)}
+async function del(id){if(!confirm('Delete?'))return;const r=await fetch('/files/'+id+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});if(r.ok){document.getElementById('file-'+id).remove();if(!document.querySelector('.admin-user-row'))location.reload()}}
+async function delBundle(shareId,count){if(!confirm('Delete this bundle and all '+count+' file'+(count!==1?'s':'')+'?'))return;var r=await fetch('/bundles/'+shareId+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});var d=await r.json();if(d.success){var el=document.getElementById('bundle-'+shareId);var fl=document.getElementById('bfiles-'+shareId);if(el)el.remove();if(fl)fl.remove();if(!document.querySelector('.admin-user-row'))location.reload()}else{alert(d.error||'Delete failed')}}
 function toggleDashFiles(shareId,btn){var el=document.getElementById('bfiles-'+shareId);if(el.style.display!=='none'){el.style.display='none';btn.querySelector('span').textContent='Files'}else{el.style.display='block';btn.querySelector('span').textContent='Hide'}}
 function renameBundle(shareId,el){
   var current=el.textContent;
@@ -256,7 +256,7 @@ function confirmDisableVault(){
   }
   var btn=document.getElementById('vaultDisableSubmitBtn');
   btn.disabled=true;btn.querySelector('span').textContent='Disabling...';
-  fetch('/vault/disable',{method:'POST'}).then(function(r){return r.json()}).then(function(d){
+  fetch('/vault/disable',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
     btn.disabled=false;btn.querySelector('span').textContent='Disable Vault';
     if(d.success){
       hideDisableVaultModal();
@@ -271,11 +271,11 @@ function confirmDisableVault(){
 
 // ---- Vault UI ----
 // Secret key scoped here — not on window. Zeroed after decrypt.
-// _vsk is either a Uint8Array (legacy) or {sk1024, sk768} object (current)
+// _vsk is a Uint8Array (ML-KEM-1024 secret key)
 var _vsk=null;
 function getVaultKey(){return _vsk}
 function setVaultKey(k){_vsk=k}
-function clearVaultKey(){if(!_vsk)return;if(_vsk.sk1024)_vsk.sk1024.fill(0);if(_vsk.sk768)_vsk.sk768.fill(0);if(_vsk.fill)_vsk.fill(0);_vsk=null}
+function clearVaultKey(){if(!_vsk)return;if(_vsk.fill)_vsk.fill(0);_vsk=null}
 
 window.addEventListener('load',function(){
   fetch('/vault/status').then(function(r){return r.json()}).then(function(d){
@@ -402,11 +402,9 @@ async function unlockVault(){
     if(!prfResults||!prfResults.results||!prfResults.results.first)return null;
     var mlkem=await import('/js/noble-pq.js');
     var fullSeed=new Uint8Array(64);fullSeed.set(new Uint8Array(prfResults.results.first).slice(0,64));
-    var kp1024=mlkem.ml_kem1024.keygen(fullSeed);
-    var kp768=mlkem.ml_kem768.keygen(fullSeed);
-    var keys={sk1024:kp1024.secretKey,sk768:kp768.secretKey};
-    setVaultKey(keys);
-    return keys;
+    var kp=mlkem.ml_kem1024.keygen(fullSeed);
+    setVaultKey(kp.secretKey);
+    return {secretKey:kp.secretKey};
   }catch(e){console.error('Unlock error:',e);return null}
 }
 
@@ -556,7 +554,7 @@ async function vaultBatchDownload(files,btnSpan){
       var iv=VaultPQ.fromBase64(d.iv);
       var ct=VaultPQ.fromBase64(d.ciphertext);
       var decrypted=await VaultPQ.decryptFile(getVaultKey(),encKey,iv,ct);
-      entries.push({name:d.filename,data:new Uint8Array(decrypted)});
+      entries.push({name:d.relativePath||d.filename,data:new Uint8Array(decrypted)});
     }
     clearVaultKey();
     if(entries.length===0){alert('No files could be decrypted.');btnSpan.textContent=origText;return}
@@ -576,7 +574,7 @@ async function vaultBatchDel(batchId,count){
 
 async function vaultDel(shareId){
   if(!confirm('Delete this vault file? This cannot be undone.'))return;
-  await fetch('/vault/delete/'+shareId,{method:'POST'});
+  await fetch('/vault/delete/'+shareId,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
   var el=document.getElementById('vf-'+shareId);if(el)el.remove();
   if(!document.querySelector('#vaultFileList .admin-user-row'))document.getElementById('vaultEmpty').style.display='block';
 }

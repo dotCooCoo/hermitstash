@@ -203,7 +203,7 @@
    * Returns the ML-KEM-1024 secret key for decryption.
    */
   async function unlockPasskeyGated() {
-    var cr = await fetch("/vault/unlock/challenge", { method: "POST", credentials: "same-origin" });
+    var cr = await fetch("/vault/unlock/challenge", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: "{}" });
     var cd = await cr.json();
 
     var options = {

@@ -17,7 +17,7 @@
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
         </div>
         <div class="admin-stat-info">
-          <div class="admin-stat-value" data-count="{{stats.totalFiles}}">0</div>
+          <div class="admin-stat-value" id="statFiles" data-count="{{stats.totalFiles}}">0</div>
           <div class="admin-stat-label">Files</div>
         </div>
       </div>
@@ -35,7 +35,7 @@
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
         </div>
         <div class="admin-stat-info">
-          <div class="admin-stat-value" data-count="{{stats.totalBundles}}">0</div>
+          <div class="admin-stat-value" id="statBundles" data-count="{{stats.totalBundles}}">0</div>
           <div class="admin-stat-label">Bundles</div>
         </div>
       </div>
@@ -228,7 +228,7 @@
           </div>
           <div class="settings-divider"></div>
           <div class="settings-field">
-            <label class="settings-label">Maintainer Support Link <span class="settings-hint">show a small "Support HermitStash" link in the landing page footer</span></label>
+            <label class="settings-label">Maintainer Support Link</label>
             <div style="display:flex;align-items:center;gap:16px">
               <label class="toggle"><input type="checkbox" id="s-showMaintainerSupport" data-key="showMaintainerSupport"><span class="toggle-slider"></span></label>
               <a href="https://ko-fi.com/dotcoocoo" target="_blank" rel="noopener noreferrer" class="maintainer-support-admin"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-2px;margin-right:4px"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>Support HermitStash</a>
@@ -245,11 +245,11 @@
           </div>
           <div class="settings-divider"></div>
           <div class="settings-field">
-            <label class="settings-label">Analytics Script <span class="settings-hint">injected on public pages only (not admin/dashboard) — paste the full &lt;script&gt; tag from your analytics provider</span></label>
+            <label class="settings-label">Analytics Script <span class="settings-hint">public pages only</span></label>
             <textarea class="text-input" id="s-analyticsScript" data-key="analyticsScript" rows="3" placeholder='<script defer data-domain="example.com" src="https://plausible.io/js/script.js"></script>' style="font-family:monospace;font-size:.8rem"></textarea>
           </div>
           <div class="settings-field">
-            <label class="settings-label">Analytics CSP Domains <span class="settings-hint">comma-separated override if auto-detection fails (e.g. https://plausible.io, https://cdn.usefathom.com)</span></label>
+            <label class="settings-label">Analytics CSP Domains <span class="settings-hint">override if auto-detect fails</span></label>
             <input type="text" class="text-input" id="s-analyticsCspDomains" data-key="analyticsCspDomains" placeholder="Auto-detected from script — override only if needed">
           </div>
         </div>
@@ -922,7 +922,7 @@ function loadApiKeys(){
       var td4=document.createElement('td');td4.style.cssText='padding:8px 12px;color:var(--muted);font-size:.8rem';td4.textContent=k.createdAt?k.createdAt.split('T')[0]:'';
       var td5=document.createElement('td');td5.style.cssText='padding:8px 12px;text-align:right';
       var btn=document.createElement('button');btn.style.cssText='background:none;border:1px solid var(--border);color:var(--muted);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:.78rem';btn.textContent='Revoke';
-      btn.onclick=function(){if(confirm('Revoke API key "'+k.name+'"? This cannot be undone.')){fetch('/admin/apikeys/'+k._id+'/revoke',{method:'POST'}).then(function(r){return r.json()}).then(function(rd){if(rd.success){var el=document.getElementById('apikey-'+k._id);if(el)el.remove();if(!tbody.children.length)empty.style.display='block'}})}};
+      btn.onclick=function(){if(confirm('Revoke API key "'+k.name+'"? This cannot be undone.')){fetch('/admin/apikeys/'+k._id+'/revoke',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(rd){if(rd.success){var el=document.getElementById('apikey-'+k._id);if(el)el.remove();if(!tbody.children.length)empty.style.display='block'}})}};
       td5.appendChild(btn);
       tr.appendChild(td1);tr.appendChild(td2);tr.appendChild(td3);tr.appendChild(td4);tr.appendChild(td5);tbody.appendChild(tr);
     });
@@ -968,12 +968,12 @@ function loadWebhooks(){
       var isActive=w.active==='true'||w.active===true;
       statusBadge.style.cssText='font-size:.75rem;padding:2px 8px;border-radius:4px;cursor:pointer;'+(isActive?'background:rgba(52,199,89,.15);color:#34c759':'background:rgba(255,69,58,.1);color:#ff453a');
       statusBadge.textContent=isActive?'Active':'Paused';
-      statusBadge.onclick=function(){fetch('/admin/webhooks/'+w._id+'/toggle',{method:'POST'}).then(function(r){return r.json()}).then(function(rd){if(rd.success){var a=rd.active==='true'||rd.active===true;statusBadge.textContent=a?'Active':'Paused';statusBadge.style.cssText='font-size:.75rem;padding:2px 8px;border-radius:4px;cursor:pointer;'+(a?'background:rgba(52,199,89,.15);color:#34c759':'background:rgba(255,69,58,.1);color:#ff453a')}})};
+      statusBadge.onclick=function(){fetch('/admin/webhooks/'+w._id+'/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(rd){if(rd.success){var a=rd.active==='true'||rd.active===true;statusBadge.textContent=a?'Active':'Paused';statusBadge.style.cssText='font-size:.75rem;padding:2px 8px;border-radius:4px;cursor:pointer;'+(a?'background:rgba(52,199,89,.15);color:#34c759':'background:rgba(255,69,58,.1);color:#ff453a')}})};
       td3.appendChild(statusBadge);
       var td4=document.createElement('td');td4.style.cssText='padding:8px 12px;color:var(--muted);font-size:.8rem';td4.textContent=w.createdAt?w.createdAt.split('T')[0]:'';
       var td5=document.createElement('td');td5.style.cssText='padding:8px 12px;text-align:right';
       var btn=document.createElement('button');btn.style.cssText='background:none;border:1px solid var(--border);color:var(--muted);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:.78rem';btn.textContent='Delete';
-      btn.onclick=function(){if(confirm('Delete this webhook? This cannot be undone.')){fetch('/admin/webhooks/'+w._id+'/delete',{method:'POST'}).then(function(r){return r.json()}).then(function(rd){if(rd.success){var el=document.getElementById('webhook-'+w._id);if(el)el.remove();if(!tbody.children.length)empty.style.display='block'}})}};
+      btn.onclick=function(){if(confirm('Delete this webhook? This cannot be undone.')){fetch('/admin/webhooks/'+w._id+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(rd){if(rd.success){var el=document.getElementById('webhook-'+w._id);if(el)el.remove();if(!tbody.children.length)empty.style.display='block'}})}};
       td5.appendChild(btn);
       tr.appendChild(td1);tr.appendChild(td2);tr.appendChild(td3);tr.appendChild(td4);tr.appendChild(td5);tbody.appendChild(tr);
     });
@@ -1022,7 +1022,7 @@ async function uploadLogo(){
 }
 async function removeLogo(){
   try{
-    var r=await fetch('/admin/logo/remove',{method:'POST'});
+    var r=await fetch('/admin/logo/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
     var d=await r.json();
     if(d.success){
       document.getElementById('s-customLogo').value='';
@@ -1136,8 +1136,9 @@ function loadExtFromValue(val){
 }
 
 function cp(u,btn){navigator.clipboard.writeText(u);btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000)}
-async function delF(id){if(!confirm('Delete this file?'))return;await fetch('/admin/files/'+id+'/delete',{method:'POST'});document.getElementById('af-'+id).remove();loadFiles(1)}
-async function delB(id){if(!confirm('Delete bundle and all its files?'))return;await fetch('/admin/bundles/'+id+'/delete',{method:'POST'});document.getElementById('ab-'+id).remove();loadBundles(1);loadFiles(1)}
+function updateStat(id,delta){var el=document.getElementById(id);if(el){var v=parseInt(el.textContent,10)||0;el.textContent=Math.max(0,v+delta)}}
+async function delF(id){if(!confirm('Delete this file?'))return;await fetch('/admin/files/'+id+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});document.getElementById('af-'+id).remove();updateStat('statFiles',-1);loadFiles(1)}
+async function delB(id){if(!confirm('Delete bundle and all its files?'))return;var el=document.getElementById('ab-'+id);var fc=el?parseInt(el.getAttribute('data-files')||'0',10):0;await fetch('/admin/bundles/'+id+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});if(el)el.remove();updateStat('statBundles',-1);updateStat('statFiles',-fc);loadBundles(1);loadFiles(1)}
 
 // Activity feed
 function loadActivity(){
