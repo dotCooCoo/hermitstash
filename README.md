@@ -285,6 +285,13 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - `PQC_ENFORCE=false` disables gate for transition periods (PQC preferred but not required)
 - PQC TLS -- conditional HTTPS with X25519MLKEM768 + SecP256r1MLKEM768 hybrid key exchange (TLS 1.3 only)
 - Certificate auto-reload on Let's Encrypt renewal (hourly file poll)
+- PQC outbound HTTPS agent -- all S3, SMTP, Resend, webhook, OAuth calls use PQC hybrid TLS groups
+- `PQC_OUTBOUND_ENFORCE=false` allows classical fallback for outbound connections
+- mTLS for sync clients -- server acts as its own Certificate Authority (ECDSA P-384)
+- Client certificate generation on sync token creation with one-click PEM bundle download
+- Certificate revocation table with SHA3-512 hashed fingerprint lookups
+- WebSocket upgrade validates mTLS cert + API key (dual auth, neither alone sufficient)
+- `MTLS_REQUIRED=true` to enforce client certificates on all sync connections
 - New `sync` API key scope for WebSocket connections and sync bundle operations
 - Resource-scoped API keys -- `boundStashId` and `boundBundleId` columns restrict keys to specific resources
 - Stash-scoped sync tokens -- admin generates tokens that grant sync access to a single stash only
@@ -565,7 +572,7 @@ These libraries are exceptional work. HermitStash wouldn't exist without them. A
 
 ## Architecture
 
-100+ JS files, 26 HTML templates, 18 database tables. Small files, one job each.
+100+ JS files, 26 HTML templates, 19 database tables. Small files, one job each.
 
 ```
 server.js             Bootstrap, middleware, scheduled tasks, default accounts
