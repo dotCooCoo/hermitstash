@@ -188,6 +188,61 @@ module.exports = function (app) {
     fs.createReadStream(dbPath).pipe(res);
   });
 
+  // ---- Off-site backup (S3-compatible) ----
+
+  app.post("/admin/backup/run", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    var { parseJson } = require("../lib/multipart");
+    var backup = require("../lib/backup");
+    try {
+      var body = await parseJson(req);
+      var passphrase = String(body.passphrase || "").trim();
+      if (!passphrase) return res.json({ error: "Backup passphrase is required." });
+
+      // Verify passphrase if hash is set
+      var cfg = require("../lib/config");
+      if (cfg.backup.passphraseHash) {
+        var valid = await backup.verifyPassphrase(passphrase);
+        if (!valid) return res.json({ error: "Incorrect backup passphrase." });
+      }
+
+      var manifest = await backup.runBackup(passphrase);
+      res.json({ success: true, stats: manifest.stats });
+    } catch (err) {
+      res.json({ error: "Backup failed: " + err.message });
+    }
+  });
+
+  app.post("/admin/backup/test", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    var { parseJson } = require("../lib/multipart");
+    var backup = require("../lib/backup");
+    try {
+      var body = await parseJson(req);
+      await backup.testConnection({
+        bucket: body.bucket,
+        region: body.region || "us-east-1",
+        accessKey: body.accessKey,
+        secretKey: body.secretKey,
+        endpoint: body.endpoint || "",
+      });
+      res.json({ success: true });
+    } catch (err) {
+      res.json({ error: "Connection failed: " + err.message });
+    }
+  });
+
+  app.get("/admin/backup/history", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    var backup = require("../lib/backup");
+    try {
+      var history = await backup.getBackupHistory();
+      res.json({ success: true, history: history });
+    } catch (err) {
+      res.json({ error: "Failed to load history: " + err.message });
+    }
+  });
+
   // Export users as CSV
   app.get("/admin/export/users", (req, res) => {
     if (!requireAdmin(req, res)) return;

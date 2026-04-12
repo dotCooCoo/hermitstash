@@ -180,6 +180,7 @@
         <button class="settings-tab" onclick="showTab('theme')">Theme</button>
         <button class="settings-tab" onclick="showTab('email')">Email</button>
         <button class="settings-tab" onclick="showTab('environment');loadEnvironment()">Environment</button>
+        <button class="settings-tab" onclick="showTab('backup');loadBackupHistory()">Backup</button>
       </div>
 
       <!-- Branding -->
@@ -708,6 +709,97 @@
         </div>
       </div>
 
+      <!-- Backup -->
+      <div class="settings-pane" id="pane-backup">
+        <div class="settings-group">
+          <div class="settings-field">
+            <label class="settings-label">Enable Backup</label>
+            <select class="text-input" id="s-backupEnabled" data-key="backupEnabled" style="max-width:120px">
+              <option value="false">Off</option>
+              <option value="true">On</option>
+            </select>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Backup Scope</label>
+            <select class="text-input" id="s-backupScope" data-key="backupScope" style="max-width:240px">
+              <option value="db">Database only (recommended)</option>
+              <option value="full">Full (database + files)</option>
+            </select>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Schedule</label>
+            <select class="text-input" id="s-backupSchedule" data-key="backupSchedule" style="max-width:200px">
+              <option value="21600000">Every 6 hours</option>
+              <option value="43200000">Every 12 hours</option>
+              <option value="86400000">Daily</option>
+              <option value="604800000">Weekly</option>
+            </select>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Keep Last <span class="settings-hint">number of backups to retain</span></label>
+            <input type="number" class="text-input" id="s-backupRetention" data-key="backupRetention" min="1" max="100" style="max-width:100px">
+          </div>
+        </div>
+
+        <div class="settings-divider" style="margin:24px 0"></div>
+        <h4 style="margin:0 0 16px;font-weight:600">Backup Destination (S3-Compatible)</h4>
+
+        <div class="settings-group">
+          <div class="settings-field">
+            <label class="settings-label">Bucket</label>
+            <input type="text" class="text-input" id="s-backupS3Bucket" data-key="backupS3Bucket" placeholder="my-backup-bucket">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Region</label>
+            <input type="text" class="text-input" id="s-backupS3Region" data-key="backupS3Region" placeholder="us-east-1">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Access Key</label>
+            <input type="password" class="text-input" id="s-backupS3AccessKey" data-key="backupS3AccessKey">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Secret Key</label>
+            <input type="password" class="text-input" id="s-backupS3SecretKey" data-key="backupS3SecretKey">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Endpoint <span class="settings-hint">for R2, MinIO, B2 — leave blank for AWS</span></label>
+            <input type="text" class="text-input" id="s-backupS3Endpoint" data-key="backupS3Endpoint" placeholder="https://acct.r2.cloudflarestorage.com">
+          </div>
+          <div style="margin-top:8px">
+            <button class="butn butn-bord-thin butn-sm radius-30" onclick="testBackupConnection()"><span>Test Connection</span></button>
+            <span id="backupTestResult" style="margin-left:12px;font-size:.85rem"></span>
+          </div>
+        </div>
+
+        <div class="settings-divider" style="margin:24px 0"></div>
+        <h4 style="margin:0 0 8px;font-weight:600">Backup Passphrase</h4>
+        <p style="font-size:.82rem;color:var(--muted);margin:0 0 16px;line-height:1.5">Encrypts your vault key in the backup. <strong>This is not recoverable if lost.</strong> You need it to restore from backup.</p>
+
+        <div class="settings-group">
+          <div class="settings-field">
+            <label class="settings-label">Passphrase</label>
+            <input type="password" class="text-input" id="s-backupPassphrase" data-key="backupPassphrase" placeholder="Enter a strong passphrase">
+          </div>
+        </div>
+
+        <div class="settings-actions">
+          <button class="butn butn-bord-thin butn-sm radius-30" onclick="openHelp('backup')"><span>? Setup Guide</span></button>
+          <button class="butn butn-bg butn-sm radius-30" onclick="saveTab('backup')"><span>Save Backup</span></button>
+        </div>
+
+        <div class="settings-divider" style="margin:28px 0"></div>
+        <h4 style="margin:0 0 16px;font-weight:600">Manual Backup</h4>
+
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <button class="butn butn-bg butn-sm radius-30" onclick="runBackupNow()"><span>Run Backup Now</span></button>
+          <span id="backupRunResult" style="font-size:.85rem"></span>
+        </div>
+
+        <div class="settings-divider" style="margin:28px 0"></div>
+        <h4 style="margin:0 0 16px;font-weight:600">Backup History</h4>
+        <div id="backupHistoryTable" style="font-size:.85rem;color:var(--muted)">Loading...</div>
+      </div>
+
     </div>
   </div>
 </section>
@@ -881,6 +973,26 @@ email:{
 <li><strong>Header</strong> &mdash; The bold heading inside the email body.</li>\
 <li><strong>Footer</strong> &mdash; Text at the bottom of the email. Use <code>{siteName}</code> here too.</li>\
 </ul>'
+},
+backup:{
+  title:'Backup Setup',
+  body:'<h4>Backup Destination</h4>\
+<p>Backups are stored in any S3-compatible bucket (AWS, Cloudflare R2, MinIO, DigitalOcean Spaces, Backblaze B2). Use a <strong>separate bucket</strong> from your primary storage for true disaster recovery.</p>\
+<p>For R2: set endpoint to <code>https://&lt;account-id&gt;.r2.cloudflarestorage.com</code> and region to <code>auto</code>.</p>\
+<h4>Backup Scope</h4>\
+<p><strong>Database only</strong> backs up the encrypted database, DB encryption key, and vault key. This covers all metadata, settings, user accounts, and file encryption keys. Recommended for most deployments.</p>\
+<p><strong>Full</strong> also backs up all uploaded files. Uses incremental manifests &mdash; only new/changed files are uploaded on subsequent backups.</p>\
+<h4>Passphrase</h4>\
+<p>Your vault key (the master encryption key) is encrypted with this passphrase before being included in the backup. <strong>If you lose this passphrase, you cannot restore from backup.</strong> It is not stored anywhere in recoverable form.</p>\
+<h4>Restore</h4>\
+<ol>\
+<li>Download <code>manifest.json</code> from the backup bucket</li>\
+<li>Download <code>vault.key.enc</code>, <code>db.key.enc</code>, <code>hermitstash.db.enc</code></li>\
+<li>Decrypt vault.key.enc with your passphrase (Argon2id + XChaCha20)</li>\
+<li>Place <code>vault.key</code>, <code>db.key.enc</code>, <code>hermitstash.db.enc</code> in <code>data/</code></li>\
+<li>If full backup: download files from <code>backups/uploads/</code> to <code>data/uploads/</code></li>\
+<li>Start server &mdash; normal startup handles decryption</li>\
+</ol>'
 }
 };
 
@@ -1234,7 +1346,8 @@ var tabFields={
   uploads:['publicUpload','maxFileSize','publicMaxFiles','publicMaxBundleSize','perUserQuotaBytes','publicIpQuotaBytes','uploadTimeout','uploadConcurrency','uploadRetries','allowedExtensions'],
   storage:['storageBackend','uploadDir','s3Bucket','s3Region','s3AccessKey','s3SecretKey','s3Endpoint','s3DirectDownloads','s3PresignExpiry'],
   theme:['themeAccentColor','themeBgColor','themeFont'],
-  email:['emailBackend','resendApiKey','resendQuotaDaily','resendQuotaMonthly','smtpHost','smtpPort','smtpUser','smtpPass','smtpFrom','emailTemplateMode','emailTemplateSubject','emailTemplateHeader','emailTemplateFooter']
+  email:['emailBackend','resendApiKey','resendQuotaDaily','resendQuotaMonthly','smtpHost','smtpPort','smtpUser','smtpPass','smtpFrom','emailTemplateMode','emailTemplateSubject','emailTemplateHeader','emailTemplateFooter'],
+  backup:['backupEnabled','backupScope','backupSchedule','backupRetention','backupS3Bucket','backupS3Region','backupS3AccessKey','backupS3SecretKey','backupS3Endpoint','backupPassphrase']
 };
 
 function showTab(name){
@@ -1243,6 +1356,48 @@ function showTab(name){
   event.target.classList.add('active');
   document.getElementById('pane-'+name).classList.add('active');
   document.querySelectorAll('.settings-msg-inline').forEach(function(m){m.style.opacity='0'});
+}
+
+// ---- Backup tab ----
+var _backupHistoryLoaded=false;
+function loadBackupHistory(){
+  if(_backupHistoryLoaded)return;_backupHistoryLoaded=true;
+  var el=document.getElementById('backupHistoryTable');
+  fetch('/admin/backup/history',{headers:{'Content-Type':'application/json'}}).then(function(r){return r.json()}).then(function(d){
+    if(!d.success||!d.history||d.history.length===0){el.textContent='No backups found.';return}
+    var html='<table style="width:100%;border-collapse:collapse;font-size:.82rem"><thead><tr style="border-bottom:1px solid var(--border)"><th style="text-align:left;padding:8px 6px">Date</th><th>Scope</th><th>DB</th><th>Files</th><th>Size</th><th>Time</th><th>Status</th></tr></thead><tbody>';
+    d.history.forEach(function(b){
+      var size=b.totalSize?(b.totalSize/1048576).toFixed(1)+' MB':'-';
+      var dur=b.durationMs?(b.durationMs/1000).toFixed(1)+'s':'-';
+      var date=b.timestamp?new Date(b.timestamp).toLocaleString():'-';
+      html+='<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px">'+date+'</td><td style="text-align:center">'+((b.scope)||'-')+'</td><td style="text-align:center">'+(b.dbFiles||0)+'</td><td style="text-align:center">'+(b.uploadFiles||0)+'</td><td style="text-align:center">'+size+'</td><td style="text-align:center">'+dur+'</td><td style="text-align:center">'+(b.status||'-')+'</td></tr>';
+    });
+    html+='</tbody></table>';
+    el.innerHTML=html;
+  }).catch(function(e){el.textContent='Failed to load: '+e.message});
+}
+function testBackupConnection(){
+  var el=document.getElementById('backupTestResult');
+  el.textContent='Testing...';el.style.color='var(--muted)';
+  var bucket=document.getElementById('s-backupS3Bucket').value;
+  var region=document.getElementById('s-backupS3Region').value;
+  var accessKey=document.getElementById('s-backupS3AccessKey').value;
+  var secretKey=document.getElementById('s-backupS3SecretKey').value;
+  var endpoint=document.getElementById('s-backupS3Endpoint').value;
+  fetch('/admin/backup/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bucket:bucket,region:region,accessKey:accessKey,secretKey:secretKey,endpoint:endpoint})}).then(function(r){return r.json()}).then(function(d){
+    if(d.success){el.textContent='Connected successfully';el.style.color='var(--success,#22c55e)'}
+    else{el.textContent=d.error||'Failed';el.style.color='var(--danger,#ef4444)'}
+  }).catch(function(e){el.textContent='Error: '+e.message;el.style.color='var(--danger,#ef4444)'});
+}
+function runBackupNow(){
+  var el=document.getElementById('backupRunResult');
+  var passphrase=document.getElementById('s-backupPassphrase').value||prompt('Enter backup passphrase:');
+  if(!passphrase){el.textContent='Cancelled';return}
+  el.textContent='Running backup...';el.style.color='var(--muted)';
+  fetch('/admin/backup/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passphrase:passphrase})}).then(function(r){return r.json()}).then(function(d){
+    if(d.success){el.textContent='Backup completed: '+(d.stats.totalSize/1048576).toFixed(1)+' MB in '+(d.stats.durationMs/1000).toFixed(1)+'s';el.style.color='var(--success,#22c55e)';_backupHistoryLoaded=false;loadBackupHistory()}
+    else{el.textContent=d.error||'Failed';el.style.color='var(--danger,#ef4444)'}
+  }).catch(function(e){el.textContent='Error: '+e.message;el.style.color='var(--danger,#ef4444)'});
 }
 
 // ---- Environment tab ----
