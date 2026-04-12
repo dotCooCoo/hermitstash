@@ -169,6 +169,7 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | Anonymous storage abuse | Per-IP upload quota with 24-hour rolling window |
 | Stored XSS via uploads | User-controlled names auto-escaped in templates; raw output reserved for admin-set values only |
 | Weak bundle/stash passwords | Minimum 4-character requirement enforced server-side |
+| Automated scanners and bots | Request fingerprinting (accept-language, sec-fetch-dest, sec-fetch-mode) blocks non-browser clients on public routes — survives PQC TLS adoption |
 | NPM supply chain | All dependencies vendored as committed bundles — zero npm runtime packages |
 
 Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f via OpenSSL 3.5, XChaCha20-Poly1305 and SHAKE256 via vendored @noble/ciphers and @noble/hashes, Argon2id via vendored native prebuilds, WebAuthn via vendored @simplewebauthn/server, and built-in SQLite via `node:sqlite`. Zero npm runtime dependencies.
