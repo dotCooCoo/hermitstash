@@ -755,8 +755,17 @@ module.exports = function (app) {
         createdAt: new Date().toISOString(),
       });
 
-      audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Stash sync token created: " + stash.slug, req: req });
-      res.json({ success: true, key: rawKey, prefix: prefix });
+      // Generate client certificate if CA is available
+      var clientCert = null;
+      try {
+        var { generateClientCert, caExists } = require("../lib/mtls-ca");
+        if (caExists()) {
+          clientCert = generateClientCert(prefix);
+        }
+      } catch (_e) {}
+
+      audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Stash sync token created: " + stash.slug + (clientCert ? " (with mTLS cert)" : ""), req: req });
+      res.json({ success: true, key: rawKey, prefix: prefix, clientCert: clientCert });
     } catch (e) {
       logger.error("Stash sync token error", { error: e.message || String(e) });
       res.status(500).json({ error: "Failed to create sync token." });

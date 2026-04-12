@@ -205,11 +205,16 @@ var tlsEnabled = false;
 
 if (fs.existsSync(TLS_CERT) && fs.existsSync(TLS_KEY)) {
   try {
+    var { caExists, CA_CERT_PATH: mtlsCaPath } = require("./lib/mtls-ca");
+    var mtlsCa = caExists() ? fs.readFileSync(mtlsCaPath) : null;
     tlsOptions = {
       cert: fs.readFileSync(TLS_CERT),
       key: fs.readFileSync(TLS_KEY),
       groups: ["X25519MLKEM768", "SecP256r1MLKEM768"],
       minVersion: "TLSv1.3",
+      requestCert: !!mtlsCa,
+      rejectUnauthorized: false, // enforce per-route, not globally (browsers won't have certs)
+      ca: mtlsCa ? [mtlsCa] : undefined,
     };
     tlsEnabled = true;
     logger.info("[TLS] PQC TLS enabled", { groups: "X25519MLKEM768 + SecP256r1MLKEM768" });
@@ -305,6 +310,25 @@ server.on("upgrade", function (req, socket, head) {
     // Not a sync WebSocket — ignore (let other handlers take it, or close)
     socket.destroy();
     return;
+  }
+
+  // mTLS check (if CA is configured) — client must present a valid cert
+  if (mtlsCa) {
+    var peerCert = socket.getPeerCertificate ? socket.getPeerCertificate() : null;
+    if (!peerCert || !peerCert.subject || !socket.authorized) {
+      // mTLS not strictly required for now — log but allow (API key still required)
+      // Set to rejectUpgrade if MTLS_REQUIRED=true
+      if (process.env.MTLS_REQUIRED === "true") {
+        return rejectUpgrade(socket, 403, "Forbidden");
+      }
+    } else {
+      // Check revocation list
+      var certFpHash = require("./lib/crypto").sha3Hash("hs-certfp:" + peerCert.fingerprint256);
+      var revoked = require("./lib/db").certRevocations.find({}).filter(function (r) { return r.fingerprintHash === certFpHash; });
+      if (revoked.length > 0) {
+        return rejectUpgrade(socket, 403, "Forbidden");
+      }
+    }
   }
 
   // Auth: Bearer token from header or ?token= query param
