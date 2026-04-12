@@ -430,4 +430,64 @@ async function handleSyncFileDelete(ctx) {
   return { success: true, seq: newSeq };
 }
 
-module.exports = { resolveUploadConfig, checkAllQuotas, handleFileUpload, handleChunkUpload, handleFinalize, handleSyncFileDelete };
+/**
+ * Handle sync file rename/move — update relativePath without re-uploading.
+ * The encrypted blob stays unchanged; only metadata is updated.
+ *
+ * ctx: { bundleId, oldRelativePath, newRelativePath, req }
+ */
+async function handleSyncFileRename(ctx) {
+  var bundle = bundlesRepo.findById(ctx.bundleId);
+  if (!bundle) return { error: "Bundle not found.", status: 404 };
+  if (bundle.bundleType !== "sync") return { error: "Only sync bundles support rename.", status: 400 };
+
+  var oldPath = String(ctx.oldRelativePath || "").replace(/\\/g, "/");
+  var newPath = String(ctx.newRelativePath || "").replace(/\\/g, "/");
+  if (!oldPath || !newPath) return { error: "Both oldRelativePath and newRelativePath required.", status: 400 };
+
+  // Sanitize new path
+  var { sanitizeFilename } = require("../../shared/sanitize-filename");
+  var segments = newPath.split("/");
+  segments = segments.map(function (s) { return sanitizeFilename(s); }).filter(Boolean);
+  if (segments.length === 0) return { error: "Invalid new path.", status: 400 };
+  newPath = segments.join("/");
+
+  // Find existing file by oldRelativePath
+  var allFiles = filesRepo.findAll({ bundleId: bundle._id }).filter(function (f) {
+    return !f.deletedAt && f.relativePath === oldPath;
+  });
+  if (allFiles.length === 0) return { error: "File not found at old path.", status: 404 };
+
+  var file = allFiles[0];
+  var now = new Date().toISOString();
+  var newSeq = (bundle.seq || 0) + 1;
+  var newName = segments[segments.length - 1];
+
+  // Update file metadata
+  filesRepo.update(file._id, { $set: {
+    relativePath: newPath,
+    originalName: newName,
+    updatedAt: now,
+    seq: newSeq,
+  }});
+
+  // Update bundle seq
+  bundlesRepo.update(bundle._id, { $set: { seq: newSeq } });
+
+  audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, {
+    targetId: bundle._id,
+    details: auditDetail({ action: "file_renamed", bundleId: bundle._id, from: oldPath, to: newPath }),
+    req: ctx.req,
+  });
+
+  // Emit sync event
+  syncEmitter.emit("sync:" + bundle._id, {
+    type: "file_renamed", fileId: file._id,
+    oldRelativePath: oldPath, relativePath: newPath,
+    checksum: file.checksum, size: file.size, seq: newSeq,
+  });
+
+  return { success: true, seq: newSeq, relativePath: newPath };
+}
+
+module.exports = { resolveUploadConfig, checkAllQuotas, handleFileUpload, handleChunkUpload, handleFinalize, handleSyncFileDelete, handleSyncFileRename };
