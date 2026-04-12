@@ -61,9 +61,13 @@ app.use(require("./middleware/cors"));
 app.use(serveStatic(path.join(__dirname, "public")));
 // Health check — before auth so it's fast and unauthenticated
 app.get("/health", function (req, res) {
+  var origin = req.headers.origin || "";
+  var allowed = ["https://hermitstash.com", "https://www.hermitstash.com", "https://go.hermitstash.com"];
+  var corsHeader = allowed.indexOf(origin) !== -1 ? origin : allowed[0];
   res.writeHead(200, {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "https://go.hermitstash.com",
+    "Access-Control-Allow-Origin": corsHeader,
+    "Vary": "Origin",
   });
   res.end(JSON.stringify({ status: "ok", uptime: process.uptime(), timestamp: new Date().toISOString() }));
 });
