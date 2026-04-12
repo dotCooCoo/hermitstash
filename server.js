@@ -57,6 +57,7 @@ app.use(function (req, res, next) {
   next();
 });
 app.use(require("./middleware/ip-check"));
+app.use(require("./middleware/bot-guard"));
 app.use(require("./middleware/cors"));
 app.use(serveStatic(path.join(__dirname, "public")));
 // Health check — before auth so it's fast and unauthenticated
