@@ -70,6 +70,56 @@ app.get("/sitemap.xml", function (req, res) {
   res.writeHead(200, { "Content-Type": "application/xml", "Cache-Control": "public, max-age=86400" });
   res.end('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n<url><loc>' + origin + '/</loc><lastmod>' + today + '</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>\n<url><loc>' + origin + '/drop</loc><lastmod>' + today + '</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>\n<url><loc>' + origin + '/privacy</loc><changefreq>monthly</changefreq><priority>0.3</priority></url>\n<url><loc>' + origin + '/terms</loc><changefreq>monthly</changefreq><priority>0.3</priority></url>\n</urlset>');
 });
+// Sync enrollment — before auth so unauthenticated clients can redeem codes
+app.post("/sync/enroll", require("./lib/rate-limit").middleware("sync-enroll", 5, 300000), async function (req, res) {
+  var { parseJson } = require("./lib/multipart");
+  var { sha3Hash } = require("./lib/crypto");
+  var { HASH_PREFIX } = require("./lib/constants");
+  var db = require("./lib/db");
+
+  try {
+    var body = await parseJson(req);
+    var code = String(body.code || "").trim().toUpperCase();
+    if (!code) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ error: "Enrollment code required." }));
+    }
+
+    // Look up by hash
+    var codeHash = sha3Hash(HASH_PREFIX.ENROLLMENT + code);
+    var records = db.enrollmentCodes.find({ status: "pending" })
+      .filter(function (r) { return r.codeHash === codeHash && r.expiresAt > new Date().toISOString(); });
+
+    if (records.length === 0) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ error: "Invalid or expired enrollment code." }));
+    }
+
+    var record = records[0];
+
+    // Mark as redeemed (one-time use)
+    db.enrollmentCodes.update({ _id: record._id }, { $set: { status: "redeemed" } });
+
+    // Return the provisioning bundle
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      success: true,
+      apiKey: record.apiKey,
+      clientCert: record.clientCert,
+      clientKey: record.clientKey,
+      caCert: record.caCert,
+      stashId: record.stashId || null,
+      bundleId: record.bundleId || null,
+    }));
+
+    var audit = require("./lib/audit");
+    audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Sync enrollment code redeemed", req: req });
+  } catch (e) {
+    res.writeHead(500, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Enrollment failed." }));
+  }
+});
+
 app.use(sessionMiddleware);
 app.use(attachUser);
 app.use(require("./middleware/api-auth"));
@@ -186,6 +236,9 @@ scheduler.register("expired_invites_cleanup", 86400000, function () { // daily
 });
 scheduler.register("tombstone_cleanup", 86400000, function () { // daily
   try { require("./app/jobs/expiry-cleanup.job").cleanupTombstones(); } catch (_e) {}
+});
+scheduler.register("expired_enrollment_codes_cleanup", 3600000, function () { // hourly
+  try { require("./app/jobs/expiry-cleanup.job").cleanupExpiredEnrollmentCodes(); } catch (_e) {}
 });
 scheduler.register("expired_access_codes_cleanup", 3600000, function () { // hourly
   try { require("./app/jobs/expiry-cleanup.job").cleanupExpiredAccessCodes(); } catch (_e) {}

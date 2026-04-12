@@ -75,6 +75,19 @@ function cleanupTombstones() {
 }
 
 /**
+ * Clean up expired enrollment codes (older than 2 hours).
+ */
+function cleanupExpiredEnrollmentCodes() {
+  try {
+    var db = require("../../lib/db");
+    var cutoff = new Date(Date.now() - 7200000).toISOString();
+    var expired = db.enrollmentCodes.find({}).filter(function (c) { return c.expiresAt < cutoff || c.status === "redeemed"; });
+    for (var i = 0; i < expired.length; i++) db.enrollmentCodes.remove({ _id: expired[i]._id });
+    return expired.length;
+  } catch (_e) { return 0; }
+}
+
+/**
  * Clean up expired bundle access codes (older than 1 hour).
  */
 function cleanupExpiredAccessCodes() {
@@ -84,4 +97,4 @@ function cleanupExpiredAccessCodes() {
   } catch (_e) { return 0; }
 }
 
-module.exports = { cleanupExpiredFiles, cleanupStaleBundles, cleanupTombstones, cleanupExpiredAccessCodes };
+module.exports = { cleanupExpiredFiles, cleanupStaleBundles, cleanupTombstones, cleanupExpiredAccessCodes, cleanupExpiredEnrollmentCodes };

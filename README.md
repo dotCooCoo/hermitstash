@@ -300,6 +300,7 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - New `sync` API key scope for WebSocket connections and sync bundle operations
 - Resource-scoped API keys -- `boundStashId` and `boundBundleId` columns restrict keys to specific resources
 - Stash-scoped sync tokens -- admin generates tokens that grant sync access to a single stash only
+- One-time enrollment codes -- admin generates a short code (e.g. `HSTASH-A4K9-XMWP-7RB2`), client redeems it to get API key + mTLS certs automatically (no file transfer needed, 1-hour expiry)
 - Stash sync mode -- persistent mutable bundle per stash for desktop sync clients
 - Admin UI: sync toggle per stash, one-click sync token generation with copy button
 - Desktop sync client: [hermitstash-sync](https://github.com/dotCooCoo/hermitstash-sync) — watches a local folder and syncs via WebSocket + PQC TLS
