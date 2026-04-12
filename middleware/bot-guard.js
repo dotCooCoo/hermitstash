@@ -102,6 +102,12 @@ module.exports = function botGuard(req, res, next) {
   // Skip exempt paths
   if (isExempt(req)) return next();
 
+  // Only fingerprint page navigations (sec-fetch-dest: document).
+  // In-page fetches (XHR/fetch) send sec-fetch-dest: empty and are
+  // protected by session auth + CSRF, not browser fingerprinting.
+  var secDest = req.headers["sec-fetch-dest"];
+  if (secDest && secDest !== "document") return next();
+
   // Fingerprint check
   if (!looksLikeBrowser(req)) {
     var ip = rateLimit.getIp(req);
