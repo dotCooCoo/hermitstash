@@ -140,6 +140,7 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 |--------|-----------|
 | Quantum computer key recovery | Hybrid ML-KEM-1024 + P-384 ECDH (dual protection) |
 | Harvest-now-decrypt-later | ML-KEM-1024 post-quantum KEM + envelope versioning for algorithm agility |
+| Classical-only TLS downgrade | ClientHello PQC gate rejects connections without hybrid key exchange groups |
 | Brute-force passwords | Argon2id (64MB memory, 3 iterations) |
 | Brute-force login | Rate limiting (5 attempts / 15 min per IP) |
 | Brute-force share IDs | 256-bit SHA3-derived IDs (2^256 search space) |
@@ -278,6 +279,10 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - WebSocket sync channel -- `GET /sync/ws` with auth during upgrade handshake, scoped to single bundle
 - Real-time file change events over WebSocket (file_added, file_replaced, file_removed, heartbeat)
 - Catch-up on reconnect via seq cursor (`?since=N` on WebSocket upgrade)
+- PQC TLS enforcement -- ClientHello inspection rejects connections without PQC hybrid key exchange groups
+- PQC gate architecture -- TCP proxy inspects `supported_groups` extension before TLS handshake completes
+- Localhost bypass for Docker health probes (127.0.0.1/::1 skip PQC check)
+- `PQC_ENFORCE=false` disables gate for transition periods (PQC preferred but not required)
 - PQC TLS -- conditional HTTPS with X25519MLKEM768 + SecP256r1MLKEM768 hybrid key exchange (TLS 1.3 only)
 - Certificate auto-reload on Let's Encrypt renewal (hourly file poll)
 - New `sync` API key scope for WebSocket connections and sync bundle operations
