@@ -33,10 +33,11 @@
       "source": "https://github.com/paulmillr/noble-post-quantum",
       "exports": ["ml_kem512", "ml_kem768", "ml_kem1024"],
       "files": {
+        "server": "lib/vendor/noble-pq.cjs",
         "browser": "public/js/noble-pq.js"
       },
-      "bundler": "esbuild --format=esm --minify --platform=browser",
-      "bundledAt": "2026-04-09"
+      "bundler": "esbuild (browser ESM) + manual ESM→CJS conversion (server)",
+      "bundledAt": "2026-04-12"
     },
     "@simplewebauthn/server": {
       "version": "13.3.0",
