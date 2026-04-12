@@ -7,14 +7,14 @@
  * - Rejects requests with stale timestamps (anti-replay)
  * - Skips encryption for non-JSON routes (HTML pages, file downloads)
  *
- * Hybrid ECIES key exchange for mTLS clients (ML-KEM-768 + ECDH P-384):
+ * Hybrid ECIES key exchange for mTLS clients (ML-KEM-1024 + ECDH P-384):
  * On the first response to an mTLS client with an API key, the session
  * XChaCha20 key is encrypted using a hybrid shared secret derived from
- * both ML-KEM-768 encapsulation and ECDH P-384 key agreement. The two
- * shared secrets are concatenated and run through HKDF-SHA3-256 to produce
+ * both ML-KEM-1024 encapsulation and ECDH P-384 key agreement. The two
+ * shared secrets are concatenated and run through HKDF-SHA3-512 to produce
  * a wrapping key, which encrypts the session key via XChaCha20-Poly1305.
  *
- * The client sends its ML-KEM-768 public key in the X-KEM-Public-Key header
+ * The client sends its ML-KEM-1024 public key in the X-KEM-Public-Key header
  * on its first request. The server's ECDH P-384 leg uses the client cert's
  * public key (from mTLS). No plaintext key material ever appears in a response.
  *
@@ -25,22 +25,22 @@ var vault = require("../lib/vault");
 var config = require("../lib/config");
 var { encryptPayload, decryptPayload, generateApiKey } = require("../lib/api-crypto");
 var { xchacha20poly1305 } = require("../lib/vendor/noble-ciphers.cjs");
-var { ml_kem768 } = require("../lib/vendor/noble-pq.cjs");
+var { ml_kem1024 } = require("../lib/vendor/noble-pq.cjs");
 
 var REPLAY_WINDOW = 30000; // 30 seconds
 var HYBRID_HKDF_INFO = "hermitstash-hybrid-ecies-v1";
 
 /**
- * Hybrid ECIES encrypt: encrypt a session key using ML-KEM-768 + ECDH P-384.
+ * Hybrid ECIES encrypt: encrypt a session key using ML-KEM-1024 + ECDH P-384.
  *
  * @param {Buffer} sessionKeyBuffer - the 32-byte session key to protect
- * @param {Buffer} clientKemPubKeyBytes - client's ML-KEM-768 public key (from X-KEM-Public-Key header)
+ * @param {Buffer} clientKemPubKeyBytes - client's ML-KEM-1024 public key (from X-KEM-Public-Key header)
  * @param {crypto.KeyObject} clientEcdhPubKey - client's P-384 public key (from mTLS cert)
  * @returns {{ ek, epk, kem }} base64url-encoded fields for the response
  */
 function hybridEciesEncrypt(sessionKeyBuffer, clientKemPubKeyBytes, clientEcdhPubKey) {
-  // --- ML-KEM-768 leg ---
-  var kemResult = ml_kem768.encapsulate(clientKemPubKeyBytes);
+  // --- ML-KEM-1024 leg ---
+  var kemResult = ml_kem1024.encapsulate(clientKemPubKeyBytes);
   var sharedSecretKem = kemResult.sharedSecret;   // 32 bytes
   var ciphertextKem = kemResult.cipherText;        // 1088 bytes
 
@@ -57,8 +57,8 @@ function hybridEciesEncrypt(sessionKeyBuffer, clientKemPubKeyBytes, clientEcdhPu
     sharedSecretEcdh,
   ]);
 
-  // --- Derive wrapping key via HKDF-SHA3-256 ---
-  var wrappingKey = crypto.hkdfSync("sha3-256", combinedSecret, "", HYBRID_HKDF_INFO, 32);
+  // --- Derive wrapping key via HKDF-SHA3-512 ---
+  var wrappingKey = crypto.hkdfSync("sha3-512", combinedSecret, "", HYBRID_HKDF_INFO, 32);
 
   // --- Encrypt session key with XChaCha20-Poly1305 using the wrapping key ---
   var nonce = crypto.randomBytes(24);
@@ -164,7 +164,7 @@ module.exports = function apiEncrypt(req, res, next) {
     var response = { _e: encrypted, _t: Date.now() };
 
     // Hybrid ECIES key exchange on first response for mTLS clients with ML-KEM public key.
-    // Both legs (ML-KEM-768 + ECDH P-384) must succeed. The combined shared secret
+    // Both legs (ML-KEM-1024 + ECDH P-384) must succeed. The combined shared secret
     // derives a wrapping key that encrypts the session XChaCha20 key.
     if (isNewSession && clientKemPubKey && req.socket && typeof req.socket.getPeerCertificate === "function") {
       var peerCert = req.socket.getPeerCertificate(true);
