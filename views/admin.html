@@ -270,6 +270,10 @@
             <label class="settings-label">Session Secret <span class="restart-badge">restart</span></label>
             <input type="password" class="text-input" id="s-sessionSecret" data-key="sessionSecret">
           </div>
+          <div class="settings-field">
+            <label class="settings-label">Health CORS Origins <span class="settings-hint">comma-separated gateway domains for /health PQC check</span></label>
+            <input type="text" class="text-input" id="s-healthCorsOrigins" data-key="healthCorsOrigins" placeholder="https://hermitstash.com, https://www.hermitstash.com">
+          </div>
         </div>
         <div class="settings-actions">
           <button class="butn butn-bord-thin butn-sm radius-30" onclick="openHelp('general')"><span>? Setup Guide</span></button>
@@ -1225,7 +1229,7 @@ function loadBundles(page){
 // Settings
 var tabFields={
   branding:['siteName','customLogo','landingEnabled','heroTitle','heroSubtitle','dropTitle','dropSubtitle','showMaintainerSupport','maintenanceMode','announcementBanner','analyticsScript','analyticsCspDomains'],
-  general:['port','sessionSecret'],
+  general:['port','sessionSecret','healthCorsOrigins'],
   auth:['localAuth','registrationOpen','googleClientID','googleClientSecret','allowedDomains','emailVerification','passkeyEnabled','rpName','rpId','rpOrigin'],
   uploads:['publicUpload','maxFileSize','publicMaxFiles','publicMaxBundleSize','perUserQuotaBytes','publicIpQuotaBytes','uploadTimeout','uploadConcurrency','uploadRetries','allowedExtensions'],
   storage:['storageBackend','uploadDir','s3Bucket','s3Region','s3AccessKey','s3SecretKey','s3Endpoint','s3DirectDownloads','s3PresignExpiry'],

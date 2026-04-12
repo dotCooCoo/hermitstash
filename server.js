@@ -63,13 +63,17 @@ app.use(serveStatic(path.join(__dirname, "public")));
 // Health check — before auth so it's fast and unauthenticated
 app.get("/health", function (req, res) {
   var origin = req.headers.origin || "";
-  var allowed = ["https://hermitstash.com", "https://www.hermitstash.com", "https://go.hermitstash.com"];
-  var corsHeader = allowed.indexOf(origin) !== -1 ? origin : allowed[0];
-  res.writeHead(200, {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": corsHeader,
-    "Vary": "Origin",
-  });
+  // Build allowed origins from rpOrigin (the app's own domain) + healthCorsOrigins (gateway domains)
+  var cfg = require("./lib/config");
+  var allowed = [];
+  if (cfg.rpOrigin) allowed.push(cfg.rpOrigin);
+  if (cfg.healthCorsOrigins) {
+    cfg.healthCorsOrigins.forEach(function (o) { if (allowed.indexOf(o) === -1) allowed.push(o); });
+  }
+  var corsHeader = allowed.indexOf(origin) !== -1 ? origin : (allowed[0] || "*");
+  var headers = { "Content-Type": "application/json", "Vary": "Origin" };
+  if (corsHeader) headers["Access-Control-Allow-Origin"] = corsHeader;
+  res.writeHead(200, headers);
   res.end(JSON.stringify({ status: "ok", uptime: process.uptime(), timestamp: new Date().toISOString() }));
 });
 app.get("/sitemap.xml", function (req, res) {
