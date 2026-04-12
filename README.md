@@ -333,7 +333,7 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Restrictive CSP on user-uploaded logo directory (defense-in-depth against SVG XSS)
 
 **Storage**
-- Local disk, NAS mount, or any S3-compatible bucket (MinIO, DigitalOcean Spaces, Backblaze B2)
+- Local disk, NAS mount, or any S3-compatible bucket (MinIO, Cloudflare R2, DigitalOcean Spaces, Backblaze B2)
 - S3 direct downloads with pre-signed URLs (configurable expiry, AWS Signature V4)
 - Per-file XChaCha20-Poly1305 encryption at rest, keys sealed with hybrid vault
 
@@ -382,7 +382,7 @@ Persist your data by mounting the `data/` and `uploads/` volumes (already config
 
 **Reverse proxy:** Need nginx, Caddy, or Apache in front? The admin panel (Settings > Uploads) auto-detects your proxy and generates a ready-to-paste config snippet with the correct body size limits.
 
-**S3 storage:** Configure S3-compatible storage (AWS, MinIO, DigitalOcean Spaces, Backblaze B2) from Admin > Settings > Storage tab. All credentials are vault-sealed in the encrypted database.
+**S3 storage:** Configure S3-compatible storage (AWS, MinIO, Cloudflare R2, DigitalOcean Spaces, Backblaze B2) from Admin > Settings > Storage tab. All credentials are vault-sealed in the encrypted database. For R2, set the endpoint to `https://<account-id>.r2.cloudflarestorage.com` and region to `auto`.
 
 **Maintenance mode:** Toggle from Admin > Settings > Branding. Blocks all non-admin access and serves a 503 page. Admin routes, auth routes, and API keys with admin scope still work during maintenance.
 
