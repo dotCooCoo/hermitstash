@@ -258,6 +258,11 @@ scheduler.register("expired_access_codes_cleanup", 3600000, function () { // hou
 scheduler.register("incremental_vacuum", 86400000, function () { // daily
   try { db.rawExec("PRAGMA incremental_vacuum(100)"); } catch (_e) {} // reclaim ~100 pages
 });
+if (config.backup && config.backup.enabled) {
+  scheduler.register("backup", config.backup.schedule || 86400000, function () {
+    try { require("./app/jobs/backup.job").run(); } catch (_e) { console.error("[scheduler] backup:", _e.message); }
+  });
+}
 scheduler.start();
 
 // TLS configuration — conditional HTTPS with PQC hybrid key exchange

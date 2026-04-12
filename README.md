@@ -254,12 +254,13 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Paginated file/bundle browser with search
 - User management -- create, suspend, delete, role toggle
 - Audit log -- searchable, filterable, date range
-- Settings panel -- 8 tabs (Branding, General, Auth, Uploads, Storage, Theme, Email, Environment)
+- Settings panel -- 9 tabs (Branding, General, Auth, Uploads, Storage, Theme, Email, Environment, Backup)
 - API keys with scoped permissions (upload, read, admin, webhook) validated against canonical enum
 - Webhooks with HMAC-SHA3-512 signed payloads, per-hook delivery log, enable/disable toggle
 - IP blocklist
 - Database backup (serves encrypted-at-rest copy), CSV exports (with formula injection protection)
-- Scheduled tasks -- file expiry, audit retention, stale upload cleanup, token cleanup, invite cleanup, daily SQLite vacuum
+- Automated off-site backup to S3-compatible storage (AWS, R2, MinIO, B2, DO Spaces) with passphrase-encrypted vault key, incremental file manifests, configurable retention, and manual trigger from admin UI
+- Scheduled tasks -- file expiry, audit retention, stale upload cleanup, token cleanup, invite cleanup, daily SQLite vacuum, automated backup
 - Danger Zone -- factory reset, purge all sessions, purge all users, purge all files (typed confirmation required)
 - Custom logo upload with magic-byte validation and SVG sanitization
 - Reverse proxy auto-detection with config snippet generator (nginx, Caddy, Apache)
