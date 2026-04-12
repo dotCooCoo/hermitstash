@@ -9,8 +9,8 @@
  *   Passkey PRF → 32-byte seed → ML-KEM-1024 keypair
  *   Encrypt: ML-KEM-1024 encapsulate → SHAKE256(shared secret) → XChaCha20-Poly1305(file)
  *   Decrypt: ML-KEM-1024 decapsulate → SHAKE256(shared secret) → XChaCha20-Poly1305(file)
- *            (legacy ML-KEM-768 + AES-256-GCM decryption supported via nonce/key detection)
  *
+ * No backwards compatibility — only ML-KEM-1024 + XChaCha20-Poly1305.
  * The server never sees the private key or plaintext vault data.
  */
 (function () {
@@ -50,12 +50,10 @@
    */
   async function prfSupported() {
     if (!window.PublicKeyCredential) return false;
-    // Feature detection: try to check PRF availability
     try {
       var ext = await PublicKeyCredential.getClientCapabilities();
       return ext && ext.prf === true;
     } catch (e) {
-      // Fallback: assume supported if WebAuthn is available (Chrome 118+)
       return true;
     }
   }
@@ -65,10 +63,7 @@
    * Returns a 32-byte Uint8Array seed or null if PRF is not supported.
    */
   async function getPrfSeed(credentialOptions) {
-    // Salt for PRF — constant per app (changing it would change all derived keys)
     var salt = new TextEncoder().encode("hermitstash-vault-prf-v1-salt-00");
-
-    // Add PRF extension to the auth options
     credentialOptions.extensions = credentialOptions.extensions || {};
     credentialOptions.extensions.prf = {
       eval: { first: salt },
@@ -77,7 +72,6 @@
     var credential = await navigator.credentials.get({ publicKey: credentialOptions });
     if (!credential) return null;
 
-    // Extract PRF result
     var prfResults = credential.getClientExtensionResults().prf;
     if (!prfResults || !prfResults.results || !prfResults.results.first) {
       return null;
@@ -86,15 +80,13 @@
     return { seed: new Uint8Array(prfResults.results.first), credential: credential };
   }
 
-  // ---- ML-KEM-768 Key Management ----
+  // ---- ML-KEM-1024 Key Management ----
 
   /**
    * Derive a deterministic ML-KEM-1024 keypair from a PRF seed.
    * Same seed always produces the same keypair.
-   * Falls back to ML-KEM-768 for seeds that were generated with the old version.
    */
   // Expand a seed to 64 bytes if needed (ML-KEM keygen requires d||z = 64 bytes per FIPS 203).
-  // Existing vaults store 32-byte seeds; zero-pad to match the enable flow.
   function expandSeed(seed) {
     if (seed.length >= 64) return seed.slice(0, 64);
     var full = new Uint8Array(64);
@@ -111,66 +103,40 @@
       secretKey: keypair.secretKey,   // 3168 bytes
     };
   }
-  // Legacy: derive ML-KEM-768 keypair (for decrypting old vault files)
-  async function deriveKeyPair768(seed) {
-    var mlkem = await getMlKem();
-    var expanded = await expandSeed(seed);
-    var keypair = mlkem.ml_kem768.keygen(expanded);
-    return { publicKey: keypair.publicKey, secretKey: keypair.secretKey };
-  }
 
-  // ---- Encrypt / Decrypt ----
+  // ---- Encrypt / Decrypt (ML-KEM-1024 + XChaCha20-Poly1305 only) ----
 
   /**
    * Encrypt a file buffer using the vault public key.
    * Returns { encapsulatedKey, iv, ciphertext } as Uint8Arrays.
-   * ML-KEM-1024 encapsulate → SHAKE256 KDF → XChaCha20-Poly1305.
    */
   async function encryptFile(publicKey, fileBuffer) {
     var mlkem = await getMlKem();
     var xchacha = await getXChacha();
 
-    // Detect key size: 1568 bytes = ML-KEM-1024, 1184 bytes = ML-KEM-768
-    var kem = publicKey.length >= 1500 ? mlkem.ml_kem1024 : mlkem.ml_kem768;
-    var encap = kem.encapsulate(publicKey);
+    var encap = mlkem.ml_kem1024.encapsulate(publicKey);
     var key = await clientKdf(encap.sharedSecret);
     var nonce = crypto.getRandomValues(new Uint8Array(24));
     var ct = xchacha(key, nonce).encrypt(new Uint8Array(fileBuffer));
 
     return {
-      encapsulatedKey: encap.cipherText,  // ML-KEM ciphertext
-      iv: nonce,                           // XChaCha20 nonce (24 bytes, field kept as "iv" for wire compat)
+      encapsulatedKey: encap.cipherText,  // ML-KEM-1024 ciphertext (1568 bytes)
+      iv: nonce,                           // XChaCha20 nonce (24 bytes)
       ciphertext: ct,                      // Encrypted file with Poly1305 tag
     };
   }
 
   /**
-   * Decrypt a vault file. secretKey can be a Uint8Array (single key) or
-   * an object { sk1024, sk768 } holding both ML-KEM variants.
-   * Auto-detects algorithm by encapsulated key size and nonce length.
+   * Decrypt a vault file using the ML-KEM-1024 secret key.
+   * Only supports ML-KEM-1024 + XChaCha20-Poly1305.
    */
   async function decryptFile(secretKey, encapsulatedKey, iv, ciphertext) {
     var mlkem = await getMlKem();
-    var isKem1024 = encapsulatedKey.length >= 1500;
-    var sk, kem;
-    if (isKem1024) {
-      kem = mlkem.ml_kem1024;
-      sk = secretKey.sk1024 || secretKey;
-    } else {
-      kem = mlkem.ml_kem768;
-      sk = secretKey.sk768 || secretKey;
-    }
-    var sharedSecret = kem.decapsulate(encapsulatedKey, sk);
+    var xchacha = await getXChacha();
 
-    if (iv.length === 24) {
-      var xchacha = await getXChacha();
-      var key = await clientKdf(sharedSecret);
-      return new Uint8Array(xchacha(key, iv).decrypt(ciphertext));
-    }
-    // Legacy AES-256-GCM (12-byte IV, raw shared secret as key)
-    var aesKey = await crypto.subtle.importKey("raw", sharedSecret, { name: "AES-GCM" }, false, ["decrypt"]);
-    var decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, aesKey, ciphertext);
-    return new Uint8Array(decrypted);
+    var sharedSecret = mlkem.ml_kem1024.decapsulate(encapsulatedKey, secretKey);
+    var key = await clientKdf(sharedSecret);
+    return new Uint8Array(xchacha(key, iv).decrypt(ciphertext));
   }
 
   // ---- Base64 helpers ----
@@ -197,7 +163,6 @@
   /**
    * Generate a random 64-byte seed for passkey-gated mode.
    * ML-KEM keygen requires d||z = 64 bytes per FIPS 203.
-   * The seed is sent to the server for vault-sealed storage.
    */
   function generateRandomSeed() {
     return crypto.getRandomValues(new Uint8Array(64));
@@ -235,14 +200,12 @@
   /**
    * Unlock vault in passkey-gated mode.
    * Authenticates with passkey, server returns the stored seed.
-   * Returns the ML-KEM secret key for decryption.
+   * Returns the ML-KEM-1024 secret key for decryption.
    */
   async function unlockPasskeyGated() {
-    // Get challenge from server
     var cr = await fetch("/vault/unlock/challenge", { method: "POST", credentials: "same-origin" });
     var cd = await cr.json();
 
-    // Authenticate with passkey
     var options = {
       challenge: Uint8Array.from(atob(cd.challenge.replace(/-/g, "+").replace(/_/g, "/")), function (c) { return c.charCodeAt(0); }),
       rpId: location.hostname,
@@ -251,7 +214,6 @@
     var assertion = await navigator.credentials.get({ publicKey: options });
     if (!assertion) return null;
 
-    // Build assertion payload for server (must use base64url, not standard base64)
     var assertionPayload = window.WebAuthnHelpers
       ? WebAuthnHelpers.formatGetResponse(assertion)
       : {
@@ -266,7 +228,6 @@
         },
       };
 
-    // Send to server for verification + seed release
     var ur = await fetch("/vault/unlock", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -276,11 +237,10 @@
     var ud = await ur.json();
     if (!ur.ok || !ud.seed) return null;
 
-    // Derive both ML-KEM-1024 (current) and ML-KEM-768 (legacy) secret keys
+    // Derive ML-KEM-1024 secret key from the seed
     var seedBytes = fromBase64(ud.seed);
-    var kp1024 = await deriveKeyPair(seedBytes);
-    var kp768 = await deriveKeyPair768(seedBytes);
-    return { sk1024: kp1024.secretKey, sk768: kp768.secretKey };
+    var kp = await deriveKeyPair(seedBytes);
+    return kp.secretKey;
   }
 
   // ---- Vault Rotation ----
@@ -288,9 +248,6 @@
   /**
    * Rotate vault passkey: decrypt all files with old key, re-encrypt with new key,
    * save atomically to server, then optionally register new passkey.
-   *
-   * @param {function} onProgress - callback(message) for UI updates
-   * @returns {{ filesUpdated: number }}
    */
   async function rotateVault(onProgress) {
     var log = onProgress || function () {};
@@ -305,7 +262,6 @@
     if (vaultMode === "passkey") {
       oldSk = await unlockPasskeyGated();
     } else {
-      // PRF mode
       var optRes = await fetch("/passkey/login/options", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: "{}" });
       var options = await optRes.json();
       if (window.WebAuthnHelpers) WebAuthnHelpers.prepareGetOptions(options);
@@ -317,7 +273,7 @@
     }
     if (!oldSk) throw new Error("Failed to get vault decryption key.");
 
-    // Step 2: Generate new vault keypair (in memory only — nothing committed yet)
+    // Step 2: Generate new vault keypair
     log("Generating new encryption keys...");
     var newVault = await enablePasskeyGated();
     var newPkB64 = toBase64(newVault.publicKey);
@@ -361,7 +317,7 @@
       throw new Error(rotateData.error || "Server returned: " + JSON.stringify(rotateData));
     }
 
-    // Step 5: Register new passkey (non-critical — vault is already re-keyed)
+    // Step 5: Register new passkey
     log("Registering new passkey...");
     try {
       if (window.WebAuthnHelpers) {
@@ -384,7 +340,7 @@
     return { filesUpdated: rotateData.filesUpdated };
   }
 
-  // Helper for PRF mode base64url conversion (when WebAuthnHelpers not available)
+  // Helper for PRF mode base64url conversion
   function fromBase64url(b64url) {
     var b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
     while (b64.length % 4) b64 += "=";
@@ -401,12 +357,10 @@
     decryptFile: decryptFile,
     toBase64: toBase64,
     fromBase64: fromBase64,
-    // Dual-mode support
     generateRandomSeed: generateRandomSeed,
     enablePasskeyGated: enablePasskeyGated,
     enablePrf: enablePrf,
     unlockPasskeyGated: unlockPasskeyGated,
-    // Rotation
     rotateVault: rotateVault,
   };
 })();

@@ -26,7 +26,7 @@ var { send, host } = require("../middleware/send");
 
 module.exports = function (app) {
 
-  // Enable vault — stores the user's ML-KEM-1024 public key (accepts ML-KEM-768 legacy)
+  // Enable vault — stores the user's ML-KEM-1024 public key
   // Supports two modes:
   //   "prf"     — keypair derived from passkey PRF (zero-knowledge, server never sees seed)
   //   "passkey" — keypair from random seed, seed stored server-side vault-sealed,
@@ -40,10 +40,10 @@ module.exports = function (app) {
       if (!publicKey || publicKey.length < 100) {
         return res.status(400).json({ error: "Invalid public key." });
       }
-      // Validate key size: ML-KEM-1024 = 1568 bytes, ML-KEM-768 = 1184 bytes (legacy)
+      // Validate key size: ML-KEM-1024 = 1568 bytes only
       var decoded = Buffer.from(publicKey, "base64");
-      if (decoded.length !== 1568 && decoded.length !== 1184) {
-        return res.status(400).json({ error: "Invalid ML-KEM public key size." });
+      if (decoded.length !== 1568) {
+        return res.status(400).json({ error: "Invalid ML-KEM public key size. Only ML-KEM-1024 (1568 bytes) accepted." });
       }
 
       var update = { vaultEnabled: "true", vaultPublicKey: publicKey, vaultMode: mode };
@@ -364,7 +364,7 @@ module.exports = function (app) {
       var newMode = body.newMode === "prf" ? "prf" : "passkey";
       if (!newPublicKey || newPublicKey.length < 100) return res.status(400).json({ error: "Invalid new public key." });
       var decoded = Buffer.from(newPublicKey, "base64");
-      if (decoded.length !== 1568 && decoded.length !== 1184) return res.status(400).json({ error: "Invalid ML-KEM public key size." });
+      if (decoded.length !== 1568) return res.status(400).json({ error: "Invalid ML-KEM public key size. Only ML-KEM-1024 (1568 bytes) accepted." });
 
       // Validate new seed for passkey mode
       var newSeed = null;
