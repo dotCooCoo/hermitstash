@@ -156,7 +156,9 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | Brute-force bundle passwords | Exponential backoff lockout after 5 failed attempts |
 | Email enumeration on bundles | Identical response regardless of whether email is in allow list |
 | Brute-force access codes | 5 attempt limit per code, rate limiting, 10-minute expiry |
-| CSRF on API endpoints | Per-session XChaCha20-Poly1305 key binds requests to session; non-JSON POST rejected |
+| CSRF on API endpoints | Per-session XChaCha20-Poly1305 key binds JSON requests to session; form POSTs validated with constant-time CSRF token |
+| Logout CSRF | Logout is POST-only with CSRF token validation — cross-site `<img>` or `<a>` tags cannot force logout |
+| WebSocket credential leakage | API keys accepted only via Authorization header — query string tokens rejected to prevent proxy/log/Referer leaks |
 | Session key interception | Hybrid ECIES key exchange — session key encrypted via ML-KEM-1024 + ECDH P-384, never plaintext in HTTP |
 | CSV formula injection | Export values sanitized to prevent spreadsheet code execution |
 | DNS rebinding via webhooks | Pre-validated IP pinned to outbound connection |

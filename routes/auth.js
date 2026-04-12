@@ -186,9 +186,21 @@ module.exports = function (app) {
     res.json({ authenticated: !!(req.user && req.user._id) });
   });
 
-  app.get("/auth/logout", (req, res) => {
-    audit.log(audit.ACTIONS.LOGOUT, { req: req });
-    sessionService.logoutUser(req);
-    res.redirect("/");
+  app.post("/auth/logout", (req, res) => {
+    // Parse form body for CSRF token
+    var chunks = [];
+    req.on("data", function (c) { chunks.push(c); if (Buffer.concat(chunks).length > 2048) req.destroy(); });
+    req.on("end", function () {
+      var body = Buffer.concat(chunks).toString("utf8");
+      var params = Object.fromEntries(new URLSearchParams(body));
+      var { validateToken } = require("../app/security/csrf-policy");
+      if (!req.session || !validateToken(req.session, req, params)) {
+        res.writeHead(403, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ error: "CSRF validation failed." }));
+      }
+      audit.log(audit.ACTIONS.LOGOUT, { req: req });
+      sessionService.logoutUser(req);
+      res.redirect("/");
+    });
   });
 };

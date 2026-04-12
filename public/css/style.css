@@ -373,7 +373,7 @@ body::after {
 .navbar-links a.navbar-btn{background:var(--main-color);color:#fff!important;padding:9px 24px;border-radius:30px;font-weight:600;font-size:.82rem;border:1px solid var(--main-color);overflow:visible}
 .navbar-links a.navbar-btn:hover{background:transparent;color:var(--main-color)!important;border-color:var(--main-color)}
 .navbar-links a.navbar-btn::after{display:none}
-.btn-logout{color:var(--text-muted)!important;font-size:.82rem}
+.btn-logout{color:var(--text-muted)!important;font-size:.82rem;background:none;border:none;cursor:pointer;padding:0;font-family:inherit}
 
 /* ---- Layout ---- */
 .main {
