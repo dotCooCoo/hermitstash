@@ -1,6 +1,7 @@
 <p align="center"><img src="https://raw.githubusercontent.com/dotCooCoo/hermitstash/main/public/img/logos/purple.svg" width="120" alt="HermitStash"></p>
 <h1 align="center">HermitStash</h1>
 <p align="center"><strong>Stash it quietly. Share it instantly.</strong><br>Post-quantum encrypted, self-hosted file upload server.</p>
+<p align="center"><a href="https://github.com/dotCooCoo/hermitstash-sync">HermitStash Sync</a> — companion desktop sync client</p>
 
 ---
 
@@ -297,6 +298,7 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Stash-scoped sync tokens -- admin generates tokens that grant sync access to a single stash only
 - Stash sync mode -- persistent mutable bundle per stash for desktop sync clients
 - Admin UI: sync toggle per stash, one-click sync token generation with copy button
+- Desktop sync client: [hermitstash-sync](https://github.com/dotCooCoo/hermitstash-sync) — watches a local folder and syncs via WebSocket + PQC TLS
 
 **Security Hardening**
 - Security headers on all responses (CSP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy, COOP, CORP)
