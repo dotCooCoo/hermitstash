@@ -295,12 +295,11 @@ function generateSyncToken(){
     btn.disabled=false;
     if(d.success){
       var el=document.getElementById('seSyncTokenResult');
-      var html='<strong>Sync Token (shown once):</strong><br><code>'+esc(d.key)+'</code><br><button type="button" onclick="navigator.clipboard.writeText(\''+d.key+'\');this.textContent=\'Copied!\'" style="cursor:pointer;background:var(--main-color);color:#fff;border:none;padding:4px 12px;border-radius:6px;font-size:.75rem;margin-top:6px">Copy Token</button>';
-      if(d.clientCert){
-        html+='<br><br><strong>Client Certificate (mTLS):</strong><br><span style="color:var(--muted);font-size:.75rem">Give these files to the sync client. The private key is shown once and never stored on the server.</span>';
-        html+='<br><button type="button" onclick="downloadCertBundle()" style="cursor:pointer;background:var(--main-color);color:#fff;border:none;padding:4px 12px;border-radius:6px;font-size:.75rem;margin-top:6px">Download Cert Bundle (.zip)</button>';
-        window._pendingCert=d.clientCert;
-      }
+      var html='<strong>Enrollment Code (shown once, expires in 1 hour):</strong>';
+      html+='<div style="margin:12px 0;padding:16px;background:rgba(139,92,246,.08);border:2px solid rgba(139,92,246,.2);border-radius:10px;text-align:center">';
+      html+='<span style="font-size:1.4rem;font-weight:800;font-family:monospace;letter-spacing:3px;color:var(--main-color)">'+esc(d.enrollmentCode)+'</span></div>';
+      html+='<button type="button" onclick="navigator.clipboard.writeText(\''+esc(d.enrollmentCode)+'\');this.textContent=\'Copied!\'" style="cursor:pointer;background:var(--main-color);color:#fff;border:none;padding:6px 16px;border-radius:6px;font-size:.8rem">Copy Code</button>';
+      html+='<p style="font-size:.75rem;color:var(--muted);margin-top:10px;line-height:1.5">Give this code to the sync client user. They enter it during <code>hermitstash-sync init</code> — the client exchanges it for the API key and certificates automatically. One-time use.</p>';
       el.innerHTML=html;
       el.style.display='block';
     } else { alert(d.error||'Failed to create token') }

@@ -729,16 +729,17 @@ module.exports = function (app) {
     }
   });
 
-  // Generate a stash-scoped sync token
+  // Generate a stash-scoped sync token with enrollment code
   app.post("/admin/stash/:id/sync-token", async function (req, res) {
     if (!requireAdmin(req, res)) return;
     try {
       var stash = stashRepo.findById(req.params.id);
       if (!stash) return res.status(404).json({ error: "Stash page not found." });
 
-      var { generateToken } = require("../lib/crypto");
-      var { sha3Hash: sha3 } = require("../lib/crypto");
+      var { generateToken, sha3Hash: sha3, generateBytes } = require("../lib/crypto");
+      var { HASH_PREFIX } = require("../lib/constants");
       var apiKeysRepo = require("../app/data/repositories/apiKeys.repo");
+      var db = require("../lib/db");
 
       var rawKey = "hs_" + generateToken(32);
       var prefix = rawKey.substring(0, 7);
@@ -758,14 +759,33 @@ module.exports = function (app) {
       // Generate client certificate if CA is available
       var clientCert = null;
       try {
-        var { generateClientCert, caExists } = require("../lib/mtls-ca");
-        if (caExists()) {
-          clientCert = generateClientCert(prefix);
-        }
+        var { generateClientCert, initCA } = require("../lib/mtls-ca");
+        initCA(); // ensure CA exists
+        clientCert = generateClientCert(prefix);
       } catch (_e) {}
 
-      audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Stash sync token created: " + stash.slug + (clientCert ? " (with mTLS cert)" : ""), req: req });
-      res.json({ success: true, key: rawKey, prefix: prefix, clientCert: clientCert });
+      // Generate enrollment code — short, typeable, one-time use
+      var codeBytes = generateBytes(8);
+      var codeRaw = "HSTASH-" + codeBytes.toString("hex").toUpperCase().match(/.{4}/g).join("-");
+      var codeHash = sha3(HASH_PREFIX.ENROLLMENT + codeRaw);
+
+      // Store the enrollment record (all sensitive fields vault-sealed by field-crypto)
+      db.enrollmentCodes.insert({
+        codeHash: codeHash,
+        apiKey: rawKey,
+        clientCert: clientCert ? clientCert.cert : null,
+        clientKey: clientCert ? clientCert.key : null,
+        caCert: clientCert ? clientCert.ca : null,
+        stashId: stash._id,
+        bundleId: null,
+        createdBy: req.user._id,
+        status: "pending",
+        expiresAt: new Date(Date.now() + 3600000).toISOString(), // 1 hour
+        createdAt: new Date().toISOString(),
+      });
+
+      audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Stash sync enrollment code created: " + stash.slug, req: req });
+      res.json({ success: true, enrollmentCode: codeRaw, prefix: prefix });
     } catch (e) {
       logger.error("Stash sync token error", { error: e.message || String(e) });
       res.status(500).json({ error: "Failed to create sync token." });
