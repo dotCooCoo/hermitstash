@@ -95,6 +95,7 @@ ML-KEM-1024 + P-384 (vault.key)
   |
   +-- Wraps per-file XChaCha20-Poly1305 keys (file encryption at rest)
   +-- Wraps per-session XChaCha20-Poly1305 keys (API payload encryption)
+  +-- Hybrid ECIES key exchange for API clients (ML-KEM-768 + ECDH P-384 + HKDF-SHA3-256)
   +-- Wraps database file XChaCha20-Poly1305 key (DB encryption at rest)
   +-- Directly seals ALL database fields (not just PII)
   +-- Directly seals session cookie values
@@ -156,6 +157,7 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | Email enumeration on bundles | Identical response regardless of whether email is in allow list |
 | Brute-force access codes | 5 attempt limit per code, rate limiting, 10-minute expiry |
 | CSRF on API endpoints | Per-session XChaCha20-Poly1305 key binds requests to session; non-JSON POST rejected |
+| Session key interception | Hybrid ECIES key exchange — session key encrypted via ML-KEM-768 + ECDH P-384, never plaintext in HTTP |
 | CSV formula injection | Export values sanitized to prevent spreadsheet code execution |
 | DNS rebinding via webhooks | Pre-validated IP pinned to outbound connection |
 | SSRF via webhooks | Blocks localhost, RFC 1918, RFC 6598 CGNAT, link-local, IPv6 private ranges |
@@ -177,6 +179,7 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Email verification with SHA3-hashed tokens
 - Hybrid KEM encrypted session cookies
 - Per-session XChaCha20-Poly1305 encrypted API payloads with anti-replay and anti-tamper
+- Hybrid ECIES key exchange for API clients -- ML-KEM-768 + ECDH P-384 + HKDF-SHA3-256 + XChaCha20-Poly1305 (no plaintext keys in responses)
 - Rate limiting on login (5/15min), registration (10/15min), 2FA verify (5/5min), passkey login (10/min)
 - Account lockout after 10 consecutive failed password attempts (30-minute cooldown)
 - Password reset flow with single-use, 1-hour-expiry tokens and anti-enumeration (always returns success)
