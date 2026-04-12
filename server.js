@@ -384,13 +384,12 @@ server.on("upgrade", function (req, socket, head) {
     }
   }
 
-  // Auth: Bearer token from header or ?token= query param
+  // Auth: Bearer token from Authorization header only
+  // Query string tokens are not accepted — they leak via proxy logs, Referer headers, and browser history
   var token = null;
   var authHeader = req.headers.authorization || "";
   if (authHeader.startsWith("Bearer ")) {
     token = authHeader.slice(7).trim();
-  } else if (parsed.query.token) {
-    token = String(parsed.query.token);
   }
 
   if (!token) {

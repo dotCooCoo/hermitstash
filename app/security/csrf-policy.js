@@ -1,16 +1,18 @@
 /**
- * CSRF Policy — token-based protection for cookie-authenticated POST routes.
+ * CSRF Policy — dual protection for cookie-authenticated requests.
  *
- * How it works:
- *   1. On every page render, a CSRF token is generated and stored in the session.
- *   2. The token is embedded in forms/JS via the template data.
- *   3. On POST, the token from the request body or header is validated.
+ * Strategy:
+ *   - JSON requests: CSRF-safe via per-session XChaCha20-Poly1305 encryption
+ *     (cross-site attacker cannot forge encrypted payloads without session key)
+ *   - Form POSTs: CSRF token validated via validateToken() in the route handler
+ *     (token embedded as hidden field, constant-time comparison)
+ *   - Non-JSON, non-exempt POSTs: rejected with 403
  *
  * Exempt paths:
  *   - API key-authenticated requests (Bearer token = no cookie auth)
  *   - Public upload endpoints (no session-based auth)
- *   - Webhook callbacks from external services
  *   - OAuth callbacks (Google redirect)
+ *   - Routes that validate CSRF tokens in their own handler (e.g. /auth/logout)
  */
 var { generateBytes, timingSafeEqual } = require("../../lib/crypto");
 
@@ -22,6 +24,7 @@ var EXEMPT_PREFIXES = [
 
 var EXEMPT_EXACT = [
   "/drop/init",
+  "/auth/logout",   // form POST — validates CSRF token in route handler
 ];
 
 function isExempt(pathname) {
