@@ -1,5 +1,11 @@
 {{> head}}
 
+<!-- Scroll mascot — parallax hermit that peeks from the right -->
+<div class="scroll-mascot" id="scrollMascot" aria-hidden="true">
+  <img src="/img/logos/white.svg" alt="" class="scroll-mascot-img logo-light">
+  <img src="/img/logos/black.svg" alt="" class="scroll-mascot-img logo-dark">
+</div>
+
 <!-- Hero -->
 <main id="main-content">
 <section class="hero" data-parallax="0.15">
@@ -260,7 +266,7 @@
 </section>
 
 <!-- Companion Sync App -->
-<section class="sync-app-section grd-border-top">
+<section class="sync-app-section sub-bg grd-border-top">
   <div class="feat-inner">
     <div class="sync-app-layout" data-anim>
       <div class="sync-app-content">
@@ -331,7 +337,7 @@
 </section>
 
 <!-- How It Works -->
-<section class="how-section sub-bg grd-border-top">
+<section class="how-section grd-border-top">
   <div class="how-inner">
     <div class="how-head" data-anim>
       <span class="sub-title">How It Works</span>
@@ -407,7 +413,7 @@
 </section>
 
 <!-- Rate Limiting & Hardening -->
-<section class="hardening-section grd-border-top">
+<section class="hardening-section sub-bg grd-border-top">
   <div class="feat-inner">
     <div class="feat-head" data-anim>
       <span class="sub-title">Hardened</span>
@@ -439,7 +445,7 @@
 </section>
 
 <!-- Deploy -->
-<section class="deploy-section sub-bg grd-border-top">
+<section class="deploy-section grd-border-top">
   <div class="feat-inner">
     <div class="feat-head" data-anim>
       <span class="sub-title">Deploy</span>
@@ -509,4 +515,33 @@
 </section>
 </main>
 
+<script>
+(function(){
+  var mascot=document.getElementById('scrollMascot');
+  if(!mascot||window.innerWidth<900)return;
+  var ticking=false;
+  function update(){
+    var scrollY=window.scrollY;
+    var docH=document.documentElement.scrollHeight-window.innerHeight;
+    var progress=docH>0?scrollY/docH:0;
+
+    var yPos=5+progress*70;
+    var peekIn=Math.min(progress*5,1);
+    var peekOut=Math.min((1-progress)*5,1);
+    var xPeek=Math.min(peekIn,peekOut)*50;
+    var rotation=-10+progress*20;
+    var scale=0.85+Math.min(peekIn,peekOut)*0.1;
+    var isLight=document.documentElement.getAttribute('data-theme')==='light';
+    var opacity=Math.min(peekIn,peekOut)*(isLight?0.1:0.15);
+
+    mascot.style.transform='translateY('+yPos+'vh) translateX('+(-(xPeek))+'%) rotate('+rotation+'deg) scale('+scale+')';
+    mascot.style.opacity=opacity;
+    ticking=false;
+  }
+  window.addEventListener('scroll',function(){
+    if(!ticking){requestAnimationFrame(update);ticking=true}
+  });
+  update();
+})();
+</script>
 {{> foot}}
