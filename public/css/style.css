@@ -40,8 +40,6 @@
 /* Marquee — all items fully opaque, stroke items bolder */
 [data-theme="light"] .marquee-item{color:var(--text)}
 [data-theme="light"] .marquee-item:nth-child(even){color:transparent;-webkit-text-stroke:1px rgba(0,0,0,.4)}
-[data-theme="light"] .marquee-section::before{background:linear-gradient(to right,var(--bg),transparent)}
-[data-theme="light"] .marquee-section::after{background:linear-gradient(to left,var(--bg),transparent)}
 [data-theme="light"] body::after{opacity:.015}
 [data-theme="light"] .hero::before{background:radial-gradient(circle,rgba(139,92,246,.06) 0%,transparent 70%)}
 [data-theme="light"] .hero::after{background:radial-gradient(circle,rgba(45,138,62,.04) 0%,transparent 70%)}
@@ -466,11 +464,6 @@ body::after {
 
 /* ---- Marquee ---- */
 .marquee-section{overflow:hidden;position:relative;padding:40px 0}
-.marquee-section::before,.marquee-section::after{content:'';position:absolute;top:0;width:200px;height:100%;z-index:2;pointer-events:none}
-.marquee-section::before{left:0;background:linear-gradient(to right,var(--bg),transparent)}
-.marquee-section::after{right:0;background:linear-gradient(to left,var(--bg),transparent)}
-.marquee-section.sub-bg::before{background:linear-gradient(to right,var(--bg-sub),transparent)}
-.marquee-section.sub-bg::after{background:linear-gradient(to left,var(--bg-sub),transparent)}
 
 .marquee-track{display:flex;width:max-content}
 .marquee-track:hover .marquee-box{animation-play-state:paused}
