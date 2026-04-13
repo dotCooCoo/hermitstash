@@ -418,8 +418,8 @@
               </select>
             </div>
             <div>
-              <label class="settings-label">RP Port <span class="settings-hint">blank for default</span></label>
-              <input type="number" class="text-input" id="s-rpPort" placeholder="443">
+              <label class="settings-label">RP Port</label>
+              <input type="number" class="text-input" id="s-rpPort" placeholder="443" min="1" max="65535">
             </div>
           </div>
           <input type="hidden" id="s-rpOrigin" data-key="rpOrigin">
@@ -577,6 +577,11 @@
             <div class="settings-field">
               <label class="settings-label">Pre-signed URL Expiry <span class="settings-hint">max 7 days (AWS limit), fresh URL generated per download</span></label>
               <input type="number" class="text-input" id="s-s3PresignExpiry" data-key="s3PresignExpiry" min="60" max="604800" placeholder="604800">
+            </div>
+            <div class="settings-divider"></div>
+            <div class="settings-field" style="display:flex;align-items:center;gap:12px">
+              <button class="butn butn-bord-thin butn-sm radius-30" onclick="testStorageConnection()"><span>Test Connection</span></button>
+              <span id="storageTestResult" style="font-size:.85rem"></span>
             </div>
           </div>
         </div>
@@ -1376,6 +1381,19 @@ function loadBackupHistory(){
     el.innerHTML=html;
   }).catch(function(e){el.textContent='Failed to load: '+e.message});
 }
+function testStorageConnection(){
+  var el=document.getElementById('storageTestResult');
+  el.textContent='Testing...';el.style.color='var(--muted)';
+  var bucket=document.getElementById('s-s3Bucket').value;
+  var region=document.getElementById('s-s3Region').value;
+  var accessKey=document.getElementById('s-s3AccessKey').value;
+  var secretKey=document.getElementById('s-s3SecretKey').value;
+  var endpoint=document.getElementById('s-s3Endpoint').value;
+  fetch('/admin/storage/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bucket:bucket,region:region,accessKey:accessKey,secretKey:secretKey,endpoint:endpoint})}).then(function(r){return r.json()}).then(function(d){
+    if(d.success){el.textContent='Connected successfully';el.style.color='var(--success,#22c55e)'}
+    else{el.textContent=d.error||'Failed';el.style.color='var(--danger,#ef4444)'}
+  }).catch(function(e){el.textContent='Error: '+e.message;el.style.color='var(--danger,#ef4444)'});
+}
 function testBackupConnection(){
   var el=document.getElementById('backupTestResult');
   el.textContent='Testing...';el.style.color='var(--muted)';
@@ -1522,11 +1540,8 @@ function cpProxy(){
 
 function updateAdminRpPort(){
   var proto=document.getElementById('s-rpProto').value;
-  var port=document.getElementById('s-rpPort');
-  var def=proto==='https'?'443':'80';
-  var oldDef=proto==='https'?'80':'443';
-  port.placeholder=def;
-  if(!port.value||port.value===oldDef||port.value==='443'||port.value==='80'||port.value==='3000'||port.value==='8080')port.value='';
+  var portEl=document.getElementById('s-rpPort');
+  portEl.placeholder=proto==='https'?'443':'80';
 }
 function buildRpOrigin(){
   var proto=document.getElementById('s-rpProto').value;
@@ -1534,7 +1549,8 @@ function buildRpOrigin(){
   var port=document.getElementById('s-rpPort').value.trim();
   if(!id)return '';
   var defaultPort=proto==='https'?'443':'80';
-  return proto+'://'+id+(port&&port!==defaultPort?':'+port:'');
+  if(!port)port=defaultPort;
+  return proto+'://'+id+(port!==defaultPort?':'+port:'');
 }
 
 function setTplMode(mode){
@@ -1630,7 +1646,7 @@ function loadSettings(){
     initExtPicker();
     setTplMode(s.emailTemplateMode||'text');
     // Parse rpOrigin into protocol + port
-    if(s.rpOrigin){try{var u=new URL(s.rpOrigin);document.getElementById('s-rpProto').value=u.protocol.replace(':','');if(u.port)document.getElementById('s-rpPort').value=u.port;else document.getElementById('s-rpPort').placeholder=u.protocol==='https:'?'443':'80'}catch(e){}}
+    if(s.rpOrigin){try{var u=new URL(s.rpOrigin);document.getElementById('s-rpProto').value=u.protocol.replace(':','');document.getElementById('s-rpPort').value=u.port||(u.protocol==='https:'?'443':'80')}catch(e){}}
     updateAdminRpPort();
   });
 }
@@ -1655,6 +1671,22 @@ function saveTab(tab){
   });
   // Build rpOrigin from protocol + domain + port
   if(tab==='auth')data.rpOrigin=buildRpOrigin();
+  // Require S3 credentials when storage backend is S3
+  if(tab==='storage'&&data.storageBackend==='s3'){
+    var missing=[];
+    if(!data.s3Bucket)missing.push('S3 Bucket');
+    if(!data.s3AccessKey||/^\u2022+$/.test(data.s3AccessKey))missing.push('S3 Access Key');
+    if(!data.s3SecretKey||/^\u2022+$/.test(data.s3SecretKey))missing.push('S3 Secret Key');
+    if(missing.length){var actions=document.querySelector('#pane-storage .settings-actions');var msg=actions.querySelector('.settings-msg-inline');if(!msg){msg=document.createElement('span');msg.className='settings-msg-inline';actions.appendChild(msg)}msg.className='settings-msg-inline msg-err';msg.textContent='Required: '+missing.join(', ');msg.style.opacity='1';setTimeout(function(){msg.style.opacity='0'},4000);return}
+  }
+  // Require backup S3 credentials when backups are enabled
+  if(tab==='backup'&&data.backupEnabled==='true'){
+    var missing=[];
+    if(!data.backupS3Bucket)missing.push('S3 Bucket');
+    if(!data.backupS3AccessKey||/^\u2022+$/.test(data.backupS3AccessKey))missing.push('S3 Access Key');
+    if(!data.backupS3SecretKey||/^\u2022+$/.test(data.backupS3SecretKey))missing.push('S3 Secret Key');
+    if(missing.length){var actions=document.querySelector('#pane-backup .settings-actions');var msg=actions.querySelector('.settings-msg-inline');if(!msg){msg=document.createElement('span');msg.className='settings-msg-inline';actions.appendChild(msg)}msg.className='settings-msg-inline msg-err';msg.textContent='Required: '+missing.join(', ');msg.style.opacity='1';setTimeout(function(){msg.style.opacity='0'},4000);return}
+  }
   // Find or create inline message next to save button
   var actions=document.querySelector('#pane-'+tab+' .settings-actions');
   var msg=actions.querySelector('.settings-msg-inline');

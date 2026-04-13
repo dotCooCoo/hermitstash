@@ -188,6 +188,29 @@ module.exports = function (app) {
     fs.createReadStream(dbPath).pipe(res);
   });
 
+  // ---- Storage S3 test ----
+
+  app.post("/admin/storage/test", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    var { parseJson } = require("../lib/multipart");
+    var S3Client = require("../lib/s3-client");
+    try {
+      var body = await parseJson(req);
+      var s = function(v) { return (v || "").trim(); };
+      var client = new S3Client({
+        bucket: s(body.bucket),
+        region: s(body.region) || "us-east-1",
+        accessKey: s(body.accessKey),
+        secretKey: s(body.secretKey),
+        endpoint: s(body.endpoint),
+      });
+      await client.testConnection();
+      res.json({ success: true });
+    } catch (err) {
+      res.json({ error: "Connection failed: " + err.message });
+    }
+  });
+
   // ---- Off-site backup (S3-compatible) ----
 
   app.post("/admin/backup/run", async (req, res) => {
@@ -219,12 +242,13 @@ module.exports = function (app) {
     var backup = require("../lib/backup");
     try {
       var body = await parseJson(req);
+      var s = function(v) { return (v || "").trim(); };
       await backup.testConnection({
-        bucket: body.bucket,
-        region: body.region || "us-east-1",
-        accessKey: body.accessKey,
-        secretKey: body.secretKey,
-        endpoint: body.endpoint || "",
+        bucket: s(body.bucket),
+        region: s(body.region) || "us-east-1",
+        accessKey: s(body.accessKey),
+        secretKey: s(body.secretKey),
+        endpoint: s(body.endpoint),
       });
       res.json({ success: true });
     } catch (err) {
