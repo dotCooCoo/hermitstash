@@ -70,17 +70,9 @@
 [data-theme="light"] .admin-panel:hover,[data-theme="light"] .flow-card:hover,[data-theme="light"] .file-card:hover{box-shadow:0 4px 20px rgba(0,0,0,.1)}
 
 /* Sub-bg sections — alternating backgrounds for clear section separation */
-[data-theme="light"] .sub-bg{background:#ededef}
-[data-theme="light"] .feat-section{background:#ededef}
-[data-theme="light"] .platform-section{background:#ededef}
-[data-theme="light"] .deploy-section{background:#ededef}
+[data-theme="light"] .sub-bg{background:#ffffff}
 [data-theme="light"] .deploy-card{background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.04);border-color:rgba(0,0,0,.08)}
 [data-theme="light"] .deploy-card:hover{box-shadow:0 6px 24px rgba(0,0,0,.1)}
-[data-theme="light"] .start-section{background:#ededef}
-[data-theme="light"] .vault-landing-section{background:#fff}
-[data-theme="light"] .how-section{background:#fff}
-[data-theme="light"] .hardening-section{background:#fff}
-[data-theme="light"] .sync-app-section{background:#fff}
 /* Stronger gradient border in light mode */
 [data-theme="light"] .grd-border-top::before,[data-theme="light"] .grd-border-bottom::after{background:linear-gradient(to right,transparent,rgba(0,0,0,.15),transparent)}
 /* Cards in light sections get white bg + shadow */
@@ -388,7 +380,7 @@ body::after {
 }
 
 .section-padding{padding:120px 0}
-.sub-bg{background:var(--bg-sub)}
+.sub-bg{background-color:var(--bg-sub)}
 
 /* ---- Sub-title Pattern ---- */
 .sub-title {
@@ -431,6 +423,7 @@ body::after {
   position:relative;
   padding:140px 40px 100px;
   overflow:hidden;
+  z-index:6;
 }
 
 .hero-content{position:relative;z-index:2;text-align:center;max-width:900px}
@@ -466,7 +459,7 @@ body::after {
 }
 
 /* ---- Marquee ---- */
-.marquee-section{overflow:hidden;position:relative;padding:40px 0}
+.marquee-section{overflow:hidden;position:relative;padding:40px 0;z-index:6;background-color:var(--bg)}
 
 .marquee-track{display:flex;width:max-content}
 .marquee-track:hover .marquee-box{animation-play-state:paused}
@@ -478,7 +471,7 @@ body::after {
 @keyframes marquee-scroll{0%{transform:translateX(0)}100%{transform:translateX(-100%)}}
 
 /* ---- Features / Services Section ---- */
-.feat-section{padding:120px 0;position:relative;overflow:hidden}
+.feat-section{padding:120px 0;position:relative;z-index:2}
 .feat-section::after{content:'';position:absolute;bottom:-200px;left:50%;transform:translateX(-50%);width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(139,92,246,.04) 0%,transparent 70%);pointer-events:none}
 .feat-inner{max-width:1100px;margin:0 auto;padding:0 40px;position:relative;z-index:2}
 
@@ -512,8 +505,22 @@ body::after {
 /* CTA with circle button */
 .feat-cta{padding-top:20px;display:flex;justify-content:center}
 
+/* ---- Scroll Mascot ---- */
+.scroll-mascot{position:fixed;right:-5%;top:0;width:380px;height:380px;z-index:5;pointer-events:none;opacity:0;will-change:transform,opacity}
+
+/* Mascot layering — slides behind solid sections, peeks through open ones */
+/* z-index > 5 = covers mascot, z-index < 5 = mascot shows through */
+.scroll-mascot-img{width:100%;height:100%;object-fit:contain}
+.scroll-mascot .logo-light{display:block}
+.scroll-mascot .logo-dark{display:none}
+[data-theme="light"] .scroll-mascot .logo-light{display:none}
+[data-theme="light"] .scroll-mascot .logo-dark{display:block}
+[data-theme="light"] .scroll-mascot{--mascot-boost:1.8}
+@media(max-width:900px){.scroll-mascot{display:none}}
+
+
 /* ---- Companion Sync App ---- */
-.sync-app-section{padding:120px 0;position:relative;overflow:hidden}
+.sync-app-section{padding:120px 0;position:relative;z-index:2}
 .sync-app-layout{display:grid;grid-template-columns:1fr 1fr;gap:60px;align-items:center;max-width:1200px;margin:0 auto}
 .sync-app-content .sub-title{margin-bottom:8px}
 .sync-app-desc{font-size:.95rem;color:var(--text-body);line-height:1.7;margin-bottom:24px}
@@ -523,7 +530,7 @@ body::after {
 .sync-app-terminal .terminal{font-size:.82rem}
 
 /* ---- How It Works ---- */
-.how-section{padding:120px 0;position:relative}
+.how-section{padding:120px 0;position:relative;z-index:6;background-color:var(--bg)}
 .how-inner{max-width:1100px;margin:0 auto;padding:0 40px}
 .how-head{margin-bottom:64px}
 .how-lead{font-size:1rem;color:var(--text-muted);margin-top:16px}
@@ -563,7 +570,7 @@ body::after {
 
 /* ---- Get Started ---- */
 /* ---- Deploy ---- */
-.deploy-section{padding:120px 0;position:relative}
+.deploy-section{padding:120px 0;position:relative;z-index:6;background-color:var(--bg)}
 .deploy-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;max-width:1200px;margin:0 auto 40px}
 .deploy-card{padding:32px 28px;background:var(--bg-surface);border:1px solid var(--border-thin);border-radius:16px;transition:all .4s}
 .deploy-card:hover{border-color:var(--border);transform:translateY(-2px)}
@@ -602,7 +609,7 @@ body::after {
 .start-buttons{display:flex;justify-content:center;gap:16px}
 
 /* ---- Vault Landing Section ---- */
-.vault-landing-section{padding:120px 0;position:relative;overflow:hidden}
+.vault-landing-section{padding:120px 0;position:relative;overflow:hidden;z-index:6;background-color:var(--bg)}
 .vault-landing-grid{display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:start;max-width:1200px;margin:0 auto}
 .vault-landing-main{padding:40px;background:var(--bg-sub);border:1px solid var(--border-thin);border-radius:20px;position:relative}
 .vault-landing-icon{margin-bottom:24px}
@@ -618,7 +625,7 @@ body::after {
 .vault-landing-feat span{font-size:.82rem;color:var(--text-muted);line-height:1.5}
 
 /* ---- Platform Capabilities ---- */
-.platform-section{padding:120px 0;position:relative;overflow:hidden}
+.platform-section{padding:120px 0;position:relative;overflow:hidden;z-index:6;background-color:var(--bg)}
 .cap-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;max-width:1200px;margin:0 auto}
 .cap-card{padding:32px 28px;background:var(--bg-surface);border:1px solid var(--border-thin);border-radius:16px;transition:all .4s;position:relative;overflow:hidden}
 .cap-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--main-color);transform:scaleX(0);transition:transform .4s;transform-origin:left}
@@ -631,7 +638,7 @@ body::after {
 .cap-card p{font-size:.82rem;color:var(--text-muted);line-height:1.6}
 
 /* ---- Hardening Section ---- */
-.hardening-section{padding:120px 0;position:relative}
+.hardening-section{padding:120px 0;position:relative;z-index:2}
 .hardening-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:24px;max-width:1200px;margin:0 auto}
 .hardening-item{text-align:center;padding:40px 24px;background:var(--bg-sub);border:1px solid var(--border-thin);border-radius:16px;transition:all .3s}
 .hardening-item:hover{border-color:var(--border);transform:translateY(-2px)}
