@@ -158,7 +158,7 @@ function assertCanDelete(doc, user) {
 }
 
 /**
- * Save a file to storage (encrypts with AES-256-GCM, key sealed with ML-KEM-768).
+ * Save a file to storage (encrypts with XChaCha20-Poly1305, key sealed with hybrid vault).
  * Returns { storagePath, encryptionKey }.
  */
 async function saveToStorage(buffer, storagePath) {

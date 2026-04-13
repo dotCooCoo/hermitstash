@@ -79,6 +79,7 @@
 [data-theme="light"] .vault-landing-section{background:#fff}
 [data-theme="light"] .how-section{background:#fff}
 [data-theme="light"] .hardening-section{background:#fff}
+[data-theme="light"] .sync-app-section{background:#fff}
 /* Stronger gradient border in light mode */
 [data-theme="light"] .grd-border-top::before,[data-theme="light"] .grd-border-bottom::after{background:linear-gradient(to right,transparent,rgba(0,0,0,.15),transparent)}
 /* Cards in light sections get white bg + shadow */
@@ -514,6 +515,16 @@ body::after {
 
 /* CTA with circle button */
 .feat-cta{padding-top:20px;display:flex;justify-content:center}
+
+/* ---- Companion Sync App ---- */
+.sync-app-section{padding:120px 0;position:relative;overflow:hidden}
+.sync-app-layout{display:grid;grid-template-columns:1fr 1fr;gap:60px;align-items:center;max-width:1200px;margin:0 auto}
+.sync-app-content .sub-title{margin-bottom:8px}
+.sync-app-desc{font-size:.95rem;color:var(--text-body);line-height:1.7;margin-bottom:24px}
+.sync-app-features{display:grid;grid-template-columns:1fr 1fr;gap:10px 24px}
+.sync-app-feat{display:flex;align-items:center;gap:10px;font-size:.85rem;color:var(--text-body)}
+.sync-app-feat svg{flex-shrink:0}
+.sync-app-terminal .terminal{font-size:.82rem}
 
 /* ---- How It Works ---- */
 .how-section{padding:120px 0;position:relative}
@@ -1365,6 +1376,9 @@ select.text-input option{background:var(--bg,#0f0f0f);color:var(--text,#e8e8e8)}
   .flow-card:hover{transform:none}
   .start-title{font-size:2rem}
   .vault-landing-grid{grid-template-columns:1fr;gap:28px}
+  .sync-app-layout{grid-template-columns:1fr;gap:32px}
+  .sync-app-features{grid-template-columns:1fr}
+  .sync-app-section{padding:80px 0}
   .cap-grid{grid-template-columns:1fr 1fr;gap:14px}
   .cap-card{padding:24px 20px}
   .cap-card:hover{transform:none}
