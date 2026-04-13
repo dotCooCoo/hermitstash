@@ -438,29 +438,72 @@
   </div>
 </section>
 
-<!-- Get Started -->
-<section class="start-section sub-bg grd-border-top">
-  <div class="start-inner" data-anim>
-    <span class="sub-title">Get Started</span>
-    <h2 class="start-title"><span>Install. Run. <span class="main-color">Done.</span></span></h2>
-    <div class="terminal">
-      <div class="terminal-bar">
-        <span class="terminal-dot"></span>
-        <span class="terminal-dot"></span>
-        <span class="terminal-dot"></span>
-        <span class="terminal-title">terminal</span>
+<!-- Deploy -->
+<section class="deploy-section sub-bg grd-border-top">
+  <div class="feat-inner">
+    <div class="feat-head" data-anim>
+      <span class="sub-title">Deploy</span>
+      <h2 class="feat-title"><span>Two commands. <span class="fw-200">Pick</span> <span class="main-color">one.</span></span></h2>
+    </div>
+    <div class="deploy-grid" data-anim>
+      <div class="deploy-card">
+        <div class="deploy-card-head">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--main-color)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/></svg>
+          <h3>Docker</h3>
+          <span class="deploy-tag">Recommended</span>
+        </div>
+        <div class="terminal" style="margin:20px 0">
+          <div class="terminal-bar">
+            <span class="terminal-dot"></span>
+            <span class="terminal-dot"></span>
+            <span class="terminal-dot"></span>
+            <span class="terminal-title">terminal</span>
+          </div>
+          <div class="terminal-body">
+            <div class="code-line"><span class="code-prompt">$</span> docker compose up -d</div>
+            <div class="code-line code-output">  Creating hermitstash ... done</div>
+            <div class="code-line code-output">  <span class="main-color">&#9679;</span> http://localhost:3000</div>
+          </div>
+        </div>
+        <ul class="deploy-perks">
+          <li>Auto-restart, health checks, log management</li>
+          <li>Persistent volumes for data + uploads</li>
+          <li>Environment variable overrides</li>
+          <li>Works with Portainer, Coolify, Dokku</li>
+        </ul>
       </div>
-      <div class="terminal-body">
-        <div class="code-line"><span class="code-prompt">$</span> node server.js</div>
-        <div class="code-line code-output">  Vault keypair generated (ML-KEM-1024 + P-384 hybrid)</div>
-        <div class="code-line code-output">  Default admin: admin@hermitstash.com / admin</div>
-        <div class="code-line code-output">  HermitStash is running!</div>
-        <div class="code-line code-output">  http://localhost:3000</div>
+
+      <div class="deploy-card">
+        <div class="deploy-card-head">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--main-color)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          <h3>Bare Metal</h3>
+          <span class="deploy-tag">Zero deps</span>
+        </div>
+        <div class="terminal" style="margin:20px 0">
+          <div class="terminal-bar">
+            <span class="terminal-dot"></span>
+            <span class="terminal-dot"></span>
+            <span class="terminal-dot"></span>
+            <span class="terminal-title">terminal</span>
+          </div>
+          <div class="terminal-body">
+            <div class="code-line"><span class="code-prompt">$</span> node server.js</div>
+            <div class="code-line code-output">  Vault keypair generated</div>
+            <div class="code-line code-output">  <span class="main-color">&#9679;</span> http://localhost:3000</div>
+          </div>
+        </div>
+        <ul class="deploy-perks">
+          <li>No npm install — all dependencies vendored</li>
+          <li>No build step — vanilla Node.js</li>
+          <li>No config files — admin panel configures everything</li>
+          <li>Node.js 24+ is the only requirement</li>
+        </ul>
       </div>
     </div>
-    <p class="start-note">No config files. No build step. No npm install. All dependencies vendored. Settings live in the encrypted database. Configure everything from the admin panel.</p>
-    <div class="start-buttons">
+    <p class="deploy-note" data-anim>First run generates the vault keypair and creates default accounts. Setup wizard walks you through changing the admin password, configuring passkeys, and generating a session secret. Configure S3 storage, email, and branding from the admin panel.</p>
+    <div class="start-buttons" data-anim>
       <a href="/drop" class="butn butn-bg butn-md radius-30"><span>Try The Drop</span></a>
+      <a href="https://github.com/dotCooCoo/hermitstash" target="_blank" rel="noopener noreferrer" class="butn butn-bord butn-md radius-30"><span>View on GitHub</span></a>
     </div>
   </div>
 </section>

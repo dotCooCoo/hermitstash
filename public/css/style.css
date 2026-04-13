@@ -73,6 +73,9 @@
 [data-theme="light"] .sub-bg{background:#ededef}
 [data-theme="light"] .feat-section{background:#ededef}
 [data-theme="light"] .platform-section{background:#ededef}
+[data-theme="light"] .deploy-section{background:#ededef}
+[data-theme="light"] .deploy-card{background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.04);border-color:rgba(0,0,0,.08)}
+[data-theme="light"] .deploy-card:hover{box-shadow:0 6px 24px rgba(0,0,0,.1)}
 [data-theme="light"] .start-section{background:#ededef}
 [data-theme="light"] .vault-landing-section{background:#fff}
 [data-theme="light"] .how-section{background:#fff}
@@ -559,6 +562,19 @@ body::after {
 .flow-bottom{padding:24px 36px 32px}
 
 /* ---- Get Started ---- */
+/* ---- Deploy ---- */
+.deploy-section{padding:120px 0;position:relative}
+.deploy-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;max-width:1200px;margin:0 auto 40px}
+.deploy-card{padding:32px 28px;background:var(--bg-surface);border:1px solid var(--border-thin);border-radius:16px;transition:all .4s}
+.deploy-card:hover{border-color:var(--border);transform:translateY(-2px)}
+.deploy-card-head{display:flex;align-items:center;gap:12px;margin-bottom:4px}
+.deploy-card-head h3{font-size:1.2rem;font-weight:700;letter-spacing:-.02em;margin:0}
+.deploy-tag{font-size:.7rem;font-weight:600;color:var(--main-color);background:rgba(139,92,246,.1);padding:3px 10px;border-radius:20px;letter-spacing:.02em}
+.deploy-perks{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px}
+.deploy-perks li{font-size:.85rem;color:var(--text-body);padding-left:20px;position:relative;line-height:1.5}
+.deploy-perks li::before{content:'';position:absolute;left:0;top:8px;width:6px;height:6px;border-radius:50%;background:var(--main-color);opacity:.6}
+.deploy-note{font-size:.9rem;color:var(--text-muted);text-align:center;max-width:800px;margin:0 auto 32px;line-height:1.7}
+
 .start-section{padding:120px 0;text-align:center;position:relative;overflow:hidden}
 .start-section::before{content:'';position:absolute;width:500px;height:500px;border-radius:50%;background:radial-gradient(circle,rgba(202,255,51,.04) 0%,transparent 70%);bottom:-150px;left:50%;transform:translateX(-50%);pointer-events:none}
 .start-inner{max-width:640px;margin:0 auto;padding:0 40px;position:relative;z-index:2}
@@ -1371,7 +1387,8 @@ select.text-input option{background:var(--bg,#0f0f0f);color:var(--text,#e8e8e8)}
   .vault-landing-grid{grid-template-columns:1fr;gap:28px}
   .sync-app-layout{grid-template-columns:1fr;gap:32px}
   .sync-app-features{grid-template-columns:1fr}
-  .sync-app-section{padding:80px 0}
+  .sync-app-section,.deploy-section{padding:80px 0}
+  .deploy-grid{grid-template-columns:1fr;gap:16px}
   .cap-grid{grid-template-columns:1fr 1fr;gap:14px}
   .cap-card{padding:24px 20px}
   .cap-card:hover{transform:none}
