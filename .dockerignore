@@ -1,10 +1,47 @@
+# Persistent data (mounted as volumes, never baked into image)
 data/
 uploads/
+
+# Git
 .git/
+.gitignore
+.gitattributes
+
+# GitHub metadata (not needed in runtime image)
+.github/
+
+# Dev/build tools
 node_modules/
 tests/
+coverage/
+scripts/
 template/
+build/
+
+# Dot-directories (IDE, tool configs, local state)
+.*
+!.gitkeep
+
+# Docker build files (no need to include themselves)
+Dockerfile
+docker-compose.yml
+docker-compose.*.yml
+
+# Docs (excluded by *.md, listed explicitly for clarity)
 *.md
+
+# Secrets / env
 .env*
+
+# Logs / temp
 *.log
 *.bak
+*.tmp
+*.swp
+
+# Non-Linux argon2 prebuilds (dead weight in Linux containers)
+lib/vendor/argon2/prebuilds/darwin-arm64/
+lib/vendor/argon2/prebuilds/darwin-x64/
+lib/vendor/argon2/prebuilds/freebsd-arm64/
+lib/vendor/argon2/prebuilds/freebsd-x64/
+lib/vendor/argon2/prebuilds/win32-x64/

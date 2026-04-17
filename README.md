@@ -374,9 +374,40 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 
 ## Docker Deployment
 
-### Quick start
+### Quick start (pre-built image)
 
 ```bash
+docker pull ghcr.io/dotcoocoo/hermitstash:latest
+docker run -d --name hermitstash \
+  -p 3000:3000 \
+  -v ./data:/app/data \
+  -v ./uploads:/app/uploads \
+  --shm-size=256m \
+  ghcr.io/dotcoocoo/hermitstash:latest
+```
+
+Or with docker compose (using pre-built image):
+
+```yaml
+services:
+  hermitstash:
+    image: ghcr.io/dotcoocoo/hermitstash:latest
+    ports: ["3000:3000"]
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    shm_size: 256m
+    environment:
+      TRUST_PROXY: "true"
+      RP_ORIGIN: ""   # https://your-domain.com
+    restart: unless-stopped
+```
+
+### Quick start (build from source)
+
+```bash
+git clone https://github.com/dotCooCoo/hermitstash.git
+cd hermitstash
 docker compose up -d
 ```
 
@@ -457,6 +488,19 @@ Need nginx, Caddy, or Apache in front? The admin panel (Settings > Uploads) auto
 ### S3 storage
 
 Configure S3-compatible storage (AWS, MinIO, Cloudflare R2, DigitalOcean Spaces, Backblaze B2) from Admin > Settings > Storage tab. All credentials are vault-sealed and validated by the settings schema on save. For R2, set the endpoint to `https://<account-id>.r2.cloudflarestorage.com` and region to `auto`.
+
+### Upgrading
+
+```bash
+# Back up vault key (critical — loss = all data unrecoverable)
+cp data/vault.key data/vault.key.bak
+
+# Pull new image and restart
+docker pull ghcr.io/dotcoocoo/hermitstash:latest
+docker compose up -d
+```
+
+Database migrations run automatically on startup — no manual steps needed. The server logs applied migrations at startup. If something goes wrong, restore `vault.key` and `hermitstash.db.enc` from your backup and restart with the previous image version.
 
 ### Maintenance mode
 

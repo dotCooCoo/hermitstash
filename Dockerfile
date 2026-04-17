@@ -1,5 +1,22 @@
-FROM node:24-slim AS base
+FROM node:24-slim
 # Requires Node 24.8+ for PQC: ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f (OpenSSL 3.5)
+
+# Build-time args for OCI labels (injected by CI)
+ARG VERSION=dev
+ARG COMMIT_SHA=unknown
+ARG BUILD_DATE=unknown
+
+# OCI image metadata
+LABEL org.opencontainers.image.title="HermitStash" \
+      org.opencontainers.image.description="Post-quantum encrypted, self-hosted file upload server" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT_SHA}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.source="https://github.com/dotCooCoo/hermitstash" \
+      org.opencontainers.image.url="https://github.com/dotCooCoo/hermitstash" \
+      org.opencontainers.image.documentation="https://github.com/dotCooCoo/hermitstash#readme" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.vendor="dotCooCoo"
 
 # Security: non-root user + gosu for entrypoint
 RUN groupadd -r hermit && useradd -r -g hermit hermit && \
@@ -8,7 +25,11 @@ RUN groupadd -r hermit && useradd -r -g hermit hermit && \
 
 WORKDIR /app
 
-# Copy application — all dependencies vendored, no npm install needed
+# Copy vendored dependencies first (changes less often → better layer cache)
+COPY lib/vendor/ lib/vendor/
+COPY public/ public/
+
+# Copy application code
 COPY . .
 
 # Create persistent directories
@@ -24,7 +45,10 @@ VOLUME ["/app/data", "/app/uploads"]
 
 EXPOSE 3000
 
-# Health check for orchestrators
+# Graceful shutdown — Node.js handles SIGTERM in server.js
+STOPSIGNAL SIGTERM
+
+# Health check for orchestrators (Docker, Kubernetes, Coolify)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3000/health', r => { let d=''; r.on('data', c => d+=c); r.on('end', () => { try { process.exit(JSON.parse(d).status === 'ok' ? 0 : 1) } catch(e) { process.exit(1) } }) }).on('error', () => process.exit(1))"
 
