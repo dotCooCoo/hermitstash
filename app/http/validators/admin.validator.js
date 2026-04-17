@@ -12,20 +12,17 @@ var VALID_EXPORT_TYPES = ["users", "files"];
 
 /**
  * Validate a settings update payload.
- * Strips unknown keys and normalizes values.
+ * Sanitizes and validates each field against the settings schema.
  * Returns { error } or { settings }.
  */
 function validateSettingsInput(body) {
   if (!body || typeof body !== "object") return { error: "Settings object required." };
 
-  // Must have at least one key to update
   var keys = Object.keys(body);
   if (keys.length === 0) return { error: "No settings provided." };
-
-  // Limit payload size — reject unreasonably large objects
   if (keys.length > 100) return { error: "Too many settings." };
 
-  // String-value length guard — prevent oversized values
+  // String-value length guard (raw, before sanitization)
   for (var i = 0; i < keys.length; i++) {
     var val = body[keys[i]];
     if (typeof val === "string" && val.length > 10000) {
@@ -33,7 +30,24 @@ function validateSettingsInput(body) {
     }
   }
 
-  return { settings: body };
+  // Per-field sanitization and validation via settings-schema
+  var schema = require("../../../lib/settings-schema");
+  var cleaned = {};
+  var errors = [];
+  for (var j = 0; j < keys.length; j++) {
+    var key = keys[j];
+    // Skip masked sensitive values (handled by config.updateSettings)
+    if (/^\u2022+$/.test(body[key])) { cleaned[key] = body[key]; continue; }
+    var result = schema.sanitizeAndValidate(key, body[key]);
+    if (result.error) {
+      errors.push(key + ": " + result.error);
+    } else {
+      cleaned[key] = result.value;
+    }
+  }
+
+  if (errors.length > 0) return { error: errors.join("; ") };
+  return { settings: cleaned };
 }
 
 /**
