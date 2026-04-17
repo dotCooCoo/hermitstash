@@ -302,14 +302,14 @@ if (fs.existsSync(TLS_CERT) && fs.existsSync(TLS_KEY)) {
     tlsOptions = {
       cert: fs.readFileSync(TLS_CERT),
       key: fs.readFileSync(TLS_KEY),
-      groups: ["X25519MLKEM768", "SecP256r1MLKEM768"],
+      groups: C.TLS_GROUP_PREFERENCE,
       minVersion: "TLSv1.3",
       requestCert: !!mtlsCa,
       rejectUnauthorized: false, // enforce per-route, not globally (browsers won't have certs)
       ca: mtlsCa ? [mtlsCa] : undefined,
     };
     tlsEnabled = true;
-    logger.info("[TLS] PQC TLS enabled", { groups: "X25519MLKEM768 + SecP256r1MLKEM768" });
+    logger.info("[TLS] PQC TLS enabled", { groups: C.TLS_GROUP_PREFERENCE.join(" + ") });
   } catch (e) {
     logger.error("[TLS] Failed to load certificates", { error: e.message });
   }
@@ -333,7 +333,7 @@ if (tlsEnabled && PQC_ENFORCE) {
   gateServer.listen(config.port, function () {
     logger.info("HermitStash is running", {
       url: protocol + "://localhost:" + config.port,
-      tls: "PQC enforced (X25519MLKEM768)",
+      tls: "PQC enforced (" + C.TLS_GROUP_PREFERENCE[0] + ")",
       pqcGate: "active on port " + config.port + " → 127.0.0.1:" + INTERNAL_TLS_PORT,
       storage: config.storage.backend + " -> " + storage.uploadDir,
       email: config.email.host || "disabled",
@@ -367,7 +367,7 @@ if (tlsEnabled) {
       var newContext = {
         cert: fs.readFileSync(TLS_CERT),
         key: fs.readFileSync(TLS_KEY),
-        groups: ["X25519MLKEM768", "SecP256r1MLKEM768"],
+        groups: C.TLS_GROUP_PREFERENCE,
         minVersion: "TLSv1.3",
       };
       server.setSecureContext(newContext);
