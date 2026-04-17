@@ -215,7 +215,7 @@ app.post("/sync/rename", require("./lib/rate-limit").middleware("sync-file-renam
   try {
     var body = await parseJson(req);
     // Verify bundle ownership before rename
-    var bundlesRepo = require("./app/data/repositories/bundles.repository");
+    var bundlesRepo = require("./app/data/repositories/bundles.repo");
     var bundle = bundlesRepo.findById(body.bundleId);
     if (!bundle) { res.writeHead(404, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: "Bundle not found." })); }
     if (bundle.ownerId && bundle.ownerId !== req.apiKey.userId) { res.writeHead(403, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: "Forbidden." })); }
