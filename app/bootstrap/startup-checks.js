@@ -53,6 +53,11 @@ function run() {
     warnings.push("rpOrigin is not HTTPS. Session cookies may not be secure. Use HTTPS in production.");
   }
 
+  // ---- Warning: weak Argon2 parameters ----
+  if (process.env.ARGON2_FAST === "1") {
+    warnings.push("ARGON2_FAST=1 is set — password hashing uses dangerously weak parameters (1MB, 1 iteration). DO NOT use in production. Passwords are trivially crackable with these settings.");
+  }
+
   // ---- Warning: data directory permissions ----
   var dataDir = path.join(__dirname, "..", "..", "data");
   if (fs.existsSync(dataDir)) {

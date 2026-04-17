@@ -13,9 +13,9 @@ module.exports = function securityHeaders(req, res, next) {
     res.setHeader("X-XSS-Protection", "0");
     res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
     res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
-    // HSTS for HTTPS deployments
+    // HSTS for HTTPS deployments (with preload)
     if (config.rpOrigin && config.rpOrigin.startsWith("https")) {
-      res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+      res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
     }
     if (!res.getHeader("Content-Security-Policy")) {
       // Build analytics CSP domains from auto-detection or manual override

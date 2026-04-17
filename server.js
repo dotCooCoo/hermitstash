@@ -208,10 +208,17 @@ require("./routes/stash")(app);
 // Sync file rename — API key authed, uses bundleId directly (sync clients don't have shareId)
 app.post("/sync/rename", require("./lib/rate-limit").middleware("sync-file-rename", 100, 60000), async function (req, res) {
   if (!req.apiKey) { res.writeHead(401, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: "Unauthorized." })); }
+  var { hasScope } = require("./app/security/scope-policy");
+  if (!hasScope(req.apiKey, "sync") && !hasScope(req.apiKey, "admin")) { res.writeHead(403, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: "Forbidden." })); }
   var { parseJson } = require("./lib/multipart");
   var { handleSyncFileRename } = require("./app/domain/uploads/upload.handler");
   try {
     var body = await parseJson(req);
+    // Verify bundle ownership before rename
+    var bundlesRepo = require("./app/data/repositories/bundles.repository");
+    var bundle = bundlesRepo.findById(body.bundleId);
+    if (!bundle) { res.writeHead(404, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: "Bundle not found." })); }
+    if (bundle.ownerId && bundle.ownerId !== req.apiKey.userId) { res.writeHead(403, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: "Forbidden." })); }
     var result = await handleSyncFileRename({
       bundleId: body.bundleId,
       oldRelativePath: body.oldRelativePath,

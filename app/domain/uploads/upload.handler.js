@@ -233,6 +233,12 @@ async function handleChunkUpload(ctx) {
     return { error: "File type not allowed: " + earlyExt };
   }
 
+  // Per-chunk size limit — prevent disk exhaustion before reassembly-time quota check
+  var maxChunkSize = Math.max(limits.maxFileSize || 10485760, 10485760); // at least 10MB per chunk
+  if (chunk.data.length > maxChunkSize) {
+    return { error: "Chunk too large." };
+  }
+
   // Store chunk
   var chunkDir = path.join(config.storage.uploadDir, "chunks", bundle.shareId, fileId);
   var resolvedDir = path.resolve(chunkDir);
