@@ -372,23 +372,95 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Automatic database schema migrations on startup
 - Startup invariant checks -- validates vault key, warns on default credentials/secrets, checks directory permissions
 
-## Docker
+## Docker Deployment
+
+### Quick start
 
 ```bash
 docker compose up -d
 ```
 
-Uses `node:24-slim`. No config files needed -- all dependencies vendored, no npm install. Starts with defaults and generates the vault keypair on first run. Configure everything from the admin panel at `/admin` once running. Docker env var overrides visible in Admin > Settings > Environment tab.
+Uses `node:24-slim` (OpenSSL 3.5+ for PQC support). No config files needed — all dependencies vendored, no `npm install`. Starts with defaults and generates the vault keypair on first run. Configure everything from the admin panel at `/admin` once running.
 
-Persist your data by mounting the `data/` and `uploads/` volumes (already configured in `docker-compose.yml`). Non-sensitive overrides like `PORT` can be set via environment variables if needed, but secrets (S3 keys, SMTP credentials, API keys) should always be configured through the admin panel so they're vault-sealed in the encrypted database.
+### Image details
 
-**Health check:** `GET /health` returns `{ status, uptime, timestamp }` — use it for Docker health checks and load balancer probes.
+| | |
+|---|---|
+| **Base image** | `node:24-slim` (Debian Bookworm) |
+| **Node.js** | 24.8+ (required for ML-KEM-1024, ML-DSA-87, SLH-DSA via OpenSSL 3.5) |
+| **User** | Runs as `hermit` (non-root) via `gosu` — entrypoint fixes volume permissions then drops privileges |
+| **Tmpfs** | `HERMITSTASH_TMPDIR=/dev/shm` — plaintext DB held in memory, never on disk. Set `shm_size: 256m` in compose. |
+| **Volumes** | `/app/data` (encrypted DB, vault keys, TLS certs), `/app/uploads` (files if using local storage) |
+| **Port** | 3000 (configurable via `PORT` env var) |
+| **Health check** | Built-in: `GET /health` every 30s, 5s timeout, 3 retries, 10s start period |
+| **Entrypoint** | `docker-entrypoint.sh` — chowns volumes to `hermit:hermit`, then `exec gosu hermit node server.js` |
 
-**Reverse proxy:** Need nginx, Caddy, or Apache in front? The admin panel (Settings > Uploads) auto-detects your proxy and generates a ready-to-paste config snippet with the correct body size limits.
+### docker-compose.yml
 
-**S3 storage:** Configure S3-compatible storage (AWS, MinIO, Cloudflare R2, DigitalOcean Spaces, Backblaze B2) from Admin > Settings > Storage tab. All credentials are vault-sealed in the encrypted database. For R2, set the endpoint to `https://<account-id>.r2.cloudflarestorage.com` and region to `auto`.
+The included `docker-compose.yml` provides a production-ready starting point:
 
-**Maintenance mode:** Toggle from Admin > Settings > Branding. Blocks all non-admin access and serves a 503 page. Admin routes, auth routes, and API keys with admin scope still work during maintenance.
+```yaml
+services:
+  hermitstash:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data       # encrypted DB, vault keys, TLS certs
+      - ./uploads:/app/uploads  # files (local storage only)
+    shm_size: 256m              # /dev/shm for plaintext DB in memory
+    environment:
+      NODE_ENV: production
+      HERMITSTASH_TMPDIR: /dev/shm
+      PORT: 3000
+      TRUST_PROXY: "true"       # set if behind nginx/Cloudflare/Coolify
+      RP_ORIGIN: ""             # https://your-domain.com (required for passkeys + HSTS)
+    restart: unless-stopped
+```
+
+All other settings (auth, email, S3, branding) are best configured via the admin panel at `/admin` so credentials are vault-sealed in the encrypted database. Environment variables override DB settings and are visible in Admin > Settings > Environment tab.
+
+### Coolify / managed Docker hosts
+
+Works out of the box with Coolify, Portainer, CapRover, and similar platforms:
+
+1. Point the platform at the git repo (or Dockerfile)
+2. Set the `RP_ORIGIN` env var to your domain's full URL (e.g., `https://app.hermitstash.com`)
+3. Mount persistent volumes for `/app/data` and `/app/uploads`
+4. Set `shm_size: 256m` (or equivalent in the platform's container config)
+5. The built-in health check works with any orchestrator that supports `HEALTHCHECK`
+
+### TLS / HTTPS
+
+The server can terminate TLS itself (for PQC enforcement) or sit behind a reverse proxy:
+
+- **Behind Cloudflare/nginx (recommended):** Set `TRUST_PROXY=true`. The proxy terminates TLS; the server runs HTTP internally. PQC TLS between browser and Cloudflare is handled by Cloudflare's edge. Set `PQC_ENFORCE=false` if the proxy→server leg is plain HTTP.
+- **Direct TLS (PQC enforced):** Mount TLS certs at `/app/data/tls/fullchain.pem` and `/app/data/tls/privkey.pem` (or set `TLS_CERT` and `TLS_KEY` env vars). The PQC gate inspects ClientHello and rejects non-PQC connections. The server negotiates `SecP384r1MLKEM1024 > X25519MLKEM768 > SecP256r1MLKEM768` (strongest available hybrid group). Certificate auto-reload on Let's Encrypt renewal (hourly file poll via `fs.watchFile`).
+
+### Persistent data
+
+| Path | Contents | Backup? |
+|------|----------|---------|
+| `/app/data/hermitstash.db.enc` | Vault-encrypted SQLite database (users, files, settings, audit log) | Yes — automated S3 backup available |
+| `/app/data/vault.key` | ML-KEM-1024 + P-384 hybrid keypair (encrypts all DB fields) | **Critical** — lose this and all sealed data is unrecoverable |
+| `/app/data/tls/` | TLS certificates (if using direct TLS) | Regenerated by Let's Encrypt |
+| `/app/uploads/` | Uploaded files (if using local storage; not needed with S3) | Optional — files are re-uploadable |
+
+### Health check
+
+`GET /health` returns `{ status, uptime, timestamp }` — works with Docker HEALTHCHECK, Kubernetes liveness probes, load balancers, and the [PQC gateway](https://github.com/dotCooCoo/hermitstash-web) status check.
+
+### Reverse proxy
+
+Need nginx, Caddy, or Apache in front? The admin panel (Settings > Uploads) auto-detects your proxy and generates a ready-to-paste config snippet with the correct body size limits.
+
+### S3 storage
+
+Configure S3-compatible storage (AWS, MinIO, Cloudflare R2, DigitalOcean Spaces, Backblaze B2) from Admin > Settings > Storage tab. All credentials are vault-sealed and validated by the settings schema on save. For R2, set the endpoint to `https://<account-id>.r2.cloudflarestorage.com` and region to `auto`.
+
+### Maintenance mode
+
+Toggle from Admin > Settings > Branding. Blocks all non-admin access and serves a 503 page. Admin routes, auth routes, and API keys with admin scope still work during maintenance.
 
 ## API Keys
 
