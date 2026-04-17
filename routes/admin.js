@@ -194,15 +194,17 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     var { parseJson } = require("../lib/multipart");
     var S3Client = require("../lib/s3-client");
+    var cfg = require("../lib/config");
     try {
       var body = await parseJson(req);
       var s = function(v) { return (v || "").trim(); };
+      var masked = function(v) { return /^\u2022+$/.test(v || ""); };
       var client = new S3Client({
-        bucket: s(body.bucket),
-        region: s(body.region) || "us-east-1",
-        accessKey: s(body.accessKey),
-        secretKey: s(body.secretKey),
-        endpoint: s(body.endpoint),
+        bucket: s(body.bucket) || cfg.storage.s3.bucket,
+        region: s(body.region) || cfg.storage.s3.region || "us-east-1",
+        accessKey: masked(body.accessKey) ? cfg.storage.s3.accessKey : s(body.accessKey),
+        secretKey: masked(body.secretKey) ? cfg.storage.s3.secretKey : s(body.secretKey),
+        endpoint: s(body.endpoint !== undefined ? body.endpoint : cfg.storage.s3.endpoint),
       });
       await client.testConnection();
       res.json({ success: true });
@@ -240,15 +242,17 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     var { parseJson } = require("../lib/multipart");
     var backup = require("../lib/backup");
+    var cfg = require("../lib/config");
     try {
       var body = await parseJson(req);
       var s = function(v) { return (v || "").trim(); };
+      var masked = function(v) { return /^\u2022+$/.test(v || ""); };
       await backup.testConnection({
-        bucket: s(body.bucket),
-        region: s(body.region) || "us-east-1",
-        accessKey: s(body.accessKey),
-        secretKey: s(body.secretKey),
-        endpoint: s(body.endpoint),
+        bucket: s(body.bucket) || cfg.backup.s3.bucket,
+        region: s(body.region) || cfg.backup.s3.region || "us-east-1",
+        accessKey: masked(body.accessKey) ? cfg.backup.s3.accessKey : s(body.accessKey),
+        secretKey: masked(body.secretKey) ? cfg.backup.s3.secretKey : s(body.secretKey),
+        endpoint: s(body.endpoint !== undefined ? body.endpoint : cfg.backup.s3.endpoint),
       });
       res.json({ success: true });
     } catch (err) {
