@@ -173,6 +173,8 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | Weak bundle/stash passwords | Minimum 4-character requirement enforced server-side |
 | Automated scanners and bots | Request fingerprinting (accept-language, sec-fetch-dest, sec-fetch-mode) blocks non-browser clients on public routes — survives PQC TLS adoption |
 | NPM supply chain | All dependencies vendored as committed bundles — zero npm runtime packages |
+| Admin settings injection | Type-safe settings schema (lib/settings-schema.js) sanitizes on save (strip control chars, trim, type-specific normalization) and validates (format, range, enum) — bad data rejected at the gate with clear error messages |
+| Stale config after admin change | Config reset registry (config.onReset) invalidates cached clients (S3, etc.) when dependent settings change at runtime |
 
 Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f via OpenSSL 3.5, XChaCha20-Poly1305 and SHAKE256 via vendored @noble/ciphers and @noble/hashes, Argon2id via vendored native prebuilds, WebAuthn via vendored @simplewebauthn/server, and built-in SQLite via `node:sqlite`. Zero npm runtime dependencies.
 
@@ -295,7 +297,7 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - PQC gate architecture -- TCP proxy inspects `supported_groups` extension before TLS handshake completes
 - Localhost bypass for Docker health probes (127.0.0.1/::1 skip PQC check)
 - `PQC_ENFORCE=false` disables gate for transition periods (PQC preferred but not required)
-- PQC TLS -- conditional HTTPS with X25519MLKEM768 + SecP256r1MLKEM768 hybrid key exchange (TLS 1.3 only)
+- PQC TLS -- conditional HTTPS with SecP384r1MLKEM1024 + X25519MLKEM768 + SecP256r1MLKEM768 hybrid key exchange (TLS 1.3 only, Level 5 preferred)
 - Certificate auto-reload on Let's Encrypt renewal (hourly file poll)
 - PQC outbound HTTPS agent -- all S3, SMTP, Resend, webhook, OAuth calls use PQC hybrid TLS groups
 - `PQC_OUTBOUND_ENFORCE=false` allows classical fallback for outbound connections
@@ -314,7 +316,7 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 
 **Security Hardening**
 - Security headers on all responses (CSP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy, COOP, CORP)
-- HSTS auto-enabled when rpOrigin uses HTTPS
+- HSTS with preload auto-enabled when rpOrigin uses HTTPS
 - Content Security Policy with no external domains -- fonts vendored locally, `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`
 - 256-bit SHA3-derived share IDs (no brute-force, no collisions)
 - CSRF protection: JSON requests bound by per-session encryption key; form POSTs validated with constant-time CSRF token; non-JSON/non-exempt POSTs rejected
@@ -606,7 +608,8 @@ lib/
   api-crypto.js       API payload XChaCha20-Poly1305 encrypt/decrypt
   session.js          Hybrid KEM encrypted cookies, LRU eviction
   storage.js          Local/S3 + XChaCha20-Poly1305 file encryption + pre-signed URLs
-  config.js           Settings from encrypted DB, env fallback
+  config.js           Settings from encrypted DB, env fallback, onReset registry
+  settings-schema.js  Type-safe settings sanitization + validation (74 settings)
   audit.js            Audit logging with auto-sealed entries
   rate-limit.js       Per-IP rate limiting with proxy validation
   ip-quota.js         Per-IP storage quota for anonymous uploads
