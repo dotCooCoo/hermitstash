@@ -153,8 +153,10 @@ function nextStep(n){
 }
 
 function genSecret(){
+  var arr=new Uint8Array(48);
+  crypto.getRandomValues(arr);
   var chars='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  var s='';for(var i=0;i<48;i++)s+=chars[Math.floor(Math.random()*chars.length)];
+  var s='';for(var i=0;i<arr.length;i++)s+=chars[arr[i]%chars.length];
   document.getElementById('setupSessionSecret').value=s;
 }
 

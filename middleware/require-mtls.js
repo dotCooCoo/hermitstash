@@ -20,12 +20,9 @@ module.exports = function requireMtls(req, res) {
     return false;
   }
 
-  // Check revocation list
+  // Check revocation list (indexed lookup, not full-table scan)
   try {
-    var db = require("../lib/db");
-    var fpHash = sha3Hash((HASH_PREFIX.CERT_FP || "hs-certfp:") + cert.fingerprint256);
-    var revoked = db.certRevocations.find({}).filter(function (r) { return r.fingerprintHash === fpHash; });
-    if (revoked.length > 0) {
+    if (require("../lib/cert-utils").isCertRevoked(cert.fingerprint256)) {
       res.writeHead(403, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Certificate has been revoked." }));
       return false;

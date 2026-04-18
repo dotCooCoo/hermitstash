@@ -1,32 +1,62 @@
+// -- Core libs --
 const path = require("path");
 const fs = require("fs");
+var url = require("node:url");
+
+// -- lib/ modules --
 const config = require("./lib/config");
 const C = require("./lib/constants");
 const { Router, serveStatic } = require("./lib/router");
 const { sessionMiddleware } = require("./lib/session");
-const { users } = require("./lib/db");
-const { hashPassword } = require("./lib/crypto");
+var db = require("./lib/db");
+const { users } = db;
+const { hashPassword, sha3Hash } = require("./lib/crypto");
 const storage = require("./lib/storage");
 const audit = require("./lib/audit");
 const logger = require("./app/shared/logger");
 const { sendHtml } = require("./lib/template");
+var { parseJson } = require("./lib/multipart");
+var certUtils = require("./lib/cert-utils");
+var mtlsCa = require("./lib/mtls-ca");
+var { createPQCGate } = require("./lib/pqc-gate");
+var scheduler = require("./lib/scheduler");
+var expiry = require("./lib/expiry");
+var { acceptUpgrade, rejectUpgrade } = require("./lib/ws");
+var syncEmitter = require("./lib/sync-emitter");
+
+// -- middleware/ --
 const { send } = require("./middleware/send");
 const attachUser = require("./middleware/attach-user");
 const errorHandler = require("./middleware/error-handler");
 
+// -- app/ modules --
+var startupChecks = require("./app/bootstrap/startup-checks");
+var txHelper = require("./app/data/db/transaction");
+var originPolicy = require("./app/security/origin-policy");
+var { hasScope } = require("./app/security/scope-policy");
+var apiKeysRepo = require("./app/data/repositories/apiKeys.repo");
+var bundlesRepo = require("./app/data/repositories/bundles.repo");
+var filesRepo = require("./app/data/repositories/files.repo");
+var usersRepo = require("./app/data/repositories/users.repo");
+var { handleSyncFileRename } = require("./app/domain/uploads/upload.handler");
+var chunkGcJob = require("./app/jobs/chunk-gc.job");
+var expiryCleanupJob = require("./app/jobs/expiry-cleanup.job");
+var orphanCleanupJob = require("./app/jobs/orphan-cleanup.job");
+var certExpiryJob = require("./app/jobs/cert-expiry.job");
+var backupJob = require("./app/jobs/backup.job");
+
 const app = new Router();
 
 // Ensure dirs
-for (const d of ["data", "uploads"]) {
-  const p = path.join(__dirname, d);
-  if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
+var dataDir = C.DATA_DIR;
+if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+// storage.js creates the upload dir on require; ensure it exists for local backend
+if (config.storage.backend === "local") {
+  if (!fs.existsSync(storage.uploadDir)) fs.mkdirSync(storage.uploadDir, { recursive: true });
 }
 
 // Startup invariant checks — warn on insecure config, exit on critical issues
-{
-  var startupChecks = require("./app/bootstrap/startup-checks");
-  startupChecks.run();
-}
+startupChecks.run();
 
 // Default admin account (first run only)
 if (users.count({}) === 0 && config.localAuth) {
@@ -42,8 +72,7 @@ if (users.count({}) === 0 && config.localAuth) {
 }
 
 // Initialize transaction helper with SQLite instance
-var txHelper = require("./app/data/db/transaction");
-txHelper.init(require("./lib/db").getDb ? require("./lib/db").getDb() : null);
+txHelper.init(db.getDb ? db.getDb() : null);
 
 // Middleware
 app.use(require("./middleware/request-id"));
@@ -64,11 +93,10 @@ app.use(serveStatic(path.join(__dirname, "public")));
 app.get("/health", function (req, res) {
   var origin = req.headers.origin || "";
   // Build allowed origins from rpOrigin (the app's own domain) + healthCorsOrigins (gateway domains)
-  var cfg = require("./lib/config");
   var allowed = [];
-  if (cfg.rpOrigin) allowed.push(cfg.rpOrigin);
-  if (cfg.healthCorsOrigins) {
-    cfg.healthCorsOrigins.forEach(function (o) { if (allowed.indexOf(o) === -1) allowed.push(o); });
+  if (config.rpOrigin) allowed.push(config.rpOrigin);
+  if (config.healthCorsOrigins) {
+    config.healthCorsOrigins.forEach(function (o) { if (allowed.indexOf(o) === -1) allowed.push(o); });
   }
   var corsHeader = allowed.indexOf(origin) !== -1 ? origin : (allowed[0] || "*");
   var headers = { "Content-Type": "application/json", "Vary": "Origin" };
@@ -77,18 +105,13 @@ app.get("/health", function (req, res) {
   res.end(JSON.stringify({ status: "ok", uptime: process.uptime(), timestamp: new Date().toISOString() }));
 });
 app.get("/sitemap.xml", function (req, res) {
-  var origin = require("./app/security/origin-policy").getOrigin();
+  var origin = originPolicy.getOrigin();
   var today = new Date().toISOString().split("T")[0];
   res.writeHead(200, { "Content-Type": "application/xml", "Cache-Control": "public, max-age=86400" });
   res.end('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n<url><loc>' + origin + '/</loc><lastmod>' + today + '</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>\n<url><loc>' + origin + '/drop</loc><lastmod>' + today + '</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>\n<url><loc>' + origin + '/privacy</loc><changefreq>monthly</changefreq><priority>0.3</priority></url>\n<url><loc>' + origin + '/terms</loc><changefreq>monthly</changefreq><priority>0.3</priority></url>\n</urlset>');
 });
 // Sync enrollment — before auth so unauthenticated clients can redeem codes
-app.post("/sync/enroll", require("./lib/rate-limit").middleware("sync-enroll", 5, 300000), async function (req, res) {
-  var { parseJson } = require("./lib/multipart");
-  var { sha3Hash } = require("./lib/crypto");
-  var { HASH_PREFIX } = require("./lib/constants");
-  var db = require("./lib/db");
-
+app.post("/sync/enroll", require("./lib/rate-limit").middleware("sync-enroll", 5, C.TIME.FIVE_MIN), async function (req, res) {
   try {
     var body = await parseJson(req);
     var code = String(body.code || "").trim().toUpperCase();
@@ -98,7 +121,7 @@ app.post("/sync/enroll", require("./lib/rate-limit").middleware("sync-enroll", 5
     }
 
     // Look up by hash
-    var codeHash = sha3Hash(HASH_PREFIX.ENROLLMENT + code);
+    var codeHash = sha3Hash(C.HASH_PREFIX.ENROLLMENT + code);
     var records = db.enrollmentCodes.find({ status: "pending" })
       .filter(function (r) { return r.codeHash === codeHash && r.expiresAt > new Date().toISOString(); });
 
@@ -116,19 +139,96 @@ app.post("/sync/enroll", require("./lib/rate-limit").middleware("sync-enroll", 5
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
       success: true,
-      apiKey: record.apiKey,
+      apiKey: record.apiKey || null,
       clientCert: record.clientCert,
       clientKey: record.clientKey,
       caCert: record.caCert,
       stashId: record.stashId || null,
       bundleId: record.bundleId || null,
+      reissue: record.reissue || false,
     }));
 
-    var audit = require("./lib/audit");
-    audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Sync enrollment code redeemed", req: req });
+    audit.log(audit.ACTIONS.ENROLLMENT_REDEEMED, { details: "Sync enrollment code redeemed", req: req });
   } catch (e) {
     res.writeHead(500, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "Enrollment failed." }));
+  }
+});
+
+// Sync cert renewal — authenticated via API key, no admin required
+app.post("/sync/renew-cert", require("./lib/rate-limit").middleware("sync-renew", 5, C.TIME.FIVE_MIN), async function (req, res) {
+  try {
+    // Authenticate via Bearer token
+    var authHeader = req.headers.authorization || "";
+    var token = authHeader.startsWith("Bearer ") ? authHeader.substring(7) : "";
+    if (!token) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ error: "API key required." }));
+    }
+
+    var keyHash = sha3Hash(token);
+    var apiKey = apiKeysRepo.findOne({ keyHash: keyHash });
+    if (!apiKey || !apiKey.permissions || apiKey.permissions.indexOf("sync") === -1) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ error: "Invalid or unauthorized API key." }));
+    }
+
+    // Require valid mTLS client certificate — proves possession of current cert
+    // Renewal requires both the API key AND the existing cert to prevent
+    // stolen-key-only attacks from obtaining new certificates
+    var peerCert = req.socket && req.socket.getPeerCertificate ? req.socket.getPeerCertificate() : null;
+    if (!peerCert || !peerCert.subject || !req.socket.authorized) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ error: "mTLS client certificate required for renewal." }));
+    }
+
+    // Verify the presented cert matches the API key's recorded fingerprint
+    // Fingerprint is stored as sha3Hash(PEM), so reconstruct PEM from DER to compare
+    if (apiKey.certFingerprint && peerCert.raw) {
+      var derB64 = peerCert.raw.toString("base64");
+      var pem = "-----BEGIN CERTIFICATE-----\n" + derB64.match(/.{1,64}/g).join("\n") + "\n-----END CERTIFICATE-----\n";
+      var presentedFp = sha3Hash(pem);
+      if (presentedFp !== apiKey.certFingerprint) {
+        res.writeHead(403, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ error: "Certificate does not match API key." }));
+      }
+    }
+
+    // Check cert is not revoked (indexed lookup, not full-table scan)
+    if (certUtils.isCertRevoked(peerCert.fingerprint256)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ error: "Certificate has been revoked." }));
+    }
+
+    // Generate new client certificate
+    mtlsCa.initCA();
+    var newCert = mtlsCa.generateClientCert(apiKey.prefix);
+    if (!newCert) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ error: "Certificate generation failed." }));
+    }
+
+    // Update cert tracking on the API key
+    apiKeysRepo.update(apiKey._id, { $set: {
+      certIssuedAt: newCert.issuedAt,
+      certExpiresAt: newCert.expiresAt,
+      certFingerprint: sha3Hash(newCert.cert),
+    }});
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      success: true,
+      clientCert: newCert.cert,
+      clientKey: newCert.key,
+      caCert: newCert.ca,
+      issuedAt: newCert.issuedAt,
+      expiresAt: newCert.expiresAt,
+    }));
+
+    audit.log(audit.ACTIONS.CERT_RENEWED, { details: "Sync client auto-renewed certificate: " + apiKey.prefix, req: req });
+  } catch (e) {
+    res.writeHead(500, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Certificate renewal failed." }));
   }
 });
 
@@ -208,14 +308,10 @@ require("./routes/stash")(app);
 // Sync file rename — API key authed, uses bundleId directly (sync clients don't have shareId)
 app.post("/sync/rename", require("./lib/rate-limit").middleware("sync-file-rename", 100, 60000), async function (req, res) {
   if (!req.apiKey) { res.writeHead(401, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: "Unauthorized." })); }
-  var { hasScope } = require("./app/security/scope-policy");
   if (!hasScope(req.apiKey, "sync") && !hasScope(req.apiKey, "admin")) { res.writeHead(403, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: "Forbidden." })); }
-  var { parseJson } = require("./lib/multipart");
-  var { handleSyncFileRename } = require("./app/domain/uploads/upload.handler");
   try {
     var body = await parseJson(req);
     // Verify bundle ownership before rename
-    var bundlesRepo = require("./app/data/repositories/bundles.repo");
     var bundle = bundlesRepo.findById(body.bundleId);
     if (!bundle) { res.writeHead(404, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: "Bundle not found." })); }
     if (!bundle.ownerId || bundle.ownerId !== req.apiKey.userId) { res.writeHead(403, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: "Forbidden." })); }
@@ -228,9 +324,9 @@ app.post("/sync/rename", require("./lib/rate-limit").middleware("sync-file-renam
     if (result.error) { res.writeHead(result.status || 400, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: result.error })); }
     res.json(result);
   } catch (err) {
-    console.error("[sync/rename] Error:", err.message, err.stack);
+    logger.error("[sync/rename] Error", { error: err.message, stack: err.stack });
     res.writeHead(500, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Rename failed: " + err.message }));
+    res.end(JSON.stringify({ error: "Rename failed." }));
   }
 });
 
@@ -243,54 +339,62 @@ app.onNotFound(function (req, res) {
 app.onError(errorHandler);
 
 // Scheduled tasks
-var scheduler = require("./lib/scheduler");
-var expiry = require("./lib/expiry");
-var db = require("./lib/db");
-scheduler.register("file_expiry_cleanup", 3600000, expiry.cleanupExpired); // hourly
-scheduler.register("email_sends_cleanup", 86400000, function () { // daily
+scheduler.register("file_expiry_cleanup", C.TIME.ONE_HOUR, expiry.cleanupExpired); // hourly
+scheduler.register("email_sends_cleanup", C.TIME.ONE_DAY, function () { // daily
   try {
-    var cutoff = new Date(Date.now() - 90 * 86400000).toISOString(); // 90 days
+    var cutoff = new Date(Date.now() - C.TIME.NINETY_DAYS).toISOString(); // 90 days
     db.rawExec("DELETE FROM email_sends WHERE createdAt < ?", cutoff);
   } catch (_e) {}
 });
-scheduler.register("expired_tokens_cleanup", 86400000, function () { // daily
+scheduler.register("expired_tokens_cleanup", C.TIME.ONE_DAY, function () { // daily
   try {
     var now = new Date().toISOString();
     db.rawExec("DELETE FROM verification_tokens WHERE expiresAt < ?", now);
   } catch (_e) {}
 });
-scheduler.register("expired_bundles_cleanup", 3600000, function () { // hourly
+scheduler.register("expired_bundles_cleanup", C.TIME.ONE_HOUR, function () { // hourly
   try {
     var now = new Date().toISOString();
     db.rawExec("DELETE FROM bundles WHERE status = 'uploading' AND createdAt < ?",
-      new Date(Date.now() - 24 * 3600000).toISOString()); // stale uploads > 24h
+      new Date(Date.now() - C.TIME.ONE_DAY).toISOString()); // stale uploads > 24h
   } catch (_e) {}
 });
-scheduler.register("chunk_gc", 3600000, function () { // hourly
-  try { require("./app/jobs/chunk-gc.job").cleanupStaleChunks(); } catch (_e) {}
+scheduler.register("chunk_gc", C.TIME.ONE_HOUR, function () { // hourly
+  try { chunkGcJob.cleanupStaleChunks(); } catch (_e) {}
 });
-scheduler.register("expired_invites_cleanup", 86400000, function () { // daily
+scheduler.register("expired_invites_cleanup", C.TIME.ONE_DAY, function () { // daily
   try {
     var now = new Date().toISOString();
     db.rawExec("DELETE FROM invites WHERE status = 'pending' AND expiresAt < ?", now);
   } catch (_e) {}
 });
-scheduler.register("tombstone_cleanup", 86400000, function () { // daily
-  try { require("./app/jobs/expiry-cleanup.job").cleanupTombstones(); } catch (_e) {}
+scheduler.register("tombstone_cleanup", C.TIME.ONE_DAY, function () { // daily
+  try { expiryCleanupJob.cleanupTombstones(); } catch (_e) {}
 });
-scheduler.register("expired_enrollment_codes_cleanup", 3600000, function () { // hourly
-  try { require("./app/jobs/expiry-cleanup.job").cleanupExpiredEnrollmentCodes(); } catch (_e) {}
+scheduler.register("expired_enrollment_codes_cleanup", C.TIME.ONE_HOUR, function () { // hourly
+  try { expiryCleanupJob.cleanupExpiredEnrollmentCodes(); } catch (_e) {}
 });
-scheduler.register("expired_access_codes_cleanup", 3600000, function () { // hourly
-  try { require("./app/jobs/expiry-cleanup.job").cleanupExpiredAccessCodes(); } catch (_e) {}
+scheduler.register("expired_access_codes_cleanup", C.TIME.ONE_HOUR, function () { // hourly
+  try { expiryCleanupJob.cleanupExpiredAccessCodes(); } catch (_e) {}
 });
-scheduler.register("incremental_vacuum", 86400000, function () { // daily
+scheduler.register("orphan_storage_cleanup", C.TIME.ONE_DAY, async function () { // daily
+  try {
+    var local = orphanCleanupJob.scanLocalOrphans();
+    var deleted = orphanCleanupJob.deleteLocalOrphans(local.orphans);
+    if (deleted > 0) logger.info("[orphan-cleanup] Removed " + deleted + " orphaned local files");
+  } catch (_e) {}
+});
+scheduler.register("cert_expiry_check", C.TIME.ONE_DAY, function () { // daily
+  try { certExpiryJob.run(); } catch (_e) {}
+});
+scheduler.register("incremental_vacuum", C.TIME.ONE_DAY, function () { // daily
   try { db.rawExec("PRAGMA incremental_vacuum(100)"); } catch (_e) {} // reclaim ~100 pages
 });
-scheduler.register("shm_usage_monitor", 300000, function () { // every 5 minutes
-  var tmpdir = process.env.HERMITSTASH_TMPDIR || "/dev/shm";
+scheduler.register("shm_usage_monitor", C.TIME.FIVE_MIN, function () { // every 5 minutes
+  if (process.platform === "win32") return; // statfsSync not available on Windows
+  var tmpdir = process.env.HERMITSTASH_TMPDIR || (fs.existsSync("/dev/shm") ? "/dev/shm" : null);
+  if (!tmpdir) return;
   try {
-    var fs = require("fs");
     var stats = fs.statfsSync(tmpdir);
     var totalMB = Math.round(stats.blocks * stats.bsize / 1048576);
     var usedMB = Math.round((stats.blocks - stats.bfree) * stats.bsize / 1048576);
@@ -303,15 +407,15 @@ scheduler.register("shm_usage_monitor", 300000, function () { // every 5 minutes
   } catch (_e) {} // statfsSync not available on all platforms
 });
 if (config.backup && config.backup.enabled) {
-  scheduler.register("backup", config.backup.schedule || 86400000, function () {
-    return require("./app/jobs/backup.job").run();
-  });
+  scheduler.register("backup", config.backup.schedule || C.TIME.ONE_DAY, function () {
+    return backupJob.run();
+  }, { skipInitial: true });
 }
 scheduler.start();
 
 // TLS configuration — conditional HTTPS with PQC hybrid key exchange
-var TLS_CERT = process.env.TLS_CERT || "/app/data/tls/fullchain.pem";
-var TLS_KEY = process.env.TLS_KEY || "/app/data/tls/privkey.pem";
+var TLS_CERT = process.env.TLS_CERT || path.join(C.PATHS.TLS_DIR, "fullchain.pem");
+var TLS_KEY = process.env.TLS_KEY || path.join(C.PATHS.TLS_DIR, "privkey.pem");
 var PQC_ENFORCE = process.env.PQC_ENFORCE !== "false"; // default: true
 var INTERNAL_TLS_PORT = parseInt(process.env.INTERNAL_TLS_PORT, 10) || 3001;
 var tlsOptions = null;
@@ -319,16 +423,15 @@ var tlsEnabled = false;
 
 if (fs.existsSync(TLS_CERT) && fs.existsSync(TLS_KEY)) {
   try {
-    var { caExists, CA_CERT_PATH: mtlsCaPath } = require("./lib/mtls-ca");
-    var mtlsCa = caExists() ? fs.readFileSync(mtlsCaPath) : null;
+    var mtlsCaCert = mtlsCa.caExists() ? fs.readFileSync(mtlsCa.CA_CERT_PATH) : null;
     tlsOptions = {
       cert: fs.readFileSync(TLS_CERT),
       key: fs.readFileSync(TLS_KEY),
       groups: C.TLS_GROUP_PREFERENCE,
       minVersion: "TLSv1.3",
-      requestCert: !!mtlsCa,
+      requestCert: !!mtlsCaCert,
       rejectUnauthorized: false, // enforce per-route, not globally (browsers won't have certs)
-      ca: mtlsCa ? [mtlsCa] : undefined,
+      ca: mtlsCaCert ? [mtlsCaCert] : undefined,
     };
     tlsEnabled = true;
     logger.info("[TLS] PQC TLS enabled", { groups: C.TLS_GROUP_PREFERENCE.join(" + ") });
@@ -350,7 +453,6 @@ if (tlsEnabled && PQC_ENFORCE) {
     logger.info("[PQC] Internal HTTPS server listening on 127.0.0.1:" + INTERNAL_TLS_PORT);
   }, tlsOptions, "127.0.0.1");
 
-  var { createPQCGate } = require("./lib/pqc-gate");
   gateServer = createPQCGate(INTERNAL_TLS_PORT);
   gateServer.listen(config.port, function () {
     logger.info("HermitStash is running", {
@@ -384,7 +486,7 @@ server.timeout = config.uploadTimeout;
 
 // Certificate reload on renewal (Let's Encrypt certs update on disk)
 if (tlsEnabled) {
-  fs.watchFile(TLS_CERT, { interval: 3600000 }, function () {
+  fs.watchFile(TLS_CERT, { interval: C.TIME.ONE_HOUR }, function () {
     try {
       var newContext = {
         cert: fs.readFileSync(TLS_CERT),
@@ -401,10 +503,6 @@ if (tlsEnabled) {
 }
 
 // ---- WebSocket Sync Channel ----
-var { acceptUpgrade, rejectUpgrade } = require("./lib/ws");
-var syncEmitter = require("./lib/sync-emitter");
-var bundlesRepo = require("./app/data/repositories/bundles.repo");
-var filesRepo = require("./app/data/repositories/files.repo");
 
 // Connection registry: Map<bundleId, Set<{ws, apiKeyId}>>
 var syncConnections = new Map();
@@ -418,7 +516,6 @@ var SYNC_MAX_MESSAGE_SIZE = 65536;
 
 server.on("upgrade", function (req, socket, head) {
   // Parse URL
-  var url = require("node:url");
   var parsed = url.parse(req.url, true);
   if (parsed.pathname !== "/sync/ws") {
     // Not a sync WebSocket — ignore (let other handlers take it, or close)
@@ -427,7 +524,7 @@ server.on("upgrade", function (req, socket, head) {
   }
 
   // mTLS check (if CA is configured) — client must present a valid cert
-  if (mtlsCa) {
+  if (mtlsCaCert) {
     var peerCert = socket.getPeerCertificate ? socket.getPeerCertificate() : null;
     if (!peerCert || !peerCert.subject || !socket.authorized) {
       // mTLS not strictly required for now — log but allow (API key still required)
@@ -436,11 +533,16 @@ server.on("upgrade", function (req, socket, head) {
         return rejectUpgrade(socket, 403, "Forbidden");
       }
     } else {
-      // Check revocation list
-      var certFpHash = require("./lib/crypto").sha3Hash("hs-certfp:" + peerCert.fingerprint256);
-      var revoked = require("./lib/db").certRevocations.find({}).filter(function (r) { return r.fingerprintHash === certFpHash; });
-      if (revoked.length > 0) {
+      // Check revocation list (indexed lookup, not full-table scan)
+      if (certUtils.isCertRevoked(peerCert.fingerprint256)) {
         return rejectUpgrade(socket, 403, "Forbidden");
+      }
+      // Check certificate expiry
+      if (peerCert.valid_to) {
+        var certExpiry = new Date(peerCert.valid_to);
+        if (certExpiry < new Date()) {
+          return rejectUpgrade(socket, 403, "Certificate expired");
+        }
       }
     }
   }
@@ -458,17 +560,13 @@ server.on("upgrade", function (req, socket, head) {
   }
 
   // Validate API key using the same mechanism as api-auth middleware
-  var { sha3Hash: sha3 } = require("./lib/crypto");
-  var apiKeysDb = require("./lib/db").apiKeys;
-  var usersRepo = require("./app/data/repositories/users.repo");
-  var keyHash = sha3(token);
-  var apiKey = apiKeysDb.findOne({ keyHash: keyHash });
+  var keyHash = sha3Hash(token);
+  var apiKey = db.apiKeys.findOne({ keyHash: keyHash });
   if (!apiKey) {
     return rejectUpgrade(socket, 401, "Unauthorized");
   }
 
   // Check sync scope
-  var { hasScope } = require("./app/security/scope-policy");
   if (!hasScope(apiKey, "sync") && !hasScope(apiKey, "admin")) {
     return rejectUpgrade(socket, 403, "Forbidden");
   }
@@ -642,6 +740,16 @@ function gracefulShutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   logger.info("Shutdown initiated", { signal: signal });
+
+  // Close all WebSocket connections so server.close() can drain
+  syncConnections.forEach(function (conns) {
+    conns.forEach(function (entry) {
+      try { if (entry.ws && entry.ws.readyState === 1) entry.ws.close(1001, "Server shutting down"); } catch (_e) {}
+    });
+  });
+
+  // Unwatch TLS cert to remove persistent file watcher
+  if (tlsEnabled) try { fs.unwatchFile(TLS_CERT); } catch (_e) {}
 
   // Stop accepting new connections
   if (gateServer) gateServer.close();

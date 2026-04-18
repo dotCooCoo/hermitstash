@@ -9,6 +9,7 @@
  * Register handlers:
  *   queue.register("webhook-dispatch", async (data) => { ... });
  */
+var logger = require("../shared/logger");
 var audit = require("../../lib/audit");
 
 var handlers = {};
@@ -42,7 +43,7 @@ async function processNext() {
 
   var handler = handlers[job.type];
   if (!handler) {
-    console.error("No handler for job type:", job.type);
+    logger.error("No handler for job type", { jobType: job.type });
     processing = false;
     if (pending.length > 0) processNext();
     return;
@@ -67,7 +68,7 @@ async function processNext() {
           details: "Job " + job.type + " failed after " + job.attempts + " attempts: " + (e.message || String(e)),
         });
       } catch (ae) {}
-      console.error("Job dead-lettered:", job.type, e.message);
+      logger.error("Job dead-lettered", { jobType: job.type, error: e.message });
     }
   }
 

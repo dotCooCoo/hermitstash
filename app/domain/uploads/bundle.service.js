@@ -3,6 +3,7 @@
  * Handles bundle initialization, finalization, and validation.
  */
 var bundlesRepo = require("../../data/repositories/bundles.repo");
+var { TIME } = require("../../../lib/constants");
 var { hashPassword, sha3Hash, generateShareId, generateToken } = require("../../../lib/crypto");
 var { getTotalStorageUsed } = require("../../../lib/db");
 var { ValidationError, NotFoundError, ForbiddenError } = require("../../shared/errors");
@@ -30,8 +31,8 @@ async function initBundle(opts) {
   var message = opts.message ? String(opts.message).slice(0, 2000) : null;
   var expiryDays = parseInt(opts.expiryDays, 10) || 0;
   var defaultExpiry = opts.defaultExpiryDays || 0;
-  var expiresAt = (expiryDays > 0) ? new Date(Date.now() + expiryDays * 86400000).toISOString()
-    : (defaultExpiry > 0 ? new Date(Date.now() + defaultExpiry * 86400000).toISOString() : null);
+  var expiresAt = (expiryDays > 0) ? new Date(Date.now() + expiryDays * TIME.ONE_DAY).toISOString()
+    : (defaultExpiry > 0 ? new Date(Date.now() + defaultExpiry * TIME.ONE_DAY).toISOString() : null);
 
   // Email-gated access: clean and validate allowed emails
   var allowedEmails = null;

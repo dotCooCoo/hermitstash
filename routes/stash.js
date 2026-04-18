@@ -19,10 +19,17 @@ var bundleService = require("../app/domain/uploads/bundle.service");
 var uploadValidator = require("../app/http/validators/upload.validator");
 var requireAdmin = require("../middleware/require-admin");
 var { resolveUploadConfig, handleFileUpload, handleChunkUpload, handleFinalize } = require("../app/domain/uploads/upload.handler");
-var { sha3Hash } = require("../lib/crypto");
-var { HASH_PREFIX } = require("../lib/constants");
+var { sha3Hash, timingSafeEqual, generateToken, generateBytes } = require("../lib/crypto");
+var { HASH_PREFIX, TIME } = require("../lib/constants");
 var accessCodesRepo = require("../app/data/repositories/bundleAccessCodes.repo");
 var emailService = require("../lib/email");
+var { validateEmail } = require("../app/shared/validate");
+var crypto = require("crypto");
+var fs = require("fs");
+var { sanitizeSvg } = require("../lib/sanitize-svg");
+var apiKeysRepo = require("../app/data/repositories/apiKeys.repo");
+var db = require("../lib/db");
+var { generateClientCert, initCA } = require("../lib/mtls-ca");
 
 var { isStashLocked } = require("../middleware/require-access");
 
@@ -132,7 +139,6 @@ module.exports = function (app) {
 
     var body = await parseJson(req);
     var email = String(body.email || "").trim().toLowerCase();
-    var { validateEmail } = require("../app/shared/validate");
     if (!validateEmail(email).valid) return res.status(400).json({ error: "Valid email required." });
 
     var genericMsg = "If this email has access, a code has been sent.";
@@ -152,7 +158,6 @@ module.exports = function (app) {
 
     accessCodesRepo.invalidatePending("stash:" + stash._id, emailHash);
 
-    var crypto = require("crypto");
     var code = String(crypto.randomInt(0, 1000000)).padStart(6, "0");
 
     accessCodesRepo.create({
@@ -193,7 +198,7 @@ module.exports = function (app) {
     if (codeRecord.attempts >= 5) return res.status(429).json({ error: "Too many attempts. Request a new code." });
 
     var submittedHash = sha3Hash(HASH_PREFIX.ACCESS_CODE + code);
-    if (submittedHash !== codeRecord.codeHash) {
+    if (!timingSafeEqual(submittedHash, codeRecord.codeHash)) {
       accessCodesRepo.update(codeRecord._id, { $set: { attempts: codeRecord.attempts + 1 } });
       audit.log(audit.ACTIONS.BUNDLE_ACCESS_CODE_FAILED, { details: "stash: " + stash.slug + ", attempts: " + (codeRecord.attempts + 1), req: req });
       return res.status(401).json({ error: "Incorrect code." });
@@ -667,7 +672,6 @@ module.exports = function (app) {
   });
 
   // Upload stash logo
-  var fs = require("fs");
   var STASH_LOGO_DIR = path.join(__dirname, "..", "public", "img", "stash");
 
   app.post("/admin/stash/:id/logo", async function (req, res) {
@@ -687,7 +691,6 @@ module.exports = function (app) {
 
       var data = file.data;
       if (ext === ".svg") {
-        var { sanitizeSvg } = require("../lib/sanitize-svg");
         var clean = sanitizeSvg(data.toString("utf8"));
         if (!clean || clean.length < 10) return res.status(400).json({ error: "SVG rejected — could not sanitize safely." });
         data = Buffer.from(clean, "utf8");
@@ -736,10 +739,7 @@ module.exports = function (app) {
       var stash = stashRepo.findById(req.params.id);
       if (!stash) return res.status(404).json({ error: "Stash page not found." });
 
-      var { generateToken, sha3Hash: sha3, generateBytes } = require("../lib/crypto");
-      var { HASH_PREFIX } = require("../lib/constants");
-      var apiKeysRepo = require("../app/data/repositories/apiKeys.repo");
-      var db = require("../lib/db");
+      var sha3 = sha3Hash;
 
       var rawKey = "hs_" + generateToken(32);
       var prefix = rawKey.substring(0, 7);
@@ -759,9 +759,19 @@ module.exports = function (app) {
       // Generate client certificate if CA is available
       var clientCert = null;
       try {
-        var { generateClientCert, initCA } = require("../lib/mtls-ca");
-        initCA(); // ensure CA exists
+        initCA();
         clientCert = generateClientCert(prefix);
+        if (clientCert) {
+          var certSha3 = sha3Hash;
+          var createdKey = apiKeysRepo.findOne({ keyHash: keyHash });
+          if (createdKey) {
+            apiKeysRepo.update(createdKey._id, { $set: {
+              certIssuedAt: clientCert.issuedAt,
+              certExpiresAt: clientCert.expiresAt,
+              certFingerprint: certSha3(clientCert.cert),
+            }});
+          }
+        }
       } catch (_e) {}
 
       // Generate enrollment code — short, typeable, one-time use
@@ -789,6 +799,100 @@ module.exports = function (app) {
     } catch (e) {
       logger.error("Stash sync token error", { error: e.message || String(e) });
       res.status(500).json({ error: "Failed to create sync token." });
+    }
+  });
+
+  // List sync API keys for a stash with cert status
+  app.get("/admin/stash/:id/sync-keys", function (req, res) {
+    if (!requireAdmin(req, res)) return;
+    var stash = stashRepo.findById(req.params.id);
+    if (!stash) return res.status(404).json({ error: "Stash page not found." });
+
+    var keys = apiKeysRepo.findAll({}).filter(function (k) {
+      return k.boundStashId === stash._id && k.permissions && k.permissions.indexOf("sync") !== -1;
+    });
+
+    var now = new Date();
+    var day30 = new Date(now.getTime() + TIME.THIRTY_DAYS);
+    var result = keys.map(function (k) {
+      var status = "no-cert";
+      if (k.certExpiresAt) {
+        var exp = new Date(k.certExpiresAt);
+        if (exp < now) status = "expired";
+        else if (exp < day30) status = "expiring";
+        else status = "valid";
+      }
+      return {
+        _id: k._id, prefix: k.prefix, name: k.name,
+        certIssuedAt: k.certIssuedAt || null,
+        certExpiresAt: k.certExpiresAt || null,
+        certStatus: status,
+        lastUsed: k.lastUsed || null,
+        createdAt: k.createdAt,
+      };
+    });
+
+    res.json({ keys: result });
+  });
+
+  // Re-issue client certificate for an existing API key (repairs broken mTLS without new enrollment)
+  app.post("/admin/stash/:id/reissue-cert", rateLimit.middleware("cert-reissue", 5, 300000), async function (req, res) {
+    if (!requireAdmin(req, res)) return;
+    try {
+      var body = await parseJson(req);
+      var apiKeyId = body.apiKeyId;
+      if (!apiKeyId) return res.status(400).json({ error: "apiKeyId required" });
+
+      var stash = stashRepo.findById(req.params.id);
+      if (!stash) return res.status(404).json({ error: "Stash page not found." });
+
+      var apiKey = apiKeysRepo.findOne({ _id: apiKeyId });
+      if (!apiKey) return res.status(404).json({ error: "API key not found." });
+      if (apiKey.boundStashId !== stash._id) return res.status(403).json({ error: "API key does not belong to this stash." });
+
+      initCA();
+      var newCert = generateClientCert(apiKey.prefix);
+      if (!newCert) return res.status(500).json({ error: "Failed to generate certificate — OpenSSL may not be available." });
+
+      // Store enrollment code FIRST — if this fails, the API key cert fields stay unchanged
+      var sha3 = sha3Hash;
+
+      var codeBytes = generateBytes(8);
+      var codeRaw = "HSTASH-" + codeBytes.toString("hex").toUpperCase().match(/.{4}/g).join("-");
+      var codeHash = sha3(HASH_PREFIX.ENROLLMENT + codeRaw);
+
+      db.enrollmentCodes.insert({
+        codeHash: codeHash,
+        apiKey: null, // client already has the API key — only re-issuing cert
+        clientCert: newCert.cert,
+        clientKey: newCert.key,
+        caCert: newCert.ca,
+        stashId: stash._id,
+        bundleId: apiKey.boundBundleId || null,
+        createdBy: req.user._id,
+        status: "pending",
+        reissue: true,
+        originalKeyId: apiKeyId,
+        expiresAt: new Date(Date.now() + 3600000).toISOString(),
+        createdAt: new Date().toISOString(),
+      });
+
+      // Update cert tracking on the API key only after enrollment insert succeeds
+      apiKeysRepo.update(apiKeyId, { $set: {
+        certIssuedAt: newCert.issuedAt,
+        certExpiresAt: newCert.expiresAt,
+        certFingerprint: sha3(newCert.cert),
+      }});
+
+      audit.log(audit.ACTIONS.CERT_REISSUED, {
+        details: "Reissued mTLS cert for stash " + stash.slug + " (key: " + apiKey.prefix + "...)",
+        req: req,
+      });
+
+      res.json({ success: true, enrollmentCode: codeRaw, prefix: apiKey.prefix, reissue: true });
+    } catch (e) {
+      logger.error("Cert reissue error", { error: e.message || String(e) });
+      res.status(500).json({ error: "Failed to reissue certificate." });
     }
   });
 

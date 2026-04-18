@@ -189,11 +189,13 @@ module.exports = function apiEncrypt(req, res, next) {
           response._ek = result.ek;
           response._epk = result.epk;
           response._kem = result.kem;
-        } catch (_hybridErr) {
-          // Hybrid ECIES failed — no key exchange for this client.
-          // Browser clients get the key via template embedding (res._apiKey).
-          // This is not an error for browser sessions — only mTLS API clients
-          // need the hybrid key exchange.
+        } catch (hybridErr) {
+          // For mTLS sync clients, ECIES failure means no key exchange — log and warn.
+          // Browser clients get the key via template embedding (res._apiKey) so this is non-fatal for them.
+          if (req.socket && req.socket.authorized) {
+            var logger = require("../app/shared/logger");
+            logger.error("[api-encrypt] Hybrid ECIES failed for mTLS client", { error: hybridErr.message });
+          }
         }
       }
       isNewSession = false;

@@ -574,9 +574,9 @@ async function vaultBatchDel(batchId,count){
 
 async function vaultDel(shareId){
   if(!confirm('Delete this vault file? This cannot be undone.'))return;
-  await fetch('/vault/delete/'+shareId,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-  var el=document.getElementById('vf-'+shareId);if(el)el.remove();
-  if(!document.querySelector('#vaultFileList .admin-user-row'))document.getElementById('vaultEmpty').style.display='block';
+  var r=await fetch('/vault/delete/'+shareId,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  if(r.ok){var el=document.getElementById('vf-'+shareId);if(el)el.remove();if(!document.querySelector('#vaultFileList .admin-user-row'))document.getElementById('vaultEmpty').style.display='block'}
+  else{var d=await r.json().catch(function(){return{}});alert(d.error||'Delete failed')}
 }
 
 async function forceResetVault(){

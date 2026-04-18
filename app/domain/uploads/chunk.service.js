@@ -41,9 +41,9 @@ function validateChunkMeta(fields) {
  * Returns the absolute chunk directory path.
  */
 function resolveChunkDir(bundleShareId, fileId) {
-  var chunkDir = path.join(config.storage.uploadDir, "chunks", bundleShareId, fileId);
+  var chunkDir = path.join(storage.uploadDir, "chunks", bundleShareId, fileId);
   var resolvedDir = path.resolve(chunkDir);
-  var resolvedBase = path.resolve(config.storage.uploadDir);
+  var resolvedBase = path.resolve(storage.uploadDir);
   if (!resolvedDir.startsWith(resolvedBase)) {
     throw new ValidationError("Invalid path.");
   }

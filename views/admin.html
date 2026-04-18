@@ -585,6 +585,39 @@
             </div>
           </div>
         </div>
+        <!-- Storage Migration (visible when S3 is configured) -->
+        <div id="migrationSection" style="display:none">
+          <div class="settings-divider"></div>
+          <h4 style="margin:0 0 8px;font-weight:600">Storage Migration</h4>
+          <p style="font-size:.82rem;color:var(--muted);margin:0 0 16px;line-height:1.5">Move all files between local disk and S3. Files are copied as raw ciphertext — no re-encryption needed. Source files are deleted after successful transfer.</p>
+          <div class="settings-field" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <select class="text-input" id="migrationDirection" style="width:auto;min-width:180px">
+              <option value="local-to-s3">Local → S3</option>
+              <option value="s3-to-local">S3 → Local</option>
+            </select>
+            <button class="butn butn-bord-thin butn-sm radius-30" onclick="previewMigration()"><span>Preview</span></button>
+            <button class="butn butn-bg butn-sm radius-30" id="migrationStartBtn" onclick="startMigration()"><span>Start Migration</span></button>
+          </div>
+          <div id="migrationPreview" style="font-size:.85rem;margin-top:12px;display:none"></div>
+          <div id="migrationProgress" style="margin-top:12px;display:none">
+            <div style="background:rgba(255,255,255,.06);border-radius:8px;height:8px;overflow:hidden;margin-bottom:8px">
+              <div id="migrationBar" style="height:100%;background:var(--main-color);border-radius:8px;transition:width .3s;width:0%"></div>
+            </div>
+            <div id="migrationStatus" style="font-size:.82rem;color:var(--muted)"></div>
+          </div>
+        </div>
+
+        <!-- Storage Health (always visible) -->
+        <div class="settings-divider"></div>
+        <h4 style="margin:0 0 8px;font-weight:600">Storage Health</h4>
+        <p style="font-size:.82rem;color:var(--muted);margin:0 0 16px;line-height:1.5">Scan for orphaned files on disk or S3 that have no database record. These are unreachable and waste storage.</p>
+        <div class="settings-field" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <button class="butn butn-bord-thin butn-sm radius-30" onclick="scanOrphans()"><span>Scan</span></button>
+          <button class="butn butn-bg butn-sm radius-30" id="orphanCleanBtn" style="display:none" onclick="cleanOrphans()"><span>Clean Up</span></button>
+          <span id="orphanResult" style="font-size:.85rem"></span>
+        </div>
+        <div id="orphanDetails" style="font-size:.82rem;color:var(--muted);margin-top:8px;display:none"></div>
+
         <div class="settings-actions">
           <button class="butn butn-bord-thin butn-sm radius-30" onclick="openHelp('storage')"><span>? Setup Guide</span></button>
           <button class="butn butn-bg butn-sm radius-30" onclick="saveTab('storage')"><span>Save Storage</span></button>
@@ -726,10 +759,11 @@
           </div>
           <div class="settings-field">
             <label class="settings-label">Backup Scope</label>
-            <select class="text-input" id="s-backupScope" data-key="backupScope" style="max-width:240px">
+            <select class="text-input" id="s-backupScope" data-key="backupScope" style="max-width:240px" onchange="toggleBackupScopeWarning()">
               <option value="db">Database only (recommended)</option>
               <option value="full">Full (database + files)</option>
             </select>
+            <div id="backupScopeWarning" style="display:none;font-size:.82rem;color:var(--muted);margin-top:8px;line-height:1.5"></div>
           </div>
           <div class="settings-field">
             <label class="settings-label">Schedule</label>
@@ -803,6 +837,31 @@
         <div class="settings-divider" style="margin:28px 0"></div>
         <h4 style="margin:0 0 16px;font-weight:600">Backup History</h4>
         <div id="backupHistoryTable" style="font-size:.85rem;color:var(--muted)">Loading...</div>
+
+        <div class="settings-divider" style="margin:28px 0"></div>
+        <h4 style="margin:0 0 8px;font-weight:600">Restore from Backup</h4>
+        <p style="font-size:.82rem;color:var(--muted);margin:0 0 16px;line-height:1.5">Select a backup and enter the passphrase to restore. This replaces vault.key, db.key.enc, and hermitstash.db.enc. The server will restart after restore completes.</p>
+        <div class="settings-field">
+          <label class="settings-label">Select Backup</label>
+          <select class="text-input" id="restoreBackupSelect" onchange="onRestoreSelect()" style="max-width:400px">
+            <option value="">-- Select a backup --</option>
+          </select>
+        </div>
+        <div id="restoreBackupInfo" style="display:none;font-size:.82rem;color:var(--muted);margin:8px 0 16px;padding:12px 16px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px"></div>
+        <div class="settings-field">
+          <label class="settings-label">Backup Passphrase</label>
+          <input type="password" class="text-input" id="restorePassphrase" placeholder="Enter backup passphrase" style="max-width:400px">
+        </div>
+        <div class="settings-field" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <button class="butn butn-bg butn-sm radius-30" style="background:var(--red,#f24e6a);border-color:var(--red,#f24e6a)" id="restoreBtn" onclick="startRestore()"><span>Restore Backup</span></button>
+          <span id="restoreResult" style="font-size:.85rem"></span>
+        </div>
+        <div id="restoreProgress" style="margin-top:12px;display:none">
+          <div style="background:rgba(255,255,255,.06);border-radius:8px;height:8px;overflow:hidden;margin-bottom:8px">
+            <div id="restoreBar" style="height:100%;background:var(--main-color);border-radius:8px;transition:width .3s;width:0%"></div>
+          </div>
+          <div id="restoreStep" style="font-size:.82rem;color:var(--muted)"></div>
+        </div>
       </div>
 
     </div>
@@ -1364,22 +1423,151 @@ function showTab(name){
 }
 
 // ---- Backup tab ----
+function toggleBackupScopeWarning(){
+  var scope=(document.getElementById('s-backupScope')||{}).value;
+  var backend=(document.getElementById('s-storageBackend')||{}).value||'local';
+  var el=document.getElementById('backupScopeWarning');
+  if(!el)return;
+  if(scope==='full'&&backend==='s3'){
+    el.style.display='block';
+    el.textContent='Full backups with S3 storage will copy all files from your storage bucket to the backup bucket. This may take longer and incur data transfer costs.';
+  }else{
+    el.style.display='none';
+  }
+}
 var _backupHistoryLoaded=false;
 function loadBackupHistory(){
   if(_backupHistoryLoaded)return;_backupHistoryLoaded=true;
   var el=document.getElementById('backupHistoryTable');
   fetch('/admin/backup/history',{headers:{'Content-Type':'application/json'}}).then(function(r){return r.json()}).then(function(d){
     if(!d.success||!d.history||d.history.length===0){el.textContent='No backups found.';return}
-    var html='<table style="width:100%;border-collapse:collapse;font-size:.82rem"><thead><tr style="border-bottom:1px solid var(--border)"><th style="text-align:left;padding:8px 6px">Date</th><th>Scope</th><th>DB</th><th>Files</th><th>Size</th><th>Time</th><th>Status</th></tr></thead><tbody>';
+    var tbl=document.createElement('table');tbl.style.cssText='width:100%;border-collapse:collapse;font-size:.82rem';
+    var thead=document.createElement('thead');
+    var hr=document.createElement('tr');hr.style.borderBottom='1px solid var(--border)';
+    ['Date','Scope','Backend','DB','Files','Size','Time',''].forEach(function(t){var th=document.createElement('th');th.textContent=t;th.style.padding='8px 6px';if(t!=='Date')th.style.textAlign='center';hr.appendChild(th)});
+    thead.appendChild(hr);tbl.appendChild(thead);
+    var tbody=document.createElement('tbody');
+    var currentBackend=(document.getElementById('s-storageBackend')||{}).value||'local';
     d.history.forEach(function(b){
-      var size=b.totalSize?(b.totalSize/1048576).toFixed(1)+' MB':'-';
-      var dur=b.durationMs?(b.durationMs/1000).toFixed(1)+'s':'-';
+      var tr=document.createElement('tr');tr.style.borderBottom='1px solid var(--border)';
       var date=b.timestamp?new Date(b.timestamp).toLocaleString():'-';
-      html+='<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px">'+date+'</td><td style="text-align:center">'+((b.scope)||'-')+'</td><td style="text-align:center">'+(b.dbFiles||0)+'</td><td style="text-align:center">'+(b.uploadFiles||0)+'</td><td style="text-align:center">'+size+'</td><td style="text-align:center">'+dur+'</td><td style="text-align:center">'+(b.status||'-')+'</td></tr>';
+      var backendLabel=b.storageBackend||'unknown';
+      var mismatch=b.storageBackend&&b.storageBackend!==currentBackend;
+      var cells=[date,b.scope||'-',backendLabel,b.dbFiles||0,b.uploadFiles||0,b.totalSize?(b.totalSize/1048576).toFixed(1)+' MB':'-',b.durationMs?(b.durationMs/1000).toFixed(1)+'s':'-'];
+      cells.forEach(function(v,i){var td=document.createElement('td');td.style.padding='6px';if(i>0)td.style.textAlign='center';td.textContent=v;if(i===2&&mismatch){td.style.color='var(--red,#f24e6a)';td.title='Backup was taken on '+backendLabel+' but current backend is '+currentBackend+'. Restoring this backup will break file paths.'}tr.appendChild(td)});
+      var delTd=document.createElement('td');delTd.style.cssText='padding:6px;text-align:center';
+      var delBtn=document.createElement('button');delBtn.style.cssText='background:none;border:none;color:var(--muted);cursor:pointer;font-size:.75rem;padding:4px 8px;opacity:.6;transition:opacity .2s';
+      delBtn.textContent='Delete';delBtn.title='Delete this backup';
+      delBtn.onmouseover=function(){this.style.opacity='1';this.style.color='var(--red,#f24e6a)'};
+      delBtn.onmouseout=function(){this.style.opacity='.6';this.style.color='var(--muted)'};
+      (function(ts,row){delBtn.onclick=function(){deleteBackup(ts,row)}})(b.timestamp,tr);
+      delTd.appendChild(delBtn);tr.appendChild(delTd);
+      tbody.appendChild(tr);
     });
-    html+='</tbody></table>';
-    el.innerHTML=html;
+    tbl.appendChild(tbody);
+    el.textContent='';el.appendChild(tbl);
+    // Show restore warning if latest backup has mismatched backend
+    if(d.history.length>0&&d.history[0].storageBackend&&d.history[0].storageBackend!==currentBackend){
+      var warn=document.createElement('p');warn.style.cssText='margin-top:12px;font-size:.82rem;color:var(--red,#f24e6a);line-height:1.5';
+      warn.textContent='Warning: Latest backup was created with '+d.history[0].storageBackend+' storage but current backend is '+currentBackend+'. Restoring this backup without migrating files back will break all download links.';
+      el.appendChild(warn);
+    }
+    populateRestoreSelect(d.history);
   }).catch(function(e){el.textContent='Failed to load: '+e.message});
+}
+function deleteBackup(timestamp,row){
+  var date=new Date(timestamp).toLocaleString();
+  if(!confirm('Delete backup from '+date+'?\n\nThis cannot be undone.'))return;
+  fetch('/admin/backup/delete',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({timestamp:timestamp})})
+    .then(function(r){return r.json()})
+    .then(function(d){
+      if(d.error){alert('Delete failed: '+d.error);return}
+      row.remove();
+      _backupHistoryLoaded=false;loadBackupHistory();
+    })
+    .catch(function(e){alert('Delete failed: '+e.message)});
+}
+var _restoreHistory=[];
+function populateRestoreSelect(history){
+  _restoreHistory=history||[];
+  var sel=document.getElementById('restoreBackupSelect');
+  sel.length=1; // keep the placeholder
+  for(var i=0;i<_restoreHistory.length;i++){
+    var b=_restoreHistory[i];
+    if(b.status!=='completed')continue;
+    var opt=document.createElement('option');
+    opt.value=b.timestamp;
+    var date=new Date(b.timestamp).toLocaleString();
+    opt.textContent=date+' — '+b.scope+(b.storageBackend?' ('+b.storageBackend+')':'');
+    sel.appendChild(opt);
+  }
+}
+function onRestoreSelect(){
+  var ts=document.getElementById('restoreBackupSelect').value;
+  var info=document.getElementById('restoreBackupInfo');
+  if(!ts){info.style.display='none';return}
+  var b=null;
+  for(var i=0;i<_restoreHistory.length;i++){if(_restoreHistory[i].timestamp===ts){b=_restoreHistory[i];break}}
+  if(!b){info.style.display='none';return}
+  info.style.display='block';
+  var currentBackend=(document.getElementById('s-storageBackend')||{}).value||'local';
+  var mismatch=b.storageBackend&&b.storageBackend!==currentBackend;
+  var lines=[];
+  lines.push('Scope: '+b.scope);
+  lines.push('Backend: '+(b.storageBackend||'unknown'));
+  lines.push('DB files: '+b.dbFiles+', Upload files: '+b.uploadFiles);
+  lines.push('Size: '+(b.totalSize?(b.totalSize/1048576).toFixed(1)+' MB':'-'));
+  lines.push('Version: '+(b.version||'-'));
+  if(mismatch)lines.push('');
+  info.textContent=lines.join('\n');
+  info.style.whiteSpace='pre-line';
+  if(mismatch){
+    var warn=document.createElement('div');
+    warn.style.cssText='color:var(--red,#f24e6a);margin-top:8px;font-weight:600';
+    warn.textContent='Warning: Backup was created with '+b.storageBackend+' storage but current backend is '+currentBackend+'. File paths in the database may not match.';
+    info.appendChild(warn);
+  }
+}
+function startRestore(){
+  var ts=document.getElementById('restoreBackupSelect').value;
+  var pass=document.getElementById('restorePassphrase').value;
+  if(!ts){alert('Select a backup first.');return}
+  if(!pass){alert('Enter the backup passphrase.');return}
+  var sel=null;
+  for(var i=0;i<_restoreHistory.length;i++){if(_restoreHistory[i].timestamp===ts){sel=_restoreHistory[i];break}}
+  var details='Date: '+new Date(ts).toLocaleString();
+  if(sel){details+='\nScope: '+sel.scope+'\nBackend: '+(sel.storageBackend||'unknown')+'\nDB files: '+sel.dbFiles+', Upload files: '+sel.uploadFiles+'\nSize: '+(sel.totalSize?(sel.totalSize/1048576).toFixed(1)+' MB':'-')}
+  if(!confirm('RESTORE FROM BACKUP\n\n'+details+'\n\nThis will replace the vault key, database, and all uploads. The server will restart and all active sessions will be invalidated.\n\nContinue?'))return;
+  var typed=prompt('Type RESTORE to confirm:');
+  if(typed!=='RESTORE')return;
+  var btn=document.getElementById('restoreBtn');
+  var result=document.getElementById('restoreResult');
+  var prog=document.getElementById('restoreProgress');
+  var bar=document.getElementById('restoreBar');
+  var step=document.getElementById('restoreStep');
+  btn.disabled=true;btn.style.opacity='.5';
+  result.textContent='';
+  prog.style.display='block';bar.style.width='0%';step.textContent='Starting restore...';
+  fetch('/admin/restore/run',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({passphrase:pass,timestamp:ts})})
+    .then(function(r){return r.json()})
+    .then(function(d){
+      if(d.error){
+        result.textContent='Error: '+d.error;result.style.color='var(--red,#f24e6a)';
+        btn.disabled=false;btn.style.opacity='1';prog.style.display='none';
+        return;
+      }
+      bar.style.width='100%';
+      var summary='Restore complete.';
+      if(d.stats){summary+=' DB files: '+d.stats.dbFiles+', uploads: '+d.stats.uploadFiles+(d.stats.failedUploads?' ('+d.stats.failedUploads+' failed)':'')+'.';}
+      step.textContent=summary+' Server is restarting...';
+      if(d.warning){result.textContent=d.warning;result.style.color='var(--red,#f24e6a)'}
+      else{result.textContent='Server restarting — page will reload in 15 seconds';result.style.color='var(--main-color)'}
+      setTimeout(function(){window.location.reload()},15000);
+    })
+    .catch(function(e){
+      result.textContent='Error: '+e.message;result.style.color='var(--red,#f24e6a)';
+      btn.disabled=false;btn.style.opacity='1';prog.style.display='none';
+    });
 }
 function testStorageConnection(){
   var el=document.getElementById('storageTestResult');
@@ -1581,6 +1769,130 @@ function setTplMode(mode){
 function toggleS3(){
   var v=document.getElementById('s-storageBackend').value;
   document.getElementById('s3Fields').style.display=v==='s3'?'block':'none';
+  toggleMigrationSection();
+}
+function toggleMigrationSection(){
+  var bucket=document.getElementById('s-s3Bucket');
+  var section=document.getElementById('migrationSection');
+  if(section)section.style.display=(bucket&&bucket.value.trim())?'block':'none';
+}
+function fmtB(b){
+  if(b<1024)return b+' B';
+  if(b<1048576)return(b/1024).toFixed(1)+' KB';
+  if(b<1073741824)return(b/1048576).toFixed(1)+' MB';
+  return(b/1073741824).toFixed(2)+' GB';
+}
+function previewMigration(){
+  var dir=document.getElementById('migrationDirection').value;
+  var el=document.getElementById('migrationPreview');
+  el.style.display='block';
+  el.textContent='Scanning...';
+  fetch('/admin/storage/migration/preview?direction='+dir,{credentials:'same-origin'})
+    .then(function(r){return r.json()})
+    .then(function(d){
+      if(d.error){el.textContent='Error: '+d.error;el.style.color='var(--red)';return}
+      el.style.color='';
+      if(d.toMigrate===0){el.textContent='No files to migrate. All '+d.total+' files already on target backend.';return}
+      el.textContent=d.toMigrate+' of '+d.total+' files to migrate ('+fmtB(d.totalBytes)+'). '+d.alreadyDone+' already on target.';
+    })
+    .catch(function(e){el.textContent='Error: '+e.message;el.style.color='var(--red)'});
+}
+var _migPoll=null;
+function startMigration(){
+  var dir=document.getElementById('migrationDirection').value;
+  var label=dir==='local-to-s3'?'Local to S3':'S3 to Local';
+  if(!confirm('Start storage migration ('+label+')?\n\nThis will move ALL files to the target backend and delete the source copies. Make sure you have a backup.'))return;
+  var btn=document.getElementById('migrationStartBtn');
+  btn.disabled=true;btn.style.opacity='.5';
+  var prog=document.getElementById('migrationProgress');
+  var bar=document.getElementById('migrationBar');
+  var st=document.getElementById('migrationStatus');
+  prog.style.display='block';bar.style.width='0%';st.textContent='Starting...';
+  fetch('/admin/storage/migration/start',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({direction:dir})})
+    .then(function(r){return r.json()})
+    .then(function(d){
+      if(d.error){st.textContent='Error: '+d.error;btn.disabled=false;btn.style.opacity='1';return}
+      _migPoll=setInterval(pollMig,2000);
+    })
+    .catch(function(e){st.textContent='Error: '+e.message;btn.disabled=false;btn.style.opacity='1'});
+}
+function pollMig(){
+  fetch('/admin/storage/migration/status',{credentials:'same-origin'})
+    .then(function(r){return r.json()})
+    .then(function(d){
+      var bar=document.getElementById('migrationBar');
+      var st=document.getElementById('migrationStatus');
+      var btn=document.getElementById('migrationStartBtn');
+      if(d.status==='running'){
+        var pct=d.total>0?Math.round(((d.migrated+d.skipped+d.failed)/d.total)*100):0;
+        bar.style.width=pct+'%';
+        st.textContent=d.migrated+' migrated, '+d.skipped+' skipped, '+d.failed+' failed of '+d.total+' ('+pct+'%)';
+      }else if(d.status==='complete'){
+        clearInterval(_migPoll);_migPoll=null;
+        bar.style.width='100%';
+        st.textContent='Complete: '+d.migrated+' migrated, '+d.skipped+' skipped, '+d.failed+' failed';
+        btn.disabled=false;btn.style.opacity='1';
+      }else if(d.status==='error'){
+        clearInterval(_migPoll);_migPoll=null;
+        bar.style.width='0%';
+        st.textContent='Error: '+(d.error||'unknown');st.style.color='var(--red)';
+        btn.disabled=false;btn.style.opacity='1';
+      }
+    });
+}
+var _orphanData=null;
+function scanOrphans(){
+  var el=document.getElementById('orphanResult');
+  var details=document.getElementById('orphanDetails');
+  el.textContent='Scanning...';el.style.color='var(--muted)';
+  details.style.display='none';
+  document.getElementById('orphanCleanBtn').style.display='none';
+  fetch('/admin/storage/orphans/scan',{credentials:'same-origin'})
+    .then(function(r){return r.json()})
+    .then(function(d){
+      if(d.error){el.textContent='Error: '+d.error;el.style.color='var(--red)';return}
+      _orphanData=d;
+      var total=d.local.orphans+d.s3.orphans;
+      if(total===0&&d.dangling.records===0){
+        el.textContent='Clean — no orphans found';el.style.color='var(--main-color)';
+        details.style.display='block';
+        details.textContent='Scanned '+d.local.scanned+' local files'+(d.s3.scanned>0?', '+d.s3.scanned+' S3 objects':'')+'.';
+        return;
+      }
+      el.textContent=total+' orphaned files found';el.style.color='var(--red)';
+      var lines=[];
+      if(d.local.orphans>0)lines.push(d.local.orphans+' local files ('+fmtB(d.local.bytes)+')');
+      if(d.s3.orphans>0)lines.push(d.s3.orphans+' S3 objects');
+      if(d.dangling.records>0)lines.push(d.dangling.records+' dangling DB records (files missing from storage)');
+      details.style.display='block';
+      details.textContent=lines.join(', ')+'. Scanned '+d.local.scanned+' local'+(d.s3.scanned>0?', '+d.s3.scanned+' S3':'')+'.';
+      document.getElementById('orphanCleanBtn').style.display='inline-flex';
+    })
+    .catch(function(e){el.textContent='Error: '+e.message;el.style.color='var(--red)'});
+}
+function cleanOrphans(){
+  if(!_orphanData)return;
+  var d=_orphanData;
+  var msg='Delete '+d.local.orphans+' local orphans';
+  if(d.s3.orphans>0)msg+=', '+d.s3.orphans+' S3 orphans';
+  if(d.dangling.records>0)msg+=', and remove '+d.dangling.records+' dangling DB records';
+  msg+='?\n\nThis cannot be undone.';
+  if(!confirm(msg))return;
+  var el=document.getElementById('orphanResult');
+  el.textContent='Cleaning...';el.style.color='var(--muted)';
+  fetch('/admin/storage/orphans/clean',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({local:true,s3:true,dangling:d.dangling.records>0})})
+    .then(function(r){return r.json()})
+    .then(function(d){
+      if(d.error){el.textContent='Error: '+d.error;el.style.color='var(--red)';return}
+      var parts=[];
+      if(d.deleted.local>0)parts.push(d.deleted.local+' local');
+      if(d.deleted.s3>0)parts.push(d.deleted.s3+' S3');
+      if(d.deleted.dangling>0)parts.push(d.deleted.dangling+' dangling records');
+      el.textContent='Cleaned: '+(parts.join(', ')||'nothing to clean');el.style.color='var(--main-color)';
+      document.getElementById('orphanCleanBtn').style.display='none';
+      document.getElementById('orphanDetails').style.display='none';
+    })
+    .catch(function(e){el.textContent='Error: '+e.message;el.style.color='var(--red)'});
 }
 
 // Size field helpers
@@ -1637,6 +1949,7 @@ function loadSettings(){
     loadSizeField('s-publicIpQuotaBytes',s.publicIpQuotaBytes||0);
     document.getElementById('s-uploadTimeout-display').value=Math.round((s.uploadTimeout||300000)/1000);
     toggleS3();
+    toggleBackupScopeWarning();
     toggleEmailBackend();
     loadExtFromValue(s.allowedExtensions);
     showLogoPreview(s.customLogo||'');
@@ -1696,6 +2009,8 @@ function saveTab(tab){
     if(d.success){
       msg.className='settings-msg-inline msg-ok';
       msg.textContent='Settings saved'+(d.restart?' — restart required':'');
+      if(tab==='backup'){_backupHistoryLoaded=false;loadBackupHistory()}
+      if(tab==='storage'){toggleMigrationSection()}
     }else{
       msg.className='settings-msg-inline msg-err';
       msg.textContent=d.error||'Failed to save.';

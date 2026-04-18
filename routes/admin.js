@@ -1,6 +1,7 @@
 var fs = require("fs");
 var path = require("path");
 var audit = require("../lib/audit");
+var { PATHS } = require("../lib/constants");
 var logger = require("../app/shared/logger");
 const config = require("../lib/config");
 var usersRepo = require("../app/data/repositories/users.repo");
@@ -13,7 +14,7 @@ var apiKeysRepo = require("../app/data/repositories/apiKeys.repo");
 var webhooksRepo = require("../app/data/repositories/webhooks.repo");
 var teamsRepo = require("../app/data/repositories/teams.repo");
 const { parseJson, parseMultipart } = require("../lib/multipart");
-const { hashPassword } = require("../lib/crypto");
+const { hashPassword, generateToken } = require("../lib/crypto");
 const storage = require("../lib/storage");
 const requireAdmin = require("../middleware/require-admin");
 const { send, host } = require("../middleware/send");
@@ -22,6 +23,12 @@ var exportService = require("../app/domain/admin/export.service");
 var settingsService = require("../app/domain/admin/settings.service");
 var sessionService = require("../app/domain/auth/session.service");
 var { validateEmail, validatePassword } = require("../app/shared/validate");
+var stashRepo = require("../app/data/repositories/stash.repo");
+var S3Client = require("../lib/s3-client");
+var backup = require("../lib/backup");
+var { getQuotaCounts } = require("../lib/email");
+var scheduler = require("../lib/scheduler");
+var { sanitizeSvg } = require("../lib/sanitize-svg");
 
 module.exports = function (app) {
   // Admin dashboard
@@ -114,7 +121,6 @@ module.exports = function (app) {
         // Decrement stash totalBytes if bundle belongs to a stash page
         if (bundle.stashId) {
           try {
-            var stashRepo = require("../app/data/repositories/stash.repo");
             var stash = stashRepo.findById(bundle.stashId);
             if (stash) {
               stashRepo.update(stash._id, { $set: { totalBytes: Math.max(0, (parseInt(stash.totalBytes, 10) || 0) - (doc.size || 0)) } });
@@ -140,7 +146,6 @@ module.exports = function (app) {
     // Decrement stash stats if bundle belongs to a stash page
     if (bundle.stashId) {
       try {
-        var stashRepo = require("../app/data/repositories/stash.repo");
         var stash = stashRepo.findById(bundle.stashId);
         if (stash) {
           stashRepo.update(stash._id, { $set: {
@@ -171,11 +176,9 @@ module.exports = function (app) {
   // Download database backup
   app.get("/admin/backup/db", (req, res) => {
     if (!requireAdmin(req, res)) return;
-    var fs = require("fs");
-    var path = require("path");
     // Prefer encrypted-at-rest copy; fall back to plain DB for dev/custom setups
-    var encDbPath = path.join(__dirname, "..", "data", "hermitstash.db.enc");
-    var plainDbPath = process.env.HERMITSTASH_DB_PATH || path.join(__dirname, "..", "data", "hermitstash.db");
+    var encDbPath = PATHS.DB_ENC;
+    var plainDbPath = process.env.HERMITSTASH_DB_PATH || path.join(path.dirname(encDbPath), "hermitstash.db");
     var dbPath = fs.existsSync(encDbPath) ? encDbPath : plainDbPath;
     var isEnc = dbPath === encDbPath;
     if (!fs.existsSync(dbPath)) { res.writeHead(404); return res.end("No database found"); }
@@ -192,19 +195,16 @@ module.exports = function (app) {
 
   app.post("/admin/storage/test", async (req, res) => {
     if (!requireAdmin(req, res)) return;
-    var { parseJson } = require("../lib/multipart");
-    var S3Client = require("../lib/s3-client");
-    var cfg = require("../lib/config");
     try {
       var body = await parseJson(req);
       var s = function(v) { return (v || "").trim(); };
       var masked = function(v) { return /^\u2022+$/.test(v || ""); };
       var client = new S3Client({
-        bucket: s(body.bucket) || cfg.storage.s3.bucket,
-        region: s(body.region) || cfg.storage.s3.region || "us-east-1",
-        accessKey: masked(body.accessKey) ? cfg.storage.s3.accessKey : s(body.accessKey),
-        secretKey: masked(body.secretKey) ? cfg.storage.s3.secretKey : s(body.secretKey),
-        endpoint: s(body.endpoint !== undefined ? body.endpoint : cfg.storage.s3.endpoint),
+        bucket: s(body.bucket) || config.storage.s3.bucket,
+        region: s(body.region) || config.storage.s3.region || "us-east-1",
+        accessKey: masked(body.accessKey) ? config.storage.s3.accessKey : s(body.accessKey),
+        secretKey: masked(body.secretKey) ? config.storage.s3.secretKey : s(body.secretKey),
+        endpoint: s(body.endpoint !== undefined ? body.endpoint : config.storage.s3.endpoint),
       });
       await client.testConnection();
       res.json({ success: true });
@@ -217,16 +217,13 @@ module.exports = function (app) {
 
   app.post("/admin/backup/run", async (req, res) => {
     if (!requireAdmin(req, res)) return;
-    var { parseJson } = require("../lib/multipart");
-    var backup = require("../lib/backup");
     try {
       var body = await parseJson(req);
       var passphrase = String(body.passphrase || "").trim();
       if (!passphrase) return res.json({ error: "Backup passphrase is required." });
 
       // Verify passphrase if hash is set
-      var cfg = require("../lib/config");
-      if (cfg.backup.passphraseHash) {
+      if (config.backup.passphraseHash) {
         var valid = await backup.verifyPassphrase(passphrase);
         if (!valid) return res.json({ error: "Incorrect backup passphrase." });
       }
@@ -240,19 +237,16 @@ module.exports = function (app) {
 
   app.post("/admin/backup/test", async (req, res) => {
     if (!requireAdmin(req, res)) return;
-    var { parseJson } = require("../lib/multipart");
-    var backup = require("../lib/backup");
-    var cfg = require("../lib/config");
     try {
       var body = await parseJson(req);
       var s = function(v) { return (v || "").trim(); };
       var masked = function(v) { return /^\u2022+$/.test(v || ""); };
       await backup.testConnection({
-        bucket: s(body.bucket) || cfg.backup.s3.bucket,
-        region: s(body.region) || cfg.backup.s3.region || "us-east-1",
-        accessKey: masked(body.accessKey) ? cfg.backup.s3.accessKey : s(body.accessKey),
-        secretKey: masked(body.secretKey) ? cfg.backup.s3.secretKey : s(body.secretKey),
-        endpoint: s(body.endpoint !== undefined ? body.endpoint : cfg.backup.s3.endpoint),
+        bucket: s(body.bucket) || config.backup.s3.bucket,
+        region: s(body.region) || config.backup.s3.region || "us-east-1",
+        accessKey: masked(body.accessKey) ? config.backup.s3.accessKey : s(body.accessKey),
+        secretKey: masked(body.secretKey) ? config.backup.s3.secretKey : s(body.secretKey),
+        endpoint: s(body.endpoint !== undefined ? body.endpoint : config.backup.s3.endpoint),
       });
       res.json({ success: true });
     } catch (err) {
@@ -262,12 +256,79 @@ module.exports = function (app) {
 
   app.get("/admin/backup/history", async (req, res) => {
     if (!requireAdmin(req, res)) return;
-    var backup = require("../lib/backup");
     try {
       var history = await backup.getBackupHistory();
       res.json({ success: true, history: history });
     } catch (err) {
       res.json({ error: "Failed to load history: " + err.message });
+    }
+  });
+
+  app.get("/admin/backup/manifest", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    var timestamp = req.query.timestamp;
+    if (!timestamp) return res.status(400).json({ error: "timestamp required" });
+    try {
+      var manifest = await backup.getBackupManifest(timestamp);
+      if (!manifest) return res.status(404).json({ error: "Backup not found" });
+      res.json(manifest);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/admin/backup/delete", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    var body = await parseJson(req);
+    var timestamp = String(body.timestamp || "");
+    if (!timestamp) return res.status(400).json({ error: "timestamp required" });
+    try {
+      var backend = backup.getBackend();
+      var allKeys = await backend.list("backups/");
+      // Find the prefix for this backup by matching the manifest header
+      var manifestKeys = allKeys.filter(function (k) { return k.endsWith("/manifest.json"); });
+      var targetPrefix = null;
+      for (var i = 0; i < manifestKeys.length; i++) {
+        try {
+          var data = await backend.getBuffer(manifestKeys[i]);
+          var m = JSON.parse(data.toString("utf8"));
+          if (m.timestamp === timestamp) { targetPrefix = manifestKeys[i].replace("manifest.json", ""); break; }
+        } catch (_e) {}
+      }
+      if (!targetPrefix) return res.status(404).json({ error: "Backup not found" });
+      // Delete all files under this backup's prefix
+      var prefixKeys = allKeys.filter(function (k) { return k.startsWith(targetPrefix); });
+      for (var j = 0; j < prefixKeys.length; j++) await backend.del(prefixKeys[j]);
+      audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Deleted backup: " + timestamp + " (" + prefixKeys.length + " objects)", req: req });
+      res.json({ success: true, deleted: prefixKeys.length });
+    } catch (err) {
+      res.status(500).json({ error: "Delete failed: " + err.message });
+    }
+  });
+
+  app.post("/admin/restore/run", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    var body = await parseJson(req);
+    var passphrase = String(body.passphrase || "");
+    var timestamp = String(body.timestamp || "");
+    if (!passphrase || !timestamp) return res.status(400).json({ error: "passphrase and timestamp required" });
+
+    // Verify passphrase if hash is set
+    if (config.backup.passphraseHash) {
+      var valid = await backup.verifyPassphrase(passphrase);
+      if (!valid) return res.status(403).json({ error: "Invalid passphrase." });
+    }
+
+    audit.log(audit.ACTIONS.RESTORE_STARTED, { details: "Restore initiated from backup: " + timestamp, req: req });
+
+    try {
+      var result = await backup.runRestore(passphrase, timestamp);
+      res.json({ success: true, restarting: true, stats: result.stats });
+      // Graceful shutdown — let the response flush, then exit so Docker/systemd restarts
+      setTimeout(function () { process.exit(0); }, 500);
+    } catch (err) {
+      logger.error("Restore failed", { error: err.message });
+      res.status(500).json({ error: "Restore failed: " + err.message });
     }
   });
 
@@ -322,7 +383,6 @@ module.exports = function (app) {
   // Email quota status
   app.get("/admin/email/quota", (req, res) => {
     if (!requireAdmin(req, res)) return;
-    var { checkQuota, getQuotaCounts } = require("../lib/email");
     var counts = getQuotaCounts();
     res.json({
       backend: config.email.backend,
@@ -336,7 +396,6 @@ module.exports = function (app) {
 
   app.get("/admin/tasks/api", (req, res) => {
     if (!requireAdmin(req, res)) return;
-    var scheduler = require("../lib/scheduler");
     res.json({ tasks: scheduler.getStatus() });
   });
 
@@ -405,7 +464,6 @@ module.exports = function (app) {
 
       // SVG: sanitize to strip scripts, event handlers, and external references
       if (ext === ".svg") {
-        var { sanitizeSvg } = require("../lib/sanitize-svg");
         var raw = data.toString("utf8");
         var clean = sanitizeSvg(raw);
         if (!clean || clean.length < 10) return res.status(400).json({ error: "SVG rejected — could not sanitize safely." });
@@ -501,7 +559,6 @@ module.exports = function (app) {
       }
       // Reset all stash stats since their bundles are gone
       try {
-        var stashRepo = require("../app/data/repositories/stash.repo");
         var allStash = stashRepo.findAll();
         for (var k = 0; k < allStash.length; k++) {
           stashRepo.update(allStash[k]._id, { $set: { bundleCount: 0, totalBytes: 0 } });
@@ -555,7 +612,6 @@ module.exports = function (app) {
       }
       // Purge customer stash pages
       try {
-        var stashRepo = require("../app/data/repositories/stash.repo");
         var allStash = stashRepo.findAll();
         for (var st = 0; st < allStash.length; st++) stashRepo.remove(allStash[st]._id);
       } catch (_e) {}
@@ -614,10 +670,9 @@ module.exports = function (app) {
       }
 
       // 3. Update settings
-      var { generateToken: genToken } = require("../lib/crypto");
       var settings = {};
       if (body.siteName) settings.siteName = body.siteName;
-      settings.sessionSecret = body.sessionSecret || genToken(32);
+      settings.sessionSecret = body.sessionSecret || generateToken(32);
       if (body.rpName) settings.rpName = body.rpName;
       if (body.rpId) settings.rpId = body.rpId;
       if (body.rpOrigin) settings.rpOrigin = body.rpOrigin;
@@ -636,6 +691,126 @@ module.exports = function (app) {
     } catch (e) {
       logger.error("Setup error", { error: e.message || String(e) });
       res.status(500).json({ error: "Setup failed." });
+    }
+  });
+
+  // ---- Storage migration (local ↔ S3) ----
+
+  var migrationService = require("../app/domain/admin/storage-migration.service");
+  var _migrationRunning = false;
+  var _migrationResult = null;
+
+  app.get("/admin/storage/migration/preview", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    var direction = req.query.direction;
+    if (direction !== "local-to-s3" && direction !== "s3-to-local") {
+      return res.status(400).json({ error: "direction must be 'local-to-s3' or 's3-to-local'" });
+    }
+    try {
+      var preview = migrationService.migrationPreview(direction);
+      res.json(preview);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/admin/storage/migration/start", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    if (_migrationRunning || (_migrationResult && _migrationResult.status === "running")) {
+      return res.status(409).json({ error: "Migration already in progress." });
+    }
+
+    var body = await parseJson(req);
+    var direction = body.direction;
+    if (direction !== "local-to-s3" && direction !== "s3-to-local") {
+      return res.status(400).json({ error: "direction must be 'local-to-s3' or 's3-to-local'" });
+    }
+
+    _migrationRunning = true;
+    _migrationResult = { status: "running", direction: direction, migrated: 0, skipped: 0, failed: 0, total: 0, errors: [] };
+
+    audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Storage migration started: " + direction, req: req });
+
+    // Run async — respond immediately so the UI can poll status
+    migrationService.migrateStorage(direction, function (progress) {
+      _migrationResult.migrated = progress.migrated;
+      _migrationResult.skipped = progress.skipped;
+      _migrationResult.failed = progress.failed;
+      _migrationResult.total = progress.total;
+    }).then(function (result) {
+      _migrationRunning = false;
+      _migrationResult = { status: "complete", direction: direction, migrated: result.migrated, skipped: result.skipped, failed: result.failed, total: result.total, errors: result.errors.slice(0, 50) };
+      var newBackend = direction === "local-to-s3" ? "s3" : "local";
+      audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Storage migration complete: " + result.migrated + " migrated, " + result.failed + " failed. Switch backend to '" + newBackend + "' to use new storage." });
+      logger.info("[migration] Complete", { direction: direction, migrated: result.migrated, failed: result.failed });
+    }).catch(function (err) {
+      _migrationRunning = false;
+      _migrationResult = { status: "error", direction: direction, error: err.message, migrated: _migrationResult.migrated, failed: _migrationResult.failed, total: _migrationResult.total, errors: [] };
+      logger.error("[migration] Failed", { direction: direction, error: err.message });
+    });
+
+    res.json({ status: "started", direction: direction });
+  });
+
+  app.get("/admin/storage/migration/status", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    if (!_migrationResult) return res.json({ status: "idle" });
+    res.json(_migrationResult);
+  });
+
+  // ---- Orphan cleanup (storage files with no DB record) ----
+
+  var orphanJob = require("../app/jobs/orphan-cleanup.job");
+
+  app.get("/admin/storage/orphans/scan", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      var local = orphanJob.scanLocalOrphans();
+      var s3 = await orphanJob.scanS3Orphans();
+      var dangling = await orphanJob.scanDanglingRecords();
+      var localBytes = 0;
+      for (var i = 0; i < local.orphans.length; i++) localBytes += local.orphans[i].size || 0;
+      res.json({
+        local: { orphans: local.orphans.length, scanned: local.totalScanned, bytes: localBytes },
+        s3: { orphans: s3.orphans.length, scanned: s3.totalScanned, error: s3.error || null },
+        dangling: { records: dangling.length },
+      });
+    } catch (e) {
+      logger.error("Orphan scan error", { error: e.message });
+      res.status(500).json({ error: "Scan failed: " + e.message });
+    }
+  });
+
+  app.post("/admin/storage/orphans/clean", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      var body = await parseJson(req);
+      var result = { local: 0, s3: 0, dangling: 0 };
+
+      if (body.local !== false) {
+        var localScan = orphanJob.scanLocalOrphans();
+        result.local = orphanJob.deleteLocalOrphans(localScan.orphans);
+      }
+      if (body.s3 !== false) {
+        var s3Scan = await orphanJob.scanS3Orphans();
+        result.s3 = await orphanJob.deleteS3Orphans(s3Scan.orphans);
+      }
+      if (body.dangling === true) {
+        var danglingRecords = await orphanJob.scanDanglingRecords();
+        for (var i = 0; i < danglingRecords.length; i++) {
+          filesRepo.remove(danglingRecords[i].fileId);
+        }
+        result.dangling = danglingRecords.length;
+      }
+
+      audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, {
+        details: "Orphan cleanup: " + result.local + " local, " + result.s3 + " S3, " + result.dangling + " dangling records removed",
+        req: req,
+      });
+      res.json({ success: true, deleted: result });
+    } catch (e) {
+      logger.error("Orphan cleanup error", { error: e.message });
+      res.status(500).json({ error: "Cleanup failed: " + e.message });
     }
   });
 };

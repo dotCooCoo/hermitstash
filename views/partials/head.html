@@ -30,7 +30,7 @@
       {% if (site.themeAccentColor) { %} --main-color: {{{site.themeAccentColor}}}; {% } %}
       {% if (site.themeBgColor) { %} --bg: {{{site.themeBgColor}}}; {% } %}
     }
-    {% if (site.themeFont) { %} body { font-family: '{{{site.themeFont}}}', system-ui, sans-serif; } {% } %}
+    {% if (site.themeFont && /^[a-zA-Z0-9 ,\-]+$/.test(site.themeFont)) { %} body { font-family: '{{{site.themeFont}}}', system-ui, sans-serif; } {% } %}
   </style>
   {% } %}
 </head>

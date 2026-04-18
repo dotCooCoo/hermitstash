@@ -1,4 +1,5 @@
 const config = require("../lib/config");
+var C = require("../lib/constants");
 var usersRepo = require("../app/data/repositories/users.repo");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
 const { parseMultipart, parseJson } = require("../lib/multipart");
@@ -73,7 +74,7 @@ module.exports = function (app) {
       var result = await handleFileUpload({
         bundle: bundle, file: file, fields: fields, limits: limits,
         uploadedBy: bundle.ownerId || "public", uploaderEmail: bundle.uploaderEmail,
-        expiresAt: config.fileExpiryDays > 0 ? new Date(Date.now() + config.fileExpiryDays * 86400000).toISOString() : null,
+        expiresAt: config.fileExpiryDays > 0 ? new Date(Date.now() + config.fileExpiryDays * C.TIME.ONE_DAY).toISOString() : null,
         req: req,
       });
       if (result.error) return res.status(400).json({ error: result.error });
@@ -113,7 +114,7 @@ module.exports = function (app) {
   app.post("/drop/finalize/:bundleId", rateLimit.middleware("finalize", 20, 60000), requireScope("upload"), async (req, res) => {
     var existing = bundlesRepo.findById(req.params.bundleId);
     if (!existing) return res.status(404).json({ error: "Bundle not found." });
-    if (existing.ownerId && existing.ownerId !== req.user._id) return res.status(403).json({ error: "Forbidden." });
+    if (existing.ownerId && (!req.user || existing.ownerId !== req.user._id)) return res.status(403).json({ error: "Forbidden." });
 
     var body = await parseJson(req);
     var token = String(body.finalizeToken || req.query.finalizeToken || "");

@@ -1,6 +1,7 @@
 var audit = require("../lib/audit");
 var logger = require("../app/shared/logger");
 var config = require("../lib/config");
+var C = require("../lib/constants");
 var rateLimit = require("../lib/rate-limit");
 var filesRepo = require("../app/data/repositories/files.repo");
 var invitesRepo = require("../app/data/repositories/invites.repo");
@@ -112,7 +113,7 @@ module.exports = function (app) {
         tokenHash: sha3Hash(token),
         invitedBy: req.user._id,
         status: "pending",
-        expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+        expiresAt: new Date(Date.now() + 2 * C.TIME.ONE_DAY).toISOString(),
         createdAt: new Date().toISOString(),
       });
 
@@ -121,7 +122,6 @@ module.exports = function (app) {
       try {
         sent = await sendInviteEmail({ to: email, inviteUrl: inviteUrl, inviterName: req.user.displayName || req.user.email, role: role });
       } catch (emailErr) {
-        var logger = require("../app/shared/logger");
         logger.error("Email send failed", { error: emailErr.message });
       }
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { targetEmail: email, details: "User invited as " + role + ", emailSent: " + sent, req: req });
@@ -152,7 +152,7 @@ module.exports = function (app) {
         invitesRepo.update(invite._id, {
           $set: {
             tokenHash: sha3Hash(token),
-            expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+            expiresAt: new Date(Date.now() + 2 * C.TIME.ONE_DAY).toISOString(),
           },
         });
       } else {

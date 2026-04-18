@@ -8,6 +8,8 @@ var audit = require("../lib/audit");
 var { send, host } = require("../middleware/send");
 var sessionService = require("../app/domain/auth/session.service");
 var { validateEmail } = require("../app/shared/validate");
+var rateLimit = require("../lib/rate-limit");
+var { parseJson } = require("../lib/multipart");
 
 function createVerificationToken(userId) {
   // Clean up any existing tokens for this user
@@ -105,10 +107,8 @@ module.exports = function (app) {
   });
 
   // Resend verification email (rate limited to prevent email quota abuse)
-  var rateLimit = require("../lib/rate-limit");
   app.post("/auth/resend-verification", rateLimit.middleware("resend-verify", 3, 300000), async (req, res) => {
     try {
-      var { parseJson } = require("../lib/multipart");
       var body = await parseJson(req);
       var emailCheck = validateEmail(body.email);
       if (!emailCheck.valid) return res.status(400).json({ error: emailCheck.reason });
@@ -125,7 +125,6 @@ module.exports = function (app) {
       try {
         await sendVerificationEmail({ to: user.email, displayName: user.displayName, verifyUrl: verifyUrl });
       } catch (emailErr) {
-        var logger = require("../app/shared/logger");
         logger.error("Email send failed", { error: emailErr.message });
       }
 

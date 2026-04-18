@@ -174,7 +174,9 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | Automated scanners and bots | Request fingerprinting (accept-language, sec-fetch-dest, sec-fetch-mode) blocks non-browser clients on public routes — survives PQC TLS adoption |
 | NPM supply chain | All dependencies vendored as committed bundles — zero npm runtime packages |
 | Admin settings injection | Type-safe settings schema (lib/settings-schema.js) sanitizes on save (strip control chars, trim, type-specific normalization) and validates (format, range, enum) — bad data rejected at the gate with clear error messages |
-| Stale config after admin change | Config reset registry (config.onReset) invalidates cached clients (S3, etc.) when dependent settings change at runtime |
+| Stale config after admin change | Config reset registry (config.onReset) invalidates cached clients (S3, upload paths, etc.) when dependent settings change at runtime |
+| Timing attack on access codes | SHA3-512 hash comparison uses constant-time `timingSafeEqual` on all security-sensitive comparisons (access codes, CSRF, TOTP) |
+| Crash during backup restore | Pre-restore snapshots of vault.key, db.key.enc, hermitstash.db.enc enable rollback if restore is interrupted |
 
 Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f via OpenSSL 3.5, XChaCha20-Poly1305 and SHAKE256 via vendored @noble/ciphers and @noble/hashes, Argon2id via vendored native prebuilds, WebAuthn via vendored @simplewebauthn/server, and built-in SQLite via `node:sqlite`. Zero npm runtime dependencies.
 
@@ -261,8 +263,9 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Webhooks with HMAC-SHA3-512 signed payloads, per-hook delivery log, enable/disable toggle
 - IP blocklist
 - Database backup (serves encrypted-at-rest copy), CSV exports (with formula injection protection)
-- Automated off-site backup to S3-compatible storage (AWS, R2, MinIO, B2, DO Spaces) with passphrase-encrypted vault key, incremental file manifests, configurable retention, and manual trigger from admin UI
-- Scheduled tasks -- file expiry, audit retention, stale upload cleanup, token cleanup, invite cleanup, daily SQLite vacuum, automated backup
+- Automated off-site backup to S3-compatible storage (AWS, R2, MinIO, B2, DO Spaces) with passphrase-encrypted vault key, incremental file manifests, configurable retention, and manual trigger from admin UI. Full-scope backups include all storage objects (bundles and vault files)
+- Backup restore with pre-restore snapshots -- critical files (vault.key, db.key.enc, hermitstash.db.enc) are snapshotted before overwrite for crash recovery
+- Scheduled tasks with watchdog timeouts -- file expiry, audit retention, stale upload cleanup, token cleanup, invite cleanup, daily SQLite vacuum, automated backup. Hung jobs auto-reset after 10 minutes
 - Danger Zone -- factory reset, purge all sessions, purge all users, purge all files (typed confirmation required)
 - Custom logo upload with magic-byte validation and SVG sanitization
 - Reverse proxy auto-detection with config snippet generator (nginx, Caddy, Apache)
@@ -339,6 +342,7 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 **Storage**
 - Local disk, NAS mount, or any S3-compatible bucket (MinIO, Cloudflare R2, DigitalOcean Spaces, Backblaze B2)
 - S3 direct downloads with pre-signed URLs (configurable expiry, AWS Signature V4)
+- All file operations (uploads, vault, backups) go through a unified storage abstraction -- local and S3 backends are transparent to the application
 - Per-file XChaCha20-Poly1305 encryption at rest, keys sealed with hybrid vault
 
 **SEO and Legal**
@@ -789,6 +793,8 @@ lib/
   api-crypto.js       API payload XChaCha20-Poly1305 encrypt/decrypt
   session.js          Hybrid KEM encrypted cookies, LRU eviction
   storage.js          Local/S3 + XChaCha20-Poly1305 file encryption + pre-signed URLs
+                      saveRaw/getRawBuffer for pre-encrypted data (vault files)
+  cert-utils.js       Certificate fingerprint hashing + indexed revocation checks
   config.js           Settings from encrypted DB, env fallback, onReset registry
   settings-schema.js  Type-safe settings sanitization + validation (74 settings)
   audit.js            Audit logging with auto-sealed entries
@@ -805,7 +811,7 @@ lib/
   constants.js        Paths, versions, theme, hash prefixes, time constants
   zip.js              ZIP writer with Deflate compression
   expiry.js           File expiry cleanup
-  scheduler.js        Task scheduler
+  scheduler.js        Task scheduler with watchdog timeouts
   webhook.js          Webhook dispatch queue
   pqc-gate.js         ClientHello PQC group inspection at TCP level
   pqc-agent.js        PQC-only outbound HTTPS agent

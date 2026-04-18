@@ -80,6 +80,7 @@
         <div id="seSyncTokenArea" style="display:none;margin-top:8px">
           <button type="button" class="butn butn-bord-thin butn-sm radius-30" onclick="generateSyncToken()"><span>Generate Sync Token</span></button>
           <div id="seSyncTokenResult" style="display:none;margin-top:8px;padding:12px;background:rgba(139,92,246,.06);border-radius:8px;font-family:monospace;font-size:.8rem;word-break:break-all"></div>
+          <div id="seSyncKeysTable" style="margin-top:16px;font-size:.82rem"></div>
         </div>
       </div>
     </div>
@@ -148,6 +149,7 @@ function openStashModal(p){
   document.getElementById('seSyncEnabled').checked=!!(p&&p.syncEnabled);
   document.getElementById('seSyncTokenArea').style.display=(p&&p.syncEnabled)?'block':'none';
   document.getElementById('seSyncTokenResult').style.display='none';
+  if(p&&p.syncEnabled&&_stashEditId)loadSyncKeys(_stashEditId);
   document.getElementById('seSyncEnabled').onchange=function(){document.getElementById('seSyncTokenArea').style.display=this.checked?'block':'none'};
   var mfs=(p&&p.maxFileSize)||0;
   if(mfs>=1073741824){document.getElementById('seMaxFileSize').value=Math.round(mfs/1073741824);document.getElementById('seMaxFileSizeUnit').value='1073741824'}
@@ -298,12 +300,60 @@ function generateSyncToken(){
       var html='<strong>Enrollment Code (shown once, expires in 1 hour):</strong>';
       html+='<div style="margin:12px 0;padding:16px;background:rgba(139,92,246,.08);border:2px solid rgba(139,92,246,.2);border-radius:10px;text-align:center">';
       html+='<span style="font-size:1.4rem;font-weight:800;font-family:monospace;letter-spacing:3px;color:var(--main-color)">'+esc(d.enrollmentCode)+'</span></div>';
-      html+='<button type="button" onclick="navigator.clipboard.writeText(\''+esc(d.enrollmentCode)+'\');this.textContent=\'Copied!\'" style="cursor:pointer;background:var(--main-color);color:#fff;border:none;padding:6px 16px;border-radius:6px;font-size:.8rem">Copy Code</button>';
+      html+='<button type="button" data-code="'+esc(d.enrollmentCode)+'" onclick="navigator.clipboard.writeText(this.dataset.code);this.textContent=\'Copied!\'" style="cursor:pointer;background:var(--main-color);color:#fff;border:none;padding:6px 16px;border-radius:6px;font-size:.8rem">Copy Code</button>';
       html+='<p style="font-size:.75rem;color:var(--muted);margin-top:10px;line-height:1.5">Give this code to the sync client user. They enter it during <code>hermitstash-sync init</code> — the client exchanges it for the API key and certificates automatically. One-time use.</p>';
       el.innerHTML=html;
       el.style.display='block';
     } else { alert(d.error||'Failed to create token') }
   }).catch(function(){btn.disabled=false;alert('Failed')});
+}
+function loadSyncKeys(stashId){
+  var el=document.getElementById('seSyncKeysTable');
+  if(!el)return;
+  el.textContent='Loading sync keys...';
+  fetch('/admin/stash/'+stashId+'/sync-keys').then(function(r){return r.json()}).then(function(d){
+    if(!d.keys||d.keys.length===0){el.textContent='No sync keys for this stash.';return}
+    var tbl=document.createElement('table');tbl.style.cssText='width:100%;border-collapse:collapse;font-size:.82rem';
+    var thead=document.createElement('thead');
+    var hr=document.createElement('tr');hr.style.borderBottom='1px solid var(--border)';
+    ['Key','Issued','Expires','Status',''].forEach(function(t){var th=document.createElement('th');th.textContent=t;th.style.cssText='padding:6px 8px;text-align:left';hr.appendChild(th)});
+    thead.appendChild(hr);tbl.appendChild(thead);
+    var tbody=document.createElement('tbody');
+    d.keys.forEach(function(k){
+      var tr=document.createElement('tr');tr.style.borderBottom='1px solid var(--border)';
+      var prefix=document.createElement('td');prefix.style.padding='6px 8px';prefix.textContent=k.prefix+'...';
+      var issued=document.createElement('td');issued.style.padding='6px 8px';issued.textContent=k.certIssuedAt?new Date(k.certIssuedAt).toLocaleDateString():'—';
+      var expires=document.createElement('td');expires.style.padding='6px 8px';expires.textContent=k.certExpiresAt?new Date(k.certExpiresAt).toLocaleDateString():'—';
+      var status=document.createElement('td');status.style.padding='6px 8px';
+      var badge=document.createElement('span');
+      badge.style.cssText='padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600';
+      if(k.certStatus==='valid'){badge.textContent='Valid';badge.style.background='rgba(34,197,94,.15)';badge.style.color='#22c55e'}
+      else if(k.certStatus==='expiring'){badge.textContent='Expiring';badge.style.background='rgba(245,158,11,.15)';badge.style.color='#f59e0b'}
+      else if(k.certStatus==='expired'){badge.textContent='Expired';badge.style.background='rgba(239,68,68,.15)';badge.style.color='#ef4444'}
+      else{badge.textContent='No Cert';badge.style.background='rgba(107,107,128,.15)';badge.style.color='var(--muted)'}
+      status.appendChild(badge);
+      var actions=document.createElement('td');actions.style.padding='6px 8px';
+      var btn=document.createElement('button');btn.style.cssText='background:none;border:none;color:var(--main-color);cursor:pointer;font-size:.75rem;padding:2px 6px';
+      btn.textContent='Reissue';btn.title='Generate new certificate for this key';
+      (function(keyId,stId){btn.onclick=function(){reissueCert(stId,keyId)}})(k._id,stashId);
+      actions.appendChild(btn);
+      tr.appendChild(prefix);tr.appendChild(issued);tr.appendChild(expires);tr.appendChild(status);tr.appendChild(actions);
+      tbody.appendChild(tr);
+    });
+    tbl.appendChild(tbody);
+    el.textContent='';
+    var title=document.createElement('div');title.style.cssText='font-weight:600;margin-bottom:8px';title.textContent='Sync Certificates';
+    el.appendChild(title);el.appendChild(tbl);
+  }).catch(function(e){el.textContent='Failed to load: '+e.message});
+}
+function reissueCert(stashId,apiKeyId){
+  if(!confirm('Reissue mTLS certificate for this sync key?\n\nThe client will need to run "hermitstash-sync repair" with the new code.'))return;
+  fetch('/admin/stash/'+stashId+'/reissue-cert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({apiKeyId:apiKeyId})}).then(function(r){return r.json()}).then(function(d){
+    if(d.success){
+      alert('Certificate reissued.\n\nRepair code (give to client):\n\n'+d.enrollmentCode+'\n\nExpires in 1 hour.');
+      loadSyncKeys(stashId);
+    }else{alert(d.error||'Failed')}
+  }).catch(function(){alert('Failed')});
 }
 function renameStashBundleName(shareId,el){
   var current=el.textContent;

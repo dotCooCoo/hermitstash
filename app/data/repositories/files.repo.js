@@ -16,8 +16,8 @@ function update(id, ops) { return files.update({ _id: id }, ops); }
 function remove(id) { return files.remove({ _id: id }); }
 
 function incrementDownloads(id) {
-  var doc = files.findOne({ _id: id });
-  if (doc) files.update({ _id: id }, { $set: { downloads: (doc.downloads || 0) + 1 } });
+  var db = require("../../lib/db");
+  db.rawExec("UPDATE files SET downloads = downloads + 1 WHERE _id = ?", id);
 }
 
 function findByBundleShareId(shareId) { return files.find({ bundleShareId: shareId }); }

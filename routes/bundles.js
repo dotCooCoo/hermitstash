@@ -1,10 +1,11 @@
+var C = require("../lib/constants");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
 var filesRepo = require("../app/data/repositories/files.repo");
 var accessCodesRepo = require("../app/data/repositories/bundleAccessCodes.repo");
 var accessLogRepo = require("../app/data/repositories/bundleAccessLog.repo");
 var logger = require("../app/shared/logger");
 const config = require("../lib/config");
-const { sha3Hash, generateShareId } = require("../lib/crypto");
+const { sha3Hash, generateShareId, timingSafeEqual } = require("../lib/crypto");
 const { verifyPassword } = require("../lib/crypto");
 const { parseJson } = require("../lib/multipart");
 const storage = require("../lib/storage");
@@ -19,21 +20,27 @@ const requireAuth = require("../middleware/require-auth");
 const { HASH_PREFIX } = require("../lib/constants");
 
 var { isBundleLocked, prefersJson } = require("../middleware/require-access");
+var crypto = require("crypto");
+var db = require("../lib/db");
+var { validateEmail } = require("../app/shared/validate");
+var { sanitizeRename } = require("../app/shared/sanitize-filename");
+var stashRepo = require("../app/data/repositories/stash.repo");
+var uploadHandler = require("../app/domain/uploads/upload.handler");
 
 // Exponential backoff tracking for bundle password attempts
 var bundleLockouts = new Map();
 var BUNDLE_LOCKOUT_THRESHOLD = 5;
 
 // Clean up stale lockout entries every 30 minutes
-setInterval(function () {
+var _lockoutTimer = setInterval(function () {
   var now = Date.now();
   bundleLockouts.forEach(function (entry, key) {
-    // Remove entries older than 1 hour with no recent activity
-    if (now - entry.lastAttempt > 60 * 60 * 1000) {
+    if (now - entry.lastAttempt > C.TIME.ONE_HOUR) {
       bundleLockouts.delete(key);
     }
   });
-}, 30 * 60 * 1000);
+}, C.TIME.THIRTY_MIN);
+_lockoutTimer.unref();
 
 module.exports = function (app) {
   // Bundle password verification (rate limited to prevent brute force)
@@ -99,7 +106,6 @@ module.exports = function (app) {
 
     var body = await parseJson(req);
     var email = String(body.email || "").trim().toLowerCase();
-    var { validateEmail } = require("../app/shared/validate");
     var emailCheck = validateEmail(email);
     if (!emailCheck.valid) {
       return res.status(400).json({ error: "Valid email required." });
@@ -129,7 +135,6 @@ module.exports = function (app) {
     accessCodesRepo.invalidatePending(bundle.shareId, emailHash);
 
     // Generate 6-digit code
-    var crypto = require("crypto");
     var codeNum = crypto.randomInt(0, 1000000);
     var code = String(codeNum).padStart(6, "0");
 
@@ -181,7 +186,7 @@ module.exports = function (app) {
 
     // Verify code via hash comparison
     var submittedHash = sha3Hash(HASH_PREFIX.ACCESS_CODE + code);
-    if (submittedHash !== codeRecord.codeHash) {
+    if (!timingSafeEqual(submittedHash, codeRecord.codeHash)) {
       accessCodesRepo.update(codeRecord._id, { $set: { attempts: codeRecord.attempts + 1 } });
       audit.log(audit.ACTIONS.BUNDLE_ACCESS_CODE_FAILED, { targetId: bundle._id, details: "shareId: " + bundle.shareId + ", attempts: " + (codeRecord.attempts + 1), req: req });
       return res.status(401).json({ error: "Incorrect code." });
@@ -282,7 +287,7 @@ module.exports = function (app) {
     if (parentBundle && isBundleLocked(parentBundle, req.session)) {
       res.writeHead(401); return res.end("Access restricted");
     }
-    filesRepo.update(doc._id, { $set: { downloads: (doc.downloads || 0) + 1 } });
+    filesRepo.incrementDownloads(doc._id);
     audit.log(audit.ACTIONS.BUNDLE_FILE_DOWNLOADED, { targetId: doc._id, details: "file: " + doc.originalName + ", bundle: " + req.params.shareId, req: req });
     // S3 direct mode: redirect to pre-signed URL for files stored without app encryption
     if (!doc.encryptionKey && config.storage.backend === "s3" && config.storage.s3DirectDownloads) {
@@ -291,6 +296,7 @@ module.exports = function (app) {
     }
     try {
       const stream = await storage.getFileStream(doc.storagePath, doc.encryptionKey);
+      req.on("close", function () { if (stream.destroy) stream.destroy(); });
       res.writeHead(200, {
         "Content-Disposition": safeContentDisposition(doc.originalName, "attachment"),
         "Content-Type": doc.mimeType || "application/octet-stream",
@@ -313,7 +319,7 @@ module.exports = function (app) {
     var bundleFiles = filesRepo.findByBundleShareId(bundle.shareId);
     if (bundleFiles.length === 0) { res.writeHead(404); return res.end("Empty bundle"); }
 
-    bundlesRepo.update(bundle._id, { $set: { downloads: (bundle.downloads || 0) + 1 } });
+    db.rawExec("UPDATE bundles SET downloads = downloads + 1 WHERE _id = ?", bundle._id);
     audit.log(audit.ACTIONS.BUNDLE_ZIP_DOWNLOADED, { targetId: bundle._id, details: "shareId: " + bundle.shareId + ", files: " + bundleFiles.length, req: req });
 
     res.writeHead(200, {
@@ -390,8 +396,8 @@ module.exports = function (app) {
     if (bundle.ownerId !== req.user._id && req.user.role !== "admin") {
       return res.status(403).json({ error: "Not authorized." });
     }
-    var { parseJson } = require("../lib/multipart");
-    var { sanitizeRename } = require("../app/shared/sanitize-filename");
+    // parseJson already imported at top
+    // sanitizeRename already imported at top
     var body = await parseJson(req);
     var result = sanitizeRename(body.name, { maxLength: 200 });
     if (!result.valid) return res.status(400).json({ error: result.error || "Invalid name." });
@@ -408,7 +414,7 @@ module.exports = function (app) {
       return res.status(403).json({ error: "Not authorized." });
     }
     var body = await parseJson(req);
-    var { handleSyncFileRename } = require("../app/domain/uploads/upload.handler");
+    var { handleSyncFileRename } = uploadHandler;
     var result = await handleSyncFileRename({
       bundleId: bundle._id,
       oldRelativePath: body.oldRelativePath,
@@ -427,7 +433,7 @@ module.exports = function (app) {
     if (bundle.ownerId !== req.user._id && req.user.role !== "admin") {
       return res.status(403).json({ error: "Not authorized." });
     }
-    var { handleSyncFileDelete } = require("../app/domain/uploads/upload.handler");
+    var { handleSyncFileDelete } = uploadHandler;
     var result = await handleSyncFileDelete({ bundle: bundle, fileId: req.params.fileId, req: req });
     if (result.error) return res.status(result.status || 400).json({ error: result.error });
     res.json(result);
@@ -449,7 +455,7 @@ module.exports = function (app) {
     // Decrement stash stats if bundle belongs to a stash page
     if (bundle.stashId) {
       try {
-        var stashRepo = require("../app/data/repositories/stash.repo");
+        // stashRepo already imported at top
         var stash = stashRepo.findById(bundle.stashId);
         if (stash) {
           stashRepo.update(stash._id, { $set: {

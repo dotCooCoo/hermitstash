@@ -18,20 +18,7 @@ function queryAuditLog(opts) {
   var page = Math.max(1, parseInt(opts.page, 10) || 1);
   var limit = Math.max(1, Math.min(200, parseInt(opts.limit, 10) || 50));
 
-  // Build SQL WHERE clause for indexed/non-sealed fields
-  var sqlConditions = [];
-  var sqlParams = [];
-
-  if (dateFrom) {
-    sqlConditions.push("createdAt >= ?");
-    sqlParams.push(dateFrom);
-  }
-  if (dateTo) {
-    sqlConditions.push("createdAt <= ?");
-    sqlParams.push(dateTo + "T23:59:59.999Z");
-  }
-
-  // Fetch with SQL-level date filtering + ordering
+  // Fetch with JS-level date/action filtering
   var sqlLimit = (q || actionFilter) ? 5000 : limit; // fetch more if we need JS filtering
   var sqlOffset = (q || actionFilter) ? 0 : (page - 1) * limit;
   var fetchOpts = { limit: sqlLimit, offset: sqlOffset, orderBy: "createdAt", orderDir: "desc" };

@@ -7,13 +7,15 @@
 var fs = require("fs");
 var path = require("path");
 var config = require("../../lib/config");
+var { PATHS } = require("../../lib/constants");
 
 function run() {
   var warnings = [];
   var errors = [];
 
   // ---- Critical: vault key must exist and be readable ----
-  var vaultKeyPath = path.join(__dirname, "..", "..", "data", "vault.key");
+  var dataDir = PATHS.DATA_DIR;
+  var vaultKeyPath = PATHS.VAULT_KEY;
   if (fs.existsSync(vaultKeyPath)) {
     try {
       var keyData = JSON.parse(fs.readFileSync(vaultKeyPath, "utf8"));
@@ -59,7 +61,6 @@ function run() {
   }
 
   // ---- Warning: data directory permissions ----
-  var dataDir = path.join(__dirname, "..", "..", "data");
   if (fs.existsSync(dataDir)) {
     try {
       var stat = fs.statSync(dataDir);

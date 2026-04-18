@@ -14,7 +14,9 @@ var logger = require("../app/shared/logger");
 var usersRepo = require("../app/data/repositories/users.repo");
 var filesRepo = require("../app/data/repositories/files.repo");
 var credentialsRepo = require("../app/data/repositories/credentials.repo");
-var { sanitizeFilename } = require("../app/shared/sanitize-filename");
+var { sanitizeFilename, sanitizeRename } = require("../app/shared/sanitize-filename");
+var fs = require("fs");
+var simplewebauthn = require("../lib/vendor/simplewebauthn-server.cjs");
 var { parseMultipart, parseJson } = require("../lib/multipart");
 var { generateShareId, generateBytes } = require("../lib/crypto");
 var config = require("../lib/config");
@@ -95,9 +97,7 @@ module.exports = function (app) {
       var deleted = 0;
       for (var i = 0; i < vaultFiles.length; i++) {
         try {
-          var fs = require("fs");
-          var fullPath = path.join(storage.uploadDir, vaultFiles[i].storagePath);
-          if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+          await storage.deleteFile(vaultFiles[i].storagePath);
         } catch (_e) {}
         filesRepo.remove(vaultFiles[i]._id);
         deleted++;
@@ -146,7 +146,7 @@ module.exports = function (app) {
       if (!body.assertion) return res.status(400).json({ error: "Passkey assertion required." });
 
       // Verify the passkey assertion
-      var wa = require("../lib/vendor/simplewebauthn-server.cjs");
+      var wa = simplewebauthn;
       var expectedChallenge = req.session.vaultUnlockChallenge;
       delete req.session.vaultUnlockChallenge;
       if (!expectedChallenge) return res.status(400).json({ error: "No pending vault unlock challenge." });
@@ -251,11 +251,8 @@ module.exports = function (app) {
       var storagePath = "vault/" + req.user._id + "/" + Date.now() + "-" + fileShareId + ext;
 
       // Write raw ciphertext to storage — no server-side encryption layer
-      var fs = require("fs");
-      var fullPath = path.join(storage.uploadDir, storagePath);
-      var dir = path.dirname(fullPath);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(fullPath, ciphertext);
+      var savedPath = await storage.saveRaw(ciphertext, storagePath);
+      storagePath = savedPath;
 
       filesRepo.create({
         shareId: fileShareId,
@@ -308,9 +305,7 @@ module.exports = function (app) {
     // Admin can see metadata but NOT decrypt (no secret key)
     // Return the encrypted blob + encapsulated key for client-side decryption
     try {
-      var fs = require("fs");
-      var fullPath = path.join(storage.uploadDir, doc.storagePath);
-      var ciphertext = fs.readFileSync(fullPath);
+      var ciphertext = await storage.getRawBuffer(doc.storagePath);
 
       filesRepo.update(doc._id, { $set: { downloads: (doc.downloads || 0) + 1 } });
       audit.log(audit.ACTIONS.FILE_DOWNLOADED, { targetId: doc._id, details: "vault file: " + doc.originalName, req: req, vaultOp: true });
@@ -395,7 +390,6 @@ module.exports = function (app) {
       }
 
       // Update each file with re-encrypted data
-      var fs = require("fs");
       var updated = 0;
       for (var k = 0; k < vaultFiles.length; k++) {
         var doc = vaultFiles[k];
@@ -404,8 +398,7 @@ module.exports = function (app) {
 
         // Write new ciphertext to storage
         var ciphertext = Buffer.from(reenc.ciphertext, "base64");
-        var fullPath = path.join(storage.uploadDir, doc.storagePath);
-        fs.writeFileSync(fullPath, ciphertext);
+        await storage.saveRaw(ciphertext, doc.storagePath);
 
         // Update DB with new encapsulated key and IV
         filesRepo.update(doc._id, { $set: {
@@ -439,9 +432,7 @@ module.exports = function (app) {
     }
     // Delete the encrypted blob
     try {
-      var fs = require("fs");
-      var fullPath = path.join(storage.uploadDir, doc.storagePath);
-      if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+      await storage.deleteFile(doc.storagePath);
     } catch (_e) {}
     filesRepo.remove(doc._id);
     audit.log(audit.ACTIONS.FILE_DELETED, { targetId: doc._id, details: "vault file: " + doc.originalName, req: req, vaultOp: true });
@@ -452,7 +443,6 @@ module.exports = function (app) {
   app.post("/vault/batch/:batchId/rename", async (req, res) => {
     if (!requireAuth(req, res)) return;
     var body = await parseJson(req);
-    var { sanitizeRename } = require("../app/shared/sanitize-filename");
     var result = sanitizeRename(body.name, { maxLength: 200 });
     if (!result.valid) return res.status(400).json({ error: result.error || "Invalid name." });
     var batchFiles = filesRepo.findAll({ uploadedBy: req.user._id, vaultEncrypted: "true" })
@@ -470,7 +460,6 @@ module.exports = function (app) {
     var doc = filesRepo.findAll({ shareId: req.params.shareId, uploadedBy: req.user._id, vaultEncrypted: "true", status: "complete" })[0];
     if (!doc) return res.status(404).json({ error: "Not found." });
     var body = await parseJson(req);
-    var { sanitizeRename } = require("../app/shared/sanitize-filename");
     var result = sanitizeRename(body.name, { originalName: doc.originalName });
     if (!result.valid) return res.status(400).json({ error: result.error });
     filesRepo.update(doc._id, { $set: { originalName: result.name } });
@@ -485,11 +474,9 @@ module.exports = function (app) {
       if (!body.batchId) return res.status(400).json({ error: "Batch ID required." });
       var vaultFiles = filesRepo.findAll({ uploadedBy: req.user._id, vaultEncrypted: "true" }).filter(function (f) { return f.vaultBatchId === body.batchId; });
       if (vaultFiles.length === 0) return res.status(404).json({ error: "No files in batch." });
-      var fsmod = require("fs");
       for (var i = 0; i < vaultFiles.length; i++) {
         try {
-          var fullPath = path.join(storage.uploadDir, vaultFiles[i].storagePath);
-          if (fsmod.existsSync(fullPath)) fsmod.unlinkSync(fullPath);
+          await storage.deleteFile(vaultFiles[i].storagePath);
         } catch (_e) {}
         filesRepo.remove(vaultFiles[i]._id);
       }

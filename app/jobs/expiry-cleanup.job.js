@@ -2,9 +2,11 @@
  * Expiry Cleanup Job — removes expired files and stale bundles.
  * Registered as a scheduled task in server.js.
  */
+var logger = require("../shared/logger");
 var { files, bundles } = require("../../lib/db");
 var storage = require("../../lib/storage");
 var audit = require("../../lib/audit");
+var { TIME } = require("../../lib/constants");
 
 /**
  * Clean up expired files (files with expiresAt in the past).
@@ -18,7 +20,7 @@ async function cleanupExpiredFiles() {
       if (expired[i].storagePath) await storage.deleteFile(expired[i].storagePath);
       files.remove({ _id: expired[i]._id });
       removed++;
-    } catch (e) { console.error("Expiry cleanup error:", e.message); }
+    } catch (e) { logger.error("Expiry cleanup error", { error: e.message }); }
   }
   if (removed > 0) {
     try { audit.log(audit.ACTIONS.FILE_EXPIRY_CLEANUP, { performedBy: "system", details: "Removed " + removed + " expired files" }); } catch (_e) {}
@@ -34,7 +36,7 @@ async function cleanupExpiredFiles() {
 async function cleanupStaleBundles() {
   var path = require("path");
   var fs = require("fs");
-  var cutoff = new Date(Date.now() - 24 * 3600000).toISOString();
+  var cutoff = new Date(Date.now() - TIME.ONE_DAY).toISOString();
   var stale = bundles.find({ status: "uploading" }).filter(function (b) { return b.createdAt && b.createdAt < cutoff; });
   var removed = 0;
   for (var i = 0; i < stale.length; i++) {
@@ -64,7 +66,7 @@ async function cleanupStaleBundles() {
  * Clean up tombstoned files (soft-deleted sync bundle files older than 30 days).
  */
 function cleanupTombstones() {
-  var cutoff = new Date(Date.now() - 30 * 86400000).toISOString();
+  var cutoff = new Date(Date.now() - TIME.THIRTY_DAYS).toISOString();
   var tombstones = files.find({}).filter(function (f) { return f.deletedAt && f.deletedAt < cutoff; });
   var removed = 0;
   for (var i = 0; i < tombstones.length; i++) {
@@ -80,7 +82,7 @@ function cleanupTombstones() {
 function cleanupExpiredEnrollmentCodes() {
   try {
     var db = require("../../lib/db");
-    var cutoff = new Date(Date.now() - 7200000).toISOString();
+    var cutoff = new Date(Date.now() - TIME.TWO_HOURS).toISOString();
     var expired = db.enrollmentCodes.find({}).filter(function (c) { return c.expiresAt < cutoff || c.status === "redeemed"; });
     for (var i = 0; i < expired.length; i++) db.enrollmentCodes.remove({ _id: expired[i]._id });
     return expired.length;

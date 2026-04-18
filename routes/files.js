@@ -1,6 +1,7 @@
 const config = require("../lib/config");
 var logger = require("../app/shared/logger");
-const { safeContentDisposition } = require("../app/shared/sanitize-filename");
+const { safeContentDisposition, sanitizeRename } = require("../app/shared/sanitize-filename");
+var { parseJson } = require("../lib/multipart");
 const requireAuth = require("../middleware/require-auth");
 const { send, host } = require("../middleware/send");
 var audit = require("../lib/audit");
@@ -41,7 +42,9 @@ module.exports = function (app) {
         "Content-Disposition": safeContentDisposition(doc.originalName, "attachment"),
         "Content-Type": result.headers["Content-Type"],
       });
-      result.stream.pipe(res);
+      var stream = result.stream;
+      req.on("close", function () { if (stream.destroy) stream.destroy(); });
+      stream.pipe(res);
     } catch (e) {
       logger.error("Download error", { error: e.message || String(e) });
       if (!res.writableEnded) { res.writeHead(500); res.end("File unavailable"); }
@@ -105,8 +108,6 @@ module.exports = function (app) {
     if (doc.uploadedBy !== req.user._id && req.user.role !== "admin") {
       return res.status(403).json({ error: "Not authorized." });
     }
-    var { parseJson } = require("../lib/multipart");
-    var { sanitizeRename } = require("../app/shared/sanitize-filename");
     var body = await parseJson(req);
     var result = sanitizeRename(body.name, { originalName: doc.originalName });
     if (!result.valid) return res.status(400).json({ error: result.error });

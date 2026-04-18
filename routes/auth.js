@@ -1,4 +1,5 @@
 const config = require("../lib/config");
+var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
 var usersRepo = require("../app/data/repositories/users.repo");
 const { parseJson } = require("../lib/multipart");
@@ -10,6 +11,8 @@ var rateLimit = require("../lib/rate-limit");
 var authService = require("../app/domain/auth/auth.service");
 var sessionService = require("../app/domain/auth/session.service");
 var { validateLoginInput, validateRegisterInput } = require("../app/http/validators/auth.validator");
+var { createVerificationToken } = require("./verification");
+var { validateToken } = require("../app/security/csrf-policy");
 
 module.exports = function (app) {
   // Google OAuth
@@ -93,7 +96,7 @@ module.exports = function (app) {
             var attempts = (parseInt(existing.failedLoginAttempts, 10) || 0) + 1;
             var lockUpdate = { failedLoginAttempts: attempts };
             if (attempts >= 10) {
-              lockUpdate.lockedUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+              lockUpdate.lockedUntil = new Date(Date.now() + C.TIME.THIRTY_MIN).toISOString();
               audit.log(audit.ACTIONS.LOGIN_FAILED_BAD_PASSWORD, { targetId: existing._id, targetEmail: input.email, details: "Account locked after " + attempts + " failed attempts (30 min)", req: req });
             } else {
               audit.log(audit.ACTIONS.LOGIN_FAILED_BAD_PASSWORD, { targetId: existing._id, targetEmail: input.email, details: "Invalid password (attempt " + attempts + "/10)", req: req });
@@ -158,7 +161,6 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.USER_REGISTERED, { targetId: user._id, targetEmail: user.email, details: "authType: local, role: " + user.role + ", claimed: " + result.claimed + ", verified: " + !result.needsVerification, req: req });
 
       if (result.needsVerification) {
-        var { createVerificationToken } = require("./verification");
         var rawToken = createVerificationToken(user._id);
         var verifyUrl = host(req) + "/auth/verify/" + rawToken;
         emailService.sendVerificationEmail({ to: user.email, displayName: user.displayName, verifyUrl: verifyUrl });
@@ -193,7 +195,6 @@ module.exports = function (app) {
     req.on("end", function () {
       var body = Buffer.concat(chunks).toString("utf8");
       var params = Object.fromEntries(new URLSearchParams(body));
-      var { validateToken } = require("../app/security/csrf-policy");
       if (!req.session || !validateToken(req.session, req, params)) {
         res.writeHead(403, { "Content-Type": "application/json" });
         return res.end(JSON.stringify({ error: "CSRF validation failed." }));

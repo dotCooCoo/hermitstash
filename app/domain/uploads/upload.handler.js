@@ -18,6 +18,10 @@ var ipQuota = require("../../../lib/ip-quota");
 var rateLimit = require("../../../lib/rate-limit");
 var { sanitizeFilename } = require("../../shared/sanitize-filename");
 var syncEmitter = require("../../../lib/sync-emitter");
+var usersRepo = require("../../data/repositories/users.repo");
+var emailService = require("../integrations/email.service");
+var webhook = require("../integrations/webhook.service");
+var { host } = require("../../../middleware/send");
 
 /**
  * Build structured audit detail JSON for file mutation events.
@@ -240,9 +244,9 @@ async function handleChunkUpload(ctx) {
   }
 
   // Store chunk
-  var chunkDir = path.join(config.storage.uploadDir, "chunks", bundle.shareId, fileId);
+  var chunkDir = path.join(storage.uploadDir, "chunks", bundle.shareId, fileId);
   var resolvedDir = path.resolve(chunkDir);
-  var resolvedBase = path.resolve(config.storage.uploadDir);
+  var resolvedBase = path.resolve(storage.uploadDir);
   if (!resolvedDir.startsWith(resolvedBase)) return { error: "Invalid path." };
   if (!fs.existsSync(chunkDir)) fs.mkdirSync(chunkDir, { recursive: true });
   fs.writeFileSync(path.join(chunkDir, String(chunkIndex)), chunk.data);
@@ -334,10 +338,6 @@ async function handleChunkUpload(ctx) {
  * @param {object} ctx - { bundleId, token, uploaderName, sendUploaderEmail, stashSlug, stashId, auditSuffix, req }
  */
 function handleFinalize(ctx) {
-  var usersRepo = require("../../data/repositories/users.repo");
-  var emailService = require("../integrations/email.service");
-  var webhook = require("../integrations/webhook.service");
-  var { host } = require("../../../middleware/send");
   var suffix = ctx.auditSuffix || "";
 
   var existing = bundlesRepo.findById(ctx.bundleId);
@@ -452,7 +452,6 @@ async function handleSyncFileRename(ctx) {
   if (!oldPath || !newPath) return { error: "Both oldRelativePath and newRelativePath required.", status: 400 };
 
   // Sanitize new path
-  var { sanitizeFilename } = require("../../shared/sanitize-filename");
   var segments = newPath.split("/");
   segments = segments.map(function (s) { return sanitizeFilename(s); }).filter(Boolean);
   if (segments.length === 0) return { error: "Invalid new path.", status: 400 };
