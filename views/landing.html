@@ -204,6 +204,16 @@
         <h4>One-Code Setup</h4>
         <p>Generate an enrollment code. Customer enters it in the sync client. API key and mTLS certificates are exchanged automatically. No file transfers.</p>
       </div>
+      <div class="cap-card">
+        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div>
+        <h4>Upload Limits</h4>
+        <p>Per-stash max file size, file count, bundle size, allowed extensions, and default expiry. Each portal gets its own quotas independent of global settings.</p>
+      </div>
+      <div class="cap-card">
+        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
+        <h4>Admin Overview</h4>
+        <p>Track bundle count, total bytes, and download stats per stash. View and manage all uploads from the admin panel. Delete bundles or entire stash portals.</p>
+      </div>
     </div>
   </div>
 </section>
@@ -229,7 +239,7 @@
       <div class="cap-card">
         <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
         <h4>Admin Dashboard</h4>
-        <p>Manage users, files, bundles, and 40+ settings. Environment info, CSV exports, database backups, maintenance mode.</p>
+        <p>Manage users, files, bundles, and 70+ settings. Environment info, CSV exports, database backups, maintenance mode.</p>
       </div>
       <div class="cap-card">
         <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
@@ -341,7 +351,7 @@
   <div class="how-inner">
     <div class="how-head" data-anim>
       <span class="sub-title">How It Works</span>
-      <h2 class="feat-title"><span>Three ways <span class="fw-200">in.</span></span></h2>
+      <h2 class="feat-title"><span>Two ways <span class="fw-200">in.</span></span></h2>
       <p class="how-lead">All encrypted at rest. Vault uploads are end-to-end. Shareable links in seconds.</p>
     </div>
 
@@ -387,27 +397,6 @@
           <a href="/auth/login" class="butn butn-bord butn-sm radius-30"><span>Sign In</span></a>
         </div>
       </div>
-
-      <div class="flow-card flow-public">
-        <div class="flow-top">
-          <div class="flow-badge">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
-          </div>
-          <div class="flow-label">Sync</div>
-        </div>
-        <h3>Desktop <span class="fw-200">Sync</span></h3>
-        <p class="flow-desc">Keep a local folder synced over PQC TLS.</p>
-        <div class="flow-divider"></div>
-        <ol class="flow-steps">
-          <li><span class="flow-step-text">Admin generates an enrollment code</span></li>
-          <li><span class="flow-step-text">Run <span class="flow-code">hermitstash-sync init</span></span></li>
-          <li><span class="flow-step-text">API key + mTLS certs exchanged automatically</span></li>
-          <li><span class="flow-step-text">Real-time sync via WebSocket</span></li>
-        </ol>
-        <div class="flow-bottom">
-          <a href="https://github.com/dotCooCoo/hermitstash-sync" target="_blank" rel="noopener noreferrer" class="butn butn-bord butn-sm radius-30"><span>Sync Client</span></a>
-        </div>
-      </div>
     </div>
   </div>
 </section>
@@ -432,8 +421,8 @@
       </div>
       <div class="hardening-item">
         <div class="hardening-num">0</div>
-        <div class="hardening-label">Classical-only crypto</div>
-        <div class="hardening-detail">No AES-GCM. No SHA-256. No P-256. Every cryptographic operation uses post-quantum algorithms with no backwards compatibility.</div>
+        <div class="hardening-label">Classical-only application crypto</div>
+        <div class="hardening-detail">Every file, key, and secret uses post-quantum algorithms — ML-KEM-1024, XChaCha20-Poly1305, SHAKE256, Argon2id. No classical-only fallbacks at the application layer.</div>
       </div>
       <div class="hardening-item">
         <div class="hardening-num">0</div>
@@ -506,10 +495,45 @@
         </ul>
       </div>
     </div>
-    <p class="deploy-note" data-anim>First run generates the vault keypair and creates default accounts. Setup wizard walks you through changing the admin password, configuring passkeys, and generating a session secret. Configure S3 storage, email, and branding from the admin panel.</p>
-    <div class="start-buttons" data-anim>
+    <div class="feat-head" data-anim style="margin-top:3rem">
+      <span class="sub-title">Also runs on</span>
+      <h2 class="feat-title"><span>Every <span class="fw-200">platform.</span> <span class="main-color">One image.</span></span></h2>
+    </div>
+    <div class="cap-grid" data-anim>
+      <div class="cap-card">
+        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M12 8v8"/><path d="M8 12h8"/></svg></div>
+        <h4>Kubernetes</h4>
+        <p>Full manifest with namespace, PVCs, deployment, service, and ingress template.</p>
+      </div>
+      <div class="cap-card">
+        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div>
+        <h4>Podman</h4>
+        <p>Rootless or rootful. SELinux-ready. Auto-generates systemd units.</p>
+      </div>
+      <div class="cap-card">
+        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg></div>
+        <h4>Proxmox / LXD</h4>
+        <p>One-command LXC container or LXD/Incus system container with Docker nested inside.</p>
+      </div>
+      <div class="cap-card">
+        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div>
+        <h4>Terraform</h4>
+        <p>DigitalOcean droplet with firewall and optional DNS. One <span class="flow-code">terraform apply</span>.</p>
+      </div>
+      <div class="cap-card">
+        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+        <h4>Ansible</h4>
+        <p>Playbook with Docker or native deployment modes. One command for any server.</p>
+      </div>
+      <div class="cap-card">
+        <div class="cap-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></div>
+        <h4>Ubuntu / Debian</h4>
+        <p>One-liner native install. Node.js 24, tmpfs, systemd service — all automated.</p>
+      </div>
+    </div>
+    <div class="start-buttons" data-anim style="margin-top:3rem">
       <a href="/drop" class="butn butn-bg butn-md radius-30"><span>Try The Drop</span></a>
-      <a href="https://github.com/dotCooCoo/hermitstash" target="_blank" rel="noopener noreferrer" class="butn butn-bord butn-md radius-30"><span>View on GitHub</span></a>
+      <a href="https://github.com/dotCooCoo/hermitstash" target="_blank" rel="noopener noreferrer" class="butn butn-bord butn-md radius-30 github-shimmer"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-2px;margin-right:6px"><path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.7-.3-5.5-1.3-5.5-6 0-1.2.5-2.3 1.3-3.1-.2-.4-.6-1.6.1-3.2 0 0 1-.3 3.4 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.7 1.6.3 2.8.2 3.2.8.8 1.3 1.9 1.3 3.2 0 4.6-2.8 5.6-5.5 5.9.5.4.9 1.2.9 2.4v3.5c0 .3.2.7.8.6A12 12 0 0 0 12 .3"/></svg><span>GitHub</span></a>
     </div>
   </div>
 </section>
