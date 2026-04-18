@@ -23,6 +23,8 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
 
     steps:
       - name: Checkout
@@ -96,10 +98,10 @@ jobs:
         run: cosign sign --yes ${{ env.IMAGE }}@${DIGEST}
 
       - name: Scan image with Trivy
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !inputs.dry_run && steps.build.outputs.digest }}
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.IMAGE }}:sha-${{ github.sha }}
+          image-ref: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
           format: 'table'
           exit-code: '0'
           severity: 'CRITICAL,HIGH'
@@ -108,8 +110,8 @@ jobs:
         if: ${{ !inputs.dry_run }}
         run: |
           set -euo pipefail
-          docker pull ${{ env.IMAGE }}:sha-${{ github.sha }}
-          DIGEST=$(docker save ${{ env.IMAGE }}:sha-${{ github.sha }} | openssl dgst -sha3-512 | awk '{print $NF}')
+          docker pull ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          DIGEST=$(docker save ${{ env.IMAGE }}@${{ steps.build.outputs.digest }} | openssl dgst -sha3-512 | awk '{print $NF}')
           echo "SHA3-512: $DIGEST"
           echo "sha3=$DIGEST" >> "$GITHUB_OUTPUT"
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -145,12 +147,12 @@ jobs:
 
     steps:
       - name: Pull published image
-        run: docker pull ${{ env.IMAGE }}:sha-${{ github.sha }}
+        run: docker pull ${{ env.IMAGE }}@${{ needs.build-and-push.outputs.digest }}
 
       - name: Verify OCI labels
         run: |
           set -euo pipefail
-          LABELS=$(docker inspect ${{ env.IMAGE }}:sha-${{ github.sha }} --format '{{json .Config.Labels}}')
+          LABELS=$(docker inspect ${{ env.IMAGE }}@${{ needs.build-and-push.outputs.digest }} --format '{{json .Config.Labels}}')
           echo "$LABELS" | python3 -m json.tool
           echo "$LABELS" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'org.opencontainers.image.title' in d, 'missing title label'; assert d['org.opencontainers.image.title'] == 'HermitStash', 'wrong title'; print('Labels OK')"
 
@@ -159,7 +161,7 @@ jobs:
           docker run -d --name smoke-test \
             -p 3000:3000 \
             --shm-size=256m \
-            ${{ env.IMAGE }}:sha-${{ github.sha }}
+            ${{ env.IMAGE }}@${{ needs.build-and-push.outputs.digest }}
           echo "Waiting for health check..."
           for i in $(seq 1 30); do
             if curl -sf http://localhost:3000/health > /dev/null 2>&1; then
