@@ -218,7 +218,7 @@ app.post("/sync/rename", require("./lib/rate-limit").middleware("sync-file-renam
     var bundlesRepo = require("./app/data/repositories/bundles.repo");
     var bundle = bundlesRepo.findById(body.bundleId);
     if (!bundle) { res.writeHead(404, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: "Bundle not found." })); }
-    if (bundle.ownerId && bundle.ownerId !== req.apiKey.userId) { res.writeHead(403, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: "Forbidden." })); }
+    if (!bundle.ownerId || bundle.ownerId !== req.apiKey.userId) { res.writeHead(403, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: "Forbidden." })); }
     var result = await handleSyncFileRename({
       bundleId: body.bundleId,
       oldRelativePath: body.oldRelativePath,

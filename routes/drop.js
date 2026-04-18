@@ -111,6 +111,10 @@ module.exports = function (app) {
 
   // Finalize bundle
   app.post("/drop/finalize/:bundleId", rateLimit.middleware("finalize", 20, 60000), requireScope("upload"), async (req, res) => {
+    var existing = bundlesRepo.findById(req.params.bundleId);
+    if (!existing) return res.status(404).json({ error: "Bundle not found." });
+    if (existing.ownerId && existing.ownerId !== req.user._id) return res.status(403).json({ error: "Forbidden." });
+
     var body = await parseJson(req);
     var token = String(body.finalizeToken || req.query.finalizeToken || "");
     var result = handleFinalize({
