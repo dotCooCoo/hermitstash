@@ -806,7 +806,7 @@ This may change in the future. If HermitStash grows to a point where I can respo
 
 ## License
 
-MIT
+[AGPL-3.0-or-later](LICENSE)
 
 ## A final note
 

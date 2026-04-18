@@ -15,7 +15,7 @@ LABEL org.opencontainers.image.title="HermitStash" \
       org.opencontainers.image.source="https://github.com/dotCooCoo/hermitstash" \
       org.opencontainers.image.url="https://github.com/dotCooCoo/hermitstash" \
       org.opencontainers.image.documentation="https://github.com/dotCooCoo/hermitstash#readme" \
-      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.licenses="AGPL-3.0-or-later" \
       org.opencontainers.image.vendor="dotCooCoo"
 
 # Security: non-root user + gosu for entrypoint
