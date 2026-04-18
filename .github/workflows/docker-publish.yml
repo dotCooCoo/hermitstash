@@ -86,6 +86,22 @@ jobs:
           exit-code: '0'
           severity: 'CRITICAL,HIGH'
 
+      - name: Generate SHA3-512 digest
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          docker pull ${{ env.IMAGE }}:sha-${{ github.sha }}
+          DIGEST=$(docker save ${{ env.IMAGE }}:sha-${{ github.sha }} | openssl dgst -sha3-512 | awk '{print $NF}')
+          echo "SHA3-512: $DIGEST"
+          echo "sha3=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "#### SHA3-512" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "Verify: \`docker save ${{ env.IMAGE }}:sha-${{ github.sha }} | openssl dgst -sha3-512\`" >> "$GITHUB_STEP_SUMMARY"
+        id: sha3
+
       - name: Build summary
         run: |
           echo "### Docker Build Complete" >> "$GITHUB_STEP_SUMMARY"
