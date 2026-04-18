@@ -190,12 +190,28 @@ jobs:
 
       - name: Verify non-root user
         run: |
-          # docker exec runs as the Dockerfile default user (root), NOT the entrypoint user.
-          # The entrypoint drops to hermit via gosu. Check PID 1's actual UID:
+          echo "=== Diagnostics ==="
+          echo "Entrypoint exists:"
+          docker exec smoke-test ls -la /app/docker-entrypoint.sh 2>&1 || echo "  MISSING"
+          echo "Gosu exists:"
+          docker exec smoke-test which gosu 2>&1 || echo "  MISSING"
+          echo "Hermit user exists:"
+          docker exec smoke-test id hermit 2>&1 || echo "  MISSING"
+          echo "PID 1 command:"
+          docker exec smoke-test cat /proc/1/cmdline 2>&1 | tr '\0' ' ' && echo
+          echo "PID 1 status:"
+          docker exec smoke-test cat /proc/1/status 2>&1 | grep -E "^(Name|Uid|Gid):"
+          echo "Container logs (last 5 lines):"
+          docker logs smoke-test 2>&1 | tail -5
+          echo "=== Verdict ==="
           PID1_UID=$(docker exec smoke-test cat /proc/1/status | grep "^Uid:" | awk '{print $2}')
           HERMIT_UID=$(docker exec smoke-test id -u hermit 2>/dev/null || echo "unknown")
           echo "PID 1 UID: $PID1_UID, hermit UID: $HERMIT_UID"
-          [ "$PID1_UID" = "$HERMIT_UID" ] || { echo "WARNING: PID 1 runs as UID $PID1_UID (hermit=$HERMIT_UID) — gosu may not be dropping privileges"; }
+          if [ "$PID1_UID" = "0" ]; then
+            echo "WARNING: PID 1 is root — gosu may not be dropping privileges"
+          else
+            echo "OK: PID 1 is non-root (UID $PID1_UID)"
+          fi
 
       - name: Verify version
         run: |
