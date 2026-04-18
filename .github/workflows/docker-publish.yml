@@ -18,6 +18,7 @@ permissions:
 
 env:
   IMAGE: ghcr.io/dotcoocoo/hermitstash
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build-and-push:
@@ -28,7 +29,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Verify license is AGPL-3.0
         run: |
@@ -108,19 +109,18 @@ jobs:
 
       - name: Generate SHA3-512 digest
         if: ${{ !inputs.dry_run }}
+        id: sha3
         run: |
           set -euo pipefail
           docker pull ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
-          DIGEST=$(docker save ${{ env.IMAGE }}@${{ steps.build.outputs.digest }} | openssl dgst -sha3-512 | awk '{print $NF}')
-          echo "SHA3-512: $DIGEST"
-          echo "sha3=$DIGEST" >> "$GITHUB_OUTPUT"
+          HASH=$(docker save ${{ env.IMAGE }}@${{ steps.build.outputs.digest }} | openssl dgst -sha3-512 | awk '{print $NF}')
+          echo "SHA3-512: $HASH"
+          echo "sha3=$HASH" >> "$GITHUB_OUTPUT"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "#### SHA3-512" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          echo "$HASH" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo "Verify: \`docker save ${{ env.IMAGE }}:sha-${{ github.sha }} | openssl dgst -sha3-512\`" >> "$GITHUB_STEP_SUMMARY"
-        id: sha3
 
       - name: Build summary
         run: |
@@ -144,6 +144,8 @@ jobs:
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: Pull published image
@@ -154,7 +156,14 @@ jobs:
           set -euo pipefail
           LABELS=$(docker inspect ${{ env.IMAGE }}@${{ needs.build-and-push.outputs.digest }} --format '{{json .Config.Labels}}')
           echo "$LABELS" | python3 -m json.tool
-          echo "$LABELS" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'org.opencontainers.image.title' in d, 'missing title label'; assert d['org.opencontainers.image.title'] == 'HermitStash', 'wrong title'; print('Labels OK')"
+          echo "$LABELS" | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          assert 'org.opencontainers.image.title' in d, 'missing title label'
+          assert 'org.opencontainers.image.source' in d, 'missing source label'
+          assert 'org.opencontainers.image.licenses' in d, 'missing license label'
+          print('Labels OK: title=' + d['org.opencontainers.image.title'] + ', license=' + d.get('org.opencontainers.image.licenses', 'none'))
+          "
 
       - name: Start container
         run: |
@@ -223,4 +232,3 @@ jobs:
       - name: Cleanup
         if: always()
         run: docker rm -f smoke-test 2>/dev/null || true
-
