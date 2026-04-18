@@ -30,7 +30,7 @@ function sanitizeRename(input, opts) {
   var name = String(input || "")
     .replace(/[\x00-\x1f\x7f]/g, "")     // strip control characters
     .replace(/[<>"'`]/g, "")              // strip HTML/XSS characters
-    .replace(/(\s*\.){2,}/g, ".")         // collapse dot chains (". . ." → ".")
+    .replace(/(\s*\.){2,}/g, ".") // eslint-disable-line security/detect-unsafe-regex -- bounded by short filename input
     .replace(/[\\\/]/g, "_")             // replace path separators
     .replace(/^[\s.]+/, "")              // strip leading dots/whitespace
     .replace(/\.+$/, "")                 // strip trailing dots
