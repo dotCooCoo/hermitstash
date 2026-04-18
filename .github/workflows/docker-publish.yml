@@ -28,6 +28,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify license is AGPL-3.0
+        run: |
+          grep -q "GNU AFFERO GENERAL PUBLIC LICENSE" LICENSE || { echo "::error::LICENSE file does not contain AGPL-3.0"; exit 1; }
+          grep -q '"AGPL-3.0-or-later"' package.json || { echo "::error::package.json license is not AGPL-3.0-or-later"; exit 1; }
+          echo "License check passed"
+
       - name: Get version from constants.js
         id: version
         run: |
