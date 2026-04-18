@@ -14,6 +14,7 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write  # cosign keyless signing via GitHub OIDC
 
 env:
   IMAGE: ghcr.io/dotcoocoo/hermitstash
@@ -60,7 +61,12 @@ jobs:
             type=sha,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
 
+      - name: Install cosign
+        if: ${{ !inputs.dry_run }}
+        uses: sigstore/cosign-installer@v3
+
       - name: Build and push multi-arch image
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -76,6 +82,12 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: true
           sbom: true
+
+      - name: Sign image with cosign (keyless, GitHub OIDC)
+        if: ${{ !inputs.dry_run }}
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes ${{ env.IMAGE }}@${DIGEST}
 
       - name: Scan image with Trivy
         if: ${{ !inputs.dry_run }}
