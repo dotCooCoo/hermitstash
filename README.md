@@ -489,6 +489,29 @@ Need nginx, Caddy, or Apache in front? The admin panel (Settings > Uploads) auto
 
 Configure S3-compatible storage (AWS, MinIO, Cloudflare R2, DigitalOcean Spaces, Backblaze B2) from Admin > Settings > Storage tab. All credentials are vault-sealed and validated by the settings schema on save. For R2, set the endpoint to `https://<account-id>.r2.cloudflarestorage.com` and region to `auto`.
 
+### Other platforms
+
+**Coolify / Portainer:** Paste `ghcr.io/dotcoocoo/hermitstash:latest` as the image. Set port 3000, mount `/app/data` and `/app/uploads` as persistent volumes, set shared memory to 256MB, add `TRUST_PROXY=true` and `RP_ORIGIN=https://your-domain.com`.
+
+**Unraid:** Docker → Add Container → paste this template URL:
+```
+https://raw.githubusercontent.com/dotCooCoo/hermitstash/main/unraid-template.xml
+```
+Pre-fills icon, ports, volumes, and `--shm-size=256m` automatically.
+
+**Synology / QNAP:** Container Manager → Registry → add `ghcr.io`, search `dotcoocoo/hermitstash`, download `latest`. Create container with port 3000 and folder mappings for `/app/data` and `/app/uploads`. For `--shm-size` use SSH: `docker run -d --shm-size=256m ...`
+
+**Kubernetes:**
+```bash
+curl -O https://raw.githubusercontent.com/dotCooCoo/hermitstash/main/kubernetes.yml
+# Edit RP_ORIGIN, PVC sizes, and optional Ingress
+kubectl apply -f kubernetes.yml
+kubectl port-forward -n hermitstash svc/hermitstash 3000:3000
+```
+Includes: Namespace, PVCs, Deployment (liveness/readiness probes, resource limits, memory-backed `/dev/shm`), Service, and commented-out Ingress template.
+
+**TrueNAS SCALE:** Apps → Custom App → image `ghcr.io/dotcoocoo/hermitstash`, tag `latest`. Add host path datasets for `/app/data` and `/app/uploads`. Add shared memory volume: type emptyDir, medium Memory, size 256Mi, mount at `/dev/shm`.
+
 ### Upgrading
 
 ```bash

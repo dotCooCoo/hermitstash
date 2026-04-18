@@ -1,0 +1,162 @@
+# HermitStash — Kubernetes Deployment
+#
+# Quick start:
+#   kubectl apply -f kubernetes.yml
+#   kubectl port-forward svc/hermitstash 3000:3000
+#   open http://localhost:3000
+#
+# Before deploying:
+#   1. Create PersistentVolumeClaims (or use the included ones for local-path)
+#   2. Set RP_ORIGIN to your ingress URL
+#   3. Configure an Ingress resource for external access
+#
+# Data is stored in the hermitstash-data PVC (encrypted DB + vault keys).
+# Back up the vault.key file — loss means all sealed data is unrecoverable.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hermitstash
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hermitstash-data
+  namespace: hermitstash
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hermitstash-uploads
+  namespace: hermitstash
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermitstash
+  namespace: hermitstash
+  labels:
+    app.kubernetes.io/name: hermitstash
+    app.kubernetes.io/version: "1.5.9"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hermitstash
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hermitstash
+    spec:
+      containers:
+        - name: hermitstash
+          image: ghcr.io/dotcoocoo/hermitstash:latest
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: HERMITSTASH_TMPDIR
+              value: /dev/shm
+            - name: PORT
+              value: "3000"
+            - name: TRUST_PROXY
+              value: "true"
+            # Set to your ingress URL (required for passkeys + HSTS)
+            - name: RP_ORIGIN
+              value: ""   # e.g. https://files.example.com
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: uploads
+              mountPath: /app/uploads
+            - name: shm
+              mountPath: /dev/shm
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: 256Mi
+              cpu: 250m
+            limits:
+              memory: 512Mi
+              cpu: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: hermitstash-data
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: hermitstash-uploads
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermitstash
+  namespace: hermitstash
+spec:
+  selector:
+    app.kubernetes.io/name: hermitstash
+  ports:
+    - port: 3000
+      targetPort: http
+      name: http
+
+# --- Optional: Ingress (uncomment and configure for external access) ---
+# ---
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: hermitstash
+#   namespace: hermitstash
+#   annotations:
+#     nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+# spec:
+#   ingressClassName: nginx
+#   tls:
+#     - hosts: [files.example.com]
+#       secretName: hermitstash-tls
+#   rules:
+#     - host: files.example.com
+#       http:
+#         paths:
+#           - path: /
+#             pathType: Prefix
+#             backend:
+#               service:
+#                 name: hermitstash
+#                 port:
+#                   name: http

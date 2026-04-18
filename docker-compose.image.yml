@@ -1,0 +1,37 @@
+# HermitStash — Docker Compose (pre-built image)
+#
+# Quick start:
+#   curl -O https://raw.githubusercontent.com/dotCooCoo/hermitstash/main/docker-compose.image.yml
+#   docker compose -f docker-compose.image.yml up -d
+#   open http://localhost:3000
+#
+# Data is stored in ./data (encrypted DB + vault keys) and ./uploads (files).
+# Back up ./data/vault.key — loss of this file means all sealed data is unrecoverable.
+
+services:
+  hermitstash:
+    image: ghcr.io/dotcoocoo/hermitstash:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data         # encrypted DB, vault keys, TLS certs
+      - ./uploads:/app/uploads   # files (local storage only, not needed with S3)
+    shm_size: 256m               # in-memory database — minimum 128MB, 256MB recommended
+    environment:
+      NODE_ENV: production
+      HERMITSTASH_TMPDIR: /dev/shm
+      PORT: 3000
+      TRUST_PROXY: "true"        # set if behind a reverse proxy
+
+      # Required for passkeys + HSTS — set to your full domain URL
+      RP_ORIGIN: ""              # e.g. https://files.example.com
+
+      # Auth (defaults work for getting started)
+      LOCAL_AUTH: "true"
+      REGISTRATION_OPEN: "true"
+      PUBLIC_UPLOAD: "true"
+      PASSKEY_ENABLED: "true"
+
+      # All other settings (email, S3, branding, etc.) are configured
+      # via the admin panel at /admin after first start.
+    restart: unless-stopped
