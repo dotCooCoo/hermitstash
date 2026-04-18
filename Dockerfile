@@ -18,9 +18,9 @@ LABEL org.opencontainers.image.title="HermitStash" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later" \
       org.opencontainers.image.vendor="dotCooCoo"
 
-# Security: non-root user (UID/GID 1000) + gosu for entrypoint
-# PUID/PGID env vars can remap at runtime (see docker-entrypoint.sh)
-RUN groupadd -f -g 1000 hermit && useradd -u 1000 -g hermit -s /bin/sh hermit && \
+# Security: non-root user + gosu for entrypoint
+# PUID/PGID env vars remap UID/GID at runtime (see docker-entrypoint.sh)
+RUN groupadd -r hermit && useradd -r -g hermit -s /bin/sh hermit && \
     apt-get update && apt-get install -y --no-install-recommends gosu curl && \
     rm -rf /var/lib/apt/lists/*
 
