@@ -22,6 +22,7 @@ env:
 
 jobs:
   build-and-push:
+    if: github.repository == 'dotCooCoo/hermitstash'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
