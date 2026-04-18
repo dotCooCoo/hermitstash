@@ -87,6 +87,7 @@ fi
 
 # ---- Run container ----
 echo "Starting HermitStash..."
+# shellcheck disable=SC2086 # intentional word-splitting for multiple -e flags
 podman run -d \
   --name "$CONTAINER_NAME" \
   --restart unless-stopped \
@@ -99,7 +100,7 @@ podman run -d \
 
 # ---- Wait for health ----
 echo "Waiting for HermitStash to start..."
-for i in $(seq 1 30); do
+for _ in $(seq 1 30); do
   if curl -sf "http://localhost:${PORT}/health" > /dev/null 2>&1; then
     break
   fi

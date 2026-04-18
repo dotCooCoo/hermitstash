@@ -176,11 +176,8 @@ module.exports = function apiEncrypt(req, res, next) {
       if (peerCert && peerCert.raw && peerCert.raw.length > 0) {
         try {
           // Extract the client's P-384 public key from the mTLS certificate
-          var clientEcdhPubKey = crypto.createPublicKey({
-            key: peerCert.raw,
-            format: "der",
-            type: "x509",
-          });
+          var x509 = new crypto.X509Certificate(peerCert.raw);
+          var clientEcdhPubKey = x509.publicKey;
 
           // Perform hybrid ECIES encryption of the session key
           var sessionKeyBuffer = Buffer.from(apiKey, "base64url");

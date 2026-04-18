@@ -1,17 +1,46 @@
 #!/bin/sh
-# Ensure persistent volume directories are writable
+# docker-entrypoint.sh — fix volume ownership, remap UID/GID, drop to hermit
+
+# ── PUID / PGID remapping ──────────────────────────────────────────
+# Remap the hermit user to match the host UID/GID if PUID/PGID are set.
+# This avoids permission conflicts on bind-mounted volumes.
+if [ "$(id -u)" = "0" ]; then
+  PUID="${PUID:-1000}"
+  PGID="${PGID:-1000}"
+  CUR_UID="$(id -u hermit)"
+  CUR_GID="$(id -g hermit)"
+
+  if [ "$PGID" != "$CUR_GID" ]; then
+    groupmod -o -g "$PGID" hermit
+  fi
+  if [ "$PUID" != "$CUR_UID" ]; then
+    usermod -o -u "$PUID" hermit
+  fi
+fi
+
+# ── Timezone ───────────────────────────────────────────────────────
+# Set container timezone from TZ env var (e.g. TZ=America/New_York)
+if [ -n "$TZ" ] && [ -f "/usr/share/zoneinfo/$TZ" ]; then
+  ln -sf "/usr/share/zoneinfo/$TZ" /etc/localtime
+  echo "$TZ" > /etc/timezone
+fi
+
+# ── UMASK ──────────────────────────────────────────────────────────
+# Set default file permission mask (e.g. UMASK=002 → 775/664)
+if [ -n "$UMASK" ]; then
+  umask "$UMASK"
+fi
+
+# ── Volume permissions ─────────────────────────────────────────────
 # Docker/Coolify volumes mount as root — fix ownership at runtime
 for dir in /app/data /app/uploads /app/public/img/custom; do
-  if [ -d "$dir" ]; then
-    # Only chown if we're root (won't fail if already running as hermit)
-    if [ "$(id -u)" = "0" ]; then
-      chown -R hermit:hermit "$dir"
-      chmod 700 "$dir"
-    fi
+  if [ -d "$dir" ] && [ "$(id -u)" = "0" ]; then
+    chown -R hermit:hermit "$dir"
+    chmod 700 "$dir"
   fi
 done
 
-# Warn if /dev/shm is too small for the decrypted database
+# ── /dev/shm size check ───────────────────────────────────────────
 # Default Docker shm is 64MB — the app needs at least 128MB for safe operation
 if [ -d "/dev/shm" ] && [ "${HERMITSTASH_TMPDIR:-/dev/shm}" = "/dev/shm" ]; then
   SHM_KB=$(df /dev/shm 2>/dev/null | awk 'NR==2 {print $2}')
@@ -25,6 +54,7 @@ if [ -d "/dev/shm" ] && [ "${HERMITSTASH_TMPDIR:-/dev/shm}" = "/dev/shm" ]; then
   fi
 fi
 
+# ── Start ──────────────────────────────────────────────────────────
 # Drop to hermit user if running as root
 if [ "$(id -u)" = "0" ]; then
   exec gosu hermit node server.js

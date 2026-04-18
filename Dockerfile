@@ -18,9 +18,10 @@ LABEL org.opencontainers.image.title="HermitStash" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later" \
       org.opencontainers.image.vendor="dotCooCoo"
 
-# Security: non-root user + gosu for entrypoint
-RUN groupadd -r hermit && useradd -r -g hermit hermit && \
-    apt-get update && apt-get install -y --no-install-recommends gosu && \
+# Security: non-root user (UID/GID 1000) + gosu for entrypoint
+# PUID/PGID env vars can remap at runtime (see docker-entrypoint.sh)
+RUN groupadd -g 1000 hermit && useradd -u 1000 -g hermit -s /bin/sh hermit && \
+    apt-get update && apt-get install -y --no-install-recommends gosu curl && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -49,7 +50,7 @@ EXPOSE 3000
 STOPSIGNAL SIGTERM
 
 # Health check for orchestrators (Docker, Kubernetes, Coolify)
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3000/health', r => { let d=''; r.on('data', c => d+=c); r.on('end', () => { try { process.exit(JSON.parse(d).status === 'ok' ? 0 : 1) } catch(e) { process.exit(1) } }) }).on('error', () => process.exit(1))"
 
 # Start as root, entrypoint fixes volume permissions then drops to hermit

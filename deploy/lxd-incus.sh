@@ -70,7 +70,7 @@ fi
 
 # ---- Wait for network ----
 echo "Waiting for network..."
-for i in $(seq 1 30); do
+for _ in $(seq 1 30); do
   if $CLI exec "$NAME" -- ping -c1 -W1 8.8.8.8 &>/dev/null; then
     break
   fi
@@ -103,7 +103,7 @@ $CLI exec "$NAME" -- bash -c '
 
   # Wait for health
   echo "Waiting for HermitStash to start..."
-  for i in $(seq 1 30); do
+  for _ in $(seq 1 30); do
     if curl -sf http://localhost:3000/health > /dev/null 2>&1; then
       echo "HermitStash is running inside container"
       break
@@ -115,7 +115,7 @@ $CLI exec "$NAME" -- bash -c '
 # ---- Port forward ----
 echo "Adding proxy device for port forwarding..."
 $CLI config device add "$NAME" hermitstash-web proxy \
-  listen=tcp:0.0.0.0:${PORT} \
+  listen=tcp:0.0.0.0:"${PORT}" \
   connect=tcp:127.0.0.1:3000 2>/dev/null || true
 
 CONTAINER_IP=$($CLI exec "$NAME" -- hostname -I | awk '{print $1}')

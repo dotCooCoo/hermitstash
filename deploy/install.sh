@@ -150,7 +150,7 @@ systemctl enable --now hermitstash
 # ---- Step 7: Wait for health ----
 
 log "Waiting for HermitStash to start..."
-for i in $(seq 1 30); do
+for _ in $(seq 1 30); do
   if curl -sf "http://localhost:${PORT}/health" > /dev/null 2>&1; then
     break
   fi

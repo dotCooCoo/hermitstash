@@ -169,6 +169,13 @@ jobs:
       - name: Start container
         run: |
           docker run -d --name smoke-test \
+            --init \
+            --security-opt no-new-privileges:true \
+            --cap-drop ALL \
+            --cap-add CHOWN --cap-add SETUID --cap-add SETGID --cap-add DAC_OVERRIDE \
+            -e PUID=1000 -e PGID=1000 \
+            -e UMASK=002 \
+            -e TZ=UTC \
             -p 3000:3000 \
             --shm-size=256m \
             ${{ env.IMAGE }}@${{ needs.build-and-push.outputs.digest }}

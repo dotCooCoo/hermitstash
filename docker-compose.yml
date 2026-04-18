@@ -1,13 +1,29 @@
 services:
   hermitstash:
     build: .
+    init: true
     ports:
       - "3000:3000"
     volumes:
       - ./data:/app/data
       - ./uploads:/app/uploads
     shm_size: 256m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
     environment:
+      # Container user — match your host UID/GID to avoid volume permission issues
+      PUID: "1000"
+      PGID: "1000"
+      UMASK: "002"                       # 775 dirs, 664 files
+      TZ: ""                             # e.g. America/New_York
+
       NODE_ENV: production
       HERMITSTASH_TMPDIR: /dev/shm
       PORT: 3000

@@ -1,0 +1,66 @@
+# HermitStash — Docker Compose for Coolify
+#
+# Use this file when deploying via Coolify's Docker Compose build pack.
+# Differences from docker-compose.image.yml:
+#   - No ports: — Coolify's Traefik proxy handles routing via your assigned domain
+#   - Extended volume syntax with is_directory: true — Coolify creates host dirs
+#   - Healthcheck in compose — required for Docker Compose build pack
+#
+# After deploying, assign a domain in the Coolify UI and configure RP_ORIGIN
+# to match (e.g. https://files.example.com).
+
+services:
+  hermitstash:
+    image: ghcr.io/dotcoocoo/hermitstash:latest
+    init: true
+    expose:
+      - "3000"
+    volumes:
+      - type: bind
+        source: ./data
+        target: /app/data
+        is_directory: true
+      - type: bind
+        source: ./uploads
+        target: /app/uploads
+        is_directory: true
+    shm_size: 256m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    environment:
+      # Container user — match your host UID/GID to avoid volume permission issues
+      PUID: "1000"
+      PGID: "1000"
+      UMASK: "002"
+      TZ: ""                     # e.g. America/New_York
+
+      NODE_ENV: production
+      HERMITSTASH_TMPDIR: /dev/shm
+      PORT: 3000
+      TRUST_PROXY: "true"
+
+      # Set to your Coolify-assigned domain (required for passkeys + HSTS)
+      RP_ORIGIN: ""              # e.g. https://files.example.com
+
+      # Auth (defaults work for getting started)
+      LOCAL_AUTH: "true"
+      REGISTRATION_OPEN: "true"
+      PUBLIC_UPLOAD: "true"
+      PASSKEY_ENABLED: "true"
+
+      # All other settings (email, S3, branding, etc.) are configured
+      # via the admin panel at /admin after first start.
+    restart: unless-stopped

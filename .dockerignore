@@ -17,6 +17,7 @@ coverage/
 scripts/
 template/
 build/
+deploy/
 
 # Dot-directories (IDE, tool configs, local state)
 .*
