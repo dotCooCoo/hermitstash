@@ -120,12 +120,7 @@ module.exports = function (app) {
         bundlesRepo.update(doc.bundleId, { $set: { receivedFiles: Math.max(0, (bundle.receivedFiles || 0) - 1) } });
         // Decrement stash totalBytes if bundle belongs to a stash page
         if (bundle.stashId) {
-          try {
-            var stash = stashRepo.findById(bundle.stashId);
-            if (stash) {
-              stashRepo.update(stash._id, { $set: { totalBytes: Math.max(0, (parseInt(stash.totalBytes, 10) || 0) - (doc.size || 0)) } });
-            }
-          } catch (_e) {}
+          try { stashRepo.decrementBytes(bundle.stashId, doc.size); } catch (_e) {}
         }
       }
     }
@@ -145,15 +140,7 @@ module.exports = function (app) {
     }
     // Decrement stash stats if bundle belongs to a stash page
     if (bundle.stashId) {
-      try {
-        var stash = stashRepo.findById(bundle.stashId);
-        if (stash) {
-          stashRepo.update(stash._id, { $set: {
-            bundleCount: Math.max(0, (parseInt(stash.bundleCount, 10) || 0) - 1),
-            totalBytes: Math.max(0, (parseInt(stash.totalBytes, 10) || 0) - (bundle.totalSize || 0)),
-          }});
-        }
-      } catch (_e) { /* stash may have been deleted */ }
+      try { stashRepo.decrementBundleStats(bundle.stashId, bundle.totalSize); } catch (_e) { /* stash may have been deleted */ }
     }
     bundlesRepo.remove(bundle._id);
     audit.log(audit.ACTIONS.ADMIN_BUNDLE_DELETED, { targetId: bundle._id, targetEmail: bundle.uploaderEmail, details: "shareId: " + req.params.shareId + ", files: " + bf.length, req: req });

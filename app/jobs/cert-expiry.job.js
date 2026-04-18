@@ -56,19 +56,17 @@ function run() {
 
       try {
         var { generateClientCert, initCA } = require("../../lib/mtls-ca");
-        var { generateBytes, sha3Hash } = require("../../lib/crypto");
-        var { HASH_PREFIX } = require("../../lib/constants");
+        var { sha3Hash } = require("../../lib/crypto");
+        var { generateEnrollmentCode } = require("../../lib/cert-utils");
 
         initCA();
         var newCert = generateClientCert(key.prefix);
         if (!newCert) continue;
 
-        var codeBytes = generateBytes(8);
-        var codeRaw = "HSTASH-" + codeBytes.toString("hex").toUpperCase().match(/.{4}/g).join("-");
-        var codeHash = sha3Hash(HASH_PREFIX.ENROLLMENT + codeRaw);
+        var enrollment = generateEnrollmentCode();
 
         db.enrollmentCodes.insert({
-          codeHash: codeHash,
+          codeHash: enrollment.codeHash,
           apiKey: null, // cert-only renewal
           clientCert: newCert.cert,
           clientKey: newCert.key,

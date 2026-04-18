@@ -30,8 +30,10 @@ var { sanitizeSvg } = require("../lib/sanitize-svg");
 var apiKeysRepo = require("../app/data/repositories/apiKeys.repo");
 var db = require("../lib/db");
 var { generateClientCert, initCA } = require("../lib/mtls-ca");
+var { generateEnrollmentCode } = require("../lib/cert-utils");
 
 var { isStashLocked } = require("../middleware/require-access");
+var accessCodeService = require("../app/domain/access-code.service");
 
 /**
  * Check if an email matches the stash's allowed list.
@@ -150,33 +152,16 @@ module.exports = function (app) {
       return res.json({ success: true, message: genericMsg });
     }
 
-    // Rate limit per email+stash: max 3 codes in 10 minutes
-    var emailHash = sha3Hash(HASH_PREFIX.EMAIL + email);
-    var tenMinAgo = new Date(Date.now() - 600000).toISOString();
-    var recentCount = accessCodesRepo.countRecentCodes("stash:" + stash._id, emailHash, tenMinAgo);
-    if (recentCount >= 3) return res.json({ success: true, message: genericMsg });
-
-    accessCodesRepo.invalidatePending("stash:" + stash._id, emailHash);
-
-    var code = String(crypto.randomInt(0, 1000000)).padStart(6, "0");
-
-    accessCodesRepo.create({
-      bundleShareId: "stash:" + stash._id,
-      email: email,
-      code: code,
-      attempts: 0,
-      status: "pending",
-      expiresAt: new Date(Date.now() + 600000).toISOString(),
-      createdAt: new Date().toISOString(),
-    });
-
     try {
-      await emailService.sendBundleAccessCode({
-        to: email, code: code,
+      var result = await accessCodeService.requestCode({
+        shareId: "stash:" + stash._id,
+        email: email,
         bundleName: stash.name || stash.title || null,
-        senderName: null, expiresMinutes: 10,
+        senderName: null,
       });
-      audit.log(audit.ACTIONS.BUNDLE_ACCESS_CODE_SENT, { details: "stash: " + stash.slug, req: req });
+      if (result.sent) {
+        audit.log(audit.ACTIONS.BUNDLE_ACCESS_CODE_SENT, { details: "stash: " + stash.slug, req: req });
+      }
     } catch (e) { logger.error("Stash access code email failed", { error: e.message || String(e) }); }
 
     res.json({ success: true, message: genericMsg });
@@ -192,19 +177,13 @@ module.exports = function (app) {
     var code = String(body.code || "").trim();
     if (!email || !code) return res.status(400).json({ error: "Email and code required." });
 
-    var emailHash = sha3Hash(HASH_PREFIX.EMAIL + email);
-    var codeRecord = accessCodesRepo.findPendingCode("stash:" + stash._id, emailHash);
-    if (!codeRecord) return res.status(401).json({ error: "Invalid or expired code." });
-    if (codeRecord.attempts >= 5) return res.status(429).json({ error: "Too many attempts. Request a new code." });
-
-    var submittedHash = sha3Hash(HASH_PREFIX.ACCESS_CODE + code);
-    if (!timingSafeEqual(submittedHash, codeRecord.codeHash)) {
-      accessCodesRepo.update(codeRecord._id, { $set: { attempts: codeRecord.attempts + 1 } });
-      audit.log(audit.ACTIONS.BUNDLE_ACCESS_CODE_FAILED, { details: "stash: " + stash.slug + ", attempts: " + (codeRecord.attempts + 1), req: req });
-      return res.status(401).json({ error: "Incorrect code." });
+    var result = accessCodeService.verifyCode({ shareId: "stash:" + stash._id, email: email, code: code });
+    if (!result.success) {
+      if (result.attempts) {
+        audit.log(audit.ACTIONS.BUNDLE_ACCESS_CODE_FAILED, { details: "stash: " + stash.slug + ", attempts: " + result.attempts, req: req });
+      }
+      return res.status(result.status).json({ error: result.error });
     }
-
-    accessCodesRepo.update(codeRecord._id, { $set: { status: "used" } });
 
     var mode = stash.accessMode || "email";
     if (mode === "both") {
@@ -458,10 +437,7 @@ module.exports = function (app) {
         filesRepo.remove(bundleFiles[i]._id);
       }
       // Decrement stash stats
-      stashRepo.update(stash._id, { $set: {
-        bundleCount: Math.max(0, (parseInt(stash.bundleCount, 10) || 0) - 1),
-        totalBytes: Math.max(0, (parseInt(stash.totalBytes, 10) || 0) - (bundle.totalSize || 0)),
-      }});
+      stashRepo.decrementBundleStats(stash._id, bundle.totalSize);
       bundlesRepo.remove(bundle._id);
       audit.log(audit.ACTIONS.ADMIN_BUNDLE_DELETED, { targetId: bundle._id, details: "stash bundle deleted, stash: " + stash.slug + ", files: " + bundleFiles.length, req: req });
       res.json({ success: true, filesDeleted: bundleFiles.length });
@@ -775,13 +751,11 @@ module.exports = function (app) {
       } catch (_e) {}
 
       // Generate enrollment code — short, typeable, one-time use
-      var codeBytes = generateBytes(8);
-      var codeRaw = "HSTASH-" + codeBytes.toString("hex").toUpperCase().match(/.{4}/g).join("-");
-      var codeHash = sha3(HASH_PREFIX.ENROLLMENT + codeRaw);
+      var enrollment = generateEnrollmentCode();
 
       // Store the enrollment record (all sensitive fields vault-sealed by field-crypto)
       db.enrollmentCodes.insert({
-        codeHash: codeHash,
+        codeHash: enrollment.codeHash,
         apiKey: rawKey,
         clientCert: clientCert ? clientCert.cert : null,
         clientKey: clientCert ? clientCert.key : null,
@@ -795,7 +769,7 @@ module.exports = function (app) {
       });
 
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Stash sync enrollment code created: " + stash.slug, req: req });
-      res.json({ success: true, enrollmentCode: codeRaw, prefix: prefix });
+      res.json({ success: true, enrollmentCode: enrollment.codeRaw, prefix: prefix });
     } catch (e) {
       logger.error("Stash sync token error", { error: e.message || String(e) });
       res.status(500).json({ error: "Failed to create sync token." });
@@ -856,13 +830,10 @@ module.exports = function (app) {
 
       // Store enrollment code FIRST — if this fails, the API key cert fields stay unchanged
       var sha3 = sha3Hash;
-
-      var codeBytes = generateBytes(8);
-      var codeRaw = "HSTASH-" + codeBytes.toString("hex").toUpperCase().match(/.{4}/g).join("-");
-      var codeHash = sha3(HASH_PREFIX.ENROLLMENT + codeRaw);
+      var enrollment = generateEnrollmentCode();
 
       db.enrollmentCodes.insert({
-        codeHash: codeHash,
+        codeHash: enrollment.codeHash,
         apiKey: null, // client already has the API key — only re-issuing cert
         clientCert: newCert.cert,
         clientKey: newCert.key,
@@ -889,7 +860,7 @@ module.exports = function (app) {
         req: req,
       });
 
-      res.json({ success: true, enrollmentCode: codeRaw, prefix: apiKey.prefix, reissue: true });
+      res.json({ success: true, enrollmentCode: enrollment.codeRaw, prefix: apiKey.prefix, reissue: true });
     } catch (e) {
       logger.error("Cert reissue error", { error: e.message || String(e) });
       res.status(500).json({ error: "Failed to reissue certificate." });

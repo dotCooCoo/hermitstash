@@ -26,6 +26,7 @@ var { validateEmail } = require("../app/shared/validate");
 var { sanitizeRename } = require("../app/shared/sanitize-filename");
 var stashRepo = require("../app/data/repositories/stash.repo");
 var uploadHandler = require("../app/domain/uploads/upload.handler");
+var accessCodeService = require("../app/domain/access-code.service");
 
 // Exponential backoff tracking for bundle password attempts
 var bundleLockouts = new Map();
@@ -123,41 +124,16 @@ module.exports = function (app) {
       return res.json({ success: true, message: genericMsg });
     }
 
-    // Rate limit per email+bundle: max 3 codes in 10 minutes
-    var emailHash = sha3Hash(HASH_PREFIX.EMAIL + email);
-    var tenMinAgo = new Date(Date.now() - 600000).toISOString();
-    var recentCount = accessCodesRepo.countRecentCodes(bundle.shareId, emailHash, tenMinAgo);
-    if (recentCount >= 3) {
-      return res.json({ success: true, message: genericMsg });
-    }
-
-    // Invalidate previous pending codes
-    accessCodesRepo.invalidatePending(bundle.shareId, emailHash);
-
-    // Generate 6-digit code
-    var codeNum = crypto.randomInt(0, 1000000);
-    var code = String(codeNum).padStart(6, "0");
-
-    accessCodesRepo.create({
-      bundleShareId: bundle.shareId,
-      email: email,
-      code: code,
-      attempts: 0,
-      status: "pending",
-      expiresAt: new Date(Date.now() + 600000).toISOString(),
-      createdAt: new Date().toISOString(),
-    });
-
-    // Send the code
     try {
-      await emailService.sendBundleAccessCode({
-        to: email,
-        code: code,
+      var result = await accessCodeService.requestCode({
+        shareId: bundle.shareId,
+        email: email,
         bundleName: bundle.bundleName || null,
         senderName: bundle.uploaderName || null,
-        expiresMinutes: 10,
       });
-      audit.log(audit.ACTIONS.BUNDLE_ACCESS_CODE_SENT, { targetId: bundle._id, details: "shareId: " + bundle.shareId, req: req });
+      if (result.sent) {
+        audit.log(audit.ACTIONS.BUNDLE_ACCESS_CODE_SENT, { targetId: bundle._id, details: "shareId: " + bundle.shareId, req: req });
+      }
     } catch (e) {
       logger.error("Access code email failed", { error: e.message || String(e) });
     }
@@ -175,25 +151,13 @@ module.exports = function (app) {
     var code = String(body.code || "").trim();
     if (!email || !code) return res.status(400).json({ error: "Email and code required." });
 
-    var emailHash = sha3Hash(HASH_PREFIX.EMAIL + email);
-    var codeRecord = accessCodesRepo.findPendingCode(bundle.shareId, emailHash);
-    if (!codeRecord) return res.status(401).json({ error: "Invalid or expired code." });
-
-    // Check attempt limit
-    if (codeRecord.attempts >= 5) {
-      return res.status(429).json({ error: "Too many attempts. Request a new code." });
+    var result = accessCodeService.verifyCode({ shareId: bundle.shareId, email: email, code: code });
+    if (!result.success) {
+      if (result.attempts) {
+        audit.log(audit.ACTIONS.BUNDLE_ACCESS_CODE_FAILED, { targetId: bundle._id, details: "shareId: " + bundle.shareId + ", attempts: " + result.attempts, req: req });
+      }
+      return res.status(result.status).json({ error: result.error });
     }
-
-    // Verify code via hash comparison
-    var submittedHash = sha3Hash(HASH_PREFIX.ACCESS_CODE + code);
-    if (!timingSafeEqual(submittedHash, codeRecord.codeHash)) {
-      accessCodesRepo.update(codeRecord._id, { $set: { attempts: codeRecord.attempts + 1 } });
-      audit.log(audit.ACTIONS.BUNDLE_ACCESS_CODE_FAILED, { targetId: bundle._id, details: "shareId: " + bundle.shareId + ", attempts: " + (codeRecord.attempts + 1), req: req });
-      return res.status(401).json({ error: "Incorrect code." });
-    }
-
-    // Success — mark code as used
-    accessCodesRepo.update(codeRecord._id, { $set: { status: "used" } });
 
     // Set session
     var mode = bundle.accessMode || "email";
@@ -454,16 +418,7 @@ module.exports = function (app) {
     }
     // Decrement stash stats if bundle belongs to a stash page
     if (bundle.stashId) {
-      try {
-        // stashRepo already imported at top
-        var stash = stashRepo.findById(bundle.stashId);
-        if (stash) {
-          stashRepo.update(stash._id, { $set: {
-            bundleCount: Math.max(0, (parseInt(stash.bundleCount, 10) || 0) - 1),
-            totalBytes: Math.max(0, (parseInt(stash.totalBytes, 10) || 0) - (bundle.totalSize || 0)),
-          }});
-        }
-      } catch (_e) {}
+      try { stashRepo.decrementBundleStats(bundle.stashId, bundle.totalSize); } catch (_e) {}
     }
     bundlesRepo.remove(bundle._id);
     audit.log(audit.ACTIONS.ADMIN_BUNDLE_DELETED, { targetId: bundle._id, targetEmail: bundle.uploaderEmail, details: "owner delete, shareId: " + bundle.shareId + ", files: " + bundleFiles.length, req: req });
