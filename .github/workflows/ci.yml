@@ -39,11 +39,15 @@ jobs:
           var security = require("eslint-plugin-security");
           module.exports = [
             {
-              ignores: ["tests/", "public/js/", "node_modules/**", "template/"],
+              ignores: [
+                "tests/", "public/js/", "node_modules/**", "template/",
+                "scripts/", "deploy/", "eslint.ci.config.js",
+              ],
             },
             {
               files: ["**/*.js"],
               plugins: { security: security },
+              linterOptions: { reportUnusedDisableDirectives: "off" },
               languageOptions: {
                 ecmaVersion: 2022,
                 sourceType: "commonjs",
@@ -110,21 +114,20 @@ jobs:
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: Dockerfile
-          failure-threshold: warning
+          failure-threshold: error
 
       - name: Capture Hadolint result
         if: always()
         id: hadolint_result
         run: |
-          HADOLINT_OUTPUT="${{ env.HADOLINT_RESULTS }}"
-          if [ -z "$HADOLINT_OUTPUT" ]; then
+          if [ -z "$HADOLINT_RESULTS" ]; then
             echo "exit_code=0" >> "$GITHUB_OUTPUT"
             echo "output=" >> "$GITHUB_OUTPUT"
           else
             echo "exit_code=1" >> "$GITHUB_OUTPUT"
             {
               echo "output<<HADOLINT_EOF"
-              echo "$HADOLINT_OUTPUT"
+              printf '%s\n' "$HADOLINT_RESULTS"
               echo "HADOLINT_EOF"
             } >> "$GITHUB_OUTPUT"
           fi
@@ -158,6 +161,10 @@ jobs:
       - name: Build summary
         if: always()
         id: summary
+        env:
+          ESLINT_OUTPUT: ${{ steps.eslint.outputs.output }}
+          HADOLINT_OUTPUT: ${{ steps.hadolint_result.outputs.output }}
+          SHELLCHECK_OUTPUT: ${{ steps.shellcheck.outputs.output }}
         run: |
           ESLINT_OK=${{ steps.eslint.outcome == 'success' }}
           HADOLINT_OK=${{ steps.hadolint.outcome == 'success' }}
@@ -185,32 +192,32 @@ jobs:
             echo "| Hadolint (Dockerfile) | $HADOLINT_ICON |"
             echo "| ShellCheck (shell scripts) | $SHELLCHECK_ICON |"
 
-            if [ "$ESLINT_OK" != "true" ] && [ -n "${{ steps.eslint.outputs.output }}" ]; then
+            if [ "$ESLINT_OK" != "true" ] && [ -n "$ESLINT_OUTPUT" ]; then
               echo ""
               echo "<details><summary>ESLint output</summary>"
               echo ""
               echo '```'
-              echo "${{ steps.eslint.outputs.output }}"
+              printf '%s\n' "$ESLINT_OUTPUT"
               echo '```'
               echo "</details>"
             fi
 
-            if [ "$HADOLINT_OK" != "true" ] && [ -n "${{ steps.hadolint_result.outputs.output }}" ]; then
+            if [ "$HADOLINT_OK" != "true" ] && [ -n "$HADOLINT_OUTPUT" ]; then
               echo ""
               echo "<details><summary>Hadolint output</summary>"
               echo ""
               echo '```'
-              echo "${{ steps.hadolint_result.outputs.output }}"
+              printf '%s\n' "$HADOLINT_OUTPUT"
               echo '```'
               echo "</details>"
             fi
 
-            if [ "$SHELLCHECK_OK" != "true" ] && [ -n "${{ steps.shellcheck.outputs.output }}" ]; then
+            if [ "$SHELLCHECK_OK" != "true" ] && [ -n "$SHELLCHECK_OUTPUT" ]; then
               echo ""
               echo "<details><summary>ShellCheck output</summary>"
               echo ""
               echo '```'
-              echo "${{ steps.shellcheck.outputs.output }}"
+              printf '%s\n' "$SHELLCHECK_OUTPUT"
               echo '```'
               echo "</details>"
             fi
@@ -234,7 +241,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const body = `${{ steps.summary.outputs.body }}`;
+            const body = process.env.PR_BODY;
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -258,6 +265,8 @@ jobs:
                 body,
               });
             }
+        env:
+          PR_BODY: ${{ steps.summary.outputs.body }}
 
       - name: Fail if any linter failed
         if: always()
