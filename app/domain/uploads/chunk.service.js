@@ -115,7 +115,7 @@ async function processReassembledFile(fullData, fields, bundle) {
     bundleShareId: bundle.shareId,
     originalName: filename,
     relativePath: relativePath,
-    storagePath: storagePath,
+    storagePath: saved.path,
     mimeType: fields.mimeType || "application/octet-stream",
     size: fullData.length,
     checksum: checksum,

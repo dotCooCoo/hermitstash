@@ -148,7 +148,7 @@ async function handleFileUpload(ctx) {
       // Update in place: new key, new content, new checksum
       filesRepo.update(old._id, { $set: {
         originalName: sanitizeFilename(file.filename),
-        storagePath: storagePath, mimeType: file.mimetype, size: file.size,
+        storagePath: saved.path, mimeType: file.mimetype, size: file.size,
         checksum: checksum, encryptionKey: saved.encryptionKey,
         updatedAt: now, seq: (bundle.seq || 0) + 1,
       }});
@@ -164,7 +164,7 @@ async function handleFileUpload(ctx) {
         bundleShareId: bundle.shareId,
         originalName: sanitizeFilename(file.filename),
         relativePath: cleanRelPath,
-        storagePath: storagePath, mimeType: file.mimetype, size: file.size,
+        storagePath: saved.path, mimeType: file.mimetype, size: file.size,
         checksum: checksum, encryptionKey: saved.encryptionKey,
         uploadedBy: ctx.uploadedBy, uploaderEmail: ctx.uploaderEmail,
         downloads: 0, status: "complete",
@@ -309,7 +309,7 @@ async function handleChunkUpload(ctx) {
       bundleShareId: bundle.shareId,
       originalName: sanitizeFilename(filename),
       relativePath: sanitizeFilename(relativePath, 500),
-      storagePath: storagePath, mimeType: fields.mimeType || "application/octet-stream",
+      storagePath: saved.path, mimeType: fields.mimeType || "application/octet-stream",
       size: fullData.length, checksum: checksum, encryptionKey: saved.encryptionKey,
       uploadedBy: ctx.uploadedBy, uploaderEmail: ctx.uploaderEmail,
       downloads: 0, status: "complete",

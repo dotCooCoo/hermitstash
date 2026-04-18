@@ -163,7 +163,7 @@ function assertCanDelete(doc, user) {
  */
 async function saveToStorage(buffer, storagePath) {
   var saved = await storage.saveFile(buffer, storagePath);
-  return { storagePath: storagePath, encryptionKey: saved.encryptionKey };
+  return { storagePath: saved.path, encryptionKey: saved.encryptionKey };
 }
 
 module.exports = {
