@@ -20,7 +20,7 @@ LABEL org.opencontainers.image.title="HermitStash" \
 
 # Security: non-root user (UID/GID 1000) + gosu for entrypoint
 # PUID/PGID env vars can remap at runtime (see docker-entrypoint.sh)
-RUN groupadd -g 1000 hermit && useradd -u 1000 -g hermit -s /bin/sh hermit && \
+RUN groupadd -f -g 1000 hermit && useradd -u 1000 -g hermit -s /bin/sh hermit && \
     apt-get update && apt-get install -y --no-install-recommends gosu curl && \
     rm -rf /var/lib/apt/lists/*
 
