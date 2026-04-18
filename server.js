@@ -287,6 +287,21 @@ scheduler.register("expired_access_codes_cleanup", 3600000, function () { // hou
 scheduler.register("incremental_vacuum", 86400000, function () { // daily
   try { db.rawExec("PRAGMA incremental_vacuum(100)"); } catch (_e) {} // reclaim ~100 pages
 });
+scheduler.register("shm_usage_monitor", 300000, function () { // every 5 minutes
+  var tmpdir = process.env.HERMITSTASH_TMPDIR || "/dev/shm";
+  try {
+    var fs = require("fs");
+    var stats = fs.statfsSync(tmpdir);
+    var totalMB = Math.round(stats.blocks * stats.bsize / 1048576);
+    var usedMB = Math.round((stats.blocks - stats.bfree) * stats.bsize / 1048576);
+    var pct = totalMB > 0 ? Math.round(usedMB / totalMB * 100) : 0;
+    if (pct >= 90) {
+      logger.error("[SHM] " + tmpdir + " is " + pct + "% full (" + usedMB + "/" + totalMB + " MB) — database writes may fail. Increase shm_size immediately.");
+    } else if (pct >= 75) {
+      logger.warn("[SHM] " + tmpdir + " is " + pct + "% full (" + usedMB + "/" + totalMB + " MB) — consider increasing shm_size.");
+    }
+  } catch (_e) {} // statfsSync not available on all platforms
+});
 if (config.backup && config.backup.enabled) {
   scheduler.register("backup", config.backup.schedule || 86400000, function () {
     return require("./app/jobs/backup.job").run();
