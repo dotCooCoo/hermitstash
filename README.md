@@ -396,14 +396,20 @@ Or with docker compose (using pre-built image):
 services:
   hermitstash:
     image: ghcr.io/dotcoocoo/hermitstash:latest
+    init: true
     ports: ["3000:3000"]
     volumes:
       - ./data:/app/data
       - ./uploads:/app/uploads
     shm_size: 256m
+    security_opt:
+      - no-new-privileges:true
     environment:
+      PUID: "99"                   # default 99 (Unraid). Set 1000 for standard Linux.
+      PGID: "100"                  # default 100 (Unraid). Set 1000 for standard Linux.
+      TZ: "Etc/UTC"                # e.g. America/New_York
       TRUST_PROXY: "true"
-      RP_ORIGIN: ""   # https://your-domain.com
+      RP_ORIGIN: ""              # https://your-domain.com
     restart: unless-stopped
 ```
 
@@ -423,12 +429,13 @@ Uses `node:24-slim` (OpenSSL 3.5+ for PQC support). No config files needed — a
 |---|---|
 | **Base image** | `node:24-slim` (Debian Bookworm) |
 | **Node.js** | 24.8+ (required for ML-KEM-1024, ML-DSA-87, SLH-DSA via OpenSSL 3.5) |
-| **User** | Runs as `hermit` (non-root) via `gosu` — entrypoint fixes volume permissions then drops privileges |
+| **User** | Runs as `hermit` (non-root) via `gosu` — PUID/PGID env vars remap UID/GID at runtime (default 99:100, standard Linux 1000:1000) |
 | **Tmpfs** | `HERMITSTASH_TMPDIR=/dev/shm` — plaintext DB held in memory, never on disk. Set `shm_size: 256m` in compose. |
 | **Volumes** | `/app/data` (encrypted DB, vault keys, TLS certs), `/app/uploads` (files if using local storage) |
 | **Port** | 3000 (configurable via `PORT` env var) |
-| **Health check** | Built-in: `GET /health` every 30s, 5s timeout, 3 retries, 10s start period |
-| **Entrypoint** | `docker-entrypoint.sh` — chowns volumes to `hermit:hermit`, then `exec gosu hermit node server.js` |
+| **Health check** | Built-in: `GET /health` every 30s, 5s timeout, 3 retries, 30s start period |
+| **Security** | `init: true` (tini PID 1), `no-new-privileges`, `cap_drop: ALL` + minimal `cap_add` |
+| **Entrypoint** | `docker-entrypoint.sh` — remaps PUID/PGID, sets TZ/UMASK, chowns volumes, drops to `hermit` via `gosu` |
 
 ### docker-compose.yml
 
@@ -438,13 +445,27 @@ The included `docker-compose.yml` provides a production-ready starting point:
 services:
   hermitstash:
     build: .
+    init: true
     ports:
       - "3000:3000"
     volumes:
       - ./data:/app/data       # encrypted DB, vault keys, TLS certs
       - ./uploads:/app/uploads  # files (local storage only)
     shm_size: 256m              # /dev/shm for plaintext DB in memory
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
     environment:
+      PUID: "99"                # default 99 (Unraid). Set 1000 for standard Linux.
+      PGID: "100"               # default 100 (Unraid). Set 1000 for standard Linux.
+      TZ: "Etc/UTC"             # e.g. America/New_York
+      UMASK: "000"              # 777 dirs, 666 files (Unraid default)
       NODE_ENV: production
       HERMITSTASH_TMPDIR: /dev/shm
       PORT: 3000

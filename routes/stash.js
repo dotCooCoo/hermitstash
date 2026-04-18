@@ -460,7 +460,7 @@ module.exports = function (app) {
       if (slug.length < 2) return res.status(400).json({ error: "Slug must be at least 2 characters." });
 
       // Validate slug format
-      if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(slug)) {
+      if (!/^[a-z0-9][a-z0-9-]*$/.test(slug) || slug.endsWith("-")) {
         return res.status(400).json({ error: "Slug must be lowercase alphanumeric with optional hyphens (no leading/trailing hyphens)." });
       }
       if (slug.includes("--")) {
@@ -555,7 +555,7 @@ module.exports = function (app) {
         var newSlug = String(body.slug).trim().toLowerCase().slice(0, 50);
         if (newSlug !== stash.slug) {
           if (newSlug.length < 2) return res.status(400).json({ error: "Slug must be at least 2 characters." });
-          if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(newSlug)) {
+          if (!/^[a-z0-9][a-z0-9-]*$/.test(newSlug) || newSlug.endsWith("-")) {
             return res.status(400).json({ error: "Slug must be lowercase alphanumeric with optional hyphens." });
           }
           if (newSlug.includes("--")) {

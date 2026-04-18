@@ -2,11 +2,10 @@
 # docker-entrypoint.sh — fix volume ownership, remap UID/GID, drop to hermit
 
 # ── PUID / PGID remapping ──────────────────────────────────────────
-# Remap the hermit user to match the host UID/GID if PUID/PGID are set.
-# This avoids permission conflicts on bind-mounted volumes.
+# Default 99:100 (Unraid nobody:users). Override for Linux: PUID=1000 PGID=1000
 if [ "$(id -u)" = "0" ]; then
-  PUID="${PUID:-1000}"
-  PGID="${PGID:-1000}"
+  PUID="${PUID:-99}"
+  PGID="${PGID:-100}"
   CUR_UID="$(id -u hermit)"
   CUR_GID="$(id -g hermit)"
 

@@ -18,11 +18,11 @@ services:
       - SETGID
       - DAC_OVERRIDE
     environment:
-      # Container user — match your host UID/GID to avoid volume permission issues
-      PUID: "1000"
-      PGID: "1000"
-      UMASK: "002"                       # 775 dirs, 664 files
-      TZ: ""                             # e.g. America/New_York
+      # Container user — default 99:100 (Unraid). Set to 1000:1000 for standard Linux.
+      PUID: "99"
+      PGID: "100"
+      UMASK: "000"                       # 777 dirs, 666 files (Unraid default)
+      TZ: "Etc/UTC"                      # e.g. America/New_York
 
       NODE_ENV: production
       HERMITSTASH_TMPDIR: /dev/shm

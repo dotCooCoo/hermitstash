@@ -41,11 +41,11 @@ services:
       start_period: 30s
       retries: 3
     environment:
-      # Container user — match your host UID/GID to avoid volume permission issues
-      PUID: "1000"
-      PGID: "1000"
-      UMASK: "002"
-      TZ: ""                     # e.g. America/New_York
+      # Container user — default 99:100 (Unraid). Set to 1000:1000 for standard Linux.
+      PUID: "99"
+      PGID: "100"
+      UMASK: "000"
+      TZ: "Etc/UTC"              # e.g. America/New_York
 
       NODE_ENV: production
       HERMITSTASH_TMPDIR: /dev/shm
