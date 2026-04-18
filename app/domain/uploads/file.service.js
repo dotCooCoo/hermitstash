@@ -2,10 +2,13 @@
  * File Service — business logic for file operations.
  * Handles download, preview (with SVG sanitization), and deletion.
  */
+var path = require("path");
 var filesRepo = require("../../data/repositories/files.repo");
 var storage = require("../../../lib/storage");
+var { sha3Hash, generateShareId } = require("../../../lib/crypto");
 var { safeFilename } = require("../../../lib/sanitize");
 var { sanitizeSvg } = require("../../../lib/sanitize-svg");
+var { sanitizeFilename } = require("../../shared/sanitize-filename");
 var { NotFoundError, ValidationError, ForbiddenError } = require("../../shared/errors");
 
 // MIME types safe for inline preview
@@ -166,6 +169,62 @@ async function saveToStorage(buffer, storagePath) {
   return { storagePath: saved.path, encryptionKey: saved.encryptionKey };
 }
 
+/**
+ * Save a file buffer to storage and create the DB record in one step.
+ * Handles: storage path generation, checksum, saveFile, DB insert, cleanup on failure.
+ *
+ * @param {Buffer} buffer — file data
+ * @param {object} opts
+ * @param {string} opts.bundleShareId — bundle's shareId (used in storage path)
+ * @param {string} opts.bundleId — bundle._id (FK in DB)
+ * @param {string} opts.filename — original filename (sanitized before storage)
+ * @param {string} opts.relativePath — relative path within the bundle
+ * @param {string} opts.mimeType — MIME type
+ * @param {string} opts.uploadedBy — user ID or "public"
+ * @param {string} [opts.uploaderEmail] — uploader's email
+ * @param {string} [opts.expiresAt] — ISO date string or null
+ * @param {number} [opts.seq] — sequence number for sync bundles
+ * @returns {{ doc: object, shareId: string, checksum: string, saved: object }}
+ */
+async function saveAndCreateFileRecord(buffer, opts) {
+  var ext = path.extname(opts.filename).toLowerCase();
+  var fileShareId = generateShareId();
+  var storagePath = "bundles/" + opts.bundleShareId + "/" + Date.now() + "-" + fileShareId + ext;
+  var checksum = sha3Hash(buffer);
+  var saved = await storage.saveFile(buffer, storagePath);
+  var now = new Date().toISOString();
+
+  var record = {
+    shareId: fileShareId,
+    bundleId: opts.bundleId,
+    bundleShareId: opts.bundleShareId,
+    originalName: sanitizeFilename(opts.filename),
+    relativePath: sanitizeFilename(opts.relativePath || opts.filename, 500),
+    storagePath: saved.path,
+    mimeType: opts.mimeType || "application/octet-stream",
+    size: buffer.length,
+    checksum: checksum,
+    encryptionKey: saved.encryptionKey,
+    uploadedBy: opts.uploadedBy,
+    uploaderEmail: opts.uploaderEmail || null,
+    downloads: 0,
+    status: "complete",
+    createdAt: now,
+    updatedAt: now,
+    expiresAt: opts.expiresAt || null,
+  };
+  if (opts.seq !== undefined) record.seq = opts.seq;
+
+  try {
+    var doc = filesRepo.create(record);
+  } catch (dbErr) {
+    await storage.deleteFile(saved.path);
+    throw dbErr;
+  }
+
+  return { doc: doc, shareId: fileShareId, checksum: checksum, saved: saved };
+}
+
 module.exports = {
   lookupFile: lookupFile,
   incrementDownloads: incrementDownloads,
@@ -178,5 +237,6 @@ module.exports = {
   deleteFile: deleteFile,
   assertCanDelete: assertCanDelete,
   saveToStorage: saveToStorage,
+  saveAndCreateFileRecord: saveAndCreateFileRecord,
   SVG_SIZE_LIMIT: SVG_SIZE_LIMIT,
 };

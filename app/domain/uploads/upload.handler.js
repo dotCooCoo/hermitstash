@@ -13,6 +13,7 @@ var storage = require("../../../lib/storage");
 var audit = require("../../../lib/audit");
 var logger = require("../../shared/logger");
 var bundleService = require("./bundle.service");
+var fileService = require("./file.service");
 var uploadValidator = require("../../http/validators/upload.validator");
 var ipQuota = require("../../../lib/ip-quota");
 var rateLimit = require("../../../lib/rate-limit");
@@ -125,14 +126,8 @@ async function handleFileUpload(ctx) {
     return { error: quota.error };
   }
 
-  // Save file
-  var ext = path.extname(file.filename).toLowerCase();
-  var fileShareId = generateShareId();
-  var storagePath = "bundles/" + bundle.shareId + "/" + Date.now() + "-" + fileShareId + ext;
-  var checksum = sha3Hash(file.data);
-  var saved = await storage.saveFile(file.data, storagePath);
   var cleanRelPath = sanitizeFilename(fields.relativePath || file.filename, 500);
-  var now = new Date().toISOString();
+  var fileShareId, checksum, saved;
 
   // Sync bundle: check for existing file with same relativePath → replace
   var replaced = false;
@@ -143,9 +138,14 @@ async function handleFileUpload(ctx) {
     if (existing.length > 0) {
       var old = existing[0];
       oldSize = old.size || 0;
-      // Delete old encrypted blob and sealed key
+      // Save new file, delete old blob, update existing record
+      var ext = path.extname(file.filename).toLowerCase();
+      fileShareId = generateShareId();
+      var storagePath = "bundles/" + bundle.shareId + "/" + Date.now() + "-" + fileShareId + ext;
+      checksum = sha3Hash(file.data);
+      saved = await storage.saveFile(file.data, storagePath);
       try { await storage.deleteFile(old.storagePath); } catch (_e) {}
-      // Update in place: new key, new content, new checksum
+      var now = new Date().toISOString();
       filesRepo.update(old._id, { $set: {
         originalName: sanitizeFilename(file.filename),
         storagePath: saved.path, mimeType: file.mimetype, size: file.size,
@@ -157,25 +157,16 @@ async function handleFileUpload(ctx) {
   }
 
   if (!replaced) {
-    try {
-      filesRepo.create({
-        shareId: fileShareId,
-        bundleId: bundle._id,
-        bundleShareId: bundle.shareId,
-        originalName: sanitizeFilename(file.filename),
-        relativePath: cleanRelPath,
-        storagePath: saved.path, mimeType: file.mimetype, size: file.size,
-        checksum: checksum, encryptionKey: saved.encryptionKey,
-        uploadedBy: ctx.uploadedBy, uploaderEmail: ctx.uploaderEmail,
-        downloads: 0, status: "complete",
-        createdAt: now, updatedAt: now,
-        seq: (bundle.seq || 0) + 1,
-        expiresAt: ctx.expiresAt,
-      });
-    } catch (dbErr) {
-      await storage.deleteFile(storagePath);
-      throw dbErr;
-    }
+    var result = await fileService.saveAndCreateFileRecord(file.data, {
+      bundleShareId: bundle.shareId, bundleId: bundle._id,
+      filename: file.filename, relativePath: cleanRelPath,
+      mimeType: file.mimetype, uploadedBy: ctx.uploadedBy,
+      uploaderEmail: ctx.uploaderEmail, expiresAt: ctx.expiresAt,
+      seq: (bundle.seq || 0) + 1,
+    });
+    fileShareId = result.shareId;
+    checksum = result.checksum;
+    saved = result.saved;
   }
 
   // Track IP after save
@@ -296,30 +287,14 @@ async function handleChunkUpload(ctx) {
     }
   } catch (_e) { logger.error("Magic byte validation error (chunked)", { file: filename, error: _e.message }); }
 
-  // Save
-  var chunkFileShareId = generateShareId();
-  var storagePath = "bundles/" + bundle.shareId + "/" + Date.now() + "-" + chunkFileShareId + ext;
-  var checksum = sha3Hash(fullData);
-  var saved = await storage.saveFile(fullData, storagePath);
-
-  try {
-    filesRepo.create({
-      shareId: chunkFileShareId,
-      bundleId: bundle._id,
-      bundleShareId: bundle.shareId,
-      originalName: sanitizeFilename(filename),
-      relativePath: sanitizeFilename(relativePath, 500),
-      storagePath: saved.path, mimeType: fields.mimeType || "application/octet-stream",
-      size: fullData.length, checksum: checksum, encryptionKey: saved.encryptionKey,
-      uploadedBy: ctx.uploadedBy, uploaderEmail: ctx.uploaderEmail,
-      downloads: 0, status: "complete",
-      createdAt: new Date().toISOString(),
-      expiresAt: ctx.expiresAt,
-    });
-  } catch (dbErr) {
-    await storage.deleteFile(storagePath);
-    throw dbErr;
-  }
+  // Save file and create DB record
+  var chunkResult = await fileService.saveAndCreateFileRecord(fullData, {
+    bundleShareId: bundle.shareId, bundleId: bundle._id,
+    filename: filename, relativePath: relativePath,
+    mimeType: fields.mimeType, uploadedBy: ctx.uploadedBy,
+    uploaderEmail: ctx.uploaderEmail, expiresAt: ctx.expiresAt,
+  });
+  var checksum = chunkResult.checksum;
 
   if (config.publicIpQuotaBytes > 0 && !bundle.ownerId) {
     ipQuota.record(rateLimit.getIp(ctx.req), fullData.length);

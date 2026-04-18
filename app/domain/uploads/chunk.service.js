@@ -8,6 +8,7 @@ var config = require("../../../lib/config");
 var { files, bundles } = require("../../../lib/db");
 var { sha3Hash, generateShareId } = require("../../../lib/crypto");
 var storage = require("../../../lib/storage");
+var fileService = require("./file.service");
 var { validateChunk, validateFile } = require("../../http/validators/upload.validator");
 var { ValidationError, NotFoundError } = require("../../shared/errors");
 
@@ -104,29 +105,13 @@ async function processReassembledFile(fullData, fields, bundle) {
   var fileResult = validateFile(filename, fullData.length, config.allowedExtensions, config.maxFileSize);
   if (!fileResult.valid) throw new ValidationError(fileResult.reason);
 
-  var fileShareId = generateShareId();
-  var storagePath = "bundles/" + bundle.shareId + "/" + Date.now() + "-" + fileShareId + ext;
-  var checksum = sha3Hash(fullData);
-  var saved = await storage.saveFile(fullData, storagePath);
-
-  var doc = files.insert({
-    shareId: fileShareId,
-    bundleId: bundle._id,
-    bundleShareId: bundle.shareId,
-    originalName: filename,
-    relativePath: relativePath,
-    storagePath: saved.path,
-    mimeType: fields.mimeType || "application/octet-stream",
-    size: fullData.length,
-    checksum: checksum,
-    encryptionKey: saved.encryptionKey,
-    uploadedBy: bundle.ownerId || "public",
-    uploaderEmail: bundle.uploaderEmail,
-    downloads: 0,
-    status: "complete",
-    createdAt: new Date().toISOString(),
-    expiresAt: bundle.expiresAt || null,
+  var result = await fileService.saveAndCreateFileRecord(fullData, {
+    bundleShareId: bundle.shareId, bundleId: bundle._id,
+    filename: filename, relativePath: relativePath,
+    mimeType: fields.mimeType, uploadedBy: bundle.ownerId || "public",
+    uploaderEmail: bundle.uploaderEmail, expiresAt: bundle.expiresAt || null,
   });
+  var doc = result.doc;
 
   bundles.update({ _id: bundle._id }, {
     $set: {
