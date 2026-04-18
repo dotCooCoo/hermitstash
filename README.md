@@ -512,6 +512,48 @@ Includes: Namespace, PVCs, Deployment (liveness/readiness probes, resource limit
 
 **TrueNAS SCALE:** Apps → Custom App → image `ghcr.io/dotcoocoo/hermitstash`, tag `latest`. Add host path datasets for `/app/data` and `/app/uploads`. Add shared memory volume: type emptyDir, medium Memory, size 256Mi, mount at `/dev/shm`.
 
+**Ubuntu / Debian (native install):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/dotCooCoo/hermitstash/main/deploy/install.sh | sudo bash
+```
+Installs Node.js 24, creates a `hermit` system user, sets up tmpfs (256MB) for the in-memory database, and registers a systemd service. See [`deploy/install.sh`](deploy/install.sh).
+
+**Terraform (DigitalOcean):**
+```bash
+cd deploy/terraform
+cp terraform.tfvars.example terraform.tfvars  # edit with your API token + SSH key
+terraform init && terraform apply
+```
+Provisions a droplet, configures a firewall (SSH + HTTP/S + 3000), and optional DNS. See [`deploy/terraform/`](deploy/terraform/).
+
+**Ansible:**
+```bash
+ansible-playbook -i "your-server," deploy/ansible-playbook.yml
+```
+Supports both Docker (`-e hermitstash_deploy=docker`) and native (`-e hermitstash_deploy=native`) deployment modes. See [`deploy/ansible-playbook.yml`](deploy/ansible-playbook.yml).
+
+**Proxmox LXC:**
+```bash
+# Run on the Proxmox host
+bash deploy/proxmox-lxc.sh
+```
+Creates an unprivileged Debian 12 LXC container with Docker and HermitStash. Configurable via environment variables (`CTID`, `MEMORY`, `DISK`, `IP`). See [`deploy/proxmox-lxc.sh`](deploy/proxmox-lxc.sh).
+
+**LXD / Incus:**
+```bash
+# Run on the host (auto-detects LXD or Incus)
+bash deploy/lxd-incus.sh
+```
+Creates a Debian 12 system container with Docker nested inside. Forwards port 3000 from host to container via proxy device. Configurable via environment variables (`CONTAINER_NAME`, `MEMORY`, `DISK`, `CPU`, `PORT`). See [`deploy/lxd-incus.sh`](deploy/lxd-incus.sh).
+
+**Podman (RHEL / Fedora / Rocky / Alma):**
+```bash
+bash deploy/podman.sh
+```
+Drop-in Docker alternative — works rootless or rootful. Automatically generates a systemd unit via `podman generate systemd` (user unit for rootless, system unit for rootful). Volumes use `:Z` for SELinux relabeling. See [`deploy/podman.sh`](deploy/podman.sh).
+
+**Systemd (manual):** If you already have Node.js 24+ installed, copy [`deploy/hermitstash.service`](deploy/hermitstash.service) to `/etc/systemd/system/` and adjust paths. The unit includes `NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`, and scoped `ReadWritePaths`.
+
 ### Upgrading
 
 ```bash
