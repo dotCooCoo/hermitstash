@@ -190,9 +190,11 @@ jobs:
 
       - name: Verify non-root user
         run: |
-          USER=$(docker exec smoke-test whoami)
-          echo "Running as: $USER"
-          [ "$USER" = "hermit" ] || { echo "ERROR: running as $USER, expected hermit"; exit 1; }
+          # docker exec defaults to Dockerfile USER (root, since entrypoint needs root for chown).
+          # The actual node process runs as hermit via gosu. Check the real PID 1 user:
+          PROC_USER=$(docker exec smoke-test node -e "console.log(require('os').userInfo().username)")
+          echo "Node process running as: $PROC_USER"
+          [ "$PROC_USER" = "hermit" ] || { echo "ERROR: node running as $PROC_USER, expected hermit"; exit 1; }
 
       - name: Verify version
         run: |
