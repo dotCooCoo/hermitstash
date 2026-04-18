@@ -1,0 +1,6 @@
+# Copy to terraform.tfvars and fill in your values
+do_token             = "your-digitalocean-api-token"
+ssh_key_fingerprint  = "your-ssh-key-fingerprint"
+region               = "nyc1"
+size                 = "s-1vcpu-1gb"
+domain               = ""  # e.g. "files.example.com" (optional)

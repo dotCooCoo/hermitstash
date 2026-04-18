@@ -1,0 +1,144 @@
+# HermitStash — Ansible playbook for automated deployment
+#
+# Usage:
+#   ansible-playbook -i "your-server," ansible-playbook.yml
+#
+# Variables (override with -e):
+#   hermitstash_port: 3000
+#   hermitstash_domain: files.example.com
+#   hermitstash_storage: local  (or "s3")
+#   hermitstash_deploy: docker  (or "native")
+
+---
+- name: Deploy HermitStash
+  hosts: all
+  become: yes
+  vars:
+    hermitstash_port: 3000
+    hermitstash_domain: ""
+    hermitstash_storage: local
+    hermitstash_deploy: docker
+    hermitstash_user: hermit
+    hermitstash_dir: /opt/hermitstash
+    hermitstash_image: ghcr.io/dotcoocoo/hermitstash:latest
+    node_version: "24"
+
+  tasks:
+    # ---- Docker deployment ----
+    - name: Docker deployment
+      when: hermitstash_deploy == "docker"
+      block:
+        - name: Install Docker
+          apt:
+            name: [docker.io, docker-compose-plugin]
+            state: present
+            update_cache: yes
+
+        - name: Create data directories
+          file:
+            path: "{{ item }}"
+            state: directory
+            mode: "0700"
+          loop:
+            - "{{ hermitstash_dir }}/data"
+            - "{{ hermitstash_dir }}/uploads"
+
+        - name: Pull HermitStash image
+          docker_image:
+            name: "{{ hermitstash_image }}"
+            source: pull
+
+        - name: Start HermitStash container
+          docker_container:
+            name: hermitstash
+            image: "{{ hermitstash_image }}"
+            state: started
+            restart_policy: unless-stopped
+            ports:
+              - "{{ hermitstash_port }}:3000"
+            volumes:
+              - "{{ hermitstash_dir }}/data:/app/data"
+              - "{{ hermitstash_dir }}/uploads:/app/uploads"
+            shm_size: 256m
+            env:
+              NODE_ENV: production
+              HERMITSTASH_TMPDIR: /dev/shm
+              TRUST_PROXY: "true"
+              RP_ORIGIN: "{{ 'https://' + hermitstash_domain if hermitstash_domain else '' }}"
+
+        - name: Wait for health check
+          uri:
+            url: "http://localhost:{{ hermitstash_port }}/health"
+            return_content: yes
+          register: health
+          until: health.status == 200
+          retries: 30
+          delay: 1
+
+        - name: Health check result
+          debug:
+            msg: "HermitStash is running: {{ health.json }}"
+
+    # ---- Native (bare metal) deployment ----
+    - name: Native deployment
+      when: hermitstash_deploy == "native"
+      block:
+        - name: Install Node.js {{ node_version }}
+          shell: |
+            curl -fsSL https://deb.nodesource.com/setup_{{ node_version }}.x | bash -
+            apt-get install -y nodejs
+          args:
+            creates: /usr/bin/node
+
+        - name: Create hermit user
+          user:
+            name: "{{ hermitstash_user }}"
+            system: yes
+            home: "{{ hermitstash_dir }}"
+            shell: /bin/false
+
+        - name: Clone HermitStash
+          git:
+            repo: https://github.com/dotCooCoo/hermitstash.git
+            dest: "{{ hermitstash_dir }}"
+            version: main
+          become_user: "{{ hermitstash_user }}"
+
+        - name: Create data directories
+          file:
+            path: "{{ item }}"
+            state: directory
+            owner: "{{ hermitstash_user }}"
+            group: "{{ hermitstash_user }}"
+            mode: "0700"
+          loop:
+            - "{{ hermitstash_dir }}/data"
+            - "{{ hermitstash_dir }}/uploads"
+            - "{{ hermitstash_dir }}/shm"
+
+        - name: Mount tmpfs for in-memory database
+          mount:
+            path: "{{ hermitstash_dir }}/shm"
+            src: tmpfs
+            fstype: tmpfs
+            opts: "size=256M,mode=700,uid={{ hermitstash_user }},gid={{ hermitstash_user }}"
+            state: mounted
+
+        - name: Install systemd service
+          copy:
+            src: hermitstash.service
+            dest: /etc/systemd/system/hermitstash.service
+          notify: restart hermitstash
+
+        - name: Enable and start HermitStash
+          systemd:
+            name: hermitstash
+            enabled: yes
+            state: started
+            daemon_reload: yes
+
+  handlers:
+    - name: restart hermitstash
+      systemd:
+        name: hermitstash
+        state: restarted

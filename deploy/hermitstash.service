@@ -1,0 +1,58 @@
+# HermitStash — systemd service for bare metal deployment
+#
+# Install:
+#   sudo cp hermitstash.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now hermitstash
+#
+# Prerequisites:
+#   - Node.js 24+ installed (for PQC / OpenSSL 3.5 support)
+#   - Application at /opt/hermitstash (git clone or copy)
+#   - User 'hermit' created: sudo useradd -r -m -d /opt/hermitstash -s /bin/false hermit
+#   - Data dirs: sudo mkdir -p /opt/hermitstash/{data,uploads}
+#   - Permissions: sudo chown -R hermit:hermit /opt/hermitstash
+#   - tmpfs mount for in-memory DB (add to /etc/fstab):
+#     tmpfs /opt/hermitstash/shm tmpfs size=256M,mode=700,uid=hermit,gid=hermit 0 0
+
+[Unit]
+Description=HermitStash — Post-quantum encrypted file uploads
+Documentation=https://github.com/dotCooCoo/hermitstash
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hermit
+Group=hermit
+WorkingDirectory=/opt/hermitstash
+
+# Environment
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HERMITSTASH_TMPDIR=/opt/hermitstash/shm
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+ReadWritePaths=/opt/hermitstash/data /opt/hermitstash/uploads /opt/hermitstash/shm
+
+# Process
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hermitstash
+
+[Install]
+WantedBy=multi-user.target
