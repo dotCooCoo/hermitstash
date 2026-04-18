@@ -1360,10 +1360,10 @@ select.text-input option{background:var(--bg,#0f0f0f);color:var(--text,#e8e8e8)}
 .scroll-prog-circle{fill:none;stroke:var(--main-color);stroke-width:3;stroke-linecap:round;transition:stroke-dashoffset .1s}
 .scroll-progress-arrow{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:.7rem}
 
-/* Reduce motion — only affects marquee, not scroll animations */
-@media(prefers-reduced-motion:reduce){
-  .marquee-box{animation-duration:60s}
-}
+/* Accessibility — focus-visible outlines for keyboard navigation */
+:focus-visible{outline:2px solid var(--main-color);outline-offset:2px;border-radius:4px}
+.butn:focus-visible,.navbar-btn:focus-visible,.btn-logout:focus-visible{outline:2px solid var(--main-color);outline-offset:3px}
+
 
 /* ---- Scrollbar ---- */
 ::-webkit-scrollbar{width:5px}
