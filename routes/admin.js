@@ -33,7 +33,7 @@ var { sanitizeSvg } = require("../lib/sanitize-svg");
 // Recursive sum of all file sizes under `dir`. Used by the dashboard to report
 // real on-disk storage including chunks, orphan files, and empty bundle dirs that
 // aren't represented in the file table. Returns 0 if dir is missing/unreadable.
-function diskUsage(dir) {
+function walkDiskUsage(dir) {
   if (!fs.existsSync(dir)) return 0;
   var total = 0;
   var entries;
@@ -41,12 +41,47 @@ function diskUsage(dir) {
   for (var i = 0; i < entries.length; i++) {
     var full = path.join(dir, entries[i].name);
     if (entries[i].isDirectory()) {
-      total += diskUsage(full);
+      total += walkDiskUsage(full);
     } else if (entries[i].isFile()) {
       try { total += fs.statSync(full).size; } catch (_e) {}
     }
   }
   return total;
+}
+
+// Dashboard renders need diskUsage, but the walk is O(n_files) and synchronous.
+// On installs with tens of thousands of files this stalled the admin page.
+// Use a 5-minute TTL cache with lazy background refresh: the first request
+// seeds the cache, subsequent requests read the cached number and kick off a
+// fresh walk in the background when the TTL expires.
+var _diskUsageCache = { bytes: 0, computedAt: 0, computing: false };
+var DISK_USAGE_TTL_MS = 5 * 60 * 1000;
+
+function refreshDiskUsageAsync(dir) {
+  if (_diskUsageCache.computing) return;
+  _diskUsageCache.computing = true;
+  setImmediate(function () {
+    try {
+      _diskUsageCache.bytes = walkDiskUsage(dir);
+      _diskUsageCache.computedAt = Date.now();
+    } finally {
+      _diskUsageCache.computing = false;
+    }
+  });
+}
+
+function diskUsage(dir) {
+  var now = Date.now();
+  var stale = now - _diskUsageCache.computedAt > DISK_USAGE_TTL_MS;
+  if (_diskUsageCache.computedAt === 0) {
+    // First call — do a synchronous walk so the dashboard has a real number
+    // on initial render. Subsequent stale-refreshes run in the background.
+    _diskUsageCache.bytes = walkDiskUsage(dir);
+    _diskUsageCache.computedAt = now;
+  } else if (stale) {
+    refreshDiskUsageAsync(dir);
+  }
+  return _diskUsageCache.bytes;
 }
 
 module.exports = function (app) {

@@ -14,7 +14,7 @@
 var logger = require("../shared/logger");
 var { TIME } = require("../../lib/constants");
 
-function run() {
+async function run() {
   var apiKeysRepo = require("../data/repositories/apiKeys.repo");
   var db = require("../../lib/db");
   var allKeys = apiKeysRepo.findAll({}).filter(function (k) { return k.certExpiresAt && k.permissions && k.permissions.indexOf("sync") !== -1; });
@@ -59,8 +59,8 @@ function run() {
         var { sha3Hash } = require("../../lib/crypto");
         var { generateEnrollmentCode } = require("../../lib/cert-utils");
 
-        initCA();
-        var newCert = generateClientCert(key.prefix);
+        await initCA();
+        var newCert = await generateClientCert(key.prefix);
         if (!newCert) {
           logger.warn("[cert-expiry] generateClientCert returned no cert — skipping renewal", { prefix: key.prefix, stashId: key.boundStashId });
           continue;

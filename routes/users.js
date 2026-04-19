@@ -24,7 +24,10 @@ module.exports = function (app) {
   });
 
   // Paginated, searchable, filterable user list (JSON)
-  app.get("/admin/users/api", (req, res) => {
+  // Search ?q= is rate-limited separately because each request unseals up to
+  // USER_SEARCH_SCAN_LIMIT user records — repeating it cheaply is a DoS lever
+  // even against admin users.
+  app.get("/admin/users/api", rateLimit.middleware("admin-user-search", 60, C.TIME.ONE_MIN || 60000), (req, res) => {
     if (!requireAdmin(req, res)) return;
     var q = req.query.q || "";
     var role = req.query.role || "";
@@ -44,9 +47,13 @@ module.exports = function (app) {
     var opts = { limit: limit, offset: (page - 1) * limit, orderBy: sort, orderDir: dir };
     var result;
 
-    // Encrypted fields can't be searched via SQL LIKE — fetch all and filter in JS
+    // Encrypted fields can't be searched via SQL LIKE — fetch a bounded window
+    // and filter in JS. 500 rows is plenty for any realistic directory
+    // (admins who need cross-corpus search should use an external directory)
+    // and bounds the per-request unseal cost.
+    var USER_SEARCH_SCAN_LIMIT = 500;
     if (q) {
-      result = usersRepo.findPaginated(filterQuery, { limit: 1000, offset: 0, orderBy: sort, orderDir: dir });
+      result = usersRepo.findPaginated(filterQuery, { limit: USER_SEARCH_SCAN_LIMIT, offset: 0, orderBy: sort, orderDir: dir });
       var qLower = q.toLowerCase();
       result.data = result.data.filter(function (u) {
         return (u.email || "").toLowerCase().includes(qLower) || (u.displayName || "").toLowerCase().includes(qLower);

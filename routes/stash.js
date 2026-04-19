@@ -735,8 +735,8 @@ module.exports = function (app) {
       // Generate client certificate if CA is available
       var clientCert = null;
       try {
-        initCA();
-        clientCert = generateClientCert(prefix);
+        await initCA();
+        clientCert = await generateClientCert(prefix);
         if (clientCert) {
           var certSha3 = sha3Hash;
           var createdKey = apiKeysRepo.findOne({ keyHash: keyHash });
@@ -824,8 +824,8 @@ module.exports = function (app) {
       if (!apiKey) return res.status(404).json({ error: "API key not found." });
       if (apiKey.boundStashId !== stash._id) return res.status(403).json({ error: "API key does not belong to this stash." });
 
-      initCA();
-      var newCert = generateClientCert(apiKey.prefix);
+      await initCA();
+      var newCert = await generateClientCert(apiKey.prefix);
       if (!newCert) return res.status(500).json({ error: "Failed to generate certificate — OpenSSL may not be available." });
 
       // Store enrollment code FIRST — if this fails, the API key cert fields stay unchanged

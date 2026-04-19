@@ -246,7 +246,11 @@ module.exports = function (app) {
 
       // Store the encrypted blob using regular storage (no additional server encryption)
       var fileShareId = generateShareId();
+      // Extension is incorporated into the storage path; restrict to a safe
+      // charset (alnum, 1–10 chars) so a filename like "a.<odd>" can't create
+      // surprising on-disk names for operators browsing the upload dir.
       var ext = path.extname(body.filename).toLowerCase() || "";
+      if (!/^\.[a-z0-9]{1,10}$/.test(ext)) ext = "";
       var storagePath = "vault/" + req.user._id + "/" + Date.now() + "-" + fileShareId + ext;
 
       // Write raw ciphertext to storage — no server-side encryption layer
@@ -399,11 +403,13 @@ module.exports = function (app) {
         var ciphertext = Buffer.from(reenc.ciphertext, "base64");
         await storage.saveRaw(ciphertext, doc.storagePath);
 
-        // Update DB with new encapsulated key and IV
+        // Update DB with new encapsulated key and IV. Do NOT take size from
+        // the client — rotation re-encrypts the same plaintext, so the
+        // original size is unchanged and preserving doc.size avoids a quota
+        // bypass where an attacker rotates their own file with originalSize=0.
         filesRepo.update(doc._id, { $set: {
           vaultEncapsulatedKey: reenc.encapsulatedKey,
           vaultIv: reenc.iv,
-          size: reenc.originalSize || ciphertext.length,
         }});
         updated++;
       }

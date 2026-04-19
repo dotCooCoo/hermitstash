@@ -3,23 +3,37 @@
  *
  * Levels: debug < info < warn < error < fatal
  * Output: JSON lines to stdout (debug/info/warn) or stderr (error/fatal).
- * Request correlation via setRequestId() — typically called by request-id middleware.
+ * Request correlation via AsyncLocalStorage — request-id middleware enters a
+ * storage context for each request, and every log line written during that
+ * async chain picks up the requestId automatically. Previously used a
+ * module-global, which was overwritten whenever concurrent requests ran
+ * through the middleware, producing wrong correlation IDs under load.
  *
  * Respects LOG_LEVEL env var (default: "info").
  */
 
+var { AsyncLocalStorage } = require("node:async_hooks");
+
 var LEVELS = { debug: 0, info: 1, warn: 2, error: 3, fatal: 4 };
 var _minLevel = LEVELS[process.env.LOG_LEVEL] !== undefined ? LEVELS[process.env.LOG_LEVEL] : LEVELS.info;
 
-// Per-request context — set once per request, cleared automatically
-var _requestId = null;
+var _als = new AsyncLocalStorage();
 
-function setRequestId(id) {
-  _requestId = id || null;
+/**
+ * Run a function with a given requestId bound to the async context.
+ * All logger calls during fn (and in any awaited continuations) will
+ * include requestId automatically.
+ */
+function runWithRequestId(id, fn) {
+  return _als.run({ requestId: id || null }, fn);
 }
 
+/**
+ * Read the requestId bound to the current async context, or null.
+ */
 function getRequestId() {
-  return _requestId;
+  var store = _als.getStore();
+  return store ? store.requestId : null;
 }
 
 function write(level, message, extra) {
@@ -31,7 +45,8 @@ function write(level, message, extra) {
     message: message,
   };
 
-  if (_requestId) entry.requestId = _requestId;
+  var rid = getRequestId();
+  if (rid) entry.requestId = rid;
 
   // Merge extra data — flatten one level for readability
   if (extra && typeof extra === "object") {
@@ -60,6 +75,6 @@ module.exports = {
   warn: function (msg, extra) { write("warn", msg, extra); },
   error: function (msg, extra) { write("error", msg, extra); },
   fatal: function (msg, extra) { write("fatal", msg, extra); },
-  setRequestId: setRequestId,
+  runWithRequestId: runWithRequestId,
   getRequestId: getRequestId,
 };

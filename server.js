@@ -217,8 +217,8 @@ app.post("/sync/renew-cert", require("./lib/rate-limit").middleware("sync-renew"
     }
 
     // Generate new client certificate
-    mtlsCa.initCA();
-    var newCert = mtlsCa.generateClientCert(apiKey.prefix);
+    await mtlsCa.initCA();
+    var newCert = await mtlsCa.generateClientCert(apiKey.prefix);
     if (!newCert) {
       res.writeHead(500, { "Content-Type": "application/json" });
       return res.end(JSON.stringify({ error: "Certificate generation failed." }));
@@ -410,7 +410,7 @@ scheduler.register("orphan_storage_cleanup", C.TIME.ONE_DAY, async function () {
   } catch (_e) {}
 });
 scheduler.register("cert_expiry_check", C.TIME.ONE_DAY, function () { // daily
-  try { certExpiryJob.run(); } catch (_e) {}
+  return certExpiryJob.run().catch(function (e) { logger.error("cert_expiry_check failed", { error: e.message }); });
 });
 scheduler.register("incremental_vacuum", C.TIME.ONE_DAY, function () { // daily
   try { db.rawExec("PRAGMA incremental_vacuum(100)"); } catch (_e) {} // reclaim ~100 pages
