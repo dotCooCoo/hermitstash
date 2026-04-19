@@ -394,6 +394,14 @@ scheduler.register("expired_enrollment_codes_cleanup", C.TIME.ONE_HOUR, function
 scheduler.register("expired_access_codes_cleanup", C.TIME.ONE_HOUR, function () { // hourly
   try { expiryCleanupJob.cleanupExpiredAccessCodes(); } catch (_e) {}
 });
+scheduler.register("bundle_lockout_cleanup", C.TIME.ONE_HOUR, function () { // hourly
+  // Remove lockout rows that haven't seen an attempt in 24h.
+  // lastAttempt is a raw ISO8601 string, safe to compare in SQL.
+  try {
+    var cutoff = new Date(Date.now() - C.TIME.ONE_DAY).toISOString();
+    db.rawExec("DELETE FROM bundle_access_lockouts WHERE lastAttempt < ?", cutoff);
+  } catch (_e) {}
+});
 scheduler.register("orphan_storage_cleanup", C.TIME.ONE_DAY, async function () { // daily
   try {
     var local = orphanCleanupJob.scanLocalOrphans();
@@ -540,15 +548,22 @@ server.on("upgrade", function (req, socket, head) {
     return;
   }
 
-  // mTLS check (if CA is configured) — client must present a valid cert
+  // mTLS check (if CA is configured) — client must present a valid cert.
+  // Default is strict: when CA exists, a valid client cert is required.
+  // Operators can set MTLS_REQUIRED=false as an explicit bring-up escape,
+  // which skips the presence check but keeps revocation/expiry enforcement
+  // for clients that do present a cert, and still honors per-key cert
+  // binding (see apiKey.certFingerprint check below).
+  var peerCertFingerprint = null;
   if (mtlsCaCert) {
     var peerCert = socket.getPeerCertificate ? socket.getPeerCertificate() : null;
-    if (!peerCert || !peerCert.subject || !socket.authorized) {
-      // mTLS not strictly required for now — log but allow (API key still required)
-      // Set to rejectUpgrade if MTLS_REQUIRED=true
-      if (process.env.MTLS_REQUIRED === "true") {
+    var hasValidCert = peerCert && peerCert.subject && socket.authorized;
+    if (!hasValidCert) {
+      if (process.env.MTLS_REQUIRED !== "false") {
         return rejectUpgrade(socket, 403, "Forbidden");
       }
+      // MTLS_REQUIRED=false — permit (still requires API key). Per-key cert
+      // binding below will still block keys that were enrolled with a cert.
     } else {
       // Check revocation list (indexed lookup, not full-table scan)
       if (certUtils.isCertRevoked(peerCert.fingerprint256)) {
@@ -561,6 +576,7 @@ server.on("upgrade", function (req, socket, head) {
           return rejectUpgrade(socket, 403, "Certificate expired");
         }
       }
+      peerCertFingerprint = peerCert.fingerprint256 || null;
     }
   }
 
@@ -581,6 +597,16 @@ server.on("upgrade", function (req, socket, head) {
   var apiKey = db.apiKeys.findOne({ keyHash: keyHash });
   if (!apiKey) {
     return rejectUpgrade(socket, 401, "Unauthorized");
+  }
+
+  // Per-key cert binding: when a key was enrolled with a client cert, every
+  // connection using that key MUST present a matching cert. This is enforced
+  // regardless of the MTLS_REQUIRED escape hatch so a cert-bound key cannot
+  // be downgraded to API-key-only auth.
+  if (apiKey.certFingerprint) {
+    if (!peerCertFingerprint || peerCertFingerprint !== apiKey.certFingerprint) {
+      return rejectUpgrade(socket, 403, "Forbidden");
+    }
   }
 
   // Check sync scope

@@ -202,7 +202,7 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Per-file XChaCha20-Poly1305 encryption, keys sealed with hybrid ML-KEM-1024 + P-384
 - Chunked uploads for large files (>10MB auto-split, server reassembly)
 - Pause/resume/cancel uploads, per-file progress bars
-- Password-protected share links with exponential backoff lockout (2^n × 30s after 5 failed attempts)
+- Password-protected share links with exponential backoff lockout (2^n × 30s after 5 failed attempts), persisted per-share in the database so counters survive restart
 - Email-gated access -- restrict bundles to specific recipient emails, verified by one-time code (anti-enumeration, rate limited, SHA3-hashed codes)
 - Dual protection mode -- require both email verification and password for maximum security
 - Custom expiry per bundle (1d, 7d, 30d, 90d, never)
@@ -308,7 +308,7 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Client certificate generation on sync token creation with one-click PEM bundle download
 - Certificate revocation table with SHA3-512 hashed fingerprint lookups
 - WebSocket upgrade validates mTLS cert + API key (dual auth, neither alone sufficient)
-- `MTLS_REQUIRED=true` to enforce client certificates on all sync connections
+- When a CA exists, WebSocket mTLS is **required by default**. Set `MTLS_REQUIRED=false` as an explicit bring-up escape to permit API-key-only upgrades; per-key cert binding is still enforced when `api_keys.certFingerprint` is set, so a cert-bound key cannot be downgraded.
 - New `sync` API key scope for WebSocket connections and sync bundle operations
 - Resource-scoped API keys -- `boundStashId` and `boundBundleId` columns restrict keys to specific resources
 - Stash-scoped sync tokens -- admin generates tokens that grant sync access to a single stash only

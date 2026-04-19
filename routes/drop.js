@@ -66,6 +66,10 @@ module.exports = function (app) {
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
       if (!bundle || (bundle.status === "complete" && bundle.bundleType !== "sync")) return res.status(404).json({ error: "Bundle not found." });
+      // Stash-owned bundles must go through the /stash/:slug/file/:bundleId path,
+      // which applies per-stash upload caps and isStashLocked() access checks.
+      // Accepting them here would silently bypass those limits.
+      if (bundle.stashId) return res.status(403).json({ error: "This bundle must be uploaded via its stash endpoint." });
       var limits = resolveUploadConfig(null);
       var { fields, files: uploaded } = await parseMultipart(req, limits.maxFileSize);
       var file = uploaded[0];
@@ -91,6 +95,7 @@ module.exports = function (app) {
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
       if (!bundle || (bundle.status === "complete" && bundle.bundleType !== "sync")) return res.status(404).json({ error: "Bundle not found." });
+      if (bundle.stashId) return res.status(403).json({ error: "This bundle must be uploaded via its stash endpoint." });
       var limits = resolveUploadConfig(null);
       var { fields, files: uploaded } = await parseMultipart(req, limits.maxFileSize);
       var chunk = uploaded[0];
@@ -114,6 +119,7 @@ module.exports = function (app) {
   app.post("/drop/finalize/:bundleId", rateLimit.middleware("finalize", 20, 60000), requireScope("upload"), async (req, res) => {
     var existing = bundlesRepo.findById(req.params.bundleId);
     if (!existing) return res.status(404).json({ error: "Bundle not found." });
+    if (existing.stashId) return res.status(403).json({ error: "This bundle must be finalized via its stash endpoint." });
     if (existing.ownerId && (!req.user || existing.ownerId !== req.user._id)) return res.status(403).json({ error: "Forbidden." });
 
     var body = await parseJson(req);

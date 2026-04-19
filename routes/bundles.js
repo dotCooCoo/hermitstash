@@ -4,7 +4,7 @@ var filesRepo = require("../app/data/repositories/files.repo");
 var accessLogRepo = require("../app/data/repositories/bundleAccessLog.repo");
 var logger = require("../app/shared/logger");
 const config = require("../lib/config");
-const { verifyPassword } = require("../lib/crypto");
+const { verifyPassword, sha3Hash } = require("../lib/crypto");
 const { parseJson } = require("../lib/multipart");
 const storage = require("../lib/storage");
 const { ZipWriter } = require("../lib/zip");
@@ -23,20 +23,36 @@ var stashRepo = require("../app/data/repositories/stash.repo");
 var uploadHandler = require("../app/domain/uploads/upload.handler");
 var accessCodeService = require("../app/domain/access-code.service");
 
-// Exponential backoff tracking for bundle password attempts
-var bundleLockouts = new Map();
+// Persistent exponential backoff for bundle password attempts.
+// Stored in bundle_access_lockouts (keyed by shareIdHash) so counters survive
+// restart and are shared across workers. Stale entries (> 24h idle) are swept
+// by the scheduled cleanup job in server.js.
 var BUNDLE_LOCKOUT_THRESHOLD = 5;
 
-// Clean up stale lockout entries every 30 minutes
-var _lockoutTimer = setInterval(function () {
-  var now = Date.now();
-  bundleLockouts.forEach(function (entry, key) {
-    if (now - entry.lastAttempt > C.TIME.ONE_HOUR) {
-      bundleLockouts.delete(key);
-    }
-  });
-}, C.TIME.THIRTY_MIN);
-_lockoutTimer.unref();
+function _shareIdHash(shareId) {
+  return sha3Hash(C.HASH_PREFIX.SHARE_ID + shareId);
+}
+
+function getBundleLockout(shareId) {
+  return db.bundleAccessLockouts.findOne({ shareIdHash: _shareIdHash(shareId) });
+}
+
+function recordBundleFailure(shareId) {
+  var hash = _shareIdHash(shareId);
+  var existing = db.bundleAccessLockouts.findOne({ shareIdHash: hash });
+  var now = new Date().toISOString();
+  if (existing) {
+    var updated = { failures: (existing.failures || 0) + 1, lastAttempt: now };
+    db.bundleAccessLockouts.update({ _id: existing._id }, { $set: updated });
+    return { failures: updated.failures, lastAttempt: Date.parse(now) };
+  }
+  db.bundleAccessLockouts.insert({ shareIdHash: hash, failures: 1, lastAttempt: now });
+  return { failures: 1, lastAttempt: Date.parse(now) };
+}
+
+function clearBundleLockout(shareId) {
+  db.bundleAccessLockouts.remove({ shareIdHash: _shareIdHash(shareId) });
+}
 
 module.exports = function (app) {
   // Bundle password verification (rate limited to prevent brute force)
@@ -45,11 +61,12 @@ module.exports = function (app) {
     var bundle = bundlesRepo.findByShareId(shareId);
     if (!bundle || bundle.status !== "complete") return res.status(404).json({ error: "Bundle not found." });
 
-    // Check exponential backoff lockout
-    var lockout = bundleLockouts.get(shareId);
+    // Check exponential backoff lockout (persistent across restarts)
+    var lockout = getBundleLockout(shareId);
     if (lockout && lockout.failures >= BUNDLE_LOCKOUT_THRESHOLD) {
       var backoffSeconds = Math.pow(2, lockout.failures - BUNDLE_LOCKOUT_THRESHOLD) * 30;
-      var elapsed = (Date.now() - lockout.lastAttempt) / 1000;
+      var lastMs = lockout.lastAttempt ? Date.parse(lockout.lastAttempt) : 0;
+      var elapsed = (Date.now() - lastMs) / 1000;
       if (elapsed < backoffSeconds) {
         var retryAfter = Math.ceil(backoffSeconds - elapsed);
         res.setHeader("Retry-After", String(retryAfter));
@@ -76,21 +93,16 @@ module.exports = function (app) {
       } else {
         req.session["bundle_" + shareId] = true;
       }
-      bundleLockouts.delete(shareId);
+      clearBundleLockout(shareId);
       return res.json({ success: true });
     }
 
-    // Track failed attempt
-    if (!lockout) {
-      lockout = { failures: 0, lastAttempt: 0 };
-    }
-    lockout.failures++;
-    lockout.lastAttempt = Date.now();
-    bundleLockouts.set(shareId, lockout);
+    // Track failed attempt (persistent)
+    var after = recordBundleFailure(shareId);
 
-    if (lockout.failures >= BUNDLE_LOCKOUT_THRESHOLD) {
-      var retryAfterSec = Math.pow(2, lockout.failures - BUNDLE_LOCKOUT_THRESHOLD) * 30;
-      logger.warn("Bundle unlock lockout", { shareId: shareId, failures: lockout.failures, retryAfter: retryAfterSec });
+    if (after.failures >= BUNDLE_LOCKOUT_THRESHOLD) {
+      var retryAfterSec = Math.pow(2, after.failures - BUNDLE_LOCKOUT_THRESHOLD) * 30;
+      logger.warn("Bundle unlock lockout", { shareId: shareId, failures: after.failures, retryAfter: retryAfterSec });
       res.setHeader("Retry-After", String(retryAfterSec));
       return res.status(429).json({ error: "Too many failed attempts. Try again in " + retryAfterSec + " seconds." });
     }
