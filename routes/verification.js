@@ -31,24 +31,35 @@ function createVerificationToken(userId) {
   return rawToken;
 }
 
+// Look up a verification token, send the appropriate error response + audit
+// log if invalid or expired, and return the record (or null if unusable).
+// Callers just check for `null` and bail — they don't need to re-send a response.
+function findAndValidateToken(rawToken, req, res) {
+  var tokenHash = sha3Hash(rawToken);
+  var record = verificationTokensRepo.findOne({ token: tokenHash, type: "email" });
+
+  if (!record) {
+    audit.log(audit.ACTIONS.EMAIL_VERIFICATION_FAILED, { details: "Invalid token", req: req });
+    send(res, "error", { user: null, title: "Invalid Link", message: "This verification link is invalid or has already been used." }, 400);
+    return null;
+  }
+
+  if (new Date(record.expiresAt) < new Date()) {
+    verificationTokensRepo.remove(record._id);
+    audit.log(audit.ACTIONS.EMAIL_VERIFICATION_FAILED, { details: "Expired token", targetId: record.userId, req: req });
+    send(res, "error", { user: null, title: "Link Expired", message: "This verification link has expired. Please request a new one." }, 400);
+    return null;
+  }
+
+  return record;
+}
+
 module.exports = function (app) {
   // Verify email — GET shows confirmation page, POST consumes the token
   app.get("/auth/verify/:token", async (req, res) => {
     try {
       var rawToken = req.params.token;
-      var tokenHash = sha3Hash(rawToken);
-      var record = verificationTokensRepo.findOne({ token: tokenHash, type: "email" });
-
-      if (!record) {
-        audit.log(audit.ACTIONS.EMAIL_VERIFICATION_FAILED, { details: "Invalid token", req: req });
-        return send(res, "error", { user: null, title: "Invalid Link", message: "This verification link is invalid or has already been used." }, 400);
-      }
-
-      if (new Date(record.expiresAt) < new Date()) {
-        verificationTokensRepo.remove(record._id);
-        audit.log(audit.ACTIONS.EMAIL_VERIFICATION_FAILED, { details: "Expired token", targetId: record.userId, req: req });
-        return send(res, "error", { user: null, title: "Link Expired", message: "This verification link has expired. Please request a new one." }, 400);
-      }
+      if (!findAndValidateToken(rawToken, req, res)) return;
 
       // Show a confirmation page with an auto-submitting form
       var csrfToken = req.csrfToken || "";
@@ -71,19 +82,8 @@ module.exports = function (app) {
   app.post("/auth/verify/:token", async (req, res) => {
     try {
       var rawToken = req.params.token;
-      var tokenHash = sha3Hash(rawToken);
-      var record = verificationTokensRepo.findOne({ token: tokenHash, type: "email" });
-
-      if (!record) {
-        audit.log(audit.ACTIONS.EMAIL_VERIFICATION_FAILED, { details: "Invalid token", req: req });
-        return send(res, "error", { user: null, title: "Invalid Link", message: "This verification link is invalid or has already been used." }, 400);
-      }
-
-      if (new Date(record.expiresAt) < new Date()) {
-        verificationTokensRepo.remove(record._id);
-        audit.log(audit.ACTIONS.EMAIL_VERIFICATION_FAILED, { details: "Expired token", targetId: record.userId, req: req });
-        return send(res, "error", { user: null, title: "Link Expired", message: "This verification link has expired. Please request a new one." }, 400);
-      }
+      var record = findAndValidateToken(rawToken, req, res);
+      if (!record) return;
 
       var user = usersRepo.findById(record.userId);
       if (!user) {

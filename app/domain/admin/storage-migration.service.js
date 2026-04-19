@@ -6,6 +6,7 @@ var storage = require("../../../lib/storage");
 var { isS3Path } = storage;
 var logger = require("../../shared/logger");
 var filesRepo = require("../../data/repositories/files.repo");
+var { ValidationError, AppError } = require("../../shared/errors");
 
 /**
  * Migrate all files between storage backends (local ↔ S3).
@@ -16,7 +17,7 @@ var filesRepo = require("../../data/repositories/files.repo");
  */
 async function migrateStorage(direction, progressCb) {
   if (direction !== "local-to-s3" && direction !== "s3-to-local") {
-    throw new Error("Invalid direction: " + direction + " (must be 'local-to-s3' or 's3-to-local')");
+    throw new ValidationError("Invalid direction: " + direction + " (must be 'local-to-s3' or 's3-to-local')");
   }
 
   var toS3 = direction === "local-to-s3";
@@ -25,14 +26,14 @@ async function migrateStorage(direction, progressCb) {
   // Validate S3 is configured
   var s3cfg = config.storage.s3;
   if (!s3cfg || !s3cfg.bucket || !s3cfg.accessKey || !s3cfg.secretKey) {
-    throw new Error("S3 storage is not configured. Set bucket, access key, and secret key in admin settings.");
+    throw new ValidationError("S3 storage is not configured. Set bucket, access key, and secret key in admin settings.");
   }
 
   // Prevent migration into the backup bucket
   var backupBucket = config.backup && config.backup.s3 && config.backup.s3.bucket;
   var backupEndpoint = config.backup && config.backup.s3 && (config.backup.s3.endpoint || "");
   if (backupBucket && backupBucket.trim() === s3cfg.bucket.trim() && (s3cfg.endpoint || "").trim() === backupEndpoint.trim()) {
-    throw new Error("Storage bucket and backup bucket are the same. Migration aborted to prevent data loss.");
+    throw new ValidationError("Storage bucket and backup bucket are the same. Migration aborted to prevent data loss.");
   }
 
   var s3 = new S3Client(s3cfg);
@@ -41,7 +42,7 @@ async function migrateStorage(direction, progressCb) {
   try {
     await s3.testConnection();
   } catch (err) {
-    throw new Error("S3 connection failed: " + err.message);
+    throw new AppError("S3 connection failed: " + err.message, 502, "S3_UNAVAILABLE");
   }
 
   var allFiles = filesRepo.findAll({}).filter(function (f) {

@@ -3,6 +3,7 @@
  * Wraps config.getSettings / config.updateSettings with audit-friendly return values.
  */
 var config = require("../../../lib/config");
+var { ValidationError } = require("../../shared/errors");
 
 /**
  * Get all settings with sensitive values masked.
@@ -21,7 +22,7 @@ function getAllSettings() {
  */
 function updateSettings(changes) {
   if (!changes || typeof changes !== "object") {
-    throw new Error("Settings object required.");
+    throw new ValidationError("Settings object required.");
   }
 
   // Strip any keys that are empty strings to avoid clearing values unintentionally.

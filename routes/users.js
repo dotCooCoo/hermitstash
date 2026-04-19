@@ -173,7 +173,7 @@ module.exports = function (app) {
 
       var inviteUrl = host(req) + "/auth/invite/" + token;
       var sent = await sendInviteEmail({ to: email, inviteUrl: inviteUrl, inviterName: req.user.displayName || req.user.email, role: invite.role });
-      audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { targetEmail: email, details: "Invite resent, emailSent: " + sent, req: req });
+      audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { targetEmail: email, details: "Invite resent (new token issued; any prior link invalidated), emailSent: " + sent, req: req });
       res.json({ success: true, emailSent: sent });
     } catch (e) {
       logger.error("Invite resend error", { error: e.message || String(e) });
