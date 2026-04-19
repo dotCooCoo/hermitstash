@@ -1,40 +1,28 @@
 /**
  * Chunk Garbage Collection Job — cleans up abandoned chunk upload directories.
- * Chunks are stored in temporary folders under uploads/chunks/.
- * If an upload is abandoned (no finalize within 24h), the chunks accumulate.
+ * Chunks are stored in the configured scratch directory (local disk, independent
+ * of STORAGE_BACKEND). If an upload is abandoned (no finalize within 24h), the
+ * chunks accumulate there.
  */
-var fs = require("fs");
-var path = require("path");
 var storage = require("../../lib/storage");
 var logger = require("../shared/logger");
+var { TIME } = require("../../lib/constants");
 
-var CHUNK_MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
+var CHUNK_MAX_AGE = TIME.ONE_DAY;
 
 /**
- * Remove stale chunk directories.
+ * Remove stale bundle-level chunk directories.
  */
 function cleanupStaleChunks() {
-  var chunksDir = path.join(storage.uploadDir, "chunks");
-  if (!fs.existsSync(chunksDir)) return 0;
-
+  var stale = storage.listStaleBundleChunkDirs(CHUNK_MAX_AGE);
   var removed = 0;
-  var now = Date.now();
-  try {
-    var dirs = fs.readdirSync(chunksDir);
-    for (var i = 0; i < dirs.length; i++) {
-      var dirPath = path.join(chunksDir, dirs[i]);
-      try {
-        var stat = fs.statSync(dirPath);
-        if (stat.isDirectory() && (now - stat.mtimeMs) > CHUNK_MAX_AGE) {
-          fs.rmSync(dirPath, { recursive: true, force: true });
-          removed++;
-        }
-      } catch (e) {
-        logger.warn("[chunk-gc] Failed to inspect or remove chunk directory", { dirPath: dirPath, error: e.message });
-      }
+  for (var i = 0; i < stale.length; i++) {
+    try {
+      storage.removeDirByPath(stale[i]);
+      removed++;
+    } catch (e) {
+      logger.warn("[chunk-gc] Failed to remove chunk directory", { dir: stale[i], error: e.message });
     }
-  } catch (e) {
-    logger.warn("[chunk-gc] Failed to list chunks directory", { chunksDir: chunksDir, error: e.message });
   }
   return removed;
 }

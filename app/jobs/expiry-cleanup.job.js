@@ -38,8 +38,6 @@ async function cleanupExpiredFiles() {
  * and cleans up orphaned chunk directories.
  */
 async function cleanupStaleBundles() {
-  var path = require("path");
-  var fs = require("fs");
   var cutoff = new Date(Date.now() - TIME.ONE_DAY).toISOString();
   var stale = bundles.find({ status: "uploading" }).filter(function (b) { return b.createdAt && b.createdAt < cutoff; });
   var removed = 0;
@@ -61,11 +59,10 @@ async function cleanupStaleBundles() {
     }
     // Clean up chunk directory if it exists
     if (bundle.shareId) {
-      var chunkDir = path.join(storage.uploadDir, "chunks", bundle.shareId);
       try {
-        if (fs.existsSync(chunkDir)) fs.rmSync(chunkDir, { recursive: true, force: true });
+        storage.removeBundleChunks(bundle.shareId);
       } catch (e) {
-        logger.warn("[expiry-cleanup] Failed to remove chunk directory for stale bundle (chunk-gc will retry)", { chunkDir: chunkDir, bundleId: bundle._id, error: e.message });
+        logger.warn("[expiry-cleanup] Failed to remove chunk directory for stale bundle (chunk-gc will retry)", { bundleShareId: bundle.shareId, bundleId: bundle._id, error: e.message });
       }
     }
     bundles.remove({ _id: bundle._id });

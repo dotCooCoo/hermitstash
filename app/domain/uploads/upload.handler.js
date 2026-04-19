@@ -4,7 +4,6 @@
  * Routes remain thin wrappers that resolve auth/config then delegate here.
  */
 var path = require("path");
-var fs = require("fs");
 var config = require("../../../lib/config");
 var { sha3Hash, generateShareId } = require("../../../lib/crypto");
 var filesRepo = require("../../data/repositories/files.repo");
@@ -234,16 +233,16 @@ async function handleChunkUpload(ctx) {
     return { error: "Chunk too large." };
   }
 
-  // Store chunk
-  var chunkDir = path.join(storage.uploadDir, "chunks", bundle.shareId, fileId);
-  var resolvedDir = path.resolve(chunkDir);
-  var resolvedBase = path.resolve(storage.uploadDir);
-  if (!resolvedDir.startsWith(resolvedBase)) return { error: "Invalid path." };
-  if (!fs.existsSync(chunkDir)) fs.mkdirSync(chunkDir, { recursive: true });
-  fs.writeFileSync(path.join(chunkDir, String(chunkIndex)), chunk.data);
+  // Store chunk in the scratch directory (always local, never S3).
+  try {
+    storage.saveChunk(bundle.shareId, fileId, chunkIndex, chunk.data);
+  } catch (e) {
+    logger.error("Chunk save failed", { error: e.message || String(e), bundle: bundle._id });
+    return { error: "Invalid path." };
+  }
 
   // Check if all chunks received
-  var received = fs.readdirSync(chunkDir).length;
+  var received = storage.countChunks(bundle.shareId, fileId);
   if (received < totalChunks) {
     return { success: true, chunksReceived: received, totalChunks: totalChunks };
   }
@@ -251,7 +250,8 @@ async function handleChunkUpload(ctx) {
   // Estimate size + check quotas before reassembly
   var estimatedSize = 0;
   for (var ce = 0; ce < totalChunks; ce++) {
-    try { estimatedSize += fs.statSync(path.join(chunkDir, String(ce))).size; } catch (_e) {}
+    var cs = storage.statChunk(bundle.shareId, fileId, ce);
+    if (cs) estimatedSize += cs.size;
   }
   var quota = checkAllQuotas(estimatedSize, bundle, ctx.req);
   if (!quota.allowed) {
@@ -262,15 +262,12 @@ async function handleChunkUpload(ctx) {
   // Reassemble
   var reassembled = [];
   for (var ci = 0; ci < totalChunks; ci++) {
-    reassembled.push(fs.readFileSync(path.join(chunkDir, String(ci))));
+    reassembled.push(storage.readChunk(bundle.shareId, fileId, ci));
   }
   var fullData = Buffer.concat(reassembled);
 
-  // Clean up chunks
-  for (var cj = 0; cj < totalChunks; cj++) {
-    try { fs.unlinkSync(path.join(chunkDir, String(cj))); } catch (_e) {}
-  }
-  try { fs.rmdirSync(chunkDir); } catch (_e) {}
+  // Clean up — remove the per-file assembly directory entirely.
+  storage.removeChunkAssembly(bundle.shareId, fileId);
 
   // Validate reassembled file
   var filename = fields.filename || "file";
