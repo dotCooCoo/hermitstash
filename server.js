@@ -105,6 +105,76 @@ app.use(require("./middleware/ip-check"));
 app.use(require("./middleware/bot-guard"));
 app.use(require("./middleware/cors"));
 app.use(serveStatic(path.join(__dirname, "public")));
+
+// Serve admin custom logo + per-stash logos from the writable data directory.
+// These are user-uploaded assets that can't live under public/img/ because the
+// app source tree is read-only in Docker. Must come AFTER serveStatic so the
+// static middleware's 404 fallthrough reaches us; must come BEFORE auth-
+// protected routes so public pages (landing, stash pages) can load logos.
+function serveLogoFrom(dir) {
+  return function (req, res) {
+    var name = String(req.params.name || "").replace(/[^A-Za-z0-9._-]/g, "");
+    if (!name) { res.writeHead(404); return res.end(); }
+    var full = path.join(dir, name);
+    var resolved = path.resolve(full);
+    if (!resolved.startsWith(path.resolve(dir))) { res.writeHead(404); return res.end(); }
+    if (!fs.existsSync(resolved)) { res.writeHead(404); return res.end(); }
+    var ext = path.extname(resolved).toLowerCase();
+    var mime = ext === ".svg" ? "image/svg+xml"
+             : ext === ".png" ? "image/png"
+             : ext === ".jpg" || ext === ".jpeg" ? "image/jpeg"
+             : ext === ".gif" ? "image/gif"
+             : ext === ".webp" ? "image/webp"
+             : "application/octet-stream";
+    res.writeHead(200, { "Content-Type": mime, "Cache-Control": "public, max-age=3600" });
+    fs.createReadStream(resolved).pipe(res);
+  };
+}
+app.get("/img/custom/:name", serveLogoFrom(C.PATHS.CUSTOM_LOGO_DIR));
+app.get("/img/stash/:name", serveLogoFrom(C.PATHS.STASH_LOGO_DIR));
+
+// Migrate any pre-existing logos from the old public/img/{custom,stash}/
+// locations to their new homes under DATA_DIR. Runs every boot. Logs every
+// decision so operators can see exactly why a migration did or didn't copy.
+(function migrateLogos() {
+  var migrations = [
+    { label: "custom", from: path.join(__dirname, "public", "img", "custom"), to: C.PATHS.CUSTOM_LOGO_DIR },
+    { label: "stash",  from: path.join(__dirname, "public", "img", "stash"),  to: C.PATHS.STASH_LOGO_DIR },
+  ];
+  migrations.forEach(function (m) {
+    if (!fs.existsSync(m.from)) {
+      logger.info("[logo-migrate] " + m.label + ": source dir missing, nothing to migrate", { from: m.from });
+      return;
+    }
+    var entries;
+    try { entries = fs.readdirSync(m.from); }
+    catch (e) { logger.error("[logo-migrate] " + m.label + ": readdir failed", { from: m.from, error: e.message }); return; }
+    if (entries.length === 0) {
+      logger.info("[logo-migrate] " + m.label + ": source dir empty", { from: m.from });
+      return;
+    }
+    try { if (!fs.existsSync(m.to)) fs.mkdirSync(m.to, { recursive: true }); }
+    catch (e) { logger.error("[logo-migrate] " + m.label + ": mkdir target failed", { to: m.to, error: e.message }); return; }
+
+    var copied = 0, skipped = 0, failed = 0;
+    entries.forEach(function (f) {
+      var src = path.join(m.from, f);
+      var dst = path.join(m.to, f);
+      try {
+        if (!fs.statSync(src).isFile()) { skipped++; return; }
+        if (fs.existsSync(dst)) { skipped++; return; }
+        fs.copyFileSync(src, dst);
+        logger.info("[logo-migrate] " + m.label + ": copied " + f, { src: src, dst: dst });
+        copied++;
+      } catch (e) {
+        logger.error("[logo-migrate] " + m.label + ": copy failed for " + f, { src: src, dst: dst, error: e.message });
+        failed++;
+      }
+    });
+    logger.info("[logo-migrate] " + m.label + ": done", { copied: copied, skipped: skipped, failed: failed, total: entries.length });
+  });
+})();
+
 // Health check — before auth so it's fast and unauthenticated
 app.get("/health", function (req, res) {
   var origin = req.headers.origin || "";

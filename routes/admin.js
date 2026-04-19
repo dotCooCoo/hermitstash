@@ -539,8 +539,11 @@ module.exports = function (app) {
     }
   });
 
-  // Logo upload — with magic byte validation and SVG sanitization
-  var LOGO_DIR = path.join(__dirname, "..", "public", "img", "custom");
+  // Logo upload — with magic byte validation and SVG sanitization.
+  // Stored in DATA_DIR (writable volume), served via explicit GET /img/custom/:name
+  // route in server.js. The app source tree is a read-only image layer in Docker,
+  // so writes into public/img/ fail with EACCES on fresh deployments.
+  var LOGO_DIR = PATHS.CUSTOM_LOGO_DIR;
   var { detectContentType } = require("../app/http/validators/upload.validator");
 
   app.post("/admin/logo/upload", async (req, res) => {

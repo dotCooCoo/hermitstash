@@ -20,7 +20,7 @@ var uploadValidator = require("../app/http/validators/upload.validator");
 var requireAdmin = require("../middleware/require-admin");
 var { resolveUploadConfig, handleFileUpload, handleChunkUpload, handleFinalize } = require("../app/domain/uploads/upload.handler");
 var { sha3Hash, generateToken } = require("../lib/crypto");
-var { TIME } = require("../lib/constants");
+var { TIME, PATHS } = require("../lib/constants");
 var { validateEmail } = require("../app/shared/validate");
 var fs = require("fs");
 var { sanitizeSvg } = require("../lib/sanitize-svg");
@@ -647,8 +647,9 @@ module.exports = function (app) {
     }
   });
 
-  // Upload stash logo
-  var STASH_LOGO_DIR = path.join(__dirname, "..", "public", "img", "stash");
+  // Upload stash logo — stored in DATA_DIR (writable volume), served via
+  // the explicit GET /img/stash/:name route in server.js.
+  var STASH_LOGO_DIR = PATHS.STASH_LOGO_DIR;
 
   app.post("/admin/stash/:id/logo", async function (req, res) {
     if (!requireAdmin(req, res)) return;

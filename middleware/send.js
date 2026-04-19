@@ -7,7 +7,7 @@ var { getOrigin } = require("../app/security/origin-policy");
  * Renders a view with brand + assets + site state auto-injected.
  */
 function send(res, view, data, status) {
-  var merged = Object.assign({}, data, { apiKey: res._apiKey || "", csrfToken: (res.req && res.req.csrfToken) || "" }, {
+  var merged = Object.assign({}, data, { apiKey: res._apiKey || "", csrfToken: (res.req && res.req.csrfToken) || "", nonce: res._cspNonce || "" }, {
     brand: {
       siteName: config.siteName,
       logo: config.customLogo || C.paths.logo,
