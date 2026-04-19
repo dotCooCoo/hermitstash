@@ -115,12 +115,11 @@ module.exports = function (app) {
 
       var body = await parseJson(req);
       var password = String(body.password || "");
-      var confirm = String(body.confirmPassword || "");
 
-      if (password !== confirm) {
-        return res.status(400).json({ error: "Passwords do not match." });
-      }
-
+      // Password confirmation is a client-side UX check (catch typos before
+      // submission). Validating it server-side adds no security — an attacker
+      // bypassing the form would simply submit matching values. The reset-
+      // password view enforces the match before POSTing.
       var pwCheck = validatePassword(password);
       if (!pwCheck.valid) {
         return res.status(400).json({ error: pwCheck.reason });

@@ -784,13 +784,15 @@
             </select>
           </div>
           <div class="settings-field">
-            <label class="settings-label">Time of Day <span class="settings-hint">when daily/weekly backups run — anchors the schedule across restarts</span></label>
+            <label class="settings-label">Time of Day <span class="settings-hint">anchored across restarts</span></label>
             <input type="time" class="text-input" id="s-backupTimeOfDay" data-key="backupTimeOfDay" style="max-width:150px">
           </div>
           <div class="settings-field">
-            <label class="settings-label">Timezone <span class="settings-hint" id="backupTzHint">Type to search — e.g. UTC, America/New_York, Europe/London. Defaults to UTC.</span></label>
-            <input type="text" class="text-input" id="s-backupTimezone" data-key="backupTimezone" list="backupTzList" placeholder="UTC" autocomplete="off" style="max-width:300px">
-            <datalist id="backupTzList"></datalist>
+            <label class="settings-label">Timezone <span class="settings-hint" id="backupTzHint">defaults to UTC</span></label>
+            <div id="tzCombobox" style="position:relative;max-width:300px">
+              <input type="text" class="text-input" id="s-backupTimezone" data-key="backupTimezone" placeholder="UTC" autocomplete="off" spellcheck="false">
+              <div id="tzDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:240px;overflow-y:auto;background:var(--card,#1a1a1a);border:1px solid var(--border,rgba(255,255,255,.12));border-radius:8px;z-index:1000;margin-top:4px;box-shadow:0 4px 16px rgba(0,0,0,.3)"></div>
+            </div>
           </div>
           <div class="settings-field">
             <label class="settings-label">Keep Last <span class="settings-hint">number of backups to retain</span></label>
@@ -1454,6 +1456,71 @@ function toggleBackupScopeWarning(){
   }
 }
 var _backupHistoryLoaded=false;
+// ---- Timezone combobox (searchable dropdown for the backup TZ field) ----
+var _tzAllZones=[];
+var _tzListenerBound=false;
+function initTzCombobox(zones){
+  _tzAllZones=Array.isArray(zones)?zones.slice():[];
+  renderTzDropdown(_tzAllZones);
+  if(_tzListenerBound)return;
+  _tzListenerBound=true;
+  var input=document.getElementById('s-backupTimezone');
+  var dd=document.getElementById('tzDropdown');
+  if(!input||!dd)return;
+  // Open dropdown when input gains focus or is clicked
+  input.addEventListener('focus',function(){renderTzDropdown(filterTz(input.value));dd.style.display='block'});
+  input.addEventListener('click',function(){renderTzDropdown(filterTz(input.value));dd.style.display='block'});
+  input.addEventListener('input',function(){renderTzDropdown(filterTz(input.value));dd.style.display='block'});
+  // Close on Escape
+  input.addEventListener('keydown',function(e){if(e.key==='Escape')dd.style.display='none'});
+  // Close when clicking outside the combobox
+  document.addEventListener('click',function(e){
+    var combo=document.getElementById('tzCombobox');
+    if(combo&&!combo.contains(e.target))dd.style.display='none';
+  });
+}
+function filterTz(query){
+  var q=String(query||'').toLowerCase().trim();
+  if(!q)return _tzAllZones;
+  return _tzAllZones.filter(function(z){return z.toLowerCase().indexOf(q)!==-1});
+}
+function renderTzDropdown(zones){
+  var dd=document.getElementById('tzDropdown');
+  if(!dd)return;
+  dd.replaceChildren();
+  if(!zones.length){
+    var empty=document.createElement('div');
+    empty.style.cssText='padding:8px 12px;color:var(--muted);font-size:.82rem;font-style:italic';
+    empty.textContent='No timezones match';
+    dd.appendChild(empty);
+    return;
+  }
+  // Cap rendering at 100 items — keeps the dropdown responsive even when the
+  // user hasn't typed a filter yet (full IANA list is ~418 entries).
+  var capped=zones.slice(0,100);
+  capped.forEach(function(z){
+    var item=document.createElement('div');
+    item.style.cssText='padding:7px 12px;cursor:pointer;font-size:.85rem';
+    item.textContent=z;
+    item.addEventListener('mouseover',function(){item.style.background='rgba(255,255,255,.08)'});
+    item.addEventListener('mouseout',function(){item.style.background=''});
+    item.addEventListener('mousedown',function(e){
+      // mousedown fires before input blur, so the value sets reliably
+      e.preventDefault();
+      var input=document.getElementById('s-backupTimezone');
+      if(input)input.value=z;
+      document.getElementById('tzDropdown').style.display='none';
+    });
+    dd.appendChild(item);
+  });
+  if(zones.length>capped.length){
+    var more=document.createElement('div');
+    more.style.cssText='padding:6px 12px;color:var(--muted);font-size:.78rem;font-style:italic;border-top:1px solid var(--border,rgba(255,255,255,.08))';
+    more.textContent=(zones.length-capped.length)+' more — keep typing to narrow';
+    dd.appendChild(more);
+  }
+}
+
 function loadBackupHistory(){
   if(_backupHistoryLoaded)return;_backupHistoryLoaded=true;
   var el=document.getElementById('backupHistoryTable');
@@ -2009,21 +2076,14 @@ function loadSettings(){
     toggleBackupScopeWarning();
     toggleEmailBackend();
     loadExtFromValue(s.allowedExtensions);
-    // Populate the timezone datalist for the backup-tz combobox. The browser
-    // handles search/filter natively as the user types — no JS framework.
-    var tzList=document.getElementById('backupTzList');
-    if(tzList&&s.availableTimezones&&s.availableTimezones.length){
-      tzList.replaceChildren();
-      s.availableTimezones.forEach(function(tz){
-        var opt=document.createElement('option');
-        opt.value=tz;
-        tzList.appendChild(opt);
-      });
-    }
-    // Show resolved server timezone in the backup-tz hint so operators know
-    // what timezone the server itself reports (in case they want to match it).
+    // Initialize the searchable timezone combobox with the full IANA list
+    // returned from the server. Custom widget instead of <datalist> because
+    // datalist UX varies wildly across browsers (and on some it eats the
+    // whole screen) — this gives a consistent click-to-open + type-to-filter
+    // dropdown capped to a reasonable height.
+    initTzCombobox(s.availableTimezones||[]);
     var tzHint=document.getElementById('backupTzHint');
-    if(tzHint&&s.serverTimezone)tzHint.textContent='Type to search — e.g. UTC, America/New_York, Europe/London. Defaults to UTC. Server timezone: '+s.serverTimezone+'.';
+    if(tzHint&&s.serverTimezone)tzHint.textContent='defaults to UTC · server: '+s.serverTimezone;
     showLogoPreview(s.customLogo||'');
     // Auto-fill Google callback URL from rpOrigin (always keep in sync with domain)
     var cbEl=document.getElementById('s-googleCallbackURL');
