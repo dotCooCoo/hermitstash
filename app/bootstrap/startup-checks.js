@@ -59,6 +59,18 @@ function run() {
     warnings.push("ARGON2_FAST=1 is set — password hashing uses dangerously weak parameters (1MB, 1 iteration). DO NOT use in production. Passwords are trivially crackable with these settings.");
   }
 
+  // ---- Warning: invalid env var values ----
+  // Validates every env var in settingsMap against its settings-schema type
+  // (number, boolean, url, hostname, enum, timezone, etc.). Catches typos
+  // like PORT=abc, MAX_FILE_SIZE=xyz, BACKUP_TIMEZONE=America/Foobar — values
+  // that previously fell back to defaults silently are now surfaced loudly.
+  try {
+    var envWarnings = config.validateEnvVars();
+    for (var ew = 0; ew < envWarnings.length; ew++) {
+      warnings.push(envWarnings[ew]);
+    }
+  } catch (_e) { /* settings-schema not loaded yet — non-fatal */ }
+
   // ---- Warning: data directory permissions ----
   if (fs.existsSync(dataDir)) {
     try {

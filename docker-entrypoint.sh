@@ -18,10 +18,20 @@ if [ "$(id -u)" = "0" ]; then
 fi
 
 # ── Timezone ───────────────────────────────────────────────────────
-# Set container timezone from TZ env var (e.g. TZ=America/New_York)
-if [ -n "$TZ" ] && [ -f "/usr/share/zoneinfo/$TZ" ]; then
-  ln -sf "/usr/share/zoneinfo/$TZ" /etc/localtime
-  echo "$TZ" > /etc/timezone
+# Set container timezone from TZ env var (e.g. TZ=America/New_York).
+# Warn loudly on invalid values — silent fallback to UTC was a footgun
+# for operators who typo'd a zone name and didn't notice their backups
+# were running at the wrong time.
+if [ -n "$TZ" ]; then
+  if [ -f "/usr/share/zoneinfo/$TZ" ]; then
+    ln -sf "/usr/share/zoneinfo/$TZ" /etc/localtime
+    echo "$TZ" > /etc/timezone
+  else
+    echo ""
+    echo "  WARNING: TZ='$TZ' is not a valid IANA timezone name."
+    echo "  Container will use UTC. Valid examples: America/New_York, Europe/London, Asia/Tokyo."
+    echo ""
+  fi
 fi
 
 # ── UMASK ──────────────────────────────────────────────────────────
