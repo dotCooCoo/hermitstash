@@ -5,7 +5,7 @@ var config = require("../lib/config");
 
 module.exports = function securityHeaders(req, res, next) {
   var origWriteHead = res.writeHead.bind(res);
-  res.writeHead = function (code) {
+  res.writeHead = function (_code) {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("X-Frame-Options", "DENY");
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");

@@ -181,12 +181,20 @@ async function scanDanglingRecords() {
 
 /**
  * Find "empty" complete bundles — bundle records with zero live (non-tombstoned)
- * file records. These accumulate when sync bundles have all their files deleted
- * (tombstones survive but the bundle becomes a hollow shell), or when drop bundles
- * expire and their files are cleaned up but the bundle row sticks around.
- * They show up in the dashboard count but contribute nothing to actual storage.
+ * file records AND no orphan files on disk under their bundle directory. These
+ * accumulate when sync bundles have all their files deleted (tombstones survive
+ * but the bundle becomes a hollow shell), or when drop bundles expire and their
+ * files are cleaned up but the bundle row sticks around. They show up in the
+ * dashboard count but contribute nothing to actual storage.
+ *
+ * The disk check is a safety net: if there are orphan files under
+ * uploads/bundles/<shareId>/ that aren't in the DB, we skip the bundle this
+ * pass. Local-orphan cleanup will collect those files; a subsequent scan will
+ * then find the bundle truly empty and queue it for deletion. This prevents
+ * deleting a bundle row before its on-disk artifacts are accounted for.
  */
 function scanEmptyBundles() {
+  var uploadDir = storage.uploadDir;
   var allCompleteBundles = bundles.find({ status: "complete" });
   var allFiles = files.find({}).filter(function (f) { return !f.deletedAt; });
   var bundleFileCounts = {};
@@ -197,9 +205,31 @@ function scanEmptyBundles() {
   var empty = [];
   for (var j = 0; j < allCompleteBundles.length; j++) {
     var b = allCompleteBundles[j];
-    if (!bundleFileCounts[b._id]) {
-      empty.push({ bundleId: b._id, shareId: b.shareId, bundleType: b.bundleType, createdAt: b.createdAt });
+    if (bundleFileCounts[b._id]) continue; // has live files — not empty
+
+    // Defensive disk check: skip if any file exists under the bundle's local
+    // directory. Orphan cleanup runs before empty-bundle cleanup in the same
+    // request, so a follow-up scan will catch this bundle once orphans are gone.
+    if (b.shareId) {
+      var bundleDir = path.join(uploadDir, "bundles", b.shareId);
+      if (fs.existsSync(bundleDir)) {
+        var hasFiles = false;
+        try {
+          (function walk(dir) {
+            if (hasFiles) return;
+            var entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (var k = 0; k < entries.length && !hasFiles; k++) {
+              var full = path.join(dir, entries[k].name);
+              if (entries[k].isDirectory()) walk(full);
+              else if (entries[k].isFile()) hasFiles = true;
+            }
+          })(bundleDir);
+        } catch (_e) {}
+        if (hasFiles) continue; // skip — orphan files present, defer to next pass
+      }
     }
+
+    empty.push({ bundleId: b._id, shareId: b.shareId, bundleType: b.bundleType, createdAt: b.createdAt });
   }
   return empty;
 }

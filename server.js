@@ -149,7 +149,7 @@ app.post("/sync/enroll", require("./lib/rate-limit").middleware("sync-enroll", 5
     }));
 
     audit.log(audit.ACTIONS.ENROLLMENT_REDEEMED, { details: "Sync enrollment code redeemed", req: req });
-  } catch (e) {
+  } catch (_e) {
     res.writeHead(500, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "Enrollment failed." }));
   }
@@ -226,7 +226,7 @@ app.post("/sync/renew-cert", require("./lib/rate-limit").middleware("sync-renew"
     }));
 
     audit.log(audit.ACTIONS.CERT_RENEWED, { details: "Sync client auto-renewed certificate: " + apiKey.prefix, req: req });
-  } catch (e) {
+  } catch (_e) {
     res.writeHead(500, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "Certificate renewal failed." }));
   }
@@ -354,7 +354,6 @@ scheduler.register("expired_tokens_cleanup", C.TIME.ONE_DAY, function () { // da
 });
 scheduler.register("expired_bundles_cleanup", C.TIME.ONE_HOUR, function () { // hourly
   try {
-    var now = new Date().toISOString();
     db.rawExec("DELETE FROM bundles WHERE status = 'uploading' AND createdAt < ?",
       new Date(Date.now() - C.TIME.ONE_DAY).toISOString()); // stale uploads > 24h
   } catch (_e) {}
@@ -409,7 +408,7 @@ scheduler.register("shm_usage_monitor", C.TIME.FIVE_MIN, function () { // every 
 if (config.backup && config.backup.enabled) {
   scheduler.register("backup", config.backup.schedule || C.TIME.ONE_DAY, function () {
     return backupJob.run();
-  }, { skipInitial: true });
+  }, { skipInitial: true, baseline: config.backup.timeOfDay, timezone: config.backup.timezone });
 }
 scheduler.start();
 

@@ -156,23 +156,41 @@ function migrationPreview(direction) {
   });
 
   var toMigrate = 0, alreadyDone = 0, missing = 0, totalBytes = 0;
+  // Track distinct bundles touched by the migration. Operators think in terms
+  // of bundles, not individual files — surfacing the bundle count gives a
+  // clearer picture of scope than file count alone (e.g. "5 files in 2 bundles"
+  // is more meaningful than "5 files").
+  var bundlesAffected = new Set();
+  var bundlesAlready = new Set();
   for (var i = 0; i < allFiles.length; i++) {
     var sp = allFiles[i].storagePath;
     var onS3 = isS3Path(sp);
+    var bid = allFiles[i].bundleId;
     if (toS3 && !onS3) {
       toMigrate++;
       totalBytes += allFiles[i].size || 0;
+      if (bid) bundlesAffected.add(bid);
       var localPath = path.isAbsolute(sp) ? sp : path.join(uploadDir, sp);
       if (!fs.existsSync(localPath)) missing++;
     } else if (!toS3 && onS3) {
       toMigrate++;
       totalBytes += allFiles[i].size || 0;
+      if (bid) bundlesAffected.add(bid);
     } else {
       alreadyDone++;
+      if (bid) bundlesAlready.add(bid);
     }
   }
 
-  return { toMigrate: toMigrate, alreadyDone: alreadyDone, missing: missing, total: allFiles.length, totalBytes: totalBytes };
+  return {
+    toMigrate: toMigrate,
+    alreadyDone: alreadyDone,
+    missing: missing,
+    total: allFiles.length,
+    totalBytes: totalBytes,
+    bundlesAffected: bundlesAffected.size,
+    bundlesAlready: bundlesAlready.size,
+  };
 }
 
 module.exports = { migrateStorage: migrateStorage, migrationPreview: migrationPreview };

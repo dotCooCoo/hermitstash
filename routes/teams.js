@@ -4,7 +4,6 @@ var filesRepo = require("../app/data/repositories/files.repo");
 var teamsRepo = require("../app/data/repositories/teams.repo");
 var { parseJson } = require("../lib/multipart");
 var requireAuth = require("../middleware/require-auth");
-var requireAdmin = require("../middleware/require-admin");
 var audit = require("../lib/audit");
 var teamsService = require("../app/domain/teams/teams.service");
 

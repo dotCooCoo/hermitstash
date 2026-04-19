@@ -179,4 +179,20 @@ function getDeliveries(webhookId, limit) {
     .slice(0, limit || 20);
 }
 
+// Self-register the queue handler at module load so any caller that requires
+// this service automatically gets working dispatch. Previously this lived in
+// app/jobs/webhook-dispatch.job.js, but that file was never `require()`d
+// anywhere, so the registration never ran and every webhook event was
+// silently dropped by the queue ("No handler for job type"). Keeping the
+// registration here makes the service self-contained.
+var queue = require("../../jobs/queue");
+queue.register("webhook-dispatch-single", function (data) {
+  return dispatchSingle(data.hookId, data.event, data.payload).then(function (r) {
+    // Throw on delivery failure so the queue applies its exponential-backoff
+    // retry (3 attempts, then dead-letter). dispatchSingle has already
+    // recorded the failure to webhook_deliveries either way.
+    if (r && r.error) throw new Error(r.error);
+  });
+});
+
 module.exports = { list, create, toggle, remove, fire, dispatchSingle, getDeliveries };

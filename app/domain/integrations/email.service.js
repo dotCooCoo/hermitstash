@@ -7,7 +7,6 @@ var email = require("../../../lib/email");
 module.exports = {
   sendVerificationEmail: email.sendVerificationEmail,
   sendInviteEmail: email.sendInviteEmail,
-  sendUploadConfirmation: email.sendUploadConfirmation || function () {},
   sendUploaderConfirmation: email.sendUploaderConfirmation,
   sendAdminNotification: email.sendAdminNotification,
   sendPasswordResetEmail: email.sendPasswordResetEmail,

@@ -157,7 +157,20 @@ module.exports = function (app) {
     var opts = { limit: limit, offset: (page - 1) * limit, orderBy: "createdAt", orderDir: "DESC" };
     var result = bundlesRepo.findPaginated({ status: "complete" }, opts);
     var pages = Math.ceil(result.total / limit) || 1;
-    res.json({ bundles: result.data, total: result.total, page: page, pages: pages, limit: limit });
+    // Enrich each bundle with live file count + size computed from the files
+    // table directly. Avoids displaying stale bundle.receivedFiles /
+    // bundle.totalSize when counter maintenance has fallen out of sync
+    // (e.g. legacy admin-deletes that didn't decrement totalSize).
+    var enriched = result.data.map(function (b) {
+      var bundleFiles = filesRepo.findAll({ bundleId: b._id })
+        .filter(function (f) { return !f.deletedAt; });
+      var liveSize = bundleFiles.reduce(function (s, f) { return s + (f.size || 0); }, 0);
+      return Object.assign({}, b, {
+        liveFileCount: bundleFiles.length,
+        liveFileSize: liveSize,
+      });
+    });
+    res.json({ bundles: enriched, total: result.total, page: page, pages: pages, limit: limit });
   });
 
   // Delete file (admin)
@@ -170,7 +183,14 @@ module.exports = function (app) {
     if (doc.bundleId) {
       var bundle = bundlesRepo.findById(doc.bundleId);
       if (bundle) {
-        bundlesRepo.update(doc.bundleId, { $set: { receivedFiles: Math.max(0, (bundle.receivedFiles || 0) - 1) } });
+        // Decrement BOTH counters. Previously only receivedFiles was updated,
+        // leaving bundle.totalSize stale — admin-deleted files would vanish
+        // from the count but their bytes stuck around in the cached total,
+        // producing "0 files / 899 KB" zombies in the bundle list.
+        bundlesRepo.update(doc.bundleId, { $set: {
+          receivedFiles: Math.max(0, (bundle.receivedFiles || 0) - 1),
+          totalSize: Math.max(0, (bundle.totalSize || 0) - (doc.size || 0)),
+        } });
         // Decrement stash totalBytes if bundle belongs to a stash page
         if (bundle.stashId) {
           try { stashRepo.decrementBytes(bundle.stashId, doc.size); } catch (_e) {}
@@ -450,7 +470,6 @@ module.exports = function (app) {
     var realIp = req.headers["x-real-ip"];
     var proto = req.headers["x-forwarded-proto"];
     var via = req.headers["via"];
-    var server = req.headers["server"];
 
     if (fwd || realIp || proto || via) {
       hints.detected = true;

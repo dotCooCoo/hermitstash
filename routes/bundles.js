@@ -1,26 +1,21 @@
 var C = require("../lib/constants");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
 var filesRepo = require("../app/data/repositories/files.repo");
-var accessCodesRepo = require("../app/data/repositories/bundleAccessCodes.repo");
 var accessLogRepo = require("../app/data/repositories/bundleAccessLog.repo");
 var logger = require("../app/shared/logger");
 const config = require("../lib/config");
-const { sha3Hash, generateShareId, timingSafeEqual } = require("../lib/crypto");
 const { verifyPassword } = require("../lib/crypto");
 const { parseJson } = require("../lib/multipart");
 const storage = require("../lib/storage");
 const { ZipWriter } = require("../lib/zip");
 const { safeFilename } = require("../lib/sanitize");
 const { safeContentDisposition } = require("../app/shared/sanitize-filename");
-const { send, host } = require("../middleware/send");
+const { send } = require("../middleware/send");
 var audit = require("../lib/audit");
 var rateLimit = require("../lib/rate-limit");
-var emailService = require("../lib/email");
 const requireAuth = require("../middleware/require-auth");
-const { HASH_PREFIX } = require("../lib/constants");
 
 var { isBundleLocked, prefersJson } = require("../middleware/require-access");
-var crypto = require("crypto");
 var db = require("../lib/db");
 var { validateEmail } = require("../app/shared/validate");
 var { sanitizeRename } = require("../app/shared/sanitize-filename");

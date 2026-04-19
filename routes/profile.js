@@ -9,7 +9,7 @@ var { parseJson } = require("../lib/multipart");
 var { hashPassword, verifyPassword } = require("../lib/crypto");
 var { validateEmail, validatePassword } = require("../app/shared/validate");
 var requireAuth = require("../middleware/require-auth");
-var { send, host } = require("../middleware/send");
+var { send } = require("../middleware/send");
 var sessionService = require("../app/domain/auth/session.service");
 
 module.exports = function (app) {

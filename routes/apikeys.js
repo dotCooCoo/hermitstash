@@ -1,5 +1,4 @@
 var apiKeysRepo = require("../app/data/repositories/apiKeys.repo");
-var usersRepo = require("../app/data/repositories/users.repo");
 var { sha3Hash, generateToken } = require("../lib/crypto");
 var { parseJson } = require("../lib/multipart");
 var requireAdmin = require("../middleware/require-admin");

@@ -784,6 +784,15 @@
             </select>
           </div>
           <div class="settings-field">
+            <label class="settings-label">Time of Day <span class="settings-hint">when daily/weekly backups run — anchors the schedule across restarts</span></label>
+            <input type="time" class="text-input" id="s-backupTimeOfDay" data-key="backupTimeOfDay" style="max-width:150px">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Timezone <span class="settings-hint" id="backupTzHint">Type to search — e.g. UTC, America/New_York, Europe/London. Defaults to UTC.</span></label>
+            <input type="text" class="text-input" id="s-backupTimezone" data-key="backupTimezone" list="backupTzList" placeholder="UTC" autocomplete="off" style="max-width:300px">
+            <datalist id="backupTzList"></datalist>
+          </div>
+          <div class="settings-field">
             <label class="settings-label">Keep Last <span class="settings-hint">number of backups to retain</span></label>
             <input type="number" class="text-input" id="s-backupRetention" data-key="backupRetention" min="1" max="100" style="max-width:100px">
           </div>
@@ -1395,8 +1404,8 @@ function loadBundles(page){
     for(var i=0;i<d.bundles.length;i++){
       var b=d.bundles[i];
       html+='<div class="admin-file-row" id="ab-'+esc(b.shareId)+'">';
-      html+='<div class="admin-file-info"><span class="file-ext-sm">ZIP</span><div><div class="admin-file-name">Bundle '+esc(b.shareId)+'</div><div class="admin-file-by">'+esc(b.uploaderName||'')+' &middot; '+(b.receivedFiles||0)+' files</div></div></div>';
-      html+='<div class="admin-file-meta"><span class="admin-file-size">'+formatSize(b.totalSize)+'</span><span class="admin-file-dls">'+(b.downloads||0)+' DLs</span></div>';
+      html+='<div class="admin-file-info"><span class="file-ext-sm">ZIP</span><div><div class="admin-file-name">Bundle '+esc(b.shareId)+'</div><div class="admin-file-by">'+esc(b.uploaderName||'')+' &middot; '+(b.liveFileCount!==undefined?b.liveFileCount:(b.receivedFiles||0))+' files</div></div></div>';
+      html+='<div class="admin-file-meta"><span class="admin-file-size">'+formatSize(b.liveFileSize!==undefined?b.liveFileSize:b.totalSize)+'</span><span class="admin-file-dls">'+(b.downloads||0)+' DLs</span></div>';
       html+='<div class="admin-file-actions"><button class="butn butn-bord-thin butn-sm radius-30" onclick="cp(\'{{host}}/b/'+esc(b.shareId)+'\',this)"><span>Copy</span></button><button class="butn butn-sm radius-30" style="border-color:rgba(255,68,68,.3);color:var(--danger)" onclick="delB(\''+esc(b.shareId)+'\')"><span>Delete</span></button></div>';
       html+='</div>';
     }
@@ -1420,7 +1429,7 @@ var tabFields={
   storage:['storageBackend','uploadDir','s3Bucket','s3Region','s3AccessKey','s3SecretKey','s3Endpoint','s3DirectDownloads','s3PresignExpiry'],
   theme:['themeAccentColor','themeBgColor','themeFont'],
   email:['emailBackend','resendApiKey','resendQuotaDaily','resendQuotaMonthly','smtpHost','smtpPort','smtpUser','smtpPass','smtpFrom','emailTemplateMode','emailTemplateSubject','emailTemplateHeader','emailTemplateFooter'],
-  backup:['backupEnabled','backupScope','backupSchedule','backupRetention','backupS3Bucket','backupS3Region','backupS3AccessKey','backupS3SecretKey','backupS3Endpoint','backupPassphrase']
+  backup:['backupEnabled','backupScope','backupSchedule','backupTimeOfDay','backupTimezone','backupRetention','backupS3Bucket','backupS3Region','backupS3AccessKey','backupS3SecretKey','backupS3Endpoint','backupPassphrase']
 };
 
 function showTab(name){
@@ -1802,7 +1811,8 @@ function previewMigration(){
       if(d.error){el.textContent='Error: '+d.error;el.style.color='var(--red)';return}
       el.style.color='';
       if(d.toMigrate===0){el.textContent='No files to migrate. All '+d.total+' files already on target backend.';return}
-      var msg=d.toMigrate+' of '+d.total+' files to migrate ('+fmtB(d.totalBytes)+'). '+d.alreadyDone+' already on target.';
+      var bundleStr=d.bundlesAffected?(' across '+d.bundlesAffected+' bundle'+(d.bundlesAffected===1?'':'s')):'';
+      var msg=d.toMigrate+' of '+d.total+' files to migrate'+bundleStr+' ('+fmtB(d.totalBytes)+'). '+d.alreadyDone+' already on target.';
       if(d.missing>0){
         msg+=' '+d.missing+' have missing source files — run Orphan Cleanup → "dangling DB records" first to remove them, otherwise they will fail.';
         el.style.color='var(--red,#f24e6a)';
@@ -1999,6 +2009,21 @@ function loadSettings(){
     toggleBackupScopeWarning();
     toggleEmailBackend();
     loadExtFromValue(s.allowedExtensions);
+    // Populate the timezone datalist for the backup-tz combobox. The browser
+    // handles search/filter natively as the user types — no JS framework.
+    var tzList=document.getElementById('backupTzList');
+    if(tzList&&s.availableTimezones&&s.availableTimezones.length){
+      tzList.replaceChildren();
+      s.availableTimezones.forEach(function(tz){
+        var opt=document.createElement('option');
+        opt.value=tz;
+        tzList.appendChild(opt);
+      });
+    }
+    // Show resolved server timezone in the backup-tz hint so operators know
+    // what timezone the server itself reports (in case they want to match it).
+    var tzHint=document.getElementById('backupTzHint');
+    if(tzHint&&s.serverTimezone)tzHint.textContent='Type to search — e.g. UTC, America/New_York, Europe/London. Defaults to UTC. Server timezone: '+s.serverTimezone+'.';
     showLogoPreview(s.customLogo||'');
     // Auto-fill Google callback URL from rpOrigin (always keep in sync with domain)
     var cbEl=document.getElementById('s-googleCallbackURL');
