@@ -61,7 +61,10 @@ function run() {
 
         initCA();
         var newCert = generateClientCert(key.prefix);
-        if (!newCert) continue;
+        if (!newCert) {
+          logger.warn("[cert-expiry] generateClientCert returned no cert — skipping renewal", { prefix: key.prefix, stashId: key.boundStashId });
+          continue;
+        }
 
         var enrollment = generateEnrollmentCode();
 

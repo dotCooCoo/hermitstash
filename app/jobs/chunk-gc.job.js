@@ -6,6 +6,7 @@
 var fs = require("fs");
 var path = require("path");
 var storage = require("../../lib/storage");
+var logger = require("../shared/logger");
 
 var CHUNK_MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -28,9 +29,13 @@ function cleanupStaleChunks() {
           fs.rmSync(dirPath, { recursive: true, force: true });
           removed++;
         }
-      } catch (_e) {}
+      } catch (e) {
+        logger.warn("[chunk-gc] Failed to inspect or remove chunk directory", { dirPath: dirPath, error: e.message });
+      }
     }
-  } catch (_e) {}
+  } catch (e) {
+    logger.warn("[chunk-gc] Failed to list chunks directory", { chunksDir: chunksDir, error: e.message });
+  }
   return removed;
 }
 

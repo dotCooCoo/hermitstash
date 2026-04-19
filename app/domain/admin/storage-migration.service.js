@@ -62,17 +62,15 @@ async function migrateStorage(direction, progressCb) {
         if (isAlreadyS3) { result.skipped++; continue; }
 
         // Read raw ciphertext from local disk
+        // Failures here throw — the per-file catch below logs and counts them
+        // uniformly with the rest of the failure modes.
         var localPath = path.isAbsolute(sp) ? sp : path.join(uploadDir, sp);
         var resolved = path.resolve(localPath);
         if (!resolved.startsWith(path.resolve(uploadDir) + path.sep)) {
-          result.failed++;
-          result.errors.push({ file: file.shareId, error: "Path escapes upload directory: " + sp });
-          continue;
+          throw new Error("Path escapes upload directory: " + sp);
         }
         if (!fs.existsSync(localPath)) {
-          result.failed++;
-          result.errors.push({ file: file.shareId, error: "Local file not found: " + sp });
-          continue;
+          throw new Error("Local file not found: " + sp);
         }
         var data = fs.readFileSync(localPath);
 
@@ -142,23 +140,40 @@ async function migrateStorage(direction, progressCb) {
 
 /**
  * Dry-run: count files that would be migrated without moving anything.
+ *
+ * For local->S3, also counts records whose local source file is missing
+ * (would fail with "Local file not found"). These are reported as `missing`
+ * so the operator can run Orphan Cleanup → "dangling records" before migrating
+ * instead of watching every file fail.
+ *
+ * S3 source existence is not checked — listing/HEAD per object would be
+ * expensive and the dangling-record scan applies the same convention.
  */
 function migrationPreview(direction) {
   var toS3 = direction === "local-to-s3";
+  var uploadDir = storage.uploadDir;
   var allFiles = filesRepo.findAll({}).filter(function (f) {
     return f.status === "complete" && f.storagePath;
   });
 
-  var toMigrate = 0, alreadyDone = 0, totalBytes = 0;
+  var toMigrate = 0, alreadyDone = 0, missing = 0, totalBytes = 0;
   for (var i = 0; i < allFiles.length; i++) {
     var sp = allFiles[i].storagePath;
     var onS3 = isS3Path(sp);
-    if (toS3 && !onS3) { toMigrate++; totalBytes += allFiles[i].size || 0; }
-    else if (!toS3 && onS3) { toMigrate++; totalBytes += allFiles[i].size || 0; }
-    else { alreadyDone++; }
+    if (toS3 && !onS3) {
+      toMigrate++;
+      totalBytes += allFiles[i].size || 0;
+      var localPath = path.isAbsolute(sp) ? sp : path.join(uploadDir, sp);
+      if (!fs.existsSync(localPath)) missing++;
+    } else if (!toS3 && onS3) {
+      toMigrate++;
+      totalBytes += allFiles[i].size || 0;
+    } else {
+      alreadyDone++;
+    }
   }
 
-  return { toMigrate: toMigrate, alreadyDone: alreadyDone, total: allFiles.length, totalBytes: totalBytes };
+  return { toMigrate: toMigrate, alreadyDone: alreadyDone, missing: missing, total: allFiles.length, totalBytes: totalBytes };
 }
 
 module.exports = { migrateStorage: migrateStorage, migrationPreview: migrationPreview };

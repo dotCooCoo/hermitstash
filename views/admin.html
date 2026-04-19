@@ -604,6 +604,11 @@
               <div id="migrationBar" style="height:100%;background:var(--main-color);border-radius:8px;transition:width .3s;width:0%"></div>
             </div>
             <div id="migrationStatus" style="font-size:.82rem;color:var(--muted)"></div>
+            <div id="migrationErrors" style="font-size:.78rem;margin-top:10px;display:none">
+              <div id="migrationErrorsHeader" style="color:var(--red,#f24e6a);margin-bottom:6px;font-weight:600"></div>
+              <ul id="migrationErrorsList" style="margin:0;padding-left:20px;color:var(--muted);max-height:200px;overflow-y:auto"></ul>
+              <div id="migrationErrorsHint" style="margin-top:8px;color:var(--muted);font-style:italic"></div>
+            </div>
           </div>
         </div>
 
@@ -1793,7 +1798,12 @@ function previewMigration(){
       if(d.error){el.textContent='Error: '+d.error;el.style.color='var(--red)';return}
       el.style.color='';
       if(d.toMigrate===0){el.textContent='No files to migrate. All '+d.total+' files already on target backend.';return}
-      el.textContent=d.toMigrate+' of '+d.total+' files to migrate ('+fmtB(d.totalBytes)+'). '+d.alreadyDone+' already on target.';
+      var msg=d.toMigrate+' of '+d.total+' files to migrate ('+fmtB(d.totalBytes)+'). '+d.alreadyDone+' already on target.';
+      if(d.missing>0){
+        msg+=' '+d.missing+' have missing source files — run Orphan Cleanup → "dangling DB records" first to remove them, otherwise they will fail.';
+        el.style.color='var(--red,#f24e6a)';
+      }
+      el.textContent=msg;
     })
     .catch(function(e){el.textContent='Error: '+e.message;el.style.color='var(--red)'});
 }
@@ -1808,6 +1818,8 @@ function startMigration(){
   var bar=document.getElementById('migrationBar');
   var st=document.getElementById('migrationStatus');
   prog.style.display='block';bar.style.width='0%';st.textContent='Starting...';
+  document.getElementById('migrationErrors').style.display='none';
+  document.getElementById('migrationErrorsList').replaceChildren();
   fetch('/admin/storage/migration/start',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({direction:dir})})
     .then(function(r){return r.json()})
     .then(function(d){
@@ -1832,13 +1844,37 @@ function pollMig(){
         bar.style.width='100%';
         st.textContent='Complete: '+d.migrated+' migrated, '+d.skipped+' skipped, '+d.failed+' failed';
         btn.disabled=false;btn.style.opacity='1';
+        renderMigErrors(d.errors||[],d.failed||0);
       }else if(d.status==='error'){
         clearInterval(_migPoll);_migPoll=null;
         bar.style.width='0%';
         st.textContent='Error: '+(d.error||'unknown');st.style.color='var(--red)';
         btn.disabled=false;btn.style.opacity='1';
+        renderMigErrors(d.errors||[],d.failed||0);
       }
     });
+}
+function renderMigErrors(errors,failedCount){
+  var box=document.getElementById('migrationErrors');
+  var hdr=document.getElementById('migrationErrorsHeader');
+  var list=document.getElementById('migrationErrorsList');
+  var hint=document.getElementById('migrationErrorsHint');
+  if(!errors||errors.length===0){box.style.display='none';return}
+  var capped=errors.length<failedCount;
+  hdr.textContent=failedCount+' file'+(failedCount===1?'':'s')+' failed'+(capped?' (showing first '+errors.length+')':'');
+  list.replaceChildren();
+  var allMissing=true;
+  for(var i=0;i<errors.length;i++){
+    var li=document.createElement('li');
+    li.style.marginBottom='4px';
+    var err=errors[i].error||'unknown';
+    li.textContent=(errors[i].file||'?')+': '+err;
+    list.appendChild(li);
+    if(err.indexOf('Local file not found')!==0)allMissing=false;
+  }
+  hint.textContent=allMissing?'All failures are missing local files — run Orphan Cleanup → "dangling DB records" to remove these stale entries, then retry the migration.':'';
+  hint.style.display=allMissing?'block':'none';
+  box.style.display='block';
 }
 var _orphanData=null;
 function scanOrphans(){

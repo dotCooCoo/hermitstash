@@ -21,11 +21,14 @@ LABEL org.opencontainers.image.title="HermitStash" \
 # Security: non-root user + gosu for entrypoint
 # PUID/PGID env vars remap UID/GID at runtime (see docker-entrypoint.sh)
 # curl is required by the compose-level healthcheck used by Coolify's Docker Compose build pack
-# hadolint ignore=DL3008
-# DL3008: Debian apt revisions for gosu/curl rotate independently of the base image tag;
-# pinning them creates churn without meaningfully improving reproducibility (the digest does that).
+# Versions pinned per hadolint DL3008. When Debian publishes a point release these will need
+# bumping — find current values with:
+#   curl -s "https://api.ftp-master.debian.org/madison?package=gosu&suite=stable&binary-type=deb&architecture=amd64&text=on"
+#   curl -s "https://api.ftp-master.debian.org/madison?package=curl&suite=stable&binary-type=deb&architecture=amd64&text=on"
 RUN groupadd -r hermit && useradd -r -g hermit -s /bin/sh hermit && \
-    apt-get update && apt-get install -y --no-install-recommends gosu curl && \
+    apt-get update && apt-get install -y --no-install-recommends \
+        gosu=1.17-3+b4 \
+        curl=8.14.1-2+deb13u2 && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -294,7 +294,7 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Shared access control middleware (`require-access.js`) -- centralized lock checks for bundles and stash
 - JSON-aware auth -- API/sync clients receive 401 JSON, browsers get login redirect
 - WebSocket sync channel -- `GET /sync/ws` with auth during upgrade handshake, scoped to single bundle
-- Real-time file change events over WebSocket (file_added, file_replaced, file_removed, heartbeat)
+- Real-time file change events over WebSocket (file_added, file_replaced, file_removed, heartbeat — sent immediately on connect, then every 30s)
 - Catch-up on reconnect via seq cursor (`?since=N` on WebSocket upgrade)
 - PQC TLS enforcement -- ClientHello inspection rejects connections without PQC hybrid key exchange groups
 - PQC gate architecture -- TCP proxy inspects `supported_groups` extension before TLS handshake completes

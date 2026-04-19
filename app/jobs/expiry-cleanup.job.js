@@ -23,7 +23,11 @@ async function cleanupExpiredFiles() {
     } catch (e) { logger.error("Expiry cleanup error", { error: e.message }); }
   }
   if (removed > 0) {
-    try { audit.log(audit.ACTIONS.FILE_EXPIRY_CLEANUP, { performedBy: "system", details: "Removed " + removed + " expired files" }); } catch (_e) {}
+    try {
+      audit.log(audit.ACTIONS.FILE_EXPIRY_CLEANUP, { performedBy: "system", details: "Removed " + removed + " expired files" });
+    } catch (e) {
+      logger.warn("[expiry-cleanup] Audit log write failed", { error: e.message, removed: removed });
+    }
   }
   return removed;
 }
@@ -45,7 +49,13 @@ async function cleanupStaleBundles() {
     var bundleFiles = files.find({}).filter(function (f) { return f.bundleId === bundle._id; });
     for (var j = 0; j < bundleFiles.length; j++) {
       if (bundleFiles[j].storagePath) {
-        try { await storage.deleteFile(bundleFiles[j].storagePath); } catch (_e) {}
+        // Best-effort delete — failures leave orphans for orphan-cleanup to find,
+        // but we log so the operator knows the immediate cleanup didn't complete.
+        try {
+          await storage.deleteFile(bundleFiles[j].storagePath);
+        } catch (e) {
+          logger.warn("[expiry-cleanup] Failed to delete file for stale bundle (orphan-cleanup will retry)", { storagePath: bundleFiles[j].storagePath, bundleId: bundle._id, error: e.message });
+        }
       }
       files.remove({ _id: bundleFiles[j]._id });
     }
@@ -54,7 +64,9 @@ async function cleanupStaleBundles() {
       var chunkDir = path.join(storage.uploadDir, "chunks", bundle.shareId);
       try {
         if (fs.existsSync(chunkDir)) fs.rmSync(chunkDir, { recursive: true, force: true });
-      } catch (_e) {}
+      } catch (e) {
+        logger.warn("[expiry-cleanup] Failed to remove chunk directory for stale bundle (chunk-gc will retry)", { chunkDir: chunkDir, bundleId: bundle._id, error: e.message });
+      }
     }
     bundles.remove({ _id: bundle._id });
     removed++;
@@ -86,7 +98,10 @@ function cleanupExpiredEnrollmentCodes() {
     var expired = db.enrollmentCodes.find({}).filter(function (c) { return c.expiresAt < cutoff || c.status === "redeemed"; });
     for (var i = 0; i < expired.length; i++) db.enrollmentCodes.remove({ _id: expired[i]._id });
     return expired.length;
-  } catch (_e) { return 0; }
+  } catch (e) {
+    logger.warn("[expiry-cleanup] Enrollment code cleanup failed", { error: e.message });
+    return 0;
+  }
 }
 
 /**
@@ -96,7 +111,10 @@ function cleanupExpiredAccessCodes() {
   try {
     var accessCodesRepo = require("../data/repositories/bundleAccessCodes.repo");
     return accessCodesRepo.cleanupExpired();
-  } catch (_e) { return 0; }
+  } catch (e) {
+    logger.warn("[expiry-cleanup] Access code cleanup failed", { error: e.message });
+    return 0;
+  }
 }
 
 module.exports = { cleanupExpiredFiles, cleanupStaleBundles, cleanupTombstones, cleanupExpiredAccessCodes, cleanupExpiredEnrollmentCodes };
