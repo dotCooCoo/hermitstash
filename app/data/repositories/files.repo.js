@@ -16,7 +16,11 @@ function update(id, ops) { return files.update({ _id: id }, ops); }
 function remove(id) { return files.remove({ _id: id }); }
 
 function incrementDownloads(id) {
-  var db = require("../../lib/db");
+  // Path is ../../../lib/db (3 levels up): repositories/ → data/ → app/ → root.
+  // Earlier this was ../../lib/db which resolved to app/lib/db (doesn't exist),
+  // throwing on every individual-file download (bundle downloads dodged it by
+  // using the route-level db import directly).
+  var db = require("../../../lib/db");
   db.rawExec("UPDATE files SET downloads = downloads + 1 WHERE _id = ?", id);
 }
 
