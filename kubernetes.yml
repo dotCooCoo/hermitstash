@@ -64,7 +64,7 @@ spec:
     spec:
       containers:
         - name: hermitstash
-          image: ghcr.io/dotcoocoo/hermitstash:latest
+          image: ghcr.io/dotcoocoo/hermitstash:1
           ports:
             - containerPort: 3000
               name: http

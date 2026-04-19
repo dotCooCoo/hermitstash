@@ -20,7 +20,7 @@
     hermitstash_deploy: docker
     hermitstash_user: hermit
     hermitstash_dir: /opt/hermitstash
-    hermitstash_image: ghcr.io/dotcoocoo/hermitstash:latest
+    hermitstash_image: ghcr.io/dotcoocoo/hermitstash:1
     node_version: "24"
 
   tasks:

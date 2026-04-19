@@ -84,7 +84,7 @@ resource "digitalocean_droplet" "hermitstash" {
       --shm-size=256m \
       -e TRUST_PROXY=true \
       -e RP_ORIGIN=${var.domain != "" ? "https://${var.domain}" : ""} \
-      ghcr.io/dotcoocoo/hermitstash:latest
+      ghcr.io/dotcoocoo/hermitstash:1
   CLOUD_INIT
 
   tags = ["hermitstash", "self-hosted"]

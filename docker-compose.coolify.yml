@@ -11,7 +11,7 @@
 
 services:
   hermitstash:
-    image: ghcr.io/dotcoocoo/hermitstash:latest
+    image: ghcr.io/dotcoocoo/hermitstash:1   # major-version pin; use :1.7.4 for exact, :latest for newest
     init: true
     expose:
       - "3000"
@@ -44,7 +44,7 @@ services:
       # Container user — default 99:100 (Unraid). Set to 1000:1000 for standard Linux.
       PUID: "99"
       PGID: "100"
-      UMASK: "000"
+      UMASK: "022"               # 755 dirs, 644 files. Use 000 for Unraid nobody:users sharing.
       TZ: "Etc/UTC"              # e.g. America/New_York
 
       NODE_ENV: production

@@ -83,7 +83,7 @@ pct exec "$CTID" -- bash -c '
     -v /opt/hermitstash/data:/app/data \
     -v /opt/hermitstash/uploads:/app/uploads \
     --shm-size=256m \
-    ghcr.io/dotcoocoo/hermitstash:latest
+    ghcr.io/dotcoocoo/hermitstash:1
 
   # Wait for health
   echo "Waiting for HermitStash to start..."

@@ -1,45 +1,66 @@
 <?xml version="1.0"?>
 <Container version="2">
-  <Name>HermitStash</Name>
-  <Repository>ghcr.io/dotcoocoo/hermitstash:latest</Repository>
-  <Registry>https://github.com/dotCooCoo/hermitstash/pkgs/container/hermitstash</Registry>
-  <Branch>
-    <Tag>latest</Tag>
-    <TagDescription>Latest stable release</TagDescription>
-  </Branch>
-  <Network>bridge</Network>
-  <Shell>bash</Shell>
-  <Privileged>false</Privileged>
-  <Support>https://github.com/dotCooCoo/hermitstash/issues</Support>
-  <Project>https://github.com/dotCooCoo/hermitstash</Project>
-  <Overview>
-    Post-quantum encrypted, self-hosted file upload server.
+    <Name>hermitstash</Name>
+    <Beta>false</Beta>
+    <Category>Cloud: Productivity: Tools:</Category>
+    <Repository>ghcr.io/dotcoocoo/hermitstash:1</Repository>
+    <Registry>https://github.com/dotCooCoo/hermitstash/pkgs/container/hermitstash</Registry>
+    <Network>bridge</Network>
+    <Privileged>false</Privileged>
+    <Shell>sh</Shell>
+    <GitHub>https://github.com/dotCooCoo/hermitstash</GitHub>
+    <ReadMe>https://github.com/dotCooCoo/hermitstash#readme</ReadMe>
+    <Project>https://hermitstash.com</Project>
+    <Support>https://github.com/dotCooCoo/hermitstash/issues</Support>
+    <TemplateURL>https://raw.githubusercontent.com/dotCooCoo/hermitstash/main/unraid-template.xml</TemplateURL>
+    <Overview>Post-quantum encrypted, self-hosted file upload server. All data is sealed with ML-KEM-1024 + XChaCha20-Poly1305. Zero npm dependencies — everything vendored. Features: encrypted file storage, bundles, access codes, teams, WebAuthn passkeys, admin panel, S3 support.</Overview>
+    <WebUI>http://[IP]:[PORT:3000]</WebUI>
+    <Icon>https://raw.githubusercontent.com/dotCooCoo/hermitstash/main/public/img/icons/icon-512.png</Icon>
+    <ExtraParams>--shm-size=256m --init --security-opt=no-new-privileges:true --cap-drop=ALL --cap-add=CHOWN --cap-add=SETUID --cap-add=SETGID --cap-add=DAC_OVERRIDE</ExtraParams>
+    <Requires>Requires at least 256MB shared memory (--shm-size=256m) for the in-memory encrypted database.</Requires>
 
-    ML-KEM-1024 + P-384 hybrid encryption, XChaCha20-Poly1305, zero plaintext on disk.
-    All database fields vault-sealed, TLS gated on post-quantum key exchange.
-    Zero npm dependencies. Admin panel for all configuration.
+    <!-- Ports -->
+    <Config Name="WebUI Port" Target="3000" Default="3000" Mode="tcp" Description="Web interface port." Type="Port" Display="always" Required="true" Mask="false"/>
 
-    After starting, visit http://[IP]:3000 to complete the setup wizard.
-  </Overview>
-  <Category>Cloud: Network:Web Productivity: Tools:</Category>
-  <WebUI>http://[IP]:[PORT:3000]/</WebUI>
-  <TemplateURL>https://raw.githubusercontent.com/dotCooCoo/hermitstash/main/unraid-template.xml</TemplateURL>
-  <Icon>https://assets.hermitstash.com/img/icons/icon-512.png</Icon>
-  <ExtraParams>--shm-size=256m</ExtraParams>
-  <PostArgs/>
-  <DonateText>Support on Ko-fi</DonateText>
-  <DonateLink>https://ko-fi.com/dotcoocoo</DonateLink>
-  <DonateImg/>
-  <Requires>
-    Requires at least 256MB shared memory (--shm-size=256m) for the in-memory encrypted database.
-  </Requires>
-  <Config Name="Web UI Port" Target="3000" Default="3000" Mode="tcp" Description="Web interface port" Type="Port" Display="always" Required="true" Mask="false">3000</Config>
-  <Config Name="Data" Target="/app/data" Default="/mnt/user/appdata/hermitstash/data" Mode="rw" Description="Encrypted database, vault keys, TLS certs. BACK THIS UP." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/hermitstash/data</Config>
-  <Config Name="Uploads" Target="/app/uploads" Default="/mnt/user/appdata/hermitstash/uploads" Mode="rw" Description="Uploaded files (local storage only, not needed with S3)" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/hermitstash/uploads</Config>
-  <Config Name="Site Origin" Target="RP_ORIGIN" Default="" Mode="" Description="Full URL of your site (e.g. https://files.example.com). Required for passkeys and HSTS." Type="Variable" Display="always" Required="false" Mask="false"/>
-  <Config Name="Trust Proxy" Target="TRUST_PROXY" Default="true" Mode="" Description="Set to 'true' if behind a reverse proxy (nginx, Cloudflare, SWAG)" Type="Variable" Display="always" Required="false" Mask="false">true</Config>
-  <Config Name="Storage Backend" Target="STORAGE_BACKEND" Default="local" Mode="" Description="'local' for disk or 's3' for S3-compatible storage" Type="Variable" Display="always" Required="false" Mask="false">local</Config>
-  <Config Name="Max File Size" Target="MAX_FILE_SIZE" Default="104857600" Mode="" Description="Maximum upload size in bytes (default 100MB)" Type="Variable" Display="advanced" Required="false" Mask="false">104857600</Config>
-  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User ID (not used — runs as built-in hermit user)" Type="Variable" Display="advanced" Required="false" Mask="false"/>
-  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group ID (not used — runs as built-in hermit group)" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+    <!-- Volumes -->
+    <Config Name="Appdata" Target="/app/data" Default="/mnt/user/appdata/hermitstash" Mode="rw" Description="Encrypted database, vault keys, and TLS certs. Back up vault.key — loss means all sealed data is unrecoverable." Type="Path" Display="always" Required="true" Mask="false"/>
+    <Config Name="Uploads" Target="/app/uploads" Default="/mnt/user/appdata/hermitstash/uploads" Mode="rw" Description="Uploaded files (local storage only, not needed with S3)." Type="Path" Display="always" Required="true" Mask="false"/>
+
+    <!-- Container user -->
+    <Config Name="PUID" Target="PUID" Default="99" Description="User ID for file permissions." Type="Variable" Display="advanced" Required="true" Mask="false"/>
+    <Config Name="PGID" Target="PGID" Default="100" Description="Group ID for file permissions." Type="Variable" Display="advanced" Required="true" Mask="false"/>
+    <Config Name="UMASK" Target="UMASK" Default="022" Description="File permission mask (022 = 755/644, 000 = 777/666). Use 000 to match Unraid's nobody:users sharing model." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+    <Config Name="Timezone" Target="TZ" Default="" Description="Container timezone, e.g. America/New_York." Type="Variable" Display="always" Required="false" Mask="false"/>
+
+    <!-- Core settings -->
+    <Config Name="Trust Proxy" Target="TRUST_PROXY" Default="true" Description="Enable if behind a reverse proxy (Nginx Proxy Manager, Traefik, etc.)." Type="Variable" Display="always" Required="false" Mask="false"/>
+    <Config Name="Passkey Origin" Target="RP_ORIGIN" Default="" Description="Full URL for passkeys and HSTS, e.g. https://files.example.com. Required if using a domain." Type="Variable" Display="always" Required="false" Mask="false"/>
+
+    <!-- Auth -->
+    <Config Name="Local Auth" Target="LOCAL_AUTH" Default="true" Description="Enable username/password login." Type="Variable" Display="always" Required="false" Mask="false"/>
+    <Config Name="Registration Open" Target="REGISTRATION_OPEN" Default="true" Description="Allow new user registration." Type="Variable" Display="always" Required="false" Mask="false"/>
+    <Config Name="Public Upload" Target="PUBLIC_UPLOAD" Default="true" Description="Allow anonymous file uploads." Type="Variable" Display="always" Required="false" Mask="false"/>
+    <Config Name="Passkeys" Target="PASSKEY_ENABLED" Default="true" Description="Enable WebAuthn passkey authentication." Type="Variable" Display="always" Required="false" Mask="false"/>
+
+    <!-- Google OAuth -->
+    <Config Name="Google Client ID" Target="GOOGLE_CLIENT_ID" Default="" Description="Google OAuth client ID (leave empty to disable)." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+    <Config Name="Google Client Secret" Target="GOOGLE_CLIENT_SECRET" Default="" Description="Google OAuth client secret." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+
+    <!-- SMTP -->
+    <Config Name="SMTP Host" Target="SMTP_HOST" Default="" Description="SMTP server hostname, e.g. smtp.gmail.com (leave empty to disable email)." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+    <Config Name="SMTP Port" Target="SMTP_PORT" Default="587" Description="SMTP server port." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+    <Config Name="SMTP User" Target="SMTP_USER" Default="" Description="SMTP username." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+    <Config Name="SMTP Password" Target="SMTP_PASS" Default="" Description="SMTP password." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+    <Config Name="SMTP From" Target="SMTP_FROM" Default="" Description="From address for outgoing email, e.g. noreply@example.com." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
+    <!-- Storage -->
+    <Config Name="Storage Backend" Target="STORAGE_BACKEND" Default="local" Description="File storage backend (local or s3)." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+    <Config Name="Max File Size" Target="MAX_FILE_SIZE" Default="104857600" Description="Maximum upload size in bytes (default 100MB)." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
+    <!-- S3 (advanced) -->
+    <Config Name="S3 Bucket" Target="S3_BUCKET" Default="" Description="S3 bucket name (only when Storage Backend is s3)." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+    <Config Name="S3 Region" Target="S3_REGION" Default="" Description="S3 region, e.g. us-east-1." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+    <Config Name="S3 Endpoint" Target="S3_ENDPOINT" Default="" Description="Custom S3 endpoint for R2/MinIO/Backblaze." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+    <Config Name="S3 Access Key" Target="S3_ACCESS_KEY" Default="" Description="S3 access key ID." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+    <Config Name="S3 Secret Key" Target="S3_SECRET_KEY" Default="" Description="S3 secret access key." Type="Variable" Display="advanced" Required="false" Mask="true"/>
 </Container>

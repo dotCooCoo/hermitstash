@@ -43,7 +43,7 @@ SHM_SIZE="${SHM_SIZE:-256m}"
 TRUST_PROXY="${TRUST_PROXY:-false}"
 RP_ORIGIN="${RP_ORIGIN:-}"
 GENERATE_SYSTEMD="${GENERATE_SYSTEMD:-true}"
-IMAGE="ghcr.io/dotcoocoo/hermitstash:latest"
+IMAGE="ghcr.io/dotcoocoo/hermitstash:1"
 CONTAINER_NAME="hermitstash"
 
 echo "=== HermitStash Podman Installer ==="

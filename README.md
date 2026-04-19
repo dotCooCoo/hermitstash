@@ -381,21 +381,23 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 ### Quick start (pre-built image)
 
 ```bash
-docker pull ghcr.io/dotcoocoo/hermitstash:latest
+docker pull ghcr.io/dotcoocoo/hermitstash:1
 docker run -d --name hermitstash \
   -p 3000:3000 \
   -v ./data:/app/data \
   -v ./uploads:/app/uploads \
   --shm-size=256m \
-  ghcr.io/dotcoocoo/hermitstash:latest
+  ghcr.io/dotcoocoo/hermitstash:1
 ```
+
+Tags published per release: `:1` (major), `:1.7` (minor), `:1.7.4` (exact), `:latest` (always newest), `:sha-<commit>`. Pick the level of stability you want — `:1` gets bug fixes and features without breaking changes, `:latest` follows the default branch.
 
 Or with docker compose (using pre-built image):
 
 ```yaml
 services:
   hermitstash:
-    image: ghcr.io/dotcoocoo/hermitstash:latest
+    image: ghcr.io/dotcoocoo/hermitstash:1
     init: true
     ports: ["3000:3000"]
     volumes:
@@ -465,7 +467,7 @@ services:
       PUID: "99"                # default 99 (Unraid). Set 1000 for standard Linux.
       PGID: "100"               # default 100 (Unraid). Set 1000 for standard Linux.
       TZ: "Etc/UTC"             # e.g. America/New_York
-      UMASK: "000"              # 777 dirs, 666 files (Unraid default)
+      UMASK: "022"              # 755 dirs, 644 files. Use 000 for Unraid nobody:users sharing.
       NODE_ENV: production
       HERMITSTASH_TMPDIR: /dev/shm
       PORT: 3000
@@ -516,7 +518,7 @@ Configure S3-compatible storage (AWS, MinIO, Cloudflare R2, DigitalOcean Spaces,
 
 ### Other platforms
 
-**Coolify / Portainer:** Paste `ghcr.io/dotcoocoo/hermitstash:latest` as the image. Set port 3000, mount `/app/data` and `/app/uploads` as persistent volumes, set shared memory to 256MB, add `TRUST_PROXY=true` and `RP_ORIGIN=https://your-domain.com`.
+**Coolify / Portainer:** Paste `ghcr.io/dotcoocoo/hermitstash:1` as the image. Set port 3000, mount `/app/data` and `/app/uploads` as persistent volumes, set shared memory to 256MB, add `TRUST_PROXY=true` and `RP_ORIGIN=https://your-domain.com`.
 
 **Unraid:** Docker → Add Container → paste this template URL:
 ```
@@ -586,7 +588,7 @@ Drop-in Docker alternative — works rootless or rootful. Automatically generate
 cp data/vault.key data/vault.key.bak
 
 # Pull new image and restart
-docker pull ghcr.io/dotcoocoo/hermitstash:latest
+docker pull ghcr.io/dotcoocoo/hermitstash:1
 docker compose up -d
 ```
 

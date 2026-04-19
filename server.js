@@ -647,6 +647,11 @@ server.on("upgrade", function (req, socket, head) {
   };
   syncEmitter.on("sync:" + bundleId, syncListener);
 
+  // Send immediate heartbeat on connect so clients know the connection is live
+  try {
+    ws.send(JSON.stringify({ type: "heartbeat", seq: bundle.seq || 0, timestamp: new Date().toISOString() }));
+  } catch (_e) {}
+
   // Heartbeat interval
   var heartbeatTimer = setInterval(function () {
     try {

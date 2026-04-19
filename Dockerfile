@@ -20,7 +20,10 @@ LABEL org.opencontainers.image.title="HermitStash" \
 
 # Security: non-root user + gosu for entrypoint
 # PUID/PGID env vars remap UID/GID at runtime (see docker-entrypoint.sh)
+# curl is required by the compose-level healthcheck used by Coolify's Docker Compose build pack
 # hadolint ignore=DL3008
+# DL3008: Debian apt revisions for gosu/curl rotate independently of the base image tag;
+# pinning them creates churn without meaningfully improving reproducibility (the digest does that).
 RUN groupadd -r hermit && useradd -r -g hermit -s /bin/sh hermit && \
     apt-get update && apt-get install -y --no-install-recommends gosu curl && \
     rm -rf /var/lib/apt/lists/*
@@ -51,8 +54,9 @@ EXPOSE 3000
 STOPSIGNAL SIGTERM
 
 # Health check for orchestrators (Docker, Kubernetes, Coolify)
+# Uses curl to match the compose-level healthcheck — single tool, single behaviour.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/health', r => { let d=''; r.on('data', c => d+=c); r.on('end', () => { try { process.exit(JSON.parse(d).status === 'ok' ? 0 : 1) } catch(e) { process.exit(1) } }) }).on('error', () => process.exit(1))"
+  CMD curl -sf http://localhost:3000/health || exit 1
 
 # Start as root, entrypoint fixes volume permissions then drops to hermit
 ENTRYPOINT ["./docker-entrypoint.sh"]
