@@ -4,14 +4,17 @@
 # Differences from docker-compose.image.yml:
 #   - No ports: — Coolify's Traefik proxy handles routing via your assigned domain
 #   - Extended volume syntax with is_directory: true — Coolify creates host dirs
-#   - Healthcheck in compose — required for Docker Compose build pack
+#
+# Coolify performs its own service healthchecks; the explicit healthcheck below
+# is mirrored from the Dockerfile so the same readiness signal is visible in
+# both `docker inspect` and the Coolify UI.
 #
 # After deploying, assign a domain in the Coolify UI and configure RP_ORIGIN
 # to match (e.g. https://files.example.com).
 
 services:
   hermitstash:
-    image: ghcr.io/dotcoocoo/hermitstash:1   # major-version pin; use :1.7.4 for exact, :latest for newest
+    image: ghcr.io/dotcoocoo/hermitstash:1   # see README "Image tag scheme" for :1 / :1.7 / :1.7.x / :latest options
     init: true
     expose:
       - "3000"

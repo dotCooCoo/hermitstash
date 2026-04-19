@@ -10,7 +10,7 @@
 
 services:
   hermitstash:
-    image: ghcr.io/dotcoocoo/hermitstash:1   # major-version pin; use :1.7.4 for exact, :latest for newest
+    image: ghcr.io/dotcoocoo/hermitstash:1   # see README "Image tag scheme" for :1 / :1.7 / :1.7.x / :latest options
     init: true
     ports:
       - "3000:3000"

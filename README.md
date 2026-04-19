@@ -390,7 +390,19 @@ docker run -d --name hermitstash \
   ghcr.io/dotcoocoo/hermitstash:1
 ```
 
-Tags published per release: `:1` (major), `:1.7` (minor), `:1.7.4` (exact), `:latest` (always newest), `:sha-<commit>`. Pick the level of stability you want — `:1` gets bug fixes and features without breaking changes, `:latest` follows the default branch.
+### Image tag scheme
+
+Tags published per release:
+
+| Tag | Example | Behaviour |
+|-----|---------|-----------|
+| `:1` | major-version pin | Gets bug fixes and features within the major version (no breaking changes) |
+| `:1.7` | minor-version pin | Gets only patch updates within the minor series |
+| `:1.7.x` | exact pin | Pin to a specific patch (`:1.7.12`, `:1.7.13`, etc.) — never updates |
+| `:latest` | rolling | Always the newest published image — follows the default branch |
+| `:sha-<commit>` | per-commit | Reproducible pin to the exact commit |
+
+Pick the level of stability you want — `:1` is the recommended default for production deployments.
 
 Or with docker compose (using pre-built image):
 

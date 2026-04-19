@@ -51,7 +51,9 @@ metadata:
   namespace: hermitstash
   labels:
     app.kubernetes.io/name: hermitstash
-    app.kubernetes.io/version: "1.5.9"
+    # app.kubernetes.io/version label intentionally omitted — would drift from
+    # the deployed image tag whenever this template lags a release. Add it in
+    # your overlay (Kustomize / Helm / GitOps tool) where you control the tag.
 spec:
   replicas: 1
   selector:
@@ -77,6 +79,18 @@ spec:
               value: "3000"
             - name: TRUST_PROXY
               value: "true"
+            # Container user — mirrors compose defaults. Set 1000:1000 for
+            # standard Linux, 99:100 for Unraid-style nobody:users.
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+            - name: UMASK
+              value: "022"   # 755 dirs, 644 files
+            # Container timezone — also drives the default backup TZ unless
+            # explicitly overridden via BACKUP_TIMEZONE.
+            - name: TZ
+              value: "Etc/UTC"
             # Set to your ingress URL (required for passkeys + HSTS)
             - name: RP_ORIGIN
               value: ""   # e.g. https://files.example.com
@@ -87,6 +101,16 @@ spec:
               mountPath: /app/uploads
             - name: shm
               mountPath: /dev/shm
+          # PQC key generation on first start can take 10-15s — startupProbe
+          # gives the container time to initialise before liveness/readiness
+          # start polling, avoiding restart loops during initial bootstrap.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12   # ~60s grace
           livenessProbe:
             httpGet:
               path: /health
@@ -108,7 +132,21 @@ spec:
               memory: 512Mi
               cpu: "1"
           securityContext:
+            # Container starts as root by design — entrypoint needs to chown
+            # PVC mount points and remap PUID/PGID before setpriv-dropping
+            # to the unprivileged hermit user. Mirrors the compose-level
+            # cap_drop ALL + minimal cap_add pattern.
             allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN          # chown PVC mount points to hermit:hermit
+                - SETUID         # setpriv: drop to hermit UID
+                - SETGID         # setpriv: drop to hermit GID
+                - DAC_OVERRIDE   # write inside chmod 700 data/uploads dirs
+            seccompProfile:
+              type: RuntimeDefault
       volumes:
         - name: data
           persistentVolumeClaim:
