@@ -33,7 +33,7 @@ node server.js
 
 No config files. No build step. No `npm install` — all dependencies are vendored in the repo with zero npm runtime packages. First run generates the vault keypair and creates default accounts. Configure everything from the admin panel.
 
-**Default admin:** `admin@hermitstash.com` / `admin` — change immediately via the setup wizard. The wizard walks you through changing the admin email and password, setting your site name, configuring the passkey relying party (rpOrigin/rpId), and generating a session secret. Once completed, password reset is available via the login page.
+**Default admin:** `admin@hermitstash.com` with a **randomly-generated password printed to stdout** on first boot. The same password is also written to `data/initial-admin-password.txt` (mode 0600) so it survives container restart. Read it from your `docker logs` or the file, log in, and complete the setup wizard — the wizard walks you through changing the admin email and password, setting your site name, configuring the passkey relying party (rpOrigin/rpId), and generating a session secret. The plaintext password file is deleted automatically when setup completes.
 
 ## Why HermitStash?
 

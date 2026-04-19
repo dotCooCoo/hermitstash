@@ -18,8 +18,9 @@ function run() {
   if (fs.existsSync(vaultKeyPath)) {
     try {
       var keyData = JSON.parse(fs.readFileSync(vaultKeyPath, "utf8"));
-      if (!keyData.publicKey || !keyData.privateKey) {
-        errors.push("Vault key file exists but is missing publicKey or privateKey.");
+      // Hybrid format (ML-KEM-1024 + P-384) — matches lib/vault.js loadKeys().
+      if (!keyData.ecPublicKey || !keyData.ecPrivateKey) {
+        errors.push("Vault key file exists but is not in the ML-KEM-1024 + P-384 hybrid format. Run the migration tool.");
       }
     } catch (e) {
       errors.push("Vault key file is corrupted: " + e.message);

@@ -745,6 +745,15 @@ module.exports = function (app) {
 
       // Mark setup as complete
       config.updateSettings({ setupComplete: "true" });
+
+      // Remove the initial-admin-password.txt plaintext file now that the
+      // operator has chosen their own credentials.
+      try {
+        if (fs.existsSync(PATHS.INITIAL_ADMIN_PASSWORD)) fs.unlinkSync(PATHS.INITIAL_ADMIN_PASSWORD);
+      } catch (e) {
+        logger.error("Failed to remove initial-admin-password.txt", { error: e.message || String(e) });
+      }
+
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Initial setup completed", req: req });
       res.json({ success: true, redirect: "/admin" });
     } catch (e) {

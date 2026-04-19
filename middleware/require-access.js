@@ -18,9 +18,12 @@ function checkLock(resource, sessionKey, session) {
   if (mode === "password") return s ? false : "password";
   if (mode === "email") return s ? false : "email";
   if (mode === "both") {
-    if (!s) return "email";
-    if (typeof s === "object" && s.emailVerified && !s.passwordVerified) return "email-then-password";
-    return (s === true || (typeof s === "object" && s.passwordVerified)) ? false : "email";
+    // Defense-in-depth: "both" mode requires a verified email string AND password flag.
+    // The boolean true or a missing email must never satisfy the gate.
+    if (!s || typeof s !== "object") return "email";
+    if (typeof s.emailVerified !== "string") return "email";
+    if (!s.passwordVerified) return "email-then-password";
+    return false;
   }
   return false;
 }

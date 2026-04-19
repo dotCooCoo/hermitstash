@@ -121,7 +121,10 @@ module.exports = function (app) {
       var mode = stash.accessMode || "password";
       if (mode === "both") {
         var prev = req.session["stashUnlocked_" + slug];
-        req.session["stashUnlocked_" + slug] = { emailVerified: (prev && prev.emailVerified) || true, passwordVerified: true };
+        if (!prev || typeof prev !== "object" || typeof prev.emailVerified !== "string") {
+          return res.status(403).json({ error: "Email verification required first.", requiresEmail: true });
+        }
+        req.session["stashUnlocked_" + slug] = { emailVerified: prev.emailVerified, passwordVerified: true };
       } else {
         req.session["stashUnlocked_" + slug] = true;
       }

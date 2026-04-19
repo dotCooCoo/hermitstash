@@ -10,7 +10,7 @@ const { Router, serveStatic } = require("./lib/router");
 const { sessionMiddleware } = require("./lib/session");
 var db = require("./lib/db");
 const { users } = db;
-const { hashPassword, sha3Hash } = require("./lib/crypto");
+const { hashPassword, sha3Hash, generateBytes } = require("./lib/crypto");
 const storage = require("./lib/storage");
 const audit = require("./lib/audit");
 const logger = require("./app/shared/logger");
@@ -20,7 +20,6 @@ var certUtils = require("./lib/cert-utils");
 var mtlsCa = require("./lib/mtls-ca");
 var { createPQCGate } = require("./lib/pqc-gate");
 var scheduler = require("./lib/scheduler");
-var expiry = require("./lib/expiry");
 var { acceptUpgrade, rejectUpgrade } = require("./lib/ws");
 var syncEmitter = require("./lib/sync-emitter");
 
@@ -59,14 +58,31 @@ if (config.storage.backend === "local") {
 startupChecks.run();
 
 // Default admin account (first run only)
+// Generates a random initial password, logs it to stdout with a banner, and
+// writes it to <dataDir>/initial-admin-password.txt (0600) so it survives
+// restart. The file is deleted on setup-wizard completion.
 if (users.count({}) === 0 && config.localAuth) {
-  hashPassword("admin").then((hash) => {
+  var initialPassword = generateBytes(12).toString("base64").replace(/[+/=]/g, "").slice(0, 16);
+  hashPassword(initialPassword).then(function (hash) {
     users.insert({
       email: "admin@hermitstash.com", displayName: "Admin",
       passwordHash: hash, authType: "local", role: "admin", status: "active",
       createdAt: new Date().toISOString(), lastLogin: new Date().toISOString(),
     });
-    logger.info("Default admin created", { email: "admin@hermitstash.com", hint: "Complete the setup wizard to change these credentials." });
+    try {
+      fs.writeFileSync(C.PATHS.INITIAL_ADMIN_PASSWORD, initialPassword + "\n", { mode: 0o600 });
+    } catch (e) {
+      logger.error("Failed to write initial-admin-password.txt", { error: e.message || String(e) });
+    }
+    var banner = "\n" +
+      "================================================================\n" +
+      "  HermitStash first-run admin credentials\n" +
+      "  email:    admin@hermitstash.com\n" +
+      "  password: " + initialPassword + "\n" +
+      "  (also written to " + C.PATHS.INITIAL_ADMIN_PASSWORD + ")\n" +
+      "  Log in and complete the setup wizard to change these.\n" +
+      "================================================================\n";
+    process.stdout.write(banner);
     audit.log(audit.ACTIONS.DEFAULT_ADMIN_CREATED, { performedBy: "system", targetEmail: "admin@hermitstash.com" });
   });
 }
@@ -339,7 +355,9 @@ app.onNotFound(function (req, res) {
 app.onError(errorHandler);
 
 // Scheduled tasks
-scheduler.register("file_expiry_cleanup", C.TIME.ONE_HOUR, expiry.cleanupExpired); // hourly
+scheduler.register("file_expiry_cleanup", C.TIME.ONE_HOUR, function () { // hourly
+  return expiryCleanupJob.cleanupExpiredFiles().catch(function (e) { logger.error("file_expiry_cleanup failed", { error: e.message }); });
+});
 scheduler.register("email_sends_cleanup", C.TIME.ONE_DAY, function () { // daily
   try {
     var cutoff = new Date(Date.now() - C.TIME.NINETY_DAYS).toISOString(); // 90 days

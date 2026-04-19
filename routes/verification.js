@@ -50,7 +50,7 @@ module.exports = function (app) {
       }
 
       // Show a confirmation page with an auto-submitting form
-      var csrfToken = req.csrfToken ? req.csrfToken() : "";
+      var csrfToken = req.csrfToken || "";
       var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Verify Email</title></head><body>'
         + '<form id="v" method="POST" action="/auth/verify/' + encodeURIComponent(rawToken) + '">'
         + '<input type="hidden" name="_csrf" value="' + csrfToken + '">'

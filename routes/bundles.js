@@ -65,11 +65,14 @@ module.exports = function (app) {
     }
     var valid = await verifyPassword(password, bundle.passwordHash);
     if (valid) {
-      // For "both" mode: preserve the email verification, add password flag
+      // For "both" mode: require prior email verification before accepting password
       var mode = bundle.accessMode || "password";
       if (mode === "both") {
         var prev = req.session["bundle_" + shareId];
-        req.session["bundle_" + shareId] = { emailVerified: (prev && prev.emailVerified) || true, passwordVerified: true };
+        if (!prev || typeof prev !== "object" || typeof prev.emailVerified !== "string") {
+          return res.status(403).json({ error: "Email verification required first.", requiresEmail: true });
+        }
+        req.session["bundle_" + shareId] = { emailVerified: prev.emailVerified, passwordVerified: true };
       } else {
         req.session["bundle_" + shareId] = true;
       }

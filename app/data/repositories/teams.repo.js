@@ -20,7 +20,11 @@ function removeAllMembers(teamId) {
   for (var i = 0; i < members.length; i++) teamMembers.remove({ _id: members[i]._id });
   return members.length;
 }
-function countAdmins(teamId) { return teamMembers.find({ teamId: teamId, role: "admin" }).length; }
+// team_members.role is a sealed column — a SQL predicate on role compares plaintext against
+// ciphertext and always returns zero. Load all members for the team and filter in JS.
+function countAdmins(teamId) {
+  return teamMembers.find({ teamId: teamId }).filter(function (m) { return m.role === "admin"; }).length;
+}
 function isMember(teamId, userId) { return !!teamMembers.findOne({ teamId: teamId, userId: userId }); }
 function isTeamAdmin(teamId, userId) { var m = teamMembers.findOne({ teamId: teamId, userId: userId }); return m && m.role === "admin"; }
 

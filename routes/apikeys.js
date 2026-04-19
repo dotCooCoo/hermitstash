@@ -4,6 +4,7 @@ var { parseJson } = require("../lib/multipart");
 var requireAdmin = require("../middleware/require-admin");
 var audit = require("../lib/audit");
 var { VALID_SCOPES } = require("../app/security/scope-policy");
+var certUtils = require("../lib/cert-utils");
 
 module.exports = function (app) {
   // List API keys
@@ -55,13 +56,21 @@ module.exports = function (app) {
     res.json({ success: true, key: rawKey, prefix: prefix });
   });
 
-  // Revoke API key
+  // Revoke API key. Also revokes the associated mTLS client cert (if any)
+  // so the cert cannot be reused even if the key hash is cycled.
   app.post("/admin/apikeys/:id/revoke", async function(req, res) {
     if (!requireAdmin(req, res)) return;
     var key = apiKeysRepo.findOne({ _id: req.params.id });
     if (!key) return res.status(404).json({ error: "Not found." });
+    var certRevoked = false;
+    if (key.certFingerprint) {
+      certRevoked = certUtils.revokeCert(key.certFingerprint, key.name, "api key revoked");
+      if (certRevoked) {
+        audit.log(audit.ACTIONS.CERT_REVOKED, { details: "Client cert revoked with API key: " + key.name, req: req });
+      }
+    }
     apiKeysRepo.remove(key._id);
-    audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "API key revoked: " + key.name, req: req });
-    res.json({ success: true });
+    audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "API key revoked: " + key.name + (certRevoked ? " (cert revoked)" : ""), req: req });
+    res.json({ success: true, certRevoked: certRevoked });
   });
 };
