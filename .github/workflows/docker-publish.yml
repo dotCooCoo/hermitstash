@@ -21,7 +21,135 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # Lint must pass before we build/sign/publish a release image.
+  # Mirrors .github/workflows/ci.yml's lint job (no PR comment step — tag pushes
+  # aren't PR events). Keep these two jobs in sync when changing rules.
+  lint:
+    if: github.repository == 'dotCooCoo/hermitstash'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Install ESLint
+        run: npm install --no-save eslint@^10 eslint-plugin-security@^4
+
+      - name: Run ESLint
+        id: eslint
+        run: |
+          cat > eslint.ci.config.js << 'ESLINT_CONFIG'
+          var security = require("eslint-plugin-security");
+          module.exports = [
+            {
+              ignores: [
+                "tests/", "public/js/", "node_modules/**", "template/",
+                "scripts/", "deploy/", "lib/vendor/", "eslint.ci.config.js",
+              ],
+            },
+            {
+              files: ["**/*.js"],
+              plugins: { security: security },
+              linterOptions: { reportUnusedDisableDirectives: "off" },
+              languageOptions: {
+                ecmaVersion: 2022,
+                sourceType: "commonjs",
+                globals: {
+                  require: "readonly", module: "readonly", exports: "readonly",
+                  __dirname: "readonly", __filename: "readonly",
+                  process: "readonly", console: "readonly", Buffer: "readonly",
+                  setTimeout: "readonly", setInterval: "readonly", setImmediate: "readonly",
+                  clearTimeout: "readonly", clearInterval: "readonly",
+                  URL: "readonly", URLSearchParams: "readonly",
+                  global: "readonly", crypto: "readonly",
+                  TextEncoder: "readonly", TextDecoder: "readonly",
+                },
+              },
+              rules: {
+                "no-unused-vars": ["warn", { argsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" }],
+                "no-console": "off",
+                "no-eval": "error",
+                "no-implied-eval": "error",
+                "no-new-func": "error",
+                "no-self-compare": "error",
+                "no-constructor-return": "error",
+                "no-new-wrappers": "error",
+                "no-throw-literal": "error",
+                "security/detect-eval-with-expression": "error",
+                "security/detect-child-process": "warn",
+                "security/detect-unsafe-regex": "error",
+                "security/detect-buffer-noassert": "error",
+                "security/detect-new-buffer": "error",
+                "security/detect-possible-timing-attacks": "warn",
+                "security/detect-pseudoRandomBytes": "warn",
+                "security/detect-object-injection": "off",
+                "security/detect-non-literal-fs-filename": "off",
+                "security/detect-non-literal-require": "off",
+                "security/detect-non-literal-regexp": "off",
+              },
+            },
+          ];
+          ESLINT_CONFIG
+
+          set +e
+          npx eslint --config eslint.ci.config.js .
+          EXIT_CODE=$?
+          set -e
+
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+          if [ $EXIT_CODE -ne 0 ]; then echo "::error::ESLint found issues"; fi
+          exit $EXIT_CODE
+
+      - name: Run Hadolint
+        if: always()
+        id: hadolint
+        uses: hadolint/hadolint-action@v3.3.0
+        with:
+          dockerfile: Dockerfile
+          failure-threshold: error
+
+      - name: Run ShellCheck
+        if: always()
+        id: shellcheck
+        run: |
+          SCRIPTS=$(find . -name '*.sh' -not -path './node_modules/*' -not -path './tests/*' | sort)
+          echo "Checking: $SCRIPTS"
+          set +e
+          echo "$SCRIPTS" | xargs shellcheck --severity=warning --format=gcc
+          EXIT_CODE=$?
+          set -e
+          if [ $EXIT_CODE -ne 0 ]; then echo "::error::ShellCheck found issues"; fi
+          exit $EXIT_CODE
+
+      - name: Lint summary
+        if: always()
+        run: |
+          ESLINT_OK=${{ steps.eslint.outcome == 'success' }}
+          HADOLINT_OK=${{ steps.hadolint.outcome == 'success' }}
+          SHELLCHECK_OK=${{ steps.shellcheck.outcome == 'success' }}
+          PASS="✅"
+          FAIL="❌"
+          ESLINT_ICON=$( [ "$ESLINT_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
+          HADOLINT_ICON=$( [ "$HADOLINT_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
+          SHELLCHECK_ICON=$( [ "$SHELLCHECK_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
+          {
+            echo "### Lint Results"
+            echo ""
+            echo "| Check | Status |"
+            echo "|-------|--------|"
+            echo "| ESLint (JS + security) | $ESLINT_ICON |"
+            echo "| Hadolint (Dockerfile)  | $HADOLINT_ICON |"
+            echo "| ShellCheck (shell)     | $SHELLCHECK_ICON |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   build-and-push:
+    needs: lint
     if: github.repository == 'dotCooCoo/hermitstash'
     runs-on: ubuntu-latest
     timeout-minutes: 30

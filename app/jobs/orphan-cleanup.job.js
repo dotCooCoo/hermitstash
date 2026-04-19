@@ -17,7 +17,7 @@ var { isS3Path, s3KeyFromPath } = require("../../lib/storage");
 var config = require("../../lib/config");
 var storage = require("../../lib/storage");
 var logger = require("../shared/logger");
-var { files } = require("../../lib/db");
+var { files, bundles } = require("../../lib/db");
 var { TIME } = require("../../lib/constants");
 
 /**
@@ -179,10 +179,54 @@ async function scanDanglingRecords() {
   return dangling;
 }
 
+/**
+ * Find "empty" complete bundles — bundle records with zero live (non-tombstoned)
+ * file records. These accumulate when sync bundles have all their files deleted
+ * (tombstones survive but the bundle becomes a hollow shell), or when drop bundles
+ * expire and their files are cleaned up but the bundle row sticks around.
+ * They show up in the dashboard count but contribute nothing to actual storage.
+ */
+function scanEmptyBundles() {
+  var allCompleteBundles = bundles.find({ status: "complete" });
+  var allFiles = files.find({}).filter(function (f) { return !f.deletedAt; });
+  var bundleFileCounts = {};
+  for (var i = 0; i < allFiles.length; i++) {
+    var bid = allFiles[i].bundleId;
+    if (bid) bundleFileCounts[bid] = (bundleFileCounts[bid] || 0) + 1;
+  }
+  var empty = [];
+  for (var j = 0; j < allCompleteBundles.length; j++) {
+    var b = allCompleteBundles[j];
+    if (!bundleFileCounts[b._id]) {
+      empty.push({ bundleId: b._id, shareId: b.shareId, bundleType: b.bundleType, createdAt: b.createdAt });
+    }
+  }
+  return empty;
+}
+
+/**
+ * Delete empty bundle records. Caller must have confirmed via scanEmptyBundles().
+ * Returns count deleted.
+ */
+function deleteEmptyBundles(empties) {
+  var deleted = 0;
+  for (var i = 0; i < empties.length; i++) {
+    try {
+      bundles.remove({ _id: empties[i].bundleId });
+      deleted++;
+    } catch (e) {
+      logger.warn("[orphan-cleanup] Failed to delete empty bundle", { bundleId: empties[i].bundleId, shareId: empties[i].shareId, error: e.message });
+    }
+  }
+  return deleted;
+}
+
 module.exports = {
   scanLocalOrphans: scanLocalOrphans,
   scanS3Orphans: scanS3Orphans,
   deleteLocalOrphans: deleteLocalOrphans,
   deleteS3Orphans: deleteS3Orphans,
   scanDanglingRecords: scanDanglingRecords,
+  scanEmptyBundles: scanEmptyBundles,
+  deleteEmptyBundles: deleteEmptyBundles,
 };

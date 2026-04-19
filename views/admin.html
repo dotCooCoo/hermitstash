@@ -37,6 +37,9 @@
         <div class="admin-stat-info">
           <div class="admin-stat-value" id="statBundles" data-count="{{stats.totalBundles}}">0</div>
           <div class="admin-stat-label">Bundles</div>
+          {% if (stats.emptyBundles > 0) { %}
+          <div style="font-size:.7rem;color:var(--muted);margin-top:2px">{{stats.emptyBundles}} empty</div>
+          {% } %}
         </div>
       </div>
       <div class="admin-stat">
@@ -46,6 +49,7 @@
         <div class="admin-stat-info">
           <div class="admin-stat-value" data-count="{{{__formatSize(stats.totalSize)}}}">{{{__formatSize(stats.totalSize)}}}</div>
           <div class="admin-stat-label">Storage</div>
+          <div style="font-size:.7rem;color:var(--muted);margin-top:2px">disk + S3 actual</div>
         </div>
       </div>
       <div class="admin-stat">
@@ -1888,18 +1892,21 @@ function scanOrphans(){
     .then(function(d){
       if(d.error){el.textContent='Error: '+d.error;el.style.color='var(--red)';return}
       _orphanData=d;
+      var emptyB=(d.emptyBundles&&d.emptyBundles.count)||0;
       var total=d.local.orphans+d.s3.orphans;
-      if(total===0&&d.dangling.records===0){
+      if(total===0&&d.dangling.records===0&&emptyB===0){
         el.textContent='Clean — no orphans found';el.style.color='var(--main-color)';
         details.style.display='block';
         details.textContent='Scanned '+d.local.scanned+' local files'+(d.s3.scanned>0?', '+d.s3.scanned+' S3 objects':'')+'.';
         return;
       }
-      el.textContent=total+' orphaned files found';el.style.color='var(--red)';
+      var headerCount=total+d.dangling.records+emptyB;
+      el.textContent=headerCount+' issue'+(headerCount===1?'':'s')+' found';el.style.color='var(--red)';
       var lines=[];
       if(d.local.orphans>0)lines.push(d.local.orphans+' local files ('+fmtB(d.local.bytes)+')');
       if(d.s3.orphans>0)lines.push(d.s3.orphans+' S3 objects');
       if(d.dangling.records>0)lines.push(d.dangling.records+' dangling DB records (files missing from storage)');
+      if(emptyB>0)lines.push(emptyB+' empty bundles (no live files)');
       details.style.display='block';
       details.textContent=lines.join(', ')+'. Scanned '+d.local.scanned+' local'+(d.s3.scanned>0?', '+d.s3.scanned+' S3':'')+'.';
       document.getElementById('orphanCleanBtn').style.display='inline-flex';
@@ -1909,22 +1916,26 @@ function scanOrphans(){
 function cleanOrphans(){
   if(!_orphanData)return;
   var d=_orphanData;
-  var msg='Delete '+d.local.orphans+' local orphans';
-  if(d.s3.orphans>0)msg+=', '+d.s3.orphans+' S3 orphans';
-  if(d.dangling.records>0)msg+=', and remove '+d.dangling.records+' dangling DB records';
-  msg+='?\n\nThis cannot be undone.';
+  var emptyB=(d.emptyBundles&&d.emptyBundles.count)||0;
+  var parts=[];
+  if(d.local.orphans>0)parts.push(d.local.orphans+' local orphans');
+  if(d.s3.orphans>0)parts.push(d.s3.orphans+' S3 orphans');
+  if(d.dangling.records>0)parts.push(d.dangling.records+' dangling DB records');
+  if(emptyB>0)parts.push(emptyB+' empty bundles');
+  var msg='Delete '+parts.join(', ')+'?\n\nThis cannot be undone.';
   if(!confirm(msg))return;
   var el=document.getElementById('orphanResult');
   el.textContent='Cleaning...';el.style.color='var(--muted)';
-  fetch('/admin/storage/orphans/clean',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({local:true,s3:true,dangling:d.dangling.records>0})})
+  fetch('/admin/storage/orphans/clean',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({local:true,s3:true,dangling:d.dangling.records>0,emptyBundles:emptyB>0})})
     .then(function(r){return r.json()})
     .then(function(d){
       if(d.error){el.textContent='Error: '+d.error;el.style.color='var(--red)';return}
-      var parts=[];
-      if(d.deleted.local>0)parts.push(d.deleted.local+' local');
-      if(d.deleted.s3>0)parts.push(d.deleted.s3+' S3');
-      if(d.deleted.dangling>0)parts.push(d.deleted.dangling+' dangling records');
-      el.textContent='Cleaned: '+(parts.join(', ')||'nothing to clean');el.style.color='var(--main-color)';
+      var done=[];
+      if(d.deleted.local>0)done.push(d.deleted.local+' local');
+      if(d.deleted.s3>0)done.push(d.deleted.s3+' S3');
+      if(d.deleted.dangling>0)done.push(d.deleted.dangling+' dangling records');
+      if(d.deleted.emptyBundles>0)done.push(d.deleted.emptyBundles+' empty bundles');
+      el.textContent='Cleaned: '+(done.join(', ')||'nothing to clean');el.style.color='var(--main-color)';
       document.getElementById('orphanCleanBtn').style.display='none';
       document.getElementById('orphanDetails').style.display='none';
     })
@@ -2024,16 +2035,20 @@ function saveTab(tab){
   if(tab==='storage'&&data.storageBackend==='s3'){
     var missing=[];
     if(!data.s3Bucket)missing.push('S3 Bucket');
-    if(!data.s3AccessKey||/^\u2022+$/.test(data.s3AccessKey))missing.push('S3 Access Key');
-    if(!data.s3SecretKey||/^\u2022+$/.test(data.s3SecretKey))missing.push('S3 Secret Key');
+    // Masked values (•••) represent already-saved credentials — server-side
+    // accepts them as a "keep current" signal. Only flag truly empty fields.
+    if(!data.s3AccessKey)missing.push('S3 Access Key');
+    if(!data.s3SecretKey)missing.push('S3 Secret Key');
     if(missing.length){var actions=document.querySelector('#pane-storage .settings-actions');var msg=actions.querySelector('.settings-msg-inline');if(!msg){msg=document.createElement('span');msg.className='settings-msg-inline';actions.appendChild(msg)}msg.className='settings-msg-inline msg-err';msg.textContent='Required: '+missing.join(', ');msg.style.opacity='1';setTimeout(function(){msg.style.opacity='0'},4000);return}
   }
   // Require backup S3 credentials when backups are enabled
   if(tab==='backup'&&data.backupEnabled==='true'){
     var missing=[];
     if(!data.backupS3Bucket)missing.push('S3 Bucket');
-    if(!data.backupS3AccessKey||/^\u2022+$/.test(data.backupS3AccessKey))missing.push('S3 Access Key');
-    if(!data.backupS3SecretKey||/^\u2022+$/.test(data.backupS3SecretKey))missing.push('S3 Secret Key');
+    // Masked values (•••) represent already-saved credentials — server-side
+    // accepts them as a "keep current" signal. Only flag truly empty fields.
+    if(!data.backupS3AccessKey)missing.push('S3 Access Key');
+    if(!data.backupS3SecretKey)missing.push('S3 Secret Key');
     if(missing.length){var actions=document.querySelector('#pane-backup .settings-actions');var msg=actions.querySelector('.settings-msg-inline');if(!msg){msg=document.createElement('span');msg.className='settings-msg-inline';actions.appendChild(msg)}msg.className='settings-msg-inline msg-err';msg.textContent='Required: '+missing.join(', ');msg.style.opacity='1';setTimeout(function(){msg.style.opacity='0'},4000);return}
   }
   // Find or create inline message next to save button

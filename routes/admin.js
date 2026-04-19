@@ -30,20 +30,73 @@ var { getQuotaCounts } = require("../lib/email");
 var scheduler = require("../lib/scheduler");
 var { sanitizeSvg } = require("../lib/sanitize-svg");
 
+// Recursive sum of all file sizes under `dir`. Used by the dashboard to report
+// real on-disk storage including chunks, orphan files, and empty bundle dirs that
+// aren't represented in the file table. Returns 0 if dir is missing/unreadable.
+function diskUsage(dir) {
+  if (!fs.existsSync(dir)) return 0;
+  var total = 0;
+  var entries;
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_e) { return 0; }
+  for (var i = 0; i < entries.length; i++) {
+    var full = path.join(dir, entries[i].name);
+    if (entries[i].isDirectory()) {
+      total += diskUsage(full);
+    } else if (entries[i].isFile()) {
+      try { total += fs.statSync(full).size; } catch (_e) {}
+    }
+  }
+  return total;
+}
+
 module.exports = function (app) {
   // Admin dashboard
   app.get("/admin", (req, res) => {
     if (!requireAdmin(req, res)) return;
     var totalUsers = usersRepo.count({});
-    var totalFiles = filesRepo.count({ status: { $ne: "chunking" }, vaultEncrypted: { $ne: "true" } });
-    var totalBundles = bundlesRepo.count({ status: "complete" });
-    var allFiles = filesRepo.findAll({ status: { $ne: "chunking" }, vaultEncrypted: { $ne: "true" } });
-    var totalSize = allFiles.reduce(function(s, f) { return s + (f.size || 0); }, 0);
-    var totalDownloads = allFiles.reduce(function(s, f) { return s + (f.downloads || 0); }, 0);
+
+    // Live files: exclude tombstones (storagePath cleared, deletedAt set), in-progress
+    // chunked uploads, and vault-encrypted system files. Tombstones still carry their
+    // pre-delete `size` on the record — counting them inflates the displayed storage and
+    // hides the discrepancy between this dashboard and the storage migration preview.
+    var liveFiles = filesRepo.findAll({ status: { $ne: "chunking" }, vaultEncrypted: { $ne: "true" } })
+      .filter(function (f) { return !f.deletedAt; });
+    var totalFiles = liveFiles.length;
+    var totalDownloads = liveFiles.reduce(function(s, f) { return s + (f.downloads || 0); }, 0);
+
+    // Storage = bytes physically used. S3 portion comes from the file table (HEAD per
+    // object would be too slow on every dashboard view). Local portion is a directory
+    // walk so we capture chunks, orphan files, and empty bundle dirs that aren't in
+    // the file table — i.e. the actual disk footprint, not just the accounted footprint.
+    var s3Bytes = liveFiles
+      .filter(function (f) { return f.storagePath && f.storagePath.indexOf("s3://") === 0; })
+      .reduce(function(s, f) { return s + (f.size || 0); }, 0);
+    var localBytes = diskUsage(storage.uploadDir);
+    var totalSize = s3Bytes + localBytes;
+
+    // Bundles: surface "empty" bundles (complete bundles with zero live files) so
+    // operators can see accounting noise from sync deletes, expired drops, etc. and
+    // run Orphan Cleanup → "stale bundles" to remove them.
+    var allCompleteBundles = bundlesRepo.findAll({ status: "complete" });
+    var bundleFileCounts = {};
+    for (var i = 0; i < liveFiles.length; i++) {
+      var bid = liveFiles[i].bundleId;
+      if (bid) bundleFileCounts[bid] = (bundleFileCounts[bid] || 0) + 1;
+    }
+    var emptyBundles = allCompleteBundles.filter(function(b) { return !bundleFileCounts[b._id]; }).length;
+    var totalBundles = allCompleteBundles.length;
+
     audit.log(audit.ACTIONS.ADMIN_DASHBOARD_VIEWED, { req: req });
     send(res, "admin", {
       user: req.user, files: [], bundles: [],
-      stats: { totalFiles: totalFiles, totalUsers: totalUsers, totalBundles: totalBundles, totalSize: totalSize, totalDownloads: totalDownloads },
+      stats: {
+        totalFiles: totalFiles,
+        totalUsers: totalUsers,
+        totalBundles: totalBundles,
+        emptyBundles: emptyBundles,
+        totalSize: totalSize,
+        totalDownloads: totalDownloads,
+      },
       host: host(req),
     });
   });
@@ -755,12 +808,14 @@ module.exports = function (app) {
       var local = orphanJob.scanLocalOrphans();
       var s3 = await orphanJob.scanS3Orphans();
       var dangling = await orphanJob.scanDanglingRecords();
+      var emptyBundles = orphanJob.scanEmptyBundles();
       var localBytes = 0;
       for (var i = 0; i < local.orphans.length; i++) localBytes += local.orphans[i].size || 0;
       res.json({
         local: { orphans: local.orphans.length, scanned: local.totalScanned, bytes: localBytes },
         s3: { orphans: s3.orphans.length, scanned: s3.totalScanned, error: s3.error || null },
         dangling: { records: dangling.length },
+        emptyBundles: { count: emptyBundles.length },
       });
     } catch (e) {
       logger.error("Orphan scan error", { error: e.message });
@@ -772,7 +827,7 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     try {
       var body = await parseJson(req);
-      var result = { local: 0, s3: 0, dangling: 0 };
+      var result = { local: 0, s3: 0, dangling: 0, emptyBundles: 0 };
 
       if (body.local !== false) {
         var localScan = orphanJob.scanLocalOrphans();
@@ -789,9 +844,13 @@ module.exports = function (app) {
         }
         result.dangling = danglingRecords.length;
       }
+      if (body.emptyBundles === true) {
+        var emptyScan = orphanJob.scanEmptyBundles();
+        result.emptyBundles = orphanJob.deleteEmptyBundles(emptyScan);
+      }
 
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, {
-        details: "Orphan cleanup: " + result.local + " local, " + result.s3 + " S3, " + result.dangling + " dangling records removed",
+        details: "Orphan cleanup: " + result.local + " local, " + result.s3 + " S3, " + result.dangling + " dangling records, " + result.emptyBundles + " empty bundles removed",
         req: req,
       });
       res.json({ success: true, deleted: result });
