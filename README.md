@@ -429,15 +429,15 @@ Uses `node:24-slim` (OpenSSL 3.5+ for PQC support). No config files needed — a
 
 | | |
 |---|---|
-| **Base image** | `node:24-slim` (Debian Bookworm) |
+| **Base image** | `node:24-slim` (Debian Trixie) |
 | **Node.js** | 24.8+ (required for ML-KEM-1024, ML-DSA-87, SLH-DSA via OpenSSL 3.5) |
-| **User** | Runs as `hermit` (non-root) via `gosu` — PUID/PGID env vars remap UID/GID at runtime (default 99:100, standard Linux 1000:1000) |
+| **User** | Runs as `hermit` (non-root) via `setpriv` (util-linux, pre-installed) — PUID/PGID env vars remap UID/GID at runtime (default 99:100, standard Linux 1000:1000) |
 | **Tmpfs** | `HERMITSTASH_TMPDIR=/dev/shm` — plaintext DB held in memory, never on disk. Set `shm_size: 256m` in compose. |
 | **Volumes** | `/app/data` (encrypted DB, vault keys, TLS certs), `/app/uploads` (files if using local storage) |
 | **Port** | 3000 (configurable via `PORT` env var) |
 | **Health check** | Built-in: `GET /health` every 30s, 5s timeout, 3 retries, 30s start period |
 | **Security** | `init: true` (tini PID 1), `no-new-privileges`, `cap_drop: ALL` + minimal `cap_add` |
-| **Entrypoint** | `docker-entrypoint.sh` — remaps PUID/PGID, sets TZ/UMASK, chowns volumes, drops to `hermit` via `gosu` |
+| **Entrypoint** | `docker-entrypoint.sh` — remaps PUID/PGID, sets TZ/UMASK, chowns volumes, drops to `hermit` via `setpriv` |
 
 ### docker-compose.yml
 

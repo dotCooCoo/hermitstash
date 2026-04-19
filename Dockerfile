@@ -18,18 +18,12 @@ LABEL org.opencontainers.image.title="HermitStash" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later" \
       org.opencontainers.image.vendor="dotCooCoo"
 
-# Security: non-root user + gosu for entrypoint
-# PUID/PGID env vars remap UID/GID at runtime (see docker-entrypoint.sh)
-# curl is required by the compose-level healthcheck used by Coolify's Docker Compose build pack
-# hadolint ignore=DL3008
-# DL3008: We deliberately do not pin gosu/curl versions. node:24-slim's apt sources
-# point to a Debian snapshot that lags the live mirror, so any version we pin from
-# `madison` works locally but fails inside the base image with "Version X not found".
-# v1.7.6 tried pinning gosu=1.17-3+b4 / curl=8.14.1-2+deb13u2 and the build failed.
-# The base image digest is what we actually rely on for reproducibility.
-RUN groupadd -r hermit && useradd -r -g hermit -s /bin/sh hermit && \
-    apt-get update && apt-get install -y --no-install-recommends gosu curl && \
-    rm -rf /var/lib/apt/lists/*
+# Security: non-root user. setpriv (from util-linux, pre-installed in node:24-slim)
+# drops privileges in the entrypoint with direct exec semantics — node becomes the
+# PID, signals reach it natively. No apt-get install at all → no DL3008, no version
+# drift, no apt cache layer. PUID/PGID env vars remap UID/GID at runtime (see
+# docker-entrypoint.sh).
+RUN groupadd -r hermit && useradd -r -g hermit -s /bin/sh hermit
 
 WORKDIR /app
 
@@ -56,10 +50,12 @@ EXPOSE 3000
 # Graceful shutdown — Node.js handles SIGTERM in server.js
 STOPSIGNAL SIGTERM
 
-# Health check for orchestrators (Docker, Kubernetes, Coolify)
-# Uses curl to match the compose-level healthcheck — single tool, single behaviour.
+# Health check for orchestrators (Docker, Kubernetes, Coolify).
+# Uses node (already in the image as the runtime) so we don't need curl/wget.
+# Coolify accepts any healthcheck tool — see docker-compose.coolify.yml for the
+# matching compose-level form.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD curl -sf http://localhost:3000/health || exit 1
+  CMD node -e "require('http').get('http://localhost:3000/health',function(r){process.exit(r.statusCode===200?0:1)}).on('error',function(){process.exit(1)})"
 
 # Start as root, entrypoint fixes volume permissions then drops to hermit
 ENTRYPOINT ["./docker-entrypoint.sh"]

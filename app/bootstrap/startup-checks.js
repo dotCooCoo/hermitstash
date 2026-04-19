@@ -5,7 +5,6 @@
  * Call this after config is loaded but before routes are registered.
  */
 var fs = require("fs");
-var path = require("path");
 var config = require("../../lib/config");
 var { PATHS } = require("../../lib/constants");
 

@@ -275,7 +275,6 @@ async function handleChunkUpload(ctx) {
   // Validate reassembled file
   var filename = fields.filename || "file";
   var relativePath = fields.relativePath || filename;
-  var ext = path.extname(filename).toLowerCase();
   var fileCheck = uploadValidator.validateFile(filename, fullData.length, limits.allowedExtensions, limits.maxFileSize);
   if (!fileCheck.valid) return { error: fileCheck.reason };
 
@@ -313,8 +312,6 @@ async function handleChunkUpload(ctx) {
  * @param {object} ctx - { bundleId, token, uploaderName, sendUploaderEmail, stashSlug, stashId, auditSuffix, req }
  */
 function handleFinalize(ctx) {
-  var suffix = ctx.auditSuffix || "";
-
   var existing = bundlesRepo.findById(ctx.bundleId);
   if (!existing) return { error: "Bundle not found.", status: 404 };
   if (existing.status === "complete") {

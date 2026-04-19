@@ -5,8 +5,7 @@
 var fs = require("fs");
 var path = require("path");
 var config = require("../../../lib/config");
-var { files, bundles } = require("../../../lib/db");
-var { sha3Hash, generateShareId } = require("../../../lib/crypto");
+var { bundles } = require("../../../lib/db");
 var storage = require("../../../lib/storage");
 var fileService = require("./file.service");
 var { validateChunk, validateFile } = require("../../http/validators/upload.validator");
@@ -99,7 +98,6 @@ function cleanupChunks(chunkDir, totalChunks) {
 async function processReassembledFile(fullData, fields, bundle) {
   var filename = fields.filename || "file";
   var relativePath = fields.relativePath || filename;
-  var ext = path.extname(filename).toLowerCase();
 
   // Validate file extension
   var fileResult = validateFile(filename, fullData.length, config.allowedExtensions, config.maxFileSize);

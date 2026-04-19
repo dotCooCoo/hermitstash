@@ -1,7 +1,6 @@
 var fs = require("fs");
 var path = require("path");
 var config = require("../../../lib/config");
-var vault = require("../../../lib/vault");
 var S3Client = require("../../../lib/s3-client");
 var storage = require("../../../lib/storage");
 var { isS3Path } = storage;

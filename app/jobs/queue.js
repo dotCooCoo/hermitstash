@@ -67,7 +67,7 @@ async function processNext() {
           performedBy: "system",
           details: "Job " + job.type + " failed after " + job.attempts + " attempts: " + (e.message || String(e)),
         });
-      } catch (ae) {}
+      } catch (_ae) {}
       logger.error("Job dead-lettered", { jobType: job.type, error: e.message });
     }
   }

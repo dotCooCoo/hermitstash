@@ -2,7 +2,7 @@
  * Export Service — CSV export with formula injection protection.
  */
 var { users, files } = require("../../../lib/db");
-var { buildCsv, csvSafe } = require("../../security/csv-policy");
+var { buildCsv } = require("../../security/csv-policy");
 
 /**
  * Export users as CSV string.

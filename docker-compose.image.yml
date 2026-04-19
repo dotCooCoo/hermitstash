@@ -27,6 +27,12 @@ services:
       - SETUID
       - SETGID
       - DAC_OVERRIDE
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health',function(r){process.exit(r.statusCode===200?0:1)}).on('error',function(){process.exit(1)})"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
     environment:
       # Container user — default 99:100 (Unraid). Set to 1000:1000 for standard Linux.
       PUID: "99"

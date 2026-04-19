@@ -328,8 +328,8 @@ jobs:
           echo "=== Diagnostics ==="
           echo "Entrypoint exists:"
           docker exec smoke-test ls -la /app/docker-entrypoint.sh 2>&1 || echo "  MISSING"
-          echo "Gosu exists:"
-          docker exec smoke-test which gosu 2>&1 || echo "  MISSING"
+          echo "setpriv exists:"
+          docker exec smoke-test which setpriv 2>&1 || echo "  MISSING"
           echo "Hermit user exists:"
           docker exec smoke-test id hermit 2>&1 || echo "  MISSING"
           echo "PID 1 command:"
@@ -343,7 +343,7 @@ jobs:
           HERMIT_UID=$(docker exec smoke-test id -u hermit 2>/dev/null || echo "unknown")
           echo "PID 1 UID: $PID1_UID, hermit UID: $HERMIT_UID"
           if [ "$PID1_UID" = "0" ]; then
-            echo "WARNING: PID 1 is root — gosu may not be dropping privileges"
+            echo "WARNING: PID 1 is root — setpriv may not be dropping privileges"
           else
             echo "OK: PID 1 is non-root (UID $PID1_UID)"
           fi

@@ -54,9 +54,11 @@ if [ -d "/dev/shm" ] && [ "${HERMITSTASH_TMPDIR:-/dev/shm}" = "/dev/shm" ]; then
 fi
 
 # ── Start ──────────────────────────────────────────────────────────
-# Drop to hermit user if running as root
+# Drop to hermit user if running as root.
+# setpriv (util-linux, pre-installed) does direct exec — node becomes the PID,
+# SIGTERM reaches it natively for graceful shutdown.
 if [ "$(id -u)" = "0" ]; then
-  exec gosu hermit node server.js
+  exec setpriv --reuid=hermit --regid=hermit --init-groups -- node server.js
 else
   exec node server.js
 fi
