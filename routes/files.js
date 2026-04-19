@@ -1,9 +1,9 @@
-const config = require("../lib/config");
+var config = require("../lib/config");
 var logger = require("../app/shared/logger");
-const { safeContentDisposition, sanitizeRename } = require("../app/shared/sanitize-filename");
+var { safeContentDisposition, sanitizeRename } = require("../app/shared/sanitize-filename");
 var { parseJson } = require("../lib/multipart");
-const requireAuth = require("../middleware/require-auth");
-const { send, host } = require("../middleware/send");
+var requireAuth = require("../middleware/require-auth");
+var { send, host } = require("../middleware/send");
 var audit = require("../lib/audit");
 var fileService = require("../app/domain/uploads/file.service");
 var filesRepo = require("../app/data/repositories/files.repo");

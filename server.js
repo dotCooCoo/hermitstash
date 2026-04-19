@@ -1,20 +1,20 @@
 // -- Core libs --
-const path = require("path");
-const fs = require("fs");
+var path = require("path");
+var fs = require("fs");
 var url = require("node:url");
 
 // -- lib/ modules --
-const config = require("./lib/config");
-const C = require("./lib/constants");
-const { Router, serveStatic } = require("./lib/router");
-const { sessionMiddleware } = require("./lib/session");
+var config = require("./lib/config");
+var C = require("./lib/constants");
+var { Router, serveStatic } = require("./lib/router");
+var { sessionMiddleware } = require("./lib/session");
 var db = require("./lib/db");
-const { users } = db;
-const { hashPassword, sha3Hash, generateBytes } = require("./lib/crypto");
-const storage = require("./lib/storage");
-const audit = require("./lib/audit");
-const logger = require("./app/shared/logger");
-const { sendHtml } = require("./lib/template");
+var { users } = db;
+var { hashPassword, sha3Hash, generateBytes, timingSafeEqual } = require("./lib/crypto");
+var storage = require("./lib/storage");
+var audit = require("./lib/audit");
+var logger = require("./app/shared/logger");
+var { sendHtml } = require("./lib/template");
 var { parseJson } = require("./lib/multipart");
 var certUtils = require("./lib/cert-utils");
 var mtlsCa = require("./lib/mtls-ca");
@@ -24,9 +24,9 @@ var { acceptUpgrade, rejectUpgrade } = require("./lib/ws");
 var syncEmitter = require("./lib/sync-emitter");
 
 // -- middleware/ --
-const { send } = require("./middleware/send");
-const attachUser = require("./middleware/attach-user");
-const errorHandler = require("./middleware/error-handler");
+var { send } = require("./middleware/send");
+var attachUser = require("./middleware/attach-user");
+var errorHandler = require("./middleware/error-handler");
 
 // -- app/ modules --
 var startupChecks = require("./app/bootstrap/startup-checks");
@@ -44,7 +44,7 @@ var orphanCleanupJob = require("./app/jobs/orphan-cleanup.job");
 var certExpiryJob = require("./app/jobs/cert-expiry.job");
 var backupJob = require("./app/jobs/backup.job");
 
-const app = new Router();
+var app = new Router();
 
 // Ensure dirs
 var dataDir = C.DATA_DIR;
@@ -204,7 +204,7 @@ app.post("/sync/renew-cert", require("./lib/rate-limit").middleware("sync-renew"
       var derB64 = peerCert.raw.toString("base64");
       var pem = "-----BEGIN CERTIFICATE-----\n" + derB64.match(/.{1,64}/g).join("\n") + "\n-----END CERTIFICATE-----\n";
       var presentedFp = sha3Hash(pem);
-      if (presentedFp !== apiKey.certFingerprint) {
+      if (!apiKey.certFingerprint || presentedFp.length !== apiKey.certFingerprint.length || !timingSafeEqual(presentedFp, apiKey.certFingerprint)) {
         res.writeHead(403, { "Content-Type": "application/json" });
         return res.end(JSON.stringify({ error: "Certificate does not match API key." }));
       }
@@ -322,7 +322,7 @@ require("./routes/vault")(app);
 require("./routes/stash")(app);
 
 // Sync file rename — API key authed, uses bundleId directly (sync clients don't have shareId)
-app.post("/sync/rename", require("./lib/rate-limit").middleware("sync-file-rename", 100, 60000), async function (req, res) {
+app.post("/sync/rename", require("./lib/rate-limit").middleware("sync-file-rename", 100, C.TIME.ONE_MIN), async function (req, res) {
   if (!req.apiKey) { res.writeHead(401, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: "Unauthorized." })); }
   if (!hasScope(req.apiKey, "sync") && !hasScope(req.apiKey, "admin")) { res.writeHead(403, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: "Forbidden." })); }
   try {
@@ -602,9 +602,19 @@ server.on("upgrade", function (req, socket, head) {
   // Per-key cert binding: when a key was enrolled with a client cert, every
   // connection using that key MUST present a matching cert. This is enforced
   // regardless of the MTLS_REQUIRED escape hatch so a cert-bound key cannot
-  // be downgraded to API-key-only auth.
+  // be downgraded to API-key-only auth. NOTE: the WS peerCert.fingerprint256
+  // is a hex-with-colons string (SHA-256), while apiKey.certFingerprint is
+  // sha3Hash(PEM). Normalize before comparing — see ws-cert-binding check below.
   if (apiKey.certFingerprint) {
-    if (!peerCertFingerprint || peerCertFingerprint !== apiKey.certFingerprint) {
+    if (!peerCertFingerprint) {
+      return rejectUpgrade(socket, 403, "Forbidden");
+    }
+    // Reconstruct PEM → sha3Hash, matching the storage form.
+    var wsPeerCert = socket.getPeerCertificate ? socket.getPeerCertificate(true) : null;
+    var wsDerB64 = wsPeerCert && wsPeerCert.raw ? wsPeerCert.raw.toString("base64") : "";
+    var wsPem = wsDerB64 ? "-----BEGIN CERTIFICATE-----\n" + wsDerB64.match(/.{1,64}/g).join("\n") + "\n-----END CERTIFICATE-----\n" : "";
+    var wsPresentedFp = wsPem ? sha3Hash(wsPem) : "";
+    if (wsPresentedFp.length !== apiKey.certFingerprint.length || !timingSafeEqual(wsPresentedFp, apiKey.certFingerprint)) {
       return rejectUpgrade(socket, 403, "Forbidden");
     }
   }
@@ -665,7 +675,7 @@ server.on("upgrade", function (req, socket, head) {
 
   // Inbound message rate limiting
   var msgCount = 0;
-  var msgResetTimer = setInterval(function () { msgCount = 0; }, 60000);
+  var msgResetTimer = setInterval(function () { msgCount = 0; }, C.TIME.ONE_MIN);
   var violations = 0;
 
   // Catch-up: send events since the given seq

@@ -1,4 +1,5 @@
 var audit = require("../lib/audit");
+var C = require("../lib/constants");
 var config = require("../lib/config");
 var logger = require("../app/shared/logger");
 var rateLimit = require("../lib/rate-limit");
@@ -36,7 +37,7 @@ module.exports = function (app) {
   });
 
   // Change password (local auth only)
-  app.post("/profile/password", rateLimit.middleware("password-change", 5, 300000), async (req, res) => {
+  app.post("/profile/password", rateLimit.middleware("password-change", 5, C.TIME.FIVE_MIN), async (req, res) => {
     if (!requireAuth(req, res)) return;
     if (!config.localAuth) return res.status(400).json({ error: "Password authentication is disabled." });
     try {
@@ -68,7 +69,7 @@ module.exports = function (app) {
   });
 
   // Change email (requires password re-authentication)
-  app.post("/profile/email", rateLimit.middleware("email-change", 5, 300000), async (req, res) => {
+  app.post("/profile/email", rateLimit.middleware("email-change", 5, C.TIME.FIVE_MIN), async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {
       var body = await parseJson(req);

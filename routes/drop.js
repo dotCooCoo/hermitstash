@@ -1,9 +1,9 @@
-const config = require("../lib/config");
+var config = require("../lib/config");
 var C = require("../lib/constants");
 var usersRepo = require("../app/data/repositories/users.repo");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
-const { parseMultipart, parseJson } = require("../lib/multipart");
-const { send } = require("../middleware/send");
+var { parseMultipart, parseJson } = require("../lib/multipart");
+var { send } = require("../middleware/send");
 var audit = require("../lib/audit");
 var logger = require("../app/shared/logger");
 var rateLimit = require("../lib/rate-limit");
@@ -37,9 +37,9 @@ module.exports = function (app) {
   });
 
   // Init bundle
-  app.post("/drop/init", rateLimit.middleware("drop-init", 20, 60000), requireScope("upload"), async (req, res) => {
+  app.post("/drop/init", rateLimit.middleware("drop-init", 20, C.TIME.ONE_MIN), requireScope("upload"), async (req, res) => {
     if (!config.publicUpload) return res.status(403).json({ error: "Disabled." });
-    const body = await parseJson(req);
+    var body = await parseJson(req);
     var rawEmail = body.uploaderEmail ? String(body.uploaderEmail).slice(0, 254) : null;
     var rawName = String(body.uploaderName || "Anonymous").slice(0, 200);
     var ownerId = req.user ? req.user._id : null;
@@ -61,7 +61,7 @@ module.exports = function (app) {
   });
 
   // Upload single file
-  app.post("/drop/file/:bundleId", rateLimit.middleware("upload", 200, 60000), requireScope("upload"), async (req, res) => {
+  app.post("/drop/file/:bundleId", rateLimit.middleware("upload", 200, C.TIME.ONE_MIN), requireScope("upload"), async (req, res) => {
     if (!config.publicUpload) return res.status(403).json({ error: "Disabled." });
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
@@ -90,7 +90,7 @@ module.exports = function (app) {
   });
 
   // Chunked upload
-  app.post("/drop/chunk/:bundleId", rateLimit.middleware("chunk", 500, 60000), requireScope("upload"), async (req, res) => {
+  app.post("/drop/chunk/:bundleId", rateLimit.middleware("chunk", 500, C.TIME.ONE_MIN), requireScope("upload"), async (req, res) => {
     if (!config.publicUpload) return res.status(403).json({ error: "Disabled." });
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
@@ -116,7 +116,7 @@ module.exports = function (app) {
   });
 
   // Finalize bundle
-  app.post("/drop/finalize/:bundleId", rateLimit.middleware("finalize", 20, 60000), requireScope("upload"), async (req, res) => {
+  app.post("/drop/finalize/:bundleId", rateLimit.middleware("finalize", 20, C.TIME.ONE_MIN), requireScope("upload"), async (req, res) => {
     var existing = bundlesRepo.findById(req.params.bundleId);
     if (!existing) return res.status(404).json({ error: "Bundle not found." });
     if (existing.stashId) return res.status(403).json({ error: "This bundle must be finalized via its stash endpoint." });

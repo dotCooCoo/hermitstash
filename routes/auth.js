@@ -1,11 +1,11 @@
-const config = require("../lib/config");
+var config = require("../lib/config");
 var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
 var usersRepo = require("../app/data/repositories/users.repo");
-const { parseJson } = require("../lib/multipart");
-const { getAuthUrl, exchangeCode, generateState } = require("../lib/google-auth");
+var { parseJson } = require("../lib/multipart");
+var { getAuthUrl, exchangeCode, generateState } = require("../lib/google-auth");
 var emailService = require("../app/domain/integrations/email.service");
-const { send, host } = require("../middleware/send");
+var { send, host } = require("../middleware/send");
 var audit = require("../lib/audit");
 var rateLimit = require("../lib/rate-limit");
 var authService = require("../app/domain/auth/auth.service");
@@ -27,9 +27,9 @@ module.exports = function (app) {
     res.redirect(url);
   });
 
-  app.get("/auth/google/callback", rateLimit.middleware("google-callback", 10, 60000), async (req, res) => {
+  app.get("/auth/google/callback", rateLimit.middleware("google-callback", 10, C.TIME.ONE_MIN), async (req, res) => {
     try {
-      const code = req.query.code;
+      var code = req.query.code;
       if (!code) {
         logger.error("Google callback: no code", { error: "Missing code parameter" });
         return res.redirect("/auth/failed");
@@ -43,7 +43,7 @@ module.exports = function (app) {
       }
       delete req.session.oauthState;
 
-      const profile = await exchangeCode(code, req);
+      var profile = await exchangeCode(code, req);
 
       var result = authService.resolveGoogleUser(profile, config.allowedDomains);
       var user = result.user;
@@ -71,17 +71,17 @@ module.exports = function (app) {
     send(res, "login", { user: null, error: null, localAuth: config.localAuth, googleAuth: !!config.google.clientID, registrationOpen: config.registrationOpen && config.localAuth, passkeyEnabled: config.passkeyEnabled });
   });
 
-  app.post("/auth/login", rateLimit.middleware("login", 15, 300000), async (req, res) => {
+  app.post("/auth/login", rateLimit.middleware("login", 15, C.TIME.FIVE_MIN), async (req, res) => {
     if (!config.localAuth) return res.status(403).json({ error: "Disabled." });
     try {
-      const body = await parseJson(req);
+      var body = await parseJson(req);
       var input = validateLoginInput(body);
       if (input.error) return res.status(400).json({ error: input.error });
 
       // Account lockout check (pre-service, needs DB lookup for timing)
       var existing = usersRepo.findByEmail(input.email);
       if (existing && existing.lockedUntil && new Date(existing.lockedUntil).getTime() > Date.now()) {
-        var lockMinutes = Math.ceil((new Date(existing.lockedUntil).getTime() - Date.now()) / 60000);
+        var lockMinutes = Math.ceil((new Date(existing.lockedUntil).getTime() - Date.now()) / C.TIME.ONE_MIN);
         audit.log(audit.ACTIONS.LOGIN_FAILED_BAD_PASSWORD, { targetId: existing._id, targetEmail: input.email, details: "Account locked (" + lockMinutes + " min remaining)", req: req });
         return res.status(403).json({ error: "Account temporarily locked. Try again in " + lockMinutes + " minutes." });
       }
@@ -142,10 +142,10 @@ module.exports = function (app) {
     send(res, "register", { user: null, error: null, googleAuth: !!config.google.clientID });
   });
 
-  app.post("/auth/register", rateLimit.middleware("register", 10, 900000), async (req, res) => {
+  app.post("/auth/register", rateLimit.middleware("register", 10, C.TIME.FIFTEEN_MIN), async (req, res) => {
     if (!config.localAuth || !config.registrationOpen) return res.status(403).json({ error: "Registration is closed." });
     try {
-      const body = await parseJson(req);
+      var body = await parseJson(req);
       var input = validateRegisterInput(body);
       if (input.error) return res.status(400).json({ error: input.error });
 

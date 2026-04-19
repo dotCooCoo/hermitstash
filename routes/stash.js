@@ -103,7 +103,7 @@ module.exports = function (app) {
   });
 
   // Stash password unlock
-  app.post("/stash/:slug/unlock", rateLimit.middleware("stash-unlock", 10, 900000), async function (req, res) {
+  app.post("/stash/:slug/unlock", rateLimit.middleware("stash-unlock", 10, TIME.FIFTEEN_MIN), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
@@ -135,7 +135,7 @@ module.exports = function (app) {
   });
 
   // Request email access code for stash page
-  app.post("/stash/:slug/request-code", rateLimit.middleware("stash-email-code", 5, 300000), async function (req, res) {
+  app.post("/stash/:slug/request-code", rateLimit.middleware("stash-email-code", 5, TIME.FIVE_MIN), async function (req, res) {
     var stash = stashRepo.findBySlug(req.params.slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
 
@@ -168,7 +168,7 @@ module.exports = function (app) {
   });
 
   // Verify email access code for stash page
-  app.post("/stash/:slug/verify-code", rateLimit.middleware("stash-verify-code", 10, 900000), async function (req, res) {
+  app.post("/stash/:slug/verify-code", rateLimit.middleware("stash-verify-code", 10, TIME.FIFTEEN_MIN), async function (req, res) {
     var stash = stashRepo.findBySlug(req.params.slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
 
@@ -197,7 +197,7 @@ module.exports = function (app) {
   });
 
   // Init bundle from stash page
-  app.post("/stash/:slug/init", rateLimit.middleware("drop-init", 20, 60000), async function (req, res) {
+  app.post("/stash/:slug/init", rateLimit.middleware("drop-init", 20, TIME.ONE_MIN), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
@@ -245,7 +245,7 @@ module.exports = function (app) {
   });
 
   // Upload single file to stash bundle
-  app.post("/stash/:slug/file/:bundleId", rateLimit.middleware("upload", 200, 60000), async function (req, res) {
+  app.post("/stash/:slug/file/:bundleId", rateLimit.middleware("upload", 200, TIME.ONE_MIN), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
@@ -276,7 +276,7 @@ module.exports = function (app) {
   });
 
   // Chunked upload for stash
-  app.post("/stash/:slug/chunk/:bundleId", rateLimit.middleware("chunk", 500, 60000), async function (req, res) {
+  app.post("/stash/:slug/chunk/:bundleId", rateLimit.middleware("chunk", 500, TIME.ONE_MIN), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
@@ -307,7 +307,7 @@ module.exports = function (app) {
   });
 
   // Finalize stash bundle
-  app.post("/stash/:slug/finalize/:bundleId", rateLimit.middleware("finalize", 20, 60000), async function (req, res) {
+  app.post("/stash/:slug/finalize/:bundleId", rateLimit.middleware("finalize", 20, TIME.ONE_MIN), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
@@ -764,7 +764,7 @@ module.exports = function (app) {
         bundleId: null,
         createdBy: req.user._id,
         status: "pending",
-        expiresAt: new Date(Date.now() + 3600000).toISOString(), // 1 hour
+        expiresAt: new Date(Date.now() + TIME.ONE_HOUR).toISOString(), // 1 hour
         createdAt: new Date().toISOString(),
       });
 
@@ -810,7 +810,7 @@ module.exports = function (app) {
   });
 
   // Re-issue client certificate for an existing API key (repairs broken mTLS without new enrollment)
-  app.post("/admin/stash/:id/reissue-cert", rateLimit.middleware("cert-reissue", 5, 300000), async function (req, res) {
+  app.post("/admin/stash/:id/reissue-cert", rateLimit.middleware("cert-reissue", 5, TIME.FIVE_MIN), async function (req, res) {
     if (!requireAdmin(req, res)) return;
     try {
       var body = await parseJson(req);
@@ -844,7 +844,7 @@ module.exports = function (app) {
         status: "pending",
         reissue: true,
         originalKeyId: apiKeyId,
-        expiresAt: new Date(Date.now() + 3600000).toISOString(),
+        expiresAt: new Date(Date.now() + TIME.ONE_HOUR).toISOString(),
         createdAt: new Date().toISOString(),
       });
 

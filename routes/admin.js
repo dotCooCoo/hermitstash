@@ -3,7 +3,7 @@ var path = require("path");
 var audit = require("../lib/audit");
 var { PATHS } = require("../lib/constants");
 var logger = require("../app/shared/logger");
-const config = require("../lib/config");
+var config = require("../lib/config");
 var usersRepo = require("../app/data/repositories/users.repo");
 var filesRepo = require("../app/data/repositories/files.repo");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
@@ -13,11 +13,11 @@ var credentialsRepo = require("../app/data/repositories/credentials.repo");
 var apiKeysRepo = require("../app/data/repositories/apiKeys.repo");
 var webhooksRepo = require("../app/data/repositories/webhooks.repo");
 var teamsRepo = require("../app/data/repositories/teams.repo");
-const { parseJson, parseMultipart } = require("../lib/multipart");
-const { hashPassword, generateToken } = require("../lib/crypto");
-const storage = require("../lib/storage");
-const requireAdmin = require("../middleware/require-admin");
-const { send, host } = require("../middleware/send");
+var { parseJson, parseMultipart } = require("../lib/multipart");
+var { hashPassword, generateToken } = require("../lib/crypto");
+var storage = require("../lib/storage");
+var requireAdmin = require("../middleware/require-admin");
+var { send, host } = require("../middleware/send");
 var adminValidator = require("../app/http/validators/admin.validator");
 var exportService = require("../app/domain/admin/export.service");
 var settingsService = require("../app/domain/admin/settings.service");
@@ -211,7 +211,7 @@ module.exports = function (app) {
   // Delete file (admin)
   app.post("/admin/files/:shareId/delete", async (req, res) => {
     if (!requireAdmin(req, res)) return;
-    const doc = filesRepo.findByShareId(req.params.shareId);
+    var doc = filesRepo.findByShareId(req.params.shareId);
     if (!doc) return res.status(404).json({ error: "Not found." });
     if (doc.storagePath) await storage.deleteFile(doc.storagePath);
     filesRepo.remove(doc._id);
@@ -239,10 +239,10 @@ module.exports = function (app) {
   // Delete bundle + all files
   app.post("/admin/bundles/:shareId/delete", async (req, res) => {
     if (!requireAdmin(req, res)) return;
-    const bundle = bundlesRepo.findByShareId(req.params.shareId);
+    var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle) return res.status(404).json({ error: "Not found." });
-    const bf = filesRepo.findByBundleShareId(bundle.shareId);
-    for (const f of bf) {
+    var bf = filesRepo.findByBundleShareId(bundle.shareId);
+    for (var f of bf) {
       if (f.storagePath) await storage.deleteFile(f.storagePath);
       filesRepo.remove(f._id);
     }
@@ -526,7 +526,7 @@ module.exports = function (app) {
   app.post("/admin/settings", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
-      const body = await parseJson(req);
+      var body = await parseJson(req);
       var check = adminValidator.validateSettingsInput(body);
       if (check.error) return res.status(400).json({ error: check.error });
       var result = settingsService.updateSettings(check.settings);

@@ -3,17 +3,17 @@ var bundlesRepo = require("../app/data/repositories/bundles.repo");
 var filesRepo = require("../app/data/repositories/files.repo");
 var accessLogRepo = require("../app/data/repositories/bundleAccessLog.repo");
 var logger = require("../app/shared/logger");
-const config = require("../lib/config");
-const { verifyPassword, sha3Hash } = require("../lib/crypto");
-const { parseJson } = require("../lib/multipart");
-const storage = require("../lib/storage");
-const { ZipWriter } = require("../lib/zip");
-const { safeFilename } = require("../lib/sanitize");
-const { safeContentDisposition } = require("../app/shared/sanitize-filename");
-const { send, host } = require("../middleware/send");
+var config = require("../lib/config");
+var { verifyPassword, sha3Hash } = require("../lib/crypto");
+var { parseJson } = require("../lib/multipart");
+var storage = require("../lib/storage");
+var { ZipWriter } = require("../lib/zip");
+var { safeFilename } = require("../lib/sanitize");
+var { safeContentDisposition } = require("../app/shared/sanitize-filename");
+var { send, host } = require("../middleware/send");
 var audit = require("../lib/audit");
 var rateLimit = require("../lib/rate-limit");
-const requireAuth = require("../middleware/require-auth");
+var requireAuth = require("../middleware/require-auth");
 
 var { isBundleLocked, prefersJson } = require("../middleware/require-access");
 var db = require("../lib/db");
@@ -56,7 +56,7 @@ function clearBundleLockout(shareId) {
 
 module.exports = function (app) {
   // Bundle password verification (rate limited to prevent brute force)
-  app.post("/b/:shareId/unlock", rateLimit.middleware("bundle-unlock", 10, 900000), async (req, res) => {
+  app.post("/b/:shareId/unlock", rateLimit.middleware("bundle-unlock", 10, C.TIME.FIFTEEN_MIN), async (req, res) => {
     var shareId = req.params.shareId;
     var bundle = bundlesRepo.findByShareId(shareId);
     if (!bundle || bundle.status !== "complete") return res.status(404).json({ error: "Bundle not found." });
@@ -111,7 +111,7 @@ module.exports = function (app) {
   });
 
   // Request email access code (rate limited)
-  app.post("/b/:shareId/request-code", rateLimit.middleware("bundle-email-code", 5, 300000), async (req, res) => {
+  app.post("/b/:shareId/request-code", rateLimit.middleware("bundle-email-code", 5, C.TIME.FIVE_MIN), async (req, res) => {
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle || bundle.status !== "complete") return res.status(404).json({ error: "Bundle not found." });
 
@@ -152,7 +152,7 @@ module.exports = function (app) {
   });
 
   // Verify email access code (rate limited)
-  app.post("/b/:shareId/verify-code", rateLimit.middleware("bundle-verify-code", 10, 900000), async (req, res) => {
+  app.post("/b/:shareId/verify-code", rateLimit.middleware("bundle-verify-code", 10, C.TIME.FIFTEEN_MIN), async (req, res) => {
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle || bundle.status !== "complete") return res.status(404).json({ error: "Bundle not found." });
 
@@ -191,7 +191,7 @@ module.exports = function (app) {
 
   // Bundle browse page
   app.get("/b/:shareId", (req, res) => {
-    const bundle = bundlesRepo.findByShareId(req.params.shareId);
+    var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle || bundle.status !== "complete") return send(res, "error", { title: "Not Found", message: "Bundle not found.", user: req.user }, 404);
 
     // Check expiry
@@ -208,7 +208,7 @@ module.exports = function (app) {
       var emailVerified = locked === "email-then-password";
       return send(res, "bundle-locked", { shareId: req.params.shareId, user: req.user, emailVerified: emailVerified });
     }
-    const bundleFiles = filesRepo.findByBundleShareId(bundle.shareId)
+    var bundleFiles = filesRepo.findByBundleShareId(bundle.shareId)
       .filter(f => !f.deletedAt)
       .sort((a, b) => (a.relativePath || "").localeCompare(b.relativePath || ""));
     var verifiedEmail = req.session["bundle_" + req.params.shareId];
@@ -253,7 +253,7 @@ module.exports = function (app) {
 
   // Download single file from bundle
   app.get("/b/:shareId/file/:fileShareId", async (req, res) => {
-    const doc = filesRepo.findByShareId(req.params.fileShareId);
+    var doc = filesRepo.findByShareId(req.params.fileShareId);
     if (!doc || doc.bundleShareId !== req.params.shareId) { res.writeHead(404); return res.end("Not found"); }
     if (doc.expiresAt && doc.expiresAt < new Date().toISOString()) { res.writeHead(410); return res.end("File expired"); }
     // Enforce bundle access protection on single file downloads
@@ -269,7 +269,7 @@ module.exports = function (app) {
       if (presignedUrl) { res.writeHead(302, { "Location": presignedUrl, "Cache-Control": "no-store" }); return res.end(); }
     }
     try {
-      const stream = await storage.getFileStream(doc.storagePath, doc.encryptionKey);
+      var stream = await storage.getFileStream(doc.storagePath, doc.encryptionKey);
       req.on("close", function () { if (stream.destroy) stream.destroy(); });
       res.writeHead(200, {
         "Content-Disposition": safeContentDisposition(doc.originalName, "attachment"),
@@ -284,7 +284,7 @@ module.exports = function (app) {
 
   // Download entire bundle as ZIP
   app.get("/b/:shareId/download", async (req, res) => {
-    const bundle = bundlesRepo.findByShareId(req.params.shareId);
+    var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle || bundle.status !== "complete") { res.writeHead(404); return res.end("Not found"); }
     // Enforce bundle access protection on ZIP downloads
     if (isBundleLocked(bundle, req.session)) {
@@ -301,11 +301,11 @@ module.exports = function (app) {
       "Content-Disposition": safeContentDisposition((bundle.bundleName || "hermitstash-" + bundle.shareId) + ".zip", "attachment"),
     });
 
-    const zip = new ZipWriter(res);
+    var zip = new ZipWriter(res);
     var skippedFiles = [];
-    for (const f of bundleFiles) {
+    for (var f of bundleFiles) {
       try {
-        const stream = await storage.getFileStream(f.storagePath, f.encryptionKey);
+        var stream = await storage.getFileStream(f.storagePath, f.encryptionKey);
         await zip.addFile(f.relativePath || f.originalName, stream);
       } catch (e) {
         logger.error("Zip skip", { error: e.message || String(e), file: f.originalName, bundle: bundle.shareId });
@@ -380,7 +380,7 @@ module.exports = function (app) {
   });
 
   // Rename/move a file within a sync bundle (metadata-only, no re-upload)
-  app.post("/bundles/:shareId/file/rename", rateLimit.middleware("sync-file-rename", 100, 60000), async (req, res) => {
+  app.post("/bundles/:shareId/file/rename", rateLimit.middleware("sync-file-rename", 100, C.TIME.ONE_MIN), async (req, res) => {
     if (!requireAuth(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle) return res.status(404).json({ error: "Not found." });
@@ -400,7 +400,7 @@ module.exports = function (app) {
   });
 
   // Delete a single file from a sync bundle (soft delete with tombstone)
-  app.post("/bundles/:shareId/file/:fileId/delete", rateLimit.middleware("sync-file-delete", 100, 60000), async (req, res) => {
+  app.post("/bundles/:shareId/file/:fileId/delete", rateLimit.middleware("sync-file-delete", 100, C.TIME.ONE_MIN), async (req, res) => {
     if (!requireAuth(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle) return res.status(404).json({ error: "Not found." });

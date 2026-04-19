@@ -1,4 +1,5 @@
 var config = require("../lib/config");
+var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
 var usersRepo = require("../app/data/repositories/users.repo");
 var verificationTokensRepo = require("../app/data/repositories/verificationTokens.repo");
@@ -17,7 +18,7 @@ function createVerificationToken(userId) {
 
   var rawToken = generateToken();
   var tokenHash = sha3Hash(rawToken);
-  var expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24 hours
+  var expiresAt = new Date(Date.now() + C.TIME.ONE_DAY).toISOString(); // 24 hours
 
   verificationTokensRepo.create({
     userId: userId,
@@ -107,7 +108,7 @@ module.exports = function (app) {
   });
 
   // Resend verification email (rate limited to prevent email quota abuse)
-  app.post("/auth/resend-verification", rateLimit.middleware("resend-verify", 3, 300000), async (req, res) => {
+  app.post("/auth/resend-verification", rateLimit.middleware("resend-verify", 3, C.TIME.FIVE_MIN), async (req, res) => {
     try {
       var body = await parseJson(req);
       var emailCheck = validateEmail(body.email);

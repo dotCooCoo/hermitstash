@@ -1,4 +1,5 @@
 var config = require("../lib/config");
+var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
 var rateLimit = require("../lib/rate-limit");
 var usersRepo = require("../app/data/repositories/users.repo");
@@ -132,7 +133,7 @@ module.exports = function (app) {
   });
 
   // Verify authentication response
-  app.post("/passkey/login/verify", rateLimit.middleware("passkey-login", 10, 60000), async (req, res) => {
+  app.post("/passkey/login/verify", rateLimit.middleware("passkey-login", 10, C.TIME.ONE_MIN), async (req, res) => {
     if (!config.passkeyEnabled) return res.status(403).json({ error: "Passkeys are disabled." });
 
     try {
@@ -145,7 +146,7 @@ module.exports = function (app) {
 
       // Find the credential by trying all stored credentials
       var incomingCredId = body.id; // base64url encoded
-      var allCreds = credentialsRepo.findAll({});
+      var allCreds = credentialsRepo.find({});
       var matchedCred = null;
 
       for (var i = 0; i < allCreds.length; i++) {

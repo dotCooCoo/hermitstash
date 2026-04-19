@@ -4,7 +4,7 @@
  */
 var bundlesRepo = require("../../data/repositories/bundles.repo");
 var { TIME } = require("../../../lib/constants");
-var { hashPassword, sha3Hash, generateShareId, generateToken } = require("../../../lib/crypto");
+var { hashPassword, sha3Hash, generateShareId, generateToken, timingSafeEqual } = require("../../../lib/crypto");
 var { getTotalStorageUsed } = require("../../../lib/db");
 var { ValidationError, NotFoundError, ForbiddenError } = require("../../shared/errors");
 var { sanitizeRename } = require("../../shared/sanitize-filename");
@@ -100,9 +100,9 @@ function finalizeBundle(bundleId, token) {
   if (!bundle) throw new NotFoundError("Bundle not found.");
   if (bundle.status === "complete" && bundle.bundleType !== "sync") throw new ValidationError("Already finalized.");
 
-  // Verify finalize token
+  // Verify finalize token (timing-safe)
   var tokenHash = sha3Hash(token);
-  if (tokenHash !== bundle.finalizeTokenHash) {
+  if (!bundle.finalizeTokenHash || tokenHash.length !== bundle.finalizeTokenHash.length || !timingSafeEqual(tokenHash, bundle.finalizeTokenHash)) {
     throw new ForbiddenError("Invalid finalize token.");
   }
 

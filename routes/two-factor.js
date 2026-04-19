@@ -1,4 +1,5 @@
 var config = require("../lib/config");
+var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
 var vault = require("../lib/vault");
 var rateLimit = require("../lib/rate-limit");
@@ -92,7 +93,7 @@ module.exports = function (app) {
   });
 
   // Verify 2FA during login (called after password success)
-  app.post("/2fa/verify", rateLimit.middleware("2fa", 5, 300000), async (req, res) => {
+  app.post("/2fa/verify", rateLimit.middleware("2fa", 5, C.TIME.FIVE_MIN), async (req, res) => {
     try {
       var body = await parseJson(req);
       var code = String(body.code || "");

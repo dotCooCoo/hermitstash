@@ -6,7 +6,7 @@ var rateLimit = require("../lib/rate-limit");
 var filesRepo = require("../app/data/repositories/files.repo");
 var invitesRepo = require("../app/data/repositories/invites.repo");
 var { parseJson } = require("../lib/multipart");
-var { hashPassword, sha3Hash, generateToken } = require("../lib/crypto");
+var { hashPassword, sha3Hash, generateToken, timingSafeEqual } = require("../lib/crypto");
 var { sendInviteEmail } = require("../lib/email");
 var { clearSessionsForUser } = require("../lib/session");
 var { validatePassword } = require("../app/shared/validate");
@@ -27,7 +27,7 @@ module.exports = function (app) {
   // Search ?q= is rate-limited separately because each request unseals up to
   // USER_SEARCH_SCAN_LIMIT user records — repeating it cheaply is a DoS lever
   // even against admin users.
-  app.get("/admin/users/api", rateLimit.middleware("admin-user-search", 60, C.TIME.ONE_MIN || 60000), (req, res) => {
+  app.get("/admin/users/api", rateLimit.middleware("admin-user-search", 60, C.TIME.ONE_MIN), (req, res) => {
     if (!requireAdmin(req, res)) return;
     var q = req.query.q || "";
     var role = req.query.role || "";
@@ -184,14 +184,14 @@ module.exports = function (app) {
   // Accept invite — show setup form
   app.get("/auth/invite/:token", (req, res) => {
     var tokenHash = sha3Hash(req.params.token);
-    var invite = invitesRepo.findAll({}).filter(function (i) { return i.tokenHash === tokenHash && i.status === "pending"; })[0];
+    var invite = invitesRepo.findAll({}).filter(function (i) { return i.tokenHash && i.tokenHash.length === tokenHash.length && timingSafeEqual(i.tokenHash, tokenHash) && i.status === "pending"; })[0];
     if (!invite) return send(res, "error", { title: "Invalid Invite", message: "This invite link is invalid or has already been used.", user: null }, 404);
     if (invite.expiresAt < new Date().toISOString()) return send(res, "error", { title: "Invite Expired", message: "This invite has expired. Please ask your admin for a new one.", user: null }, 410);
     send(res, "invite-accept", { email: invite.email, token: req.params.token, user: null, localAuth: config.localAuth, passkeyEnabled: config.passkeyEnabled, googleAuth: !!config.google.clientID });
   });
 
   // Accept invite — process form
-  app.post("/auth/invite/accept", rateLimit.middleware("invite-accept", 10, 900000), async (req, res) => {
+  app.post("/auth/invite/accept", rateLimit.middleware("invite-accept", 10, C.TIME.FIFTEEN_MIN), async (req, res) => {
     try {
       var body = await parseJson(req);
       var token = String(body.token || "");
@@ -209,7 +209,7 @@ module.exports = function (app) {
       }
 
       var tokenHash = sha3Hash(token);
-      var invite = invitesRepo.findAll({}).filter(function (i) { return i.tokenHash === tokenHash && i.status === "pending"; })[0];
+      var invite = invitesRepo.findAll({}).filter(function (i) { return i.tokenHash && i.tokenHash.length === tokenHash.length && timingSafeEqual(i.tokenHash, tokenHash) && i.status === "pending"; })[0];
       if (!invite) return res.status(400).json({ error: "Invalid or expired invite." });
       if (invite.expiresAt < new Date().toISOString()) return res.status(400).json({ error: "Invite expired." });
       if (usersRepo.findByEmail(invite.email)) return res.status(400).json({ error: "Account already exists." });

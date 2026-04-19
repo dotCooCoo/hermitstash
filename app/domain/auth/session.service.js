@@ -3,6 +3,7 @@
  * Wraps the low-level session store with higher-level operations.
  */
 var { clearSessionsForUser, clearAllSessions, clearSessionById } = require("../../../lib/session");
+var { TIME } = require("../../../lib/constants");
 
 /**
  * Login: regenerate session and set userId.
@@ -18,7 +19,7 @@ function loginUser(req, userId) {
 function start2faPending(req, userId) {
   req.regenerateSession();
   req.session.pendingTotpUserId = userId;
-  req.session.pendingTotpExpires = Date.now() + 300000; // 5 minutes
+  req.session.pendingTotpExpires = Date.now() + TIME.FIVE_MIN;
 }
 
 /**

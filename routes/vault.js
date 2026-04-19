@@ -10,6 +10,7 @@
  *               released after passkey re-auth (works with all passkey providers)
  */
 var path = require("path");
+var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
 var usersRepo = require("../app/data/repositories/users.repo");
 var filesRepo = require("../app/data/repositories/files.repo");
@@ -133,7 +134,7 @@ module.exports = function (app) {
 
   // Unlock vault — passkey-gated mode only
   // Verifies passkey authentication, then releases the vault seed for client-side decryption
-  app.post("/vault/unlock", rateLimit.middleware("vault-unlock", 5, 300000), async (req, res) => {
+  app.post("/vault/unlock", rateLimit.middleware("vault-unlock", 5, C.TIME.FIVE_MIN), async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {
       var user = usersRepo.findById(req.user._id);

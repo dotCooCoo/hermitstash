@@ -3,7 +3,7 @@
  */
 var crypto = require("crypto");
 var { sha3Hash, timingSafeEqual } = require("../../lib/crypto");
-var { HASH_PREFIX } = require("../../lib/constants");
+var { HASH_PREFIX, TIME } = require("../../lib/constants");
 var accessCodesRepo = require("../data/repositories/bundleAccessCodes.repo");
 var emailService = require("../../lib/email");
 
@@ -21,7 +21,7 @@ async function requestCode(opts) {
   var email = opts.email;
 
   var emailHash = sha3Hash(HASH_PREFIX.EMAIL + email);
-  var tenMinAgo = new Date(Date.now() - 600000).toISOString();
+  var tenMinAgo = new Date(Date.now() - TIME.TEN_MIN).toISOString();
   var recentCount = accessCodesRepo.countRecentCodes(shareId, emailHash, tenMinAgo);
   if (recentCount >= 3) {
     return { sent: false };
@@ -38,7 +38,7 @@ async function requestCode(opts) {
     code: code,
     attempts: 0,
     status: "pending",
-    expiresAt: new Date(Date.now() + 600000).toISOString(),
+    expiresAt: new Date(Date.now() + TIME.TEN_MIN).toISOString(),
     createdAt: new Date().toISOString(),
   });
 

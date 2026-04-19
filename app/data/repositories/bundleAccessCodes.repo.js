@@ -2,6 +2,7 @@
  * Bundle Access Codes Repository — one-time email verification codes for email-gated bundles.
  */
 var { bundleAccessCodes } = require("../../../lib/db");
+var { TIME } = require("../../../lib/constants");
 
 function create(doc) { return bundleAccessCodes.insert(doc); }
 
@@ -27,7 +28,7 @@ function invalidatePending(bundleShareId, emailHash) {
 }
 
 function cleanupExpired() {
-  var cutoff = new Date(Date.now() - 3600000).toISOString();
+  var cutoff = new Date(Date.now() - TIME.ONE_HOUR).toISOString();
   var old = bundleAccessCodes.find({}).filter(function (c) { return c.expiresAt < cutoff; });
   for (var i = 0; i < old.length; i++) bundleAccessCodes.remove({ _id: old[i]._id });
   return old.length;

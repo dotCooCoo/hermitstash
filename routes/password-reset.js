@@ -1,4 +1,5 @@
 var config = require("../lib/config");
+var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
 var usersRepo = require("../app/data/repositories/users.repo");
 var verificationTokensRepo = require("../app/data/repositories/verificationTokens.repo");
@@ -22,7 +23,7 @@ module.exports = function (app) {
   });
 
   // POST /auth/forgot-password — rate limited, generate reset token, send email
-  app.post("/auth/forgot-password", rateLimit.middleware("password-reset", 5, 900000), async function (req, res) {
+  app.post("/auth/forgot-password", rateLimit.middleware("password-reset", 5, C.TIME.FIFTEEN_MIN), async function (req, res) {
     if (!config.localAuth) return res.status(403).json({ error: "Disabled." });
 
     try {
@@ -53,7 +54,7 @@ module.exports = function (app) {
       // Generate and store hashed token
       var rawToken = generateToken();
       var tokenHash = sha3Hash(rawToken);
-      var expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+      var expiresAt = new Date(Date.now() + C.TIME.ONE_HOUR).toISOString(); // 1 hour
 
       verificationTokensRepo.create({
         userId: user._id,
@@ -104,7 +105,7 @@ module.exports = function (app) {
   });
 
   // POST /auth/reset-password/:token — validate token, update password, clear sessions
-  app.post("/auth/reset-password/:token", rateLimit.middleware("password-reset-submit", 10, 900000), async function (req, res) {
+  app.post("/auth/reset-password/:token", rateLimit.middleware("password-reset-submit", 10, C.TIME.FIFTEEN_MIN), async function (req, res) {
     if (!config.localAuth) return res.status(403).json({ error: "Disabled." });
 
     try {

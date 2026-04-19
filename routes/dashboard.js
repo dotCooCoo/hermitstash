@@ -1,8 +1,8 @@
-const config = require("../lib/config");
+var config = require("../lib/config");
 var filesRepo = require("../app/data/repositories/files.repo");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
-const requireAuth = require("../middleware/require-auth");
-const { send, host } = require("../middleware/send");
+var requireAuth = require("../middleware/require-auth");
+var { send, host } = require("../middleware/send");
 
 module.exports = function (app) {
   // Landing
@@ -22,18 +22,18 @@ module.exports = function (app) {
 
     // Claim unclaimed public uploads matching this user's email
     if (req.user.email) {
-      const unclaimed = filesRepo.findAll({ uploaderEmail: req.user.email, uploadedBy: "public" });
-      for (const f of unclaimed) {
+      var unclaimed = filesRepo.findAll({ uploaderEmail: req.user.email, uploadedBy: "public" });
+      for (var f of unclaimed) {
         filesRepo.update(f._id, { $set: { uploadedBy: req.user._id } });
       }
     }
 
-    const userFiles = filesRepo.findAll({ uploadedBy: req.user._id })
+    var userFiles = filesRepo.findAll({ uploadedBy: req.user._id })
       .filter(f => f.status !== "chunking" && f.vaultEncrypted !== "true")
       .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
 
     // Fetch user's bundles
-    const userBundles = bundlesRepo.findAll({ ownerId: req.user._id })
+    var userBundles = bundlesRepo.findAll({ ownerId: req.user._id })
       .filter(b => b.status === "complete")
       .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
 
