@@ -422,6 +422,26 @@ app.post("/sync/rename", require("./lib/rate-limit").middleware("sync-file-renam
       res.writeHead(403, { "Content-Type": "application/json" });
       return res.end(JSON.stringify({ error: "Forbidden." }));
     }
+    // Per-key cert binding: if the key was enrolled with mTLS, every
+    // request using that key MUST present a matching cert. Same
+    // enforcement as /sync/ws (line ~715) and /sync/renew-cert; this
+    // endpoint was missing it, letting a leaked Bearer token bypass the
+    // cert gate entirely. TODO: extract to shared middleware — this is
+    // now the 3rd copy of the check.
+    if (req.apiKey.certFingerprint) {
+      var peerCert = req.socket && req.socket.getPeerCertificate ? req.socket.getPeerCertificate() : null;
+      if (!peerCert || !peerCert.raw || !req.socket.authorized) {
+        res.writeHead(403, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ error: "Client certificate required." }));
+      }
+      var derB64 = peerCert.raw.toString("base64");
+      var pem = "-----BEGIN CERTIFICATE-----\n" + derB64.match(/.{1,64}/g).join("\n") + "\n-----END CERTIFICATE-----\n";
+      var presentedFp = sha3Hash(pem);
+      if (presentedFp.length !== req.apiKey.certFingerprint.length || !timingSafeEqual(presentedFp, req.apiKey.certFingerprint)) {
+        res.writeHead(403, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ error: "Certificate does not match API key." }));
+      }
+    }
     var result = await handleSyncFileRename({
       bundleId: body.bundleId,
       oldRelativePath: body.oldRelativePath,
