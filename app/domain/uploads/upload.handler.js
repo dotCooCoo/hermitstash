@@ -144,24 +144,33 @@ async function handleFileUpload(ctx) {
       checksum = sha3Hash(file.data);
       saved = await storage.saveFile(file.data, storagePath);
       try { await storage.deleteFile(old.storagePath); } catch (_e) { /* cleanup — old replaced-file may already be gone on S3 */ }
-      var now = new Date().toISOString();
-      filesRepo.update(old._id, { $set: {
-        originalName: sanitizeFilename(file.filename),
-        storagePath: saved.path, mimeType: file.mimetype, size: file.size,
-        checksum: checksum, encryptionKey: saved.encryptionKey,
-        updatedAt: now, seq: (bundle.seq || 0) + 1,
-      }});
       replaced = true;
     }
   }
 
-  if (!replaced) {
+  // Atomically increment bundle.seq — must happen AFTER storage.saveFile
+  // (which yields the event loop), so the seq we assign to the file + event
+  // matches the final DB state even under concurrent uploads. Previously
+  // three call sites each computed `(bundle.seq || 0) + 1` from the stale
+  // in-memory value, which under concurrency produced duplicate seq numbers
+  // and silently dropped events on the WS catch-up path.
+  var newSeq = bundlesRepo.incrementSeq(bundle._id);
+
+  var now = new Date().toISOString();
+  if (replaced) {
+    filesRepo.update(old._id, { $set: {
+      originalName: sanitizeFilename(file.filename),
+      storagePath: saved.path, mimeType: file.mimetype, size: file.size,
+      checksum: checksum, encryptionKey: saved.encryptionKey,
+      updatedAt: now, seq: newSeq,
+    }});
+  } else {
     var result = await fileService.saveAndCreateFileRecord(file.data, {
       bundleShareId: bundle.shareId, bundleId: bundle._id,
       filename: file.filename, relativePath: cleanRelPath,
       mimeType: file.mimetype, uploadedBy: ctx.uploadedBy,
       uploaderEmail: ctx.uploaderEmail, expiresAt: ctx.expiresAt,
-      seq: (bundle.seq || 0) + 1,
+      seq: newSeq,
     });
     fileShareId = result.shareId;
     checksum = result.checksum;
@@ -176,20 +185,18 @@ async function handleFileUpload(ctx) {
   var action = replaced ? "file_replaced" : "file_added";
   audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: bundle._id, details: auditDetail({ action: action, bundleId: bundle._id, file: file.filename, relativePath: cleanRelPath, size: file.size, checksum: checksum }), req: ctx.req });
 
-  // Update bundle counters and seq
+  // Update counters (seq already bumped atomically above).
   var sizeChange = replaced ? (file.size - oldSize) : file.size;
   var fileCountChange = replaced ? 0 : 1;
   bundlesRepo.update(bundle._id, {
     $set: {
       receivedFiles: bundle.receivedFiles + fileCountChange,
       totalSize: bundle.totalSize + sizeChange,
-      seq: (bundle.seq || 0) + 1,
     },
   });
 
   // Emit sync event for WebSocket subscribers
   if (bundle.bundleType === "sync") {
-    var newSeq = (bundle.seq || 0) + 1;
     syncEmitter.emit("sync:" + bundle._id, {
       type: action, fileId: replaced ? existing[0]._id : fileShareId,
       relativePath: cleanRelPath, checksum: checksum, size: file.size, seq: newSeq,
@@ -378,21 +385,25 @@ async function handleSyncFileDelete(ctx) {
   if (file.deletedAt) return { error: "File already deleted.", status: 404 };
 
   // Delete encrypted blob and sealed key from storage
-  try { await storage.deleteFile(file.storagePath); } catch (_e) {}
+  try { await storage.deleteFile(file.storagePath); } catch (_e) { /* cleanup — blob may already be gone on S3 */ }
+
+  // Atomically bump bundle.seq — this is the race-safe counterpart of the
+  // old read-then-write pattern. The `await storage.deleteFile` above yields
+  // the event loop, so a concurrent delete would previously produce the same
+  // stale seq. See bundles.repo.incrementSeq().
+  var newSeq = bundlesRepo.incrementSeq(bundle._id);
 
   // Tombstone: set deletedAt, keep sealed fields for event emission
   var now = new Date().toISOString();
-  var newSeq = (bundle.seq || 0) + 1;
   filesRepo.update(file._id, { $set: {
     deletedAt: now, updatedAt: now, seq: newSeq,
     storagePath: null, encryptionKey: null,
   }});
 
-  // Update bundle counters
+  // Update bundle counters (seq already bumped atomically above).
   bundlesRepo.update(bundle._id, { $set: {
     receivedFiles: Math.max(0, bundle.receivedFiles - 1),
     totalSize: Math.max(0, bundle.totalSize - (file.size || 0)),
-    seq: newSeq,
   }});
 
   audit.log(audit.ACTIONS.FILE_DELETED, { targetId: file._id, details: auditDetail({ action: "file_removed", bundleId: bundle._id, file: file.originalName, relativePath: file.relativePath }), req: ctx.req });
@@ -434,7 +445,8 @@ async function handleSyncFileRename(ctx) {
 
   var file = allFiles[0];
   var now = new Date().toISOString();
-  var newSeq = (bundle.seq || 0) + 1;
+  // Atomic seq bump — prevents stale-read duplicates on parallel rename calls.
+  var newSeq = bundlesRepo.incrementSeq(bundle._id);
   var newName = segments[segments.length - 1];
 
   // Update file metadata
@@ -444,9 +456,6 @@ async function handleSyncFileRename(ctx) {
     updatedAt: now,
     seq: newSeq,
   }});
-
-  // Update bundle seq
-  bundlesRepo.update(bundle._id, { $set: { seq: newSeq } });
 
   audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, {
     targetId: bundle._id,

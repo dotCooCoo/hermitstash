@@ -414,6 +414,14 @@ app.post("/sync/rename", require("./lib/rate-limit").middleware("sync-file-renam
     var bundle = bundlesRepo.findById(body.bundleId);
     if (!bundle) { res.writeHead(404, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: "Bundle not found." })); }
     if (!bundle.ownerId || bundle.ownerId !== req.apiKey.userId) { res.writeHead(403, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: "Forbidden." })); }
+    // Per-key bundle binding: if the key was enrolled scoped to a specific
+    // bundle, enforce it here. The WS upgrade handler also enforces this;
+    // /sync/rename was missing the check, letting a bundle-A-bound key
+    // rename files in any bundle the same user owned.
+    if (req.apiKey.boundBundleId && req.apiKey.boundBundleId !== body.bundleId) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ error: "Forbidden." }));
+    }
     var result = await handleSyncFileRename({
       bundleId: body.bundleId,
       oldRelativePath: body.oldRelativePath,
