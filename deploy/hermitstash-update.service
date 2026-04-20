@@ -1,0 +1,46 @@
+# HermitStash — auto-update oneshot service
+#
+# Activated by hermitstash-update.timer. Runs deploy/update.sh with the
+# defaults baked into the script (UPDATE_STRATEGY=git, UPDATE_CHANNEL=stable,
+# current major only). Override by dropping an environment file at
+# /etc/default/hermitstash-update with KEY=VALUE lines.
+#
+# Runs as root so it can systemctl restart hermitstash. The updater writes
+# its lock file under /var/lock and its logs go to the journal.
+#
+# Manual invocation:
+#   sudo systemctl start hermitstash-update
+#   sudo DRY_RUN=1 /opt/hermitstash/deploy/update.sh
+
+[Unit]
+Description=HermitStash — check for and apply updates
+Documentation=https://github.com/dotCooCoo/hermitstash
+After=network-online.target hermitstash.service
+Wants=network-online.target
+# We don't require hermitstash to be running — the updater itself decides
+# whether to restart it — but we don't want to race with a fresh install
+# that hasn't finished its first-boot key generation yet.
+ConditionPathExists=/opt/hermitstash/package.json
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/hermitstash-update
+ExecStart=/opt/hermitstash/deploy/update.sh
+
+# The updater shells out to git, curl, systemctl, and flock. No network
+# namespace isolation because we explicitly need to reach api.github.com.
+# The service is brief (seconds to minutes) and only fires via the timer.
+
+# Writable paths: the git working tree, the lock file, and the journal.
+ProtectSystem=full
+ProtectHome=yes
+ReadWritePaths=/opt/hermitstash /var/lock
+NoNewPrivileges=yes
+
+# Don't auto-restart the updater itself on failure — the timer will pick
+# up the next tick and re-evaluate.
+Restart=no
+
+[Install]
+# No WantedBy — the timer pulls this in. Enabling the service directly
+# would cause it to run at every boot.

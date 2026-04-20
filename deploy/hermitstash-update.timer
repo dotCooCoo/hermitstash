@@ -1,0 +1,30 @@
+# HermitStash — auto-update timer
+#
+# Fires hermitstash-update.service once daily with a randomized delay, so a
+# thousand self-hosters don't hammer the GitHub API at the same minute past
+# midnight. Persistent=true means a box that was off when the timer should
+# have fired will catch up next time it boots.
+#
+# Enable:
+#   sudo systemctl enable --now hermitstash-update.timer
+# Disable:
+#   sudo systemctl disable --now hermitstash-update.timer
+# See next firing:
+#   systemctl list-timers hermitstash-update.timer
+# Run now (ad-hoc):
+#   sudo systemctl start hermitstash-update.service
+
+[Unit]
+Description=HermitStash — daily update check
+Documentation=https://github.com/dotCooCoo/hermitstash
+
+[Timer]
+# OnCalendar=daily is 00:00. The 4h random delay spreads invocations over
+# the night window without needing a cron schedule.
+OnCalendar=daily
+RandomizedDelaySec=4h
+Persistent=true
+Unit=hermitstash-update.service
+
+[Install]
+WantedBy=timers.target

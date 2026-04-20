@@ -18,6 +18,11 @@
 #   TRUST_PROXY       — proxy trust      (default: false)
 #   RP_ORIGIN         — origin URL       (default: empty)
 #   GENERATE_SYSTEMD  — create unit file (default: true)
+#   AUTO_UPDATE       — enable podman auto-update (default: false)
+#                       When true, adds io.containers.autoupdate=registry
+#                       to the container and enables podman-auto-update.timer
+#                       so new tagged images are pulled + the container
+#                       recreated on a schedule. Opt-in by design.
 
 set -euo pipefail
 
@@ -43,8 +48,21 @@ SHM_SIZE="${SHM_SIZE:-256m}"
 TRUST_PROXY="${TRUST_PROXY:-false}"
 RP_ORIGIN="${RP_ORIGIN:-}"
 GENERATE_SYSTEMD="${GENERATE_SYSTEMD:-true}"
+AUTO_UPDATE="${AUTO_UPDATE:-false}"
 IMAGE="ghcr.io/dotcoocoo/hermitstash:1"
 CONTAINER_NAME="hermitstash"
+
+# Podman's auto-update works by watching containers labeled
+# io.containers.autoupdate=registry. A periodic timer (podman-auto-update.timer)
+# re-checks the image digest for each labeled container and, if it changed,
+# pulls the new image and recreates the container with the same run args.
+# The :1 tag is a moving major-version pointer published by the Docker
+# workflow — every v1.* release updates it — so `registry` mode is exactly
+# what we want: stay on v1.*, auto-advance through minor + patch bumps.
+AUTOUPDATE_LABEL=""
+if [ "$AUTO_UPDATE" = "true" ] || [ "$AUTO_UPDATE" = "yes" ] || [ "$AUTO_UPDATE" = "1" ]; then
+  AUTOUPDATE_LABEL="--label io.containers.autoupdate=registry"
+fi
 
 echo "=== HermitStash Podman Installer ==="
 echo ""
@@ -95,6 +113,7 @@ podman run -d \
   -v "${DATA_DIR}:/app/data:Z" \
   -v "${UPLOADS_DIR}:/app/uploads:Z" \
   --shm-size="$SHM_SIZE" \
+  $AUTOUPDATE_LABEL \
   $ENV_FLAGS \
   "$IMAGE"
 
@@ -143,6 +162,21 @@ elif [ "$GENERATE_SYSTEMD" = "true" ] && [ "$(id -u)" -ne 0 ]; then
   echo "To start on boot without login: loginctl enable-linger $(whoami)"
 fi
 
+# ---- Enable podman-auto-update timer (opt-in) ----
+if [ -n "$AUTOUPDATE_LABEL" ]; then
+  echo ""
+  echo "Enabling podman-auto-update timer..."
+  if [ "$(id -u)" -eq 0 ]; then
+    systemctl enable --now podman-auto-update.timer 2>/dev/null \
+      || echo "  Warning: could not enable podman-auto-update.timer — run manually: systemctl enable --now podman-auto-update.timer"
+    echo "  Auto-update will run daily. Preview with: podman auto-update --dry-run"
+  else
+    systemctl --user enable --now podman-auto-update.timer 2>/dev/null \
+      || echo "  Warning: could not enable user podman-auto-update.timer — run manually: systemctl --user enable --now podman-auto-update.timer"
+    echo "  Auto-update will run daily. Preview with: podman auto-update --dry-run"
+  fi
+fi
+
 echo ""
 echo "Complete the setup wizard at http://localhost:${PORT}"
 echo ""
@@ -151,3 +185,7 @@ echo "  podman logs $CONTAINER_NAME        # view logs"
 echo "  podman stop $CONTAINER_NAME        # stop"
 echo "  podman start $CONTAINER_NAME       # start"
 echo "  podman exec -it $CONTAINER_NAME bash  # shell"
+if [ -n "$AUTOUPDATE_LABEL" ]; then
+  echo "  podman auto-update --dry-run       # preview pending image updates"
+  echo "  podman auto-update                 # apply updates now"
+fi

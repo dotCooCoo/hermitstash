@@ -583,6 +583,8 @@ Includes: Namespace, PVCs, Deployment (liveness/readiness probes, resource limit
 **Ubuntu / Debian (native install):**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dotCooCoo/hermitstash/main/deploy/install.sh | sudo bash
+# Or with auto-update enabled from the start:
+curl -fsSL https://raw.githubusercontent.com/dotCooCoo/hermitstash/main/deploy/install.sh | sudo HERMITSTASH_AUTO_UPDATE=yes bash
 ```
 Installs Node.js 24, creates a `hermit` system user, sets up tmpfs (256MB) for the in-memory database, and registers a systemd service using the checked-in [`deploy/hermitstash.service`](deploy/hermitstash.service) unit. Re-running the script `git pull`s the latest code and restarts the service. See [`deploy/install.sh`](deploy/install.sh). Uninstall with [`deploy/uninstall.sh`](deploy/uninstall.sh) — data is preserved unless you pass `--purge`.
 
@@ -618,7 +620,7 @@ Creates a Debian 12 system container with Docker nested inside. Forwards port 30
 ```bash
 bash deploy/podman.sh
 ```
-Drop-in Docker alternative — works rootless or rootful. Automatically generates a systemd unit via `podman generate systemd` (user unit for rootless, system unit for rootful). Volumes use `:Z` for SELinux relabeling. See [`deploy/podman.sh`](deploy/podman.sh).
+Drop-in Docker alternative — works rootless or rootful. Automatically generates a systemd unit via `podman generate systemd` (user unit for rootless, system unit for rootful). Volumes use `:Z` for SELinux relabeling. Pass `AUTO_UPDATE=true` to opt into `podman-auto-update.timer`. See [`deploy/podman.sh`](deploy/podman.sh).
 
 **Systemd (manual):** If you already have Node.js 24+ installed, copy [`deploy/hermitstash.service`](deploy/hermitstash.service) to `/etc/systemd/system/` and adjust paths. The unit includes `NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`, and scoped `ReadWritePaths`.
 
@@ -634,6 +636,29 @@ docker compose up -d
 ```
 
 Database migrations run automatically on startup — no manual steps needed. The server logs applied migrations at startup. If something goes wrong, restore `vault.key` and `hermitstash.db.enc` from your backup and restart with the previous image version.
+
+### Auto-update (opt-in)
+
+Auto-update is off by default on every deployment method. Turn it on when you want it.
+
+**Docker / Compose:** a 3-line root cron is enough — no extra container, no Docker socket to mount:
+```cron
+# /etc/cron.d/hermitstash-update  (root)
+17 4 * * *  cd /opt/hermitstash && docker compose pull && docker compose up -d --remove-orphans
+```
+The `ghcr.io/dotcoocoo/hermitstash:1` tag is a moving major-version pointer that every v1.* release updates, so this stays on v1.x forever. If you're on Coolify, Portainer, or CapRover, use the platform's built-in auto-deploy instead — they already watch the registry and handle rollout without needing a cron.
+
+**Podman:** pass `AUTO_UPDATE=true` to `deploy/podman.sh`. The script adds the `io.containers.autoupdate=registry` label and enables `podman-auto-update.timer`. Preview with `podman auto-update --dry-run`.
+
+**Native install (systemd):** pass `HERMITSTASH_AUTO_UPDATE=yes` to the installer, or enable it later:
+```bash
+sudo systemctl enable --now hermitstash-update.timer
+```
+The timer fires [`deploy/update.sh`](deploy/update.sh) daily with a randomized 4-hour delay. The script reads the installed version from `package.json`, fetches the latest matching release tag from the GitHub API, and performs a `git fetch && git checkout vX.Y.Z` followed by `systemctl restart hermitstash`. If `/health` doesn't come back within 60 seconds, it rolls back to the prior commit and restarts again. Auto-update stays on your current major version — going from v1.x to v2.x is an operator-initiated action. Dry-run with `sudo DRY_RUN=1 /opt/hermitstash/deploy/update.sh`.
+
+**Kubernetes:** there's no HermitStash-provided controller. Use your cluster's standard tooling — ArgoCD, Flux, or Keel — to watch the `:1` image tag for updates.
+
+**Signed releases:** the native updater has pluggable strategies — `UPDATE_STRATEGY=git` today, with stubs for `release-tarball` (checksum-verified) and `signed-tarball` (P-384 ECDSA signed against keys in `/etc/hermitstash/trusted-keys.d/`) so the transport can be hardened later without rewriting the timer, rollback, or health-check paths.
 
 ### Maintenance mode
 

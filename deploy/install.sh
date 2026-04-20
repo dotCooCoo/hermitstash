@@ -45,6 +45,10 @@ DATA_DIR="${INSTALL_DIR}/data"
 UPLOADS_DIR="${INSTALL_DIR}/uploads"
 SERVICE_USER="hermit"
 PORT="${PORT:-3000}"
+# Auto-update: set HERMITSTASH_AUTO_UPDATE=yes to install and enable the
+# daily hermitstash-update.timer. Default is off — updates remain a
+# conscious operator action until the operator opts in.
+HERMITSTASH_AUTO_UPDATE="${HERMITSTASH_AUTO_UPDATE:-no}"
 
 log "Installing HermitStash to ${INSTALL_DIR}"
 echo ""
@@ -158,6 +162,33 @@ if [ "$UPGRADE" -eq 1 ]; then
   systemctl restart hermitstash
 else
   systemctl enable --now hermitstash
+fi
+
+# ---- Step 6b: Auto-update timer (opt-in) ----
+#
+# The update path lives at deploy/update.sh and is driven by a systemd
+# timer. Install the unit files unconditionally so operators can enable
+# them later with one systemctl command — but only *start* the timer
+# when the caller explicitly opted in via HERMITSTASH_AUTO_UPDATE=yes.
+
+if [ -f "${INSTALL_DIR}/deploy/hermitstash-update.service" ] && [ -f "${INSTALL_DIR}/deploy/hermitstash-update.timer" ]; then
+  log "Installing hermitstash-update.{service,timer}..."
+  install -m 0644 "${INSTALL_DIR}/deploy/hermitstash-update.service" /etc/systemd/system/hermitstash-update.service
+  install -m 0644 "${INSTALL_DIR}/deploy/hermitstash-update.timer"   /etc/systemd/system/hermitstash-update.timer
+  systemctl daemon-reload
+
+  case "$HERMITSTASH_AUTO_UPDATE" in
+    yes|true|1)
+      log "HERMITSTASH_AUTO_UPDATE=yes — enabling daily update timer."
+      systemctl enable --now hermitstash-update.timer
+      ;;
+    *)
+      log "Auto-update timer installed but NOT enabled."
+      echo "  To enable later:  sudo systemctl enable --now hermitstash-update.timer"
+      echo "  To run once now:  sudo systemctl start hermitstash-update.service"
+      echo "  Dry-run preview:  sudo DRY_RUN=1 ${INSTALL_DIR}/deploy/update.sh"
+      ;;
+  esac
 fi
 
 # ---- Step 7: Wait for health ----

@@ -74,7 +74,17 @@ confirm() {
 log "Uninstalling HermitStash from ${INSTALL_DIR}"
 echo ""
 
-# ---- Step 1: Stop + disable service ----
+# ---- Step 1: Stop + disable services ----
+
+# Stop the update timer FIRST so it can't kick off a git pull + restart
+# loop while we're uninstalling.
+if systemctl list-unit-files hermitstash-update.timer &>/dev/null; then
+  log "Stopping hermitstash-update timer..."
+  systemctl disable --now hermitstash-update.timer 2>/dev/null || true
+fi
+if systemctl list-unit-files hermitstash-update.service &>/dev/null; then
+  systemctl stop hermitstash-update.service 2>/dev/null || true
+fi
 
 if systemctl list-unit-files hermitstash.service &>/dev/null; then
   log "Stopping hermitstash service..."
@@ -90,6 +100,22 @@ if [ -f "$SERVICE_FILE" ]; then
   rm -f "$SERVICE_FILE"
 fi
 
+for f in /etc/systemd/system/hermitstash-update.service /etc/systemd/system/hermitstash-update.timer; do
+  if [ -f "$f" ]; then
+    log "Removing $(basename "$f")..."
+    rm -f "$f"
+  fi
+done
+
+if [ -f /etc/default/hermitstash-update ]; then
+  log "Removing /etc/default/hermitstash-update..."
+  rm -f /etc/default/hermitstash-update
+fi
+
+if [ -f /var/lock/hermitstash-update.lock ]; then
+  rm -f /var/lock/hermitstash-update.lock
+fi
+
 if [ -d "$DROPIN_DIR" ]; then
   log "Removing systemd drop-in directory..."
   rm -rf "$DROPIN_DIR"
@@ -97,6 +123,7 @@ fi
 
 systemctl daemon-reload
 systemctl reset-failed hermitstash 2>/dev/null || true
+systemctl reset-failed hermitstash-update 2>/dev/null || true
 
 # ---- Step 3: Unmount tmpfs + remove fstab entry ----
 
