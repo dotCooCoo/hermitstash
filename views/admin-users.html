@@ -127,6 +127,16 @@ function renderUsers(list){
     if(u.fileCount!==undefined)html+='<span class="admin-user-date">'+u.fileCount+' files</span>';
     html+='</div>';
     html+='<div class="admin-user-actions">';
+    if(u.status==='pending'){
+      html+='<button class="user-action-btn user-action-role" title="Resend verification email (shows link if email delivery fails)" onclick="adminResendVerification(\''+u._id+'\',\''+esc(u.email)+'\',this)">';
+      html+='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>';
+      html+='<span>Verify</span></button>';
+    }
+    if(u.authType==='local'){
+      html+='<button class="user-action-btn user-action-role" title="Generate a password reset link for out-of-band delivery" onclick="adminPasswordResetLink(\''+u._id+'\',\''+esc(u.email)+'\',this)">';
+      html+='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
+      html+='<span>Reset link</span></button>';
+    }
     html+='<button class="user-action-btn user-action-role" title="'+(u.role==='admin'?'Demote to user':'Promote to admin')+'" onclick="toggleRole(\''+u._id+'\')">';
     html+='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+(u.role==='admin'?'<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="11" x2="19" y2="17"/>':'<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" y1="11" x2="17" y2="17"/><line x1="14" y1="14" x2="20" y2="14"/>')+'</svg>';
     html+='<span>'+(u.role==='admin'?'Demote':'Promote')+'</span></button>';
@@ -182,6 +192,27 @@ function deleteUser(id,email){
   });
 }
 
+function adminPasswordResetLink(id,email,btn){
+  if(!confirm('Generate a password reset link for '+email+'? Any previous link is invalidated. You will need to deliver the link out-of-band (email is not sent).'))return;
+  if(btn){btn.disabled=true;btn.querySelector('span').textContent='...'}
+  fetch('/admin/users/'+encodeURIComponent(id)+'/password-reset-link',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
+    if(btn){btn.disabled=false;btn.querySelector('span').textContent='Reset link'}
+    if(d.success){promptCopyLink('Password reset link for '+email+' (expires in 1 hour):',d.resetUrl)}
+    else{alert(d.error||'Failed to generate link')}
+  }).catch(function(){if(btn){btn.disabled=false;btn.querySelector('span').textContent='Reset link'}alert('Network error')});
+}
+
+function adminResendVerification(id,email,btn){
+  if(btn){btn.disabled=true;btn.querySelector('span').textContent='...'}
+  fetch('/admin/users/'+encodeURIComponent(id)+'/resend-verification',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
+    if(btn){btn.disabled=false;btn.querySelector('span').textContent='Verify'}
+    if(d.success){
+      if(d.verifyUrl){promptCopyLink('Verification link for '+email+' (email delivery failed — share manually):',d.verifyUrl)}
+      else{if(btn){btn.querySelector('span').textContent='Sent!';setTimeout(function(){btn.querySelector('span').textContent='Verify'},2000)}}
+    }else{alert(d.error||'Failed to resend')}
+  }).catch(function(){if(btn){btn.disabled=false;btn.querySelector('span').textContent='Verify'}alert('Network error')});
+}
+
 function showInviteModal(){document.getElementById('inviteModal').style.display='flex'}
 function hideInviteModal(){document.getElementById('inviteModal').style.display='none';document.getElementById('inviteMsg').style.display='none'}
 
@@ -195,10 +226,19 @@ function sendInvite(){
   fetch('/admin/users/invite',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,role:role})}).then(function(r){return r.json()}).then(function(d){
     btn.disabled=false;btn.querySelector('span').textContent='Send Invite';
     if(d.success){
-      msg.className='settings-msg settings-msg-ok';
-      msg.textContent='Invite sent'+(d.emailSent?'':' (email delivery failed — check email settings)');
-      msg.style.display='block';
       document.getElementById('inviteEmail').value='';
+      if(d.inviteUrl){
+        // Email failed — keep the modal open so the admin sees the link flow
+        msg.className='settings-msg settings-msg-ok';
+        msg.textContent='Invite created but email delivery failed — copy the link below to share manually.';
+        msg.style.display='block';
+        loadInvites();
+        promptCopyLink('Invite link for '+email+':',d.inviteUrl);
+        return;
+      }
+      msg.className='settings-msg settings-msg-ok';
+      msg.textContent='Invite sent';
+      msg.style.display='block';
       setTimeout(function(){hideInviteModal();loadUsers(currentPage)},2000);
     }else{msg.className='settings-msg settings-msg-err';msg.textContent=d.error;msg.style.display='block'}
   }).catch(function(){btn.disabled=false;btn.querySelector('span').textContent='Send Invite';msg.className='settings-msg settings-msg-err';msg.textContent='Network error';msg.style.display='block'});
@@ -228,6 +268,9 @@ function loadInvites(){
       html+='<button class="user-action-btn user-action-role" onclick="resendInvite(\''+esc(inv.email)+'\',this)">';
       html+='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>';
       html+='<span>Resend</span></button>';
+      html+='<button class="user-action-btn user-action-delete" onclick="deleteInvite(\''+esc(inv._id)+'\',\''+esc(inv.email)+'\',this)">';
+      html+='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+      html+='<span>Delete</span></button>';
       html+='</div></div>';
     }
     el.textContent='';
@@ -239,9 +282,42 @@ function resendInvite(email,btn){
   btn.disabled=true;btn.querySelector('span').textContent='Sending...';
   fetch('/admin/users/invite/resend',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})}).then(function(r){return r.json()}).then(function(d){
     btn.disabled=false;btn.querySelector('span').textContent='Resend';
-    if(d.success){btn.querySelector('span').textContent='Sent!';setTimeout(function(){btn.querySelector('span').textContent='Resend'},2000)}
-    else{alert(d.error||'Failed to resend')}
+    if(d.success){
+      if(d.inviteUrl){promptCopyLink('Invite resent but email could not be delivered. Copy this link to share manually:',d.inviteUrl)}
+      else{btn.querySelector('span').textContent='Sent!';setTimeout(function(){btn.querySelector('span').textContent='Resend'},2000)}
+    } else{alert(d.error||'Failed to resend')}
   }).catch(function(){btn.disabled=false;btn.querySelector('span').textContent='Resend';alert('Network error')});
+}
+
+function deleteInvite(id,email,btn){
+  if(!confirm('Delete the pending invite for '+email+'? This immediately revokes the token; the recipient will no longer be able to use any link that was sent to them.'))return;
+  btn.disabled=true;btn.querySelector('span').textContent='Deleting...';
+  fetch('/admin/users/invite/'+encodeURIComponent(id)+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
+    if(d.success){loadInvites()}
+    else{btn.disabled=false;btn.querySelector('span').textContent='Delete';alert(d.error||'Failed to delete')}
+  }).catch(function(){btn.disabled=false;btn.querySelector('span').textContent='Delete';alert('Network error')});
+}
+
+// Shared helper — shows a modal with a read-only URL input and a copy button.
+// Used when email delivery fails and the admin needs to share a link manually.
+function promptCopyLink(message,url){
+  var box=document.createElement('div');
+  box.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center';
+  var inner=document.createElement('div');
+  inner.style.cssText='background:var(--bg,#111);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:24px;max-width:560px;width:90%';
+  var msg=document.createElement('p');msg.textContent=message;msg.style.cssText='margin:0 0 14px;color:var(--text,#fff)';
+  var input=document.createElement('input');input.type='text';input.value=url;input.readOnly=true;input.className='text-input';input.style.cssText='width:100%;margin-bottom:14px;font-family:monospace;font-size:.85rem';
+  var actions=document.createElement('div');actions.style.cssText='display:flex;gap:8px;justify-content:flex-end';
+  var copyBtn=document.createElement('button');copyBtn.className='butn butn-bord butn-sm radius-30';
+  var copySpan=document.createElement('span');copySpan.textContent='Copy';copyBtn.appendChild(copySpan);
+  copyBtn.onclick=function(){input.select();document.execCommand('copy');copySpan.textContent='Copied!';setTimeout(function(){copySpan.textContent='Copy'},1500)};
+  var closeBtn=document.createElement('button');closeBtn.className='butn butn-bg butn-sm radius-30';
+  var closeSpan=document.createElement('span');closeSpan.textContent='Close';closeBtn.appendChild(closeSpan);
+  closeBtn.onclick=function(){document.body.removeChild(box)};
+  actions.appendChild(copyBtn);actions.appendChild(closeBtn);
+  inner.appendChild(msg);inner.appendChild(input);inner.appendChild(actions);
+  box.appendChild(inner);document.body.appendChild(box);
+  input.focus();input.select();
 }
 
 window.addEventListener('load',function(){loadUsers(1);loadInvites()});

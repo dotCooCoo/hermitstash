@@ -60,6 +60,27 @@ function run() {
     warnings.push("ARGON2_FAST=1 is set — password hashing uses dangerously weak parameters (1MB, 1 iteration). DO NOT use in production. Passwords are trivially crackable with these settings.");
   }
 
+  // ---- Warning: email features enabled without a working backend ----
+  // Admin endpoints (invite create/resend, /admin/users/:id/resend-verification,
+  // /admin/users/:id/password-reset-link) already surface the URL when email
+  // fails, so the feature still works out-of-band. But user-driven flows
+  // (self-serve password reset, new-user verification from /auth/register)
+  // silently fail for anti-enumeration — worth flagging loudly at boot.
+  var emailCfg = config.email || {};
+  var hasSmtp = !!(emailCfg.host && emailCfg.user);
+  var hasResend = !!emailCfg.resendApiKey;
+  var emailConfigured = hasSmtp || hasResend;
+  var emailActive = emailCfg.enabled !== false && emailConfigured;
+  if (!emailActive) {
+    var reason = emailCfg.enabled === false ? "EMAIL_ENABLED=false" : "no email backend configured (SMTP_HOST/SMTP_USER or RESEND_API_KEY)";
+    if (config.emailVerification && config.localAuth && config.registrationOpen) {
+      warnings.push("EMAIL_VERIFICATION=true but email is not active (" + reason + "). New registrations will stall on /auth/pending. Admins can resend + hand-deliver verification links via Admin → Users → Verify.");
+    }
+    if (config.localAuth) {
+      warnings.push("Email is not active (" + reason + ") — self-serve password reset will silently fail. Admins can generate reset links manually via Admin → Users → Reset link.");
+    }
+  }
+
   // ---- Warning: invalid env var values ----
   // Validates every env var in settingsMap against its settings-schema type
   // (number, boolean, url, hostname, enum, timezone, etc.). Catches typos

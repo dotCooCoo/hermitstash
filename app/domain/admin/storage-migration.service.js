@@ -1,4 +1,5 @@
 var fs = require("fs");
+var fsp = require("fs/promises");
 var path = require("path");
 var config = require("../../../lib/config");
 var S3Client = require("../../../lib/s3-client");
@@ -72,7 +73,10 @@ async function migrateStorage(direction, progressCb) {
         if (!fs.existsSync(localPath)) {
           throw new Error("Local file not found: " + sp);
         }
-        var data = fs.readFileSync(localPath);
+        // Async I/O so the event loop stays responsive during large migrations.
+        // Previously used readFileSync which blocked per file — admin UI and
+        // concurrent requests stalled on corpora with many files.
+        var data = await fsp.readFile(localPath);
 
         // Derive the S3 key from the relative path
         var s3Key = sp;
@@ -89,13 +93,15 @@ async function migrateStorage(direction, progressCb) {
         filesRepo.update(file._id, { $set: { storagePath: newPath } });
 
         // Delete local file after successful upload + DB update
-        fs.unlinkSync(localPath);
+        await fsp.unlink(localPath);
 
-        // Clean up empty parent directories
+        // Clean up empty parent directories (best-effort, async)
         var parentDir = path.dirname(localPath);
         try {
-          while (parentDir !== uploadDir && fs.readdirSync(parentDir).length === 0) {
-            fs.rmdirSync(parentDir);
+          while (parentDir !== uploadDir) {
+            var kids = await fsp.readdir(parentDir);
+            if (kids.length !== 0) break;
+            await fsp.rmdir(parentDir);
             parentDir = path.dirname(parentDir);
           }
         } catch (_e) {}
@@ -112,11 +118,11 @@ async function migrateStorage(direction, progressCb) {
         // Download raw ciphertext from S3
         var data = await s3.getBuffer(s3Key);
 
-        // Write to local disk
+        // Write to local disk (async — see note above on responsiveness)
         var localPath = path.join(uploadDir, s3Key);
         var dir = path.dirname(localPath);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(localPath, data);
+        if (!fs.existsSync(dir)) await fsp.mkdir(dir, { recursive: true });
+        await fsp.writeFile(localPath, data);
 
         // Update DB record with local path
         filesRepo.update(file._id, { $set: { storagePath: s3Key } });

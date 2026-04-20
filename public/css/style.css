@@ -782,7 +782,7 @@ body::after {
 .admin-hero-inner{max-width:1100px;margin:0 auto;position:relative;z-index:2}
 .admin-title{font-size:3rem;font-weight:700;letter-spacing:-.04em;line-height:1.1}
 
-.admin-body{padding:0 40px 80px}
+.admin-body{padding:40px 40px 80px}
 .admin-inner{max-width:1100px;margin:0 auto}
 
 /* Stats row */
@@ -1409,7 +1409,7 @@ select.text-input option{background:var(--bg,#0f0f0f);color:var(--text,#e8e8e8)}
   .file-grid{grid-template-columns:1fr}
   .admin-hero{padding:100px 20px 40px}
   .admin-title{font-size:2rem}
-  .admin-body{padding:0 20px 60px}
+  .admin-body{padding:24px 20px 60px}
   .admin-stats{grid-template-columns:repeat(2,1fr)}
   .admin-user-row,.admin-file-row{flex-wrap:wrap}
   .admin-user-meta,.admin-file-meta{width:100%;padding-left:52px}

@@ -659,7 +659,18 @@
       <div class="settings-pane" id="pane-email">
         <div class="settings-group">
           <div class="settings-field">
+            <label class="settings-label">Email Enabled <span class="settings-hint">master switch — disable to silence email without clearing credentials</span></label>
+            <label class="toggle"><input type="checkbox" id="s-emailEnabled" data-key="emailEnabled"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="settings-divider"></div>
+          <div class="settings-field">
             <label class="settings-label">Email Backend</label>
+            <!-- TODO(email-backends): coupled to the emailBackend enum in
+                 lib/settings-schema.js and the dispatch in lib/email.js
+                 sendEmail(). Adding a 3rd backend triples the valid
+                 combinations; refactor all three sites to share a
+                 SUPPORTED_BACKENDS list + parseBackendChain helper before
+                 extending the dropdown. -->
             <select class="text-input" id="s-emailBackend" data-key="emailBackend" onchange="toggleEmailBackend()">
               <option value="smtp">SMTP</option>
               <option value="resend">Resend API</option>
@@ -1430,7 +1441,7 @@ var tabFields={
   uploads:['publicUpload','maxFileSize','publicMaxFiles','publicMaxBundleSize','perUserQuotaBytes','publicIpQuotaBytes','uploadTimeout','uploadConcurrency','uploadRetries','allowedExtensions'],
   storage:['storageBackend','uploadDir','s3Bucket','s3Region','s3AccessKey','s3SecretKey','s3Endpoint','s3DirectDownloads','s3PresignExpiry'],
   theme:['themeAccentColor','themeBgColor','themeFont'],
-  email:['emailBackend','resendApiKey','resendQuotaDaily','resendQuotaMonthly','smtpHost','smtpPort','smtpUser','smtpPass','smtpFrom','emailTemplateMode','emailTemplateSubject','emailTemplateHeader','emailTemplateFooter'],
+  email:['emailEnabled','emailBackend','resendApiKey','resendQuotaDaily','resendQuotaMonthly','smtpHost','smtpPort','smtpUser','smtpPass','smtpFrom','emailTemplateMode','emailTemplateSubject','emailTemplateHeader','emailTemplateFooter'],
   backup:['backupEnabled','backupScope','backupSchedule','backupTimeOfDay','backupTimezone','backupRetention','backupS3Bucket','backupS3Region','backupS3AccessKey','backupS3SecretKey','backupS3Endpoint','backupPassphrase']
 };
 
