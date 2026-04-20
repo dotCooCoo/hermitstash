@@ -1,4 +1,5 @@
 var logger = require("../app/shared/logger");
+var { isAdmin } = require("../app/shared/authz");
 var usersRepo = require("../app/data/repositories/users.repo");
 var filesRepo = require("../app/data/repositories/files.repo");
 var teamsRepo = require("../app/data/repositories/teams.repo");
@@ -44,7 +45,7 @@ module.exports = function (app) {
   // Add member to team
   app.post("/teams/:teamId/members/add", async (req, res) => {
     if (!requireAuth(req, res)) return;
-    if (!teamsRepo.isTeamAdmin(req.params.teamId, req.user._id) && req.user.role !== "admin") {
+    if (!teamsRepo.isTeamAdmin(req.params.teamId, req.user._id) && !isAdmin(req.user)) {
       return res.status(403).json({ error: "Only team admins can add members." });
     }
     try {
@@ -66,7 +67,7 @@ module.exports = function (app) {
   // Remove member from team
   app.post("/teams/:teamId/members/remove", async (req, res) => {
     if (!requireAuth(req, res)) return;
-    if (!teamsRepo.isTeamAdmin(req.params.teamId, req.user._id) && req.user.role !== "admin") {
+    if (!teamsRepo.isTeamAdmin(req.params.teamId, req.user._id) && !isAdmin(req.user)) {
       return res.status(403).json({ error: "Only team admins can remove members." });
     }
     try {
@@ -84,7 +85,7 @@ module.exports = function (app) {
   // List team members
   app.get("/teams/:teamId/members", (req, res) => {
     if (!requireAuth(req, res)) return;
-    if (!teamsRepo.isMember(req.params.teamId, req.user._id) && req.user.role !== "admin") {
+    if (!teamsRepo.isMember(req.params.teamId, req.user._id) && !isAdmin(req.user)) {
       return res.status(403).json({ error: "Not a member of this team." });
     }
     var members = teamsRepo.findMembers(req.params.teamId);
@@ -99,7 +100,7 @@ module.exports = function (app) {
   // List team files
   app.get("/teams/:teamId/files", (req, res) => {
     if (!requireAuth(req, res)) return;
-    if (!teamsRepo.isMember(req.params.teamId, req.user._id) && req.user.role !== "admin") {
+    if (!teamsRepo.isMember(req.params.teamId, req.user._id) && !isAdmin(req.user)) {
       return res.status(403).json({ error: "Not a member of this team." });
     }
     var teamFiles = filesRepo.findAll({ teamId: req.params.teamId, status: "complete" });
@@ -117,7 +118,7 @@ module.exports = function (app) {
   app.post("/teams/:teamId/delete", async (req, res) => {
     if (!requireAuth(req, res)) return;
     // Route-level auth: allow team admins or site admins
-    if (!teamsRepo.isTeamAdmin(req.params.teamId, req.user._id) && req.user.role !== "admin") {
+    if (!teamsRepo.isTeamAdmin(req.params.teamId, req.user._id) && !isAdmin(req.user)) {
       return res.status(403).json({ error: "Only team admins can delete teams." });
     }
     try {
@@ -127,7 +128,7 @@ module.exports = function (app) {
     } catch (e) {
       // Site admins pass the route-level check but may not be team members;
       // the service enforces team-admin membership — suppress ForbiddenError for site admins
-      if (e.isAppError && e.code === "FORBIDDEN" && req.user.role === "admin") {
+      if (e.isAppError && e.code === "FORBIDDEN" && isAdmin(req.user)) {
         // Force-delete as site admin using the service's transactional path
         // by temporarily adding the admin as team admin, then retrying
         try {

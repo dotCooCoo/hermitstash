@@ -4,6 +4,7 @@ var config = require("../lib/config");
 var logger = require("../app/shared/logger");
 var rateLimit = require("../lib/rate-limit");
 var usersRepo = require("../app/data/repositories/users.repo");
+var { isAdmin } = require("../app/shared/authz");
 var filesRepo = require("../app/data/repositories/files.repo");
 var credentialsRepo = require("../app/data/repositories/credentials.repo");
 var { parseJson } = require("../lib/multipart");
@@ -105,7 +106,7 @@ module.exports = function (app) {
       var body = await parseJson(req);
       if (body.confirm !== "DELETE") return res.status(400).json({ error: "Type DELETE to confirm." });
 
-      if (req.user.role === "admin") {
+      if (isAdmin(req.user)) {
         var adminCount = usersRepo.count({ role: "admin" });
         if (adminCount <= 1) return res.status(400).json({ error: "Cannot delete the last admin account." });
       }

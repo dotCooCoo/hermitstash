@@ -5,6 +5,7 @@ var { parseJson } = require("../lib/multipart");
 var requireAuth = require("../middleware/require-auth");
 var { send, host } = require("../middleware/send");
 var audit = require("../lib/audit");
+var { canEditOwned } = require("../app/shared/authz");
 var fileService = require("../app/domain/uploads/file.service");
 var filesRepo = require("../app/data/repositories/files.repo");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
@@ -108,7 +109,7 @@ module.exports = function (app) {
     if (!requireAuth(req, res)) return;
     var doc = filesRepo.findAll({ shareId: req.params.shareId, status: "complete" })[0];
     if (!doc) return res.status(404).json({ error: "Not found." });
-    if (doc.uploadedBy !== req.user._id && req.user.role !== "admin") {
+    if (!canEditOwned(doc, req.user, "uploadedBy")) {
       return res.status(403).json({ error: "Not authorized." });
     }
     var body = await parseJson(req);

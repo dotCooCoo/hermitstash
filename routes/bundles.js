@@ -14,6 +14,7 @@ var { send, host } = require("../middleware/send");
 var audit = require("../lib/audit");
 var rateLimit = require("../lib/rate-limit");
 var requireAuth = require("../middleware/require-auth");
+var { canEditOwned } = require("../app/shared/authz");
 
 var { isBundleLocked, prefersJson } = require("../middleware/require-access");
 var db = require("../lib/db");
@@ -112,8 +113,8 @@ module.exports = function (app) {
 
   // Request email access code (rate limited)
   app.post("/b/:shareId/request-code", rateLimit.middleware("bundle-email-code", 5, C.TIME.FIVE_MIN), async (req, res) => {
-    var bundle = bundlesRepo.findByShareId(req.params.shareId);
-    if (!bundle || bundle.status !== "complete") return res.status(404).json({ error: "Bundle not found." });
+    var bundle = bundlesRepo.findCompleteByShareId(req.params.shareId);
+    if (!bundle) return res.status(404).json({ error: "Bundle not found." });
 
     var body = await parseJson(req);
     var email = String(body.email || "").trim().toLowerCase();
@@ -153,8 +154,8 @@ module.exports = function (app) {
 
   // Verify email access code (rate limited)
   app.post("/b/:shareId/verify-code", rateLimit.middleware("bundle-verify-code", 10, C.TIME.FIFTEEN_MIN), async (req, res) => {
-    var bundle = bundlesRepo.findByShareId(req.params.shareId);
-    if (!bundle || bundle.status !== "complete") return res.status(404).json({ error: "Bundle not found." });
+    var bundle = bundlesRepo.findCompleteByShareId(req.params.shareId);
+    if (!bundle) return res.status(404).json({ error: "Bundle not found." });
 
     var body = await parseJson(req);
     var email = String(body.email || "").trim().toLowerCase();
@@ -191,8 +192,8 @@ module.exports = function (app) {
 
   // Bundle browse page
   app.get("/b/:shareId", (req, res) => {
-    var bundle = bundlesRepo.findByShareId(req.params.shareId);
-    if (!bundle || bundle.status !== "complete") return send(res, "error", { title: "Not Found", message: "Bundle not found.", user: req.user }, 404);
+    var bundle = bundlesRepo.findCompleteByShareId(req.params.shareId);
+    if (!bundle) return send(res, "error", { title: "Not Found", message: "Bundle not found.", user: req.user }, 404);
 
     // Check expiry
     if (bundle.expiresAt && bundle.expiresAt < new Date().toISOString()) {
@@ -284,8 +285,8 @@ module.exports = function (app) {
 
   // Download entire bundle as ZIP
   app.get("/b/:shareId/download", async (req, res) => {
-    var bundle = bundlesRepo.findByShareId(req.params.shareId);
-    if (!bundle || bundle.status !== "complete") { res.writeHead(404); return res.end("Not found"); }
+    var bundle = bundlesRepo.findCompleteByShareId(req.params.shareId);
+    if (!bundle) { res.writeHead(404); return res.end("Not found"); }
     // Enforce bundle access protection on ZIP downloads
     if (isBundleLocked(bundle, req.session)) {
       res.writeHead(401); return res.end("Access restricted");
@@ -321,8 +322,8 @@ module.exports = function (app) {
 
   // Download a subfolder from a bundle as ZIP
   app.get("/b/:shareId/folder/*", async (req, res) => {
-    var bundle = bundlesRepo.findByShareId(req.params.shareId);
-    if (!bundle || bundle.status !== "complete") { res.writeHead(404); return res.end("Not found"); }
+    var bundle = bundlesRepo.findCompleteByShareId(req.params.shareId);
+    if (!bundle) { res.writeHead(404); return res.end("Not found"); }
     if (isBundleLocked(bundle, req.session)) {
       res.writeHead(401); return res.end("Access restricted");
     }
@@ -367,7 +368,7 @@ module.exports = function (app) {
     if (!requireAuth(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle) return res.status(404).json({ error: "Not found." });
-    if (bundle.ownerId !== req.user._id && req.user.role !== "admin") {
+    if (!canEditOwned(bundle, req.user)) {
       return res.status(403).json({ error: "Not authorized." });
     }
     // parseJson already imported at top
@@ -384,7 +385,7 @@ module.exports = function (app) {
     if (!requireAuth(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle) return res.status(404).json({ error: "Not found." });
-    if (bundle.ownerId !== req.user._id && req.user.role !== "admin") {
+    if (!canEditOwned(bundle, req.user)) {
       return res.status(403).json({ error: "Not authorized." });
     }
     var body = await parseJson(req);
@@ -404,7 +405,7 @@ module.exports = function (app) {
     if (!requireAuth(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle) return res.status(404).json({ error: "Not found." });
-    if (bundle.ownerId !== req.user._id && req.user.role !== "admin") {
+    if (!canEditOwned(bundle, req.user)) {
       return res.status(403).json({ error: "Not authorized." });
     }
     var { handleSyncFileDelete } = uploadHandler;
@@ -418,7 +419,7 @@ module.exports = function (app) {
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle) return res.status(404).json({ error: "Not found." });
     // Only owner or admin can delete
-    if (bundle.ownerId !== req.user._id && req.user.role !== "admin") {
+    if (!canEditOwned(bundle, req.user)) {
       return res.status(403).json({ error: "Not authorized." });
     }
     var bundleFiles = filesRepo.findByBundleShareId(bundle.shareId);

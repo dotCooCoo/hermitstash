@@ -13,6 +13,7 @@ var path = require("path");
 var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
 var usersRepo = require("../app/data/repositories/users.repo");
+var { canEditOwned } = require("../app/shared/authz");
 var filesRepo = require("../app/data/repositories/files.repo");
 var credentialsRepo = require("../app/data/repositories/credentials.repo");
 var { sanitizeFilename, sanitizeRename } = require("../app/shared/sanitize-filename");
@@ -289,7 +290,7 @@ module.exports = function (app) {
   app.get("/vault/s/:shareId", (req, res) => {
     if (!requireAuth(req, res)) return;
     var doc = filesRepo.findByShareId(req.params.shareId);
-    if (!doc || doc.vaultEncrypted !== "true" || (doc.uploadedBy !== req.user._id && req.user.role !== "admin")) {
+    if (!doc || doc.vaultEncrypted !== "true" || !canEditOwned(doc, req.user, "uploadedBy")) {
       res.writeHead(404); return res.end("Not found");
     }
     send(res, "vault-share", {
@@ -303,7 +304,7 @@ module.exports = function (app) {
   app.get("/vault/download/:shareId", async (req, res) => {
     if (!requireAuth(req, res)) return;
     var doc = filesRepo.findByShareId(req.params.shareId);
-    if (!doc || doc.vaultEncrypted !== "true" || (doc.uploadedBy !== req.user._id && req.user.role !== "admin")) {
+    if (!doc || doc.vaultEncrypted !== "true" || !canEditOwned(doc, req.user, "uploadedBy")) {
       res.writeHead(404); return res.end("Not found");
     }
 
@@ -434,7 +435,7 @@ module.exports = function (app) {
   app.post("/vault/delete/:shareId", async (req, res) => {
     if (!requireAuth(req, res)) return;
     var doc = filesRepo.findByShareId(req.params.shareId);
-    if (!doc || doc.vaultEncrypted !== "true" || (doc.uploadedBy !== req.user._id && req.user.role !== "admin")) {
+    if (!doc || doc.vaultEncrypted !== "true" || !canEditOwned(doc, req.user, "uploadedBy")) {
       return res.status(404).json({ error: "Not found." });
     }
     // Delete the encrypted blob

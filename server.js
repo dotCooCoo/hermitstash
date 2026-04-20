@@ -249,86 +249,64 @@ app.post("/sync/enroll", require("./lib/rate-limit").middleware("sync-enroll", 5
   }
 });
 
-// Sync cert renewal — authenticated via API key, no admin required
-app.post("/sync/renew-cert", require("./lib/rate-limit").middleware("sync-renew", 5, C.TIME.FIVE_MIN), async function (req, res) {
-  try {
-    // Authenticate via Bearer token
-    var authHeader = req.headers.authorization || "";
-    var token = authHeader.startsWith("Bearer ") ? authHeader.substring(7) : "";
-    if (!token) {
-      res.writeHead(401, { "Content-Type": "application/json" });
-      return res.end(JSON.stringify({ error: "API key required." }));
-    }
-
-    var keyHash = sha3Hash(token);
-    var apiKey = apiKeysRepo.findOne({ keyHash: keyHash });
-    if (!apiKey || !apiKey.permissions || apiKey.permissions.indexOf("sync") === -1) {
-      res.writeHead(403, { "Content-Type": "application/json" });
-      return res.end(JSON.stringify({ error: "Invalid or unauthorized API key." }));
-    }
-
-    // Require valid mTLS client certificate — proves possession of current cert
-    // Renewal requires both the API key AND the existing cert to prevent
-    // stolen-key-only attacks from obtaining new certificates
-    var peerCert = req.socket && req.socket.getPeerCertificate ? req.socket.getPeerCertificate() : null;
-    if (!peerCert || !peerCert.subject || !req.socket.authorized) {
-      res.writeHead(403, { "Content-Type": "application/json" });
-      return res.end(JSON.stringify({ error: "mTLS client certificate required for renewal." }));
-    }
-
-    // Verify the presented cert matches the API key's recorded fingerprint
-    // Fingerprint is stored as sha3Hash(PEM), so reconstruct PEM from DER to compare
-    if (apiKey.certFingerprint && peerCert.raw) {
-      var derB64 = peerCert.raw.toString("base64");
-      var pem = "-----BEGIN CERTIFICATE-----\n" + derB64.match(/.{1,64}/g).join("\n") + "\n-----END CERTIFICATE-----\n";
-      var presentedFp = sha3Hash(pem);
-      if (!apiKey.certFingerprint || presentedFp.length !== apiKey.certFingerprint.length || !timingSafeEqual(presentedFp, apiKey.certFingerprint)) {
+// Sync cert renewal — scope + cert-binding checks come from the shared
+// sync-guards middleware. The endpoint itself only does things specific to
+// renewal: presence-of-cert (required for this endpoint even if the key has
+// no certFingerprint — the cert proof-of-possession IS the second factor),
+// revocation check, and actual cert generation.
+app.post("/sync/renew-cert",
+  require("./lib/rate-limit").middleware("sync-renew", 5, C.TIME.FIVE_MIN),
+  require("./middleware/sync-guards").requireSyncAuth({ requireBundle: false }),
+  async function (req, res) {
+    try {
+      // Renewal REQUIRES a client certificate — not just "matches fingerprint
+      // if one is set". This is tighter than the generic sync-guards check;
+      // the cert is the second authn factor for this specific operation.
+      var peerCert = req.socket && req.socket.getPeerCertificate ? req.socket.getPeerCertificate() : null;
+      if (!peerCert || !peerCert.subject || !req.socket.authorized) {
         res.writeHead(403, { "Content-Type": "application/json" });
-        return res.end(JSON.stringify({ error: "Certificate does not match API key." }));
+        return res.end(JSON.stringify({ error: "mTLS client certificate required for renewal." }));
       }
-    }
 
-    // Check cert is not revoked (indexed lookup, not full-table scan)
-    if (certUtils.isCertRevoked(peerCert.fingerprint256)) {
-      res.writeHead(403, { "Content-Type": "application/json" });
-      return res.end(JSON.stringify({ error: "Certificate has been revoked." }));
-    }
+      // Check cert is not revoked (indexed lookup, not full-table scan)
+      if (certUtils.isCertRevoked(peerCert.fingerprint256)) {
+        res.writeHead(403, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ error: "Certificate has been revoked." }));
+      }
 
-    // Generate new client certificate
-    await mtlsCa.initCA();
-    var newCert = await mtlsCa.generateClientCert(apiKey.prefix);
-    if (!newCert) {
+      // Generate new client certificate
+      await mtlsCa.initCA();
+      var newCert = await mtlsCa.generateClientCert(req.apiKey.prefix);
+      if (!newCert) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ error: "Certificate generation failed." }));
+      }
+
+      // Update cert tracking on the API key
+      apiKeysRepo.update(req.apiKey._id, { $set: {
+        certIssuedAt: newCert.issuedAt,
+        certExpiresAt: newCert.expiresAt,
+        certFingerprint: sha3Hash(newCert.cert),
+      }});
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        clientCert: newCert.cert,
+        clientKey: newCert.key,
+        caCert: newCert.ca,
+        issuedAt: newCert.issuedAt,
+        expiresAt: newCert.expiresAt,
+      }));
+
+      audit.log(audit.ACTIONS.CERT_RENEWED, { details: "Sync client auto-renewed certificate: " + req.apiKey.prefix, req: req });
+    } catch (err) {
+      logger.error("[sync/renew-cert] Error", { error: err.message, stack: err.stack });
       res.writeHead(500, { "Content-Type": "application/json" });
-      return res.end(JSON.stringify({ error: "Certificate generation failed." }));
+      res.end(JSON.stringify({ error: "Certificate renewal failed." }));
     }
-
-    // Update cert tracking on the API key
-    apiKeysRepo.update(apiKey._id, { $set: {
-      certIssuedAt: newCert.issuedAt,
-      certExpiresAt: newCert.expiresAt,
-      certFingerprint: sha3Hash(newCert.cert),
-    }});
-
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({
-      success: true,
-      clientCert: newCert.cert,
-      clientKey: newCert.key,
-      caCert: newCert.ca,
-      issuedAt: newCert.issuedAt,
-      expiresAt: newCert.expiresAt,
-    }));
-
-    audit.log(audit.ACTIONS.CERT_RENEWED, { details: "Sync client auto-renewed certificate: " + apiKey.prefix, req: req });
-  } catch (err) {
-    // mTLS CA signing or DB update failed — surface the specific cause to
-    // operators (not the client). Without this log the caller just sees
-    // "Certificate renewal failed." with no way to diagnose.
-    logger.error("[sync/renew-cert] Error", { error: err.message, stack: err.stack });
-    res.writeHead(500, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Certificate renewal failed." }));
   }
-});
+);
 
 app.use(sessionMiddleware);
 app.use(attachUser);
@@ -404,58 +382,29 @@ require("./routes/teams")(app);
 require("./routes/vault")(app);
 require("./routes/stash")(app);
 
-// Sync file rename — API key authed, uses bundleId directly (sync clients don't have shareId)
-app.post("/sync/rename", require("./lib/rate-limit").middleware("sync-file-rename", 100, C.TIME.ONE_MIN), async function (req, res) {
-  if (!req.apiKey) { res.writeHead(401, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: "Unauthorized." })); }
-  if (!hasScope(req.apiKey, "sync") && !hasScope(req.apiKey, "admin")) { res.writeHead(403, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: "Forbidden." })); }
-  try {
-    var body = await parseJson(req);
-    // Verify bundle ownership before rename
-    var bundle = bundlesRepo.findById(body.bundleId);
-    if (!bundle) { res.writeHead(404, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: "Bundle not found." })); }
-    if (!bundle.ownerId || bundle.ownerId !== req.apiKey.userId) { res.writeHead(403, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: "Forbidden." })); }
-    // Per-key bundle binding: if the key was enrolled scoped to a specific
-    // bundle, enforce it here. The WS upgrade handler also enforces this;
-    // /sync/rename was missing the check, letting a bundle-A-bound key
-    // rename files in any bundle the same user owned.
-    if (req.apiKey.boundBundleId && req.apiKey.boundBundleId !== body.bundleId) {
-      res.writeHead(403, { "Content-Type": "application/json" });
-      return res.end(JSON.stringify({ error: "Forbidden." }));
+// Sync file rename — API key authed, uses bundleId directly (sync clients don't have shareId).
+// All pre-checks (scope / ownership / boundBundleId / certFingerprint) run in
+// middleware/sync-guards.js so every /sync/* endpoint inherits the same gate chain.
+app.post("/sync/rename",
+  require("./lib/rate-limit").middleware("sync-file-rename", 100, C.TIME.ONE_MIN),
+  require("./middleware/sync-guards").requireSyncAuth({ requireBundle: true }),
+  async function (req, res) {
+    try {
+      var result = await handleSyncFileRename({
+        bundleId: req.body.bundleId,
+        oldRelativePath: req.body.oldRelativePath,
+        newRelativePath: req.body.newRelativePath,
+        req: req,
+      });
+      if (result.error) { res.writeHead(result.status || 400, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: result.error })); }
+      res.json(result);
+    } catch (err) {
+      logger.error("[sync/rename] Error", { error: err.message, stack: err.stack });
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Rename failed." }));
     }
-    // Per-key cert binding: if the key was enrolled with mTLS, every
-    // request using that key MUST present a matching cert. Same
-    // enforcement as /sync/ws (line ~715) and /sync/renew-cert; this
-    // endpoint was missing it, letting a leaked Bearer token bypass the
-    // cert gate entirely. TODO: extract to shared middleware — this is
-    // now the 3rd copy of the check.
-    if (req.apiKey.certFingerprint) {
-      var peerCert = req.socket && req.socket.getPeerCertificate ? req.socket.getPeerCertificate() : null;
-      if (!peerCert || !peerCert.raw || !req.socket.authorized) {
-        res.writeHead(403, { "Content-Type": "application/json" });
-        return res.end(JSON.stringify({ error: "Client certificate required." }));
-      }
-      var derB64 = peerCert.raw.toString("base64");
-      var pem = "-----BEGIN CERTIFICATE-----\n" + derB64.match(/.{1,64}/g).join("\n") + "\n-----END CERTIFICATE-----\n";
-      var presentedFp = sha3Hash(pem);
-      if (presentedFp.length !== req.apiKey.certFingerprint.length || !timingSafeEqual(presentedFp, req.apiKey.certFingerprint)) {
-        res.writeHead(403, { "Content-Type": "application/json" });
-        return res.end(JSON.stringify({ error: "Certificate does not match API key." }));
-      }
-    }
-    var result = await handleSyncFileRename({
-      bundleId: body.bundleId,
-      oldRelativePath: body.oldRelativePath,
-      newRelativePath: body.newRelativePath,
-      req: req,
-    });
-    if (result.error) { res.writeHead(result.status || 400, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: result.error })); }
-    res.json(result);
-  } catch (err) {
-    logger.error("[sync/rename] Error", { error: err.message, stack: err.stack });
-    res.writeHead(500, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Rename failed." }));
   }
-});
+);
 
 // Custom 404 page
 app.onNotFound(function (req, res) {
@@ -726,30 +675,18 @@ server.on("upgrade", function (req, socket, head) {
     return rejectUpgrade(socket, 401, "Unauthorized");
   }
 
-  // Per-key cert binding: when a key was enrolled with a client cert, every
-  // connection using that key MUST present a matching cert. This is enforced
-  // regardless of the MTLS_REQUIRED escape hatch so a cert-bound key cannot
-  // be downgraded to API-key-only auth. NOTE: the WS peerCert.fingerprint256
-  // is a hex-with-colons string (SHA-256), while apiKey.certFingerprint is
-  // sha3Hash(PEM). Normalize before comparing — see ws-cert-binding check below.
-  if (apiKey.certFingerprint) {
-    if (!peerCertFingerprint) {
-      return rejectUpgrade(socket, 403, "Forbidden");
-    }
-    // Reconstruct PEM → sha3Hash, matching the storage form.
-    var wsPeerCert = socket.getPeerCertificate ? socket.getPeerCertificate(true) : null;
-    var wsDerB64 = wsPeerCert && wsPeerCert.raw ? wsPeerCert.raw.toString("base64") : "";
-    var wsPem = wsDerB64 ? "-----BEGIN CERTIFICATE-----\n" + wsDerB64.match(/.{1,64}/g).join("\n") + "\n-----END CERTIFICATE-----\n" : "";
-    var wsPresentedFp = wsPem ? sha3Hash(wsPem) : "";
-    if (wsPresentedFp.length !== apiKey.certFingerprint.length || !timingSafeEqual(wsPresentedFp, apiKey.certFingerprint)) {
-      return rejectUpgrade(socket, 403, "Forbidden");
-    }
-  }
+  // Delegate scope / cert-binding / bundle-binding checks to the shared
+  // sync-guards helpers so this upgrade handler can't drift out of sync
+  // with /sync/rename + /sync/renew-cert (see middleware/sync-guards.js).
+  // Bundle lookup + stash binding + user activity stay inline here because
+  // they use rejectUpgrade's raw-socket response path.
+  var syncGuards = require("./middleware/sync-guards");
 
-  // Check sync scope
-  if (!hasScope(apiKey, "sync") && !hasScope(apiKey, "admin")) {
-    return rejectUpgrade(socket, 403, "Forbidden");
-  }
+  var certErr = syncGuards.enforceCertBinding(apiKey, socket);
+  if (certErr) return rejectUpgrade(socket, certErr.status, certErr.error);
+
+  var scopeErr = syncGuards.enforceSyncScope(apiKey);
+  if (scopeErr) return rejectUpgrade(socket, scopeErr.status, scopeErr.error);
 
   var user = usersRepo.findById(apiKey.userId);
   if (!user || user.status !== "active") {
@@ -765,14 +702,17 @@ server.on("upgrade", function (req, socket, head) {
   if (!bundle || bundle.bundleType !== "sync") {
     return rejectUpgrade(socket, 404, "Not Found");
   }
-  // Resource scoping: if the key is bound to a specific bundle/stash, enforce it
-  if (apiKey.boundBundleId && apiKey.boundBundleId !== bundleId) {
-    return rejectUpgrade(socket, 403, "Forbidden");
-  }
+
+  var bindErr = syncGuards.enforceBundleBinding(apiKey, bundleId);
+  if (bindErr) return rejectUpgrade(socket, bindErr.status, bindErr.error);
+
   if (apiKey.boundStashId && bundle.stashId !== apiKey.boundStashId) {
     return rejectUpgrade(socket, 403, "Forbidden");
   }
-  // Ownership check: must be the key's user, admin, or a stash-scoped token
+  // Ownership check: must be the key's user, admin, or a stash-scoped token.
+  // WS semantics differ slightly from /sync/rename — a stash-scoped token is
+  // allowed across all bundles in the stash, so we don't call
+  // enforceBundleOwnership here.
   if (bundle.ownerId !== user._id && user.role !== "admin" && !apiKey.boundStashId) {
     return rejectUpgrade(socket, 403, "Forbidden");
   }
