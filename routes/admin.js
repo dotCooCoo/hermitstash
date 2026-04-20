@@ -409,6 +409,11 @@ module.exports = function (app) {
     var passphrase = String(body.passphrase || "");
     var timestamp = String(body.timestamp || "");
     if (!passphrase || !timestamp) return res.status(400).json({ error: "passphrase and timestamp required" });
+    // dryRun: download + decrypt + checksum-verify every file, but skip
+    // all writes + the process.exit restart. Used by E2E tests to validate
+    // the restore crypto/integrity path without mutating on-disk state.
+    // Operators can also use it to preview a restore before committing.
+    var dryRun = body.dryRun === true;
 
     // Verify passphrase if hash is set
     if (config.backup.passphraseHash) {
@@ -416,13 +421,15 @@ module.exports = function (app) {
       if (!valid) return res.status(403).json({ error: "Invalid passphrase." });
     }
 
-    audit.log(audit.ACTIONS.RESTORE_STARTED, { details: "Restore initiated from backup: " + timestamp, req: req });
+    audit.log(audit.ACTIONS.RESTORE_STARTED, { details: "Restore initiated from backup: " + timestamp + (dryRun ? " (dry-run)" : ""), req: req });
 
     try {
-      var result = await backup.runRestore(passphrase, timestamp);
-      res.json({ success: true, restarting: true, stats: result.stats });
-      // Graceful shutdown — let the response flush, then exit so Docker/systemd restarts
-      setTimeout(function () { process.exit(0); }, 500);
+      var result = await backup.runRestore(passphrase, timestamp, { dryRun: dryRun });
+      res.json({ success: true, restarting: !dryRun, dryRun: dryRun, stats: result.stats });
+      if (!dryRun) {
+        // Graceful shutdown — let the response flush, then exit so Docker/systemd restarts
+        setTimeout(function () { process.exit(0); }, 500);
+      }
     } catch (err) {
       logger.error("Restore failed", { error: err.message });
       res.status(500).json({ error: "Restore failed: " + err.message });
