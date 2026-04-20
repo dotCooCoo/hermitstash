@@ -1,8 +1,8 @@
 # HermitStash — Kubernetes Deployment
 #
 # Quick start:
-#   kubectl apply -f kubernetes.yml
-#   kubectl port-forward svc/hermitstash 3000:3000
+#   kubectl apply -f deploy/kubernetes.yml
+#   kubectl port-forward -n hermitstash svc/hermitstash 3000:3000
 #   open http://localhost:3000
 #
 # Before deploying:

@@ -1,0 +1,67 @@
+# HermitStash — Rootless Docker Compose (hardened)
+#
+# This variant runs the container as a non-root user with zero Linux capabilities.
+# It skips the PUID/PGID remapping entrypoint logic entirely — you pre-create the
+# volume directories with the correct ownership on the host, and the container
+# never needs to chown anything.
+#
+# Trade-off: you give up the ergonomics of "the entrypoint fixes volume ownership
+# for you" in exchange for a smaller attack surface (no CHOWN, no SETUID, no
+# SETGID, no DAC_OVERRIDE). Use this if you're comfortable managing host UIDs.
+#
+# One-time setup:
+#   mkdir -p ./data ./uploads
+#   sudo chown -R 1000:1000 ./data ./uploads
+#   sudo chmod 700 ./data ./uploads
+#   docker compose -f docker-compose.rootless.yml up -d
+#
+# If your host user is not UID 1000, change `user:` below and the chown above to
+# match. The container has no way to remap — what you set is what it runs as.
+
+services:
+  hermitstash:
+    image: ghcr.io/dotcoocoo/hermitstash:1   # see README "Image tag scheme" for :1 / :1.7 / :1.7.x / :latest options
+    init: true
+    user: "1000:1000"                # match the host UID:GID that owns ./data and ./uploads
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data             # must be pre-chowned to match `user:` above
+      - ./uploads:/app/uploads       # must be pre-chowned to match `user:` above
+    shm_size: 256m
+    read_only: true                  # root filesystem is immutable — all writes go through tmpfs + volumes
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # No cap_add — the rootless path in docker-entrypoint.sh exec's node directly
+    # without chown/setpriv. Zero capabilities required.
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health',function(r){process.exit(r.statusCode===200?0:1)}).on('error',function(){process.exit(1)})"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    environment:
+      # PUID/PGID/UMASK are ignored when `user:` is set — the entrypoint's remap
+      # logic only runs as root. We set the runtime directly above.
+      TZ: "Etc/UTC"
+
+      NODE_ENV: production
+      HERMITSTASH_TMPDIR: /dev/shm
+      PORT: 3000
+      TRUST_PROXY: "true"
+
+      # Required for passkeys + HSTS — set to your full domain URL
+      RP_ORIGIN: ""                  # e.g. https://files.example.com
+
+      LOCAL_AUTH: "true"
+      REGISTRATION_OPEN: "true"
+      PUBLIC_UPLOAD: "true"
+      PASSKEY_ENABLED: "true"
+
+      # All other settings (email, S3, branding, etc.) are configured
+      # via the admin panel at /admin after first start.
+    restart: unless-stopped

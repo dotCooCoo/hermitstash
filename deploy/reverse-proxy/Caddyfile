@@ -1,0 +1,42 @@
+# HermitStash — Caddyfile
+#
+# Caddy handles TLS automatically via Let's Encrypt. Minimal setup: point your
+# domain's DNS at this host, replace `files.example.com` below, and run Caddy.
+#
+# Install: sudo apt install caddy   (or see https://caddyserver.com/docs/install)
+# Reload:  sudo systemctl reload caddy
+#
+# Assumes HermitStash runs on 127.0.0.1:3000 with TRUST_PROXY=true.
+# Set RP_ORIGIN=https://files.example.com in the HermitStash environment.
+
+files.example.com {
+	# Match MAX_FILE_SIZE in the HermitStash environment (default 100MB = 104857600 bytes).
+	# Caddy's default request_body limit is 10MB, which silently truncates large uploads.
+	request_body {
+		max_size 100MB
+	}
+
+	# Let long uploads / downloads finish. Caddy's default read_body timeout is 10s.
+	# Bump streaming-unfriendly timeouts per-site without touching the global config.
+	reverse_proxy 127.0.0.1:3000 {
+		# WebSocket upgrades for /sync/ws are forwarded transparently by Caddy —
+		# no explicit `@websocket` matcher is required. Bearer auth is carried
+		# in the Authorization header (not in a query string), so there's
+		# nothing special to preserve across the upgrade.
+
+		# Caddy sets X-Forwarded-For, X-Forwarded-Proto, and X-Forwarded-Host by
+		# default when reverse-proxying. HermitStash honors these when
+		# TRUST_PROXY=true.
+
+		transport http {
+			read_timeout   5m
+			write_timeout  5m
+			dial_timeout   10s
+		}
+	}
+
+	# Security headers are already emitted by HermitStash (CSP, HSTS, etc.).
+	# Do not add duplicates here — they'll collide and break things like CSP.
+
+	encode zstd gzip
+}

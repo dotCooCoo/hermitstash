@@ -12,7 +12,8 @@
 #   5. Installs and starts a systemd service
 #
 # Requirements: Ubuntu 22.04+ or Debian 12+, root access
-# Uninstall: sudo systemctl disable --now hermitstash && sudo userdel hermit && sudo rm -rf /opt/hermitstash
+# Uninstall: sudo bash /opt/hermitstash/deploy/uninstall.sh
+#   (or: curl -fsSL https://raw.githubusercontent.com/dotCooCoo/hermitstash/main/deploy/uninstall.sh | sudo bash)
 
 set -euo pipefail
 
@@ -79,10 +80,12 @@ fi
 
 # ---- Step 3: Clone / update ----
 
+UPGRADE=0
 if [ -d "${INSTALL_DIR}/.git" ]; then
   log "Updating existing installation..."
   cd "$INSTALL_DIR"
   sudo -u "$SERVICE_USER" git pull --ff-only origin main
+  UPGRADE=1
 else
   log "Cloning HermitStash..."
   git clone https://github.com/dotCooCoo/hermitstash.git "$INSTALL_DIR"
@@ -110,42 +113,52 @@ else
 fi
 
 # ---- Step 6: systemd service ----
+#
+# Install the checked-in unit file (single source of truth — deploy/hermitstash.service)
+# rather than emitting an inline heredoc, which drifts silently over time. The unit
+# assumes the defaults used above (hermit user, /opt/hermitstash, port 3000, shm path);
+# if any of those were overridden via env vars, patch the unit before enabling.
 
-log "Installing systemd service..."
-cat > /etc/systemd/system/hermitstash.service <<EOF
-[Unit]
-Description=HermitStash — Post-quantum encrypted file uploads
-Documentation=https://github.com/dotCooCoo/hermitstash
-After=network-online.target
-Wants=network-online.target
+log "Installing systemd service from deploy/hermitstash.service..."
+install -m 0644 "${INSTALL_DIR}/deploy/hermitstash.service" /etc/systemd/system/hermitstash.service
 
-[Service]
-Type=simple
-User=${SERVICE_USER}
-Group=${SERVICE_USER}
-WorkingDirectory=${INSTALL_DIR}
-Environment=NODE_ENV=production
-Environment=PORT=${PORT}
-Environment=HERMITSTASH_TMPDIR=${SHM_DIR}
-NoNewPrivileges=yes
-ProtectSystem=strict
-ProtectHome=yes
-PrivateTmp=yes
-ReadWritePaths=${DATA_DIR} ${UPLOADS_DIR} ${SHM_DIR}
-ExecStart=/usr/bin/node server.js
-Restart=on-failure
-RestartSec=5
-TimeoutStopSec=30
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=hermitstash
+# Apply non-default overrides via a drop-in so we never edit the shipped unit.
+DROPIN_DIR="/etc/systemd/system/hermitstash.service.d"
+DROPIN_FILE="${DROPIN_DIR}/override.conf"
+NEED_DROPIN=0
+DROPIN_LINES=""
 
-[Install]
-WantedBy=multi-user.target
-EOF
+if [ "$PORT" != "3000" ]; then
+  NEED_DROPIN=1
+  DROPIN_LINES="${DROPIN_LINES}Environment=PORT=${PORT}"$'\n'
+fi
+if [ "$INSTALL_DIR" != "/opt/hermitstash" ]; then
+  NEED_DROPIN=1
+  DROPIN_LINES="${DROPIN_LINES}WorkingDirectory=${INSTALL_DIR}"$'\n'
+  DROPIN_LINES="${DROPIN_LINES}Environment=HERMITSTASH_TMPDIR=${SHM_DIR}"$'\n'
+  DROPIN_LINES="${DROPIN_LINES}ReadWritePaths=${DATA_DIR} ${UPLOADS_DIR} ${SHM_DIR}"$'\n'
+fi
+if [ "$SERVICE_USER" != "hermit" ]; then
+  NEED_DROPIN=1
+  DROPIN_LINES="${DROPIN_LINES}User=${SERVICE_USER}"$'\n'
+  DROPIN_LINES="${DROPIN_LINES}Group=${SERVICE_USER}"$'\n'
+fi
+
+if [ "$NEED_DROPIN" -eq 1 ]; then
+  log "Applying systemd drop-in override for non-default settings..."
+  mkdir -p "$DROPIN_DIR"
+  printf "[Service]\n%s" "$DROPIN_LINES" > "$DROPIN_FILE"
+  chmod 0644 "$DROPIN_FILE"
+fi
 
 systemctl daemon-reload
-systemctl enable --now hermitstash
+
+if [ "$UPGRADE" -eq 1 ]; then
+  log "Restarting hermitstash to pick up new code..."
+  systemctl restart hermitstash
+else
+  systemctl enable --now hermitstash
+fi
 
 # ---- Step 7: Wait for health ----
 

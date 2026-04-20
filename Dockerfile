@@ -27,11 +27,9 @@ RUN groupadd -r hermit && useradd -r -g hermit -s /bin/sh hermit
 
 WORKDIR /app
 
-# Copy vendored dependencies first (changes less often → better layer cache)
-COPY lib/vendor/ lib/vendor/
-COPY public/ public/
-
-# Copy application code
+# Single COPY — .dockerignore excludes data/, uploads/, tests/, node_modules/, etc.
+# No separate layer for vendor/public: with zero npm deps there's nothing to `npm ci`
+# between copies, and those dirs already travel with the rest of the source.
 COPY . .
 
 # Create persistent directories

@@ -513,6 +513,8 @@ services:
 
 All other settings (auth, email, S3, branding) are best configured via the admin panel at `/admin` so credentials are vault-sealed in the encrypted database. Environment variables override DB settings and are visible in Admin > Settings > Environment tab.
 
+**Hardened / rootless variant:** [`docker-compose.rootless.yml`](docker-compose.rootless.yml) runs the container as UID 1000 with `read_only: true` and zero Linux capabilities. You pre-chown `./data` and `./uploads` on the host; the container never needs `CHOWN`/`SETUID`/`SETGID`/`DAC_OVERRIDE`. Use this if you're comfortable managing host UIDs.
+
 ### Coolify / managed Docker hosts
 
 Works out of the box with Coolify, Portainer, CapRover, and similar platforms:
@@ -545,7 +547,11 @@ The server can terminate TLS itself (for PQC enforcement) or sit behind a revers
 
 ### Reverse proxy
 
-Need nginx, Caddy, or Apache in front? The admin panel (Settings > Uploads) auto-detects your proxy and generates a ready-to-paste config snippet with the correct body size limits.
+Drop-in configs for the three common proxies live in [`deploy/reverse-proxy/`](deploy/reverse-proxy/) — [`Caddyfile`](deploy/reverse-proxy/Caddyfile), [`nginx.conf`](deploy/reverse-proxy/nginx.conf), and [`apache.conf`](deploy/reverse-proxy/apache.conf). All three terminate TLS, forward `/sync/ws` WebSocket upgrades, match the 100MB upload limit, and pass `X-Forwarded-*` headers through for `TRUST_PROXY=true`.
+
+The admin panel (Settings > Uploads) auto-detects your proxy and generates a ready-to-paste snippet reflecting your current `MAX_FILE_SIZE` if you'd rather tune body limits from the UI.
+
+If you use the sync client's mTLS mode, see the [reverse-proxy README](deploy/reverse-proxy/README.md#mtls-sync-clients) — TLS-terminating proxies strip the client cert, so you need TCP passthrough or a dedicated bypass port.
 
 ### S3 storage
 
@@ -565,12 +571,12 @@ Pre-fills icon, ports, volumes, and `--shm-size=256m` automatically.
 
 **Kubernetes:**
 ```bash
-curl -O https://raw.githubusercontent.com/dotCooCoo/hermitstash/main/kubernetes.yml
+curl -O https://raw.githubusercontent.com/dotCooCoo/hermitstash/main/deploy/kubernetes.yml
 # Edit RP_ORIGIN, PVC sizes, and optional Ingress
 kubectl apply -f kubernetes.yml
 kubectl port-forward -n hermitstash svc/hermitstash 3000:3000
 ```
-Includes: Namespace, PVCs, Deployment (liveness/readiness probes, resource limits, memory-backed `/dev/shm`), Service, and commented-out Ingress template.
+Includes: Namespace, PVCs, Deployment (liveness/readiness probes, resource limits, memory-backed `/dev/shm`), Service, and commented-out Ingress template. See [`deploy/kubernetes.yml`](deploy/kubernetes.yml).
 
 **TrueNAS SCALE:** Apps → Custom App → image `ghcr.io/dotcoocoo/hermitstash`, tag `latest`. Add host path datasets for `/app/data` and `/app/uploads`. Add shared memory volume: type emptyDir, medium Memory, size 256Mi, mount at `/dev/shm`.
 
@@ -578,7 +584,7 @@ Includes: Namespace, PVCs, Deployment (liveness/readiness probes, resource limit
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dotCooCoo/hermitstash/main/deploy/install.sh | sudo bash
 ```
-Installs Node.js 24, creates a `hermit` system user, sets up tmpfs (256MB) for the in-memory database, and registers a systemd service. See [`deploy/install.sh`](deploy/install.sh).
+Installs Node.js 24, creates a `hermit` system user, sets up tmpfs (256MB) for the in-memory database, and registers a systemd service using the checked-in [`deploy/hermitstash.service`](deploy/hermitstash.service) unit. Re-running the script `git pull`s the latest code and restarts the service. See [`deploy/install.sh`](deploy/install.sh). Uninstall with [`deploy/uninstall.sh`](deploy/uninstall.sh) — data is preserved unless you pass `--purge`.
 
 **Terraform (DigitalOcean):**
 ```bash
