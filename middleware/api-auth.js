@@ -6,12 +6,11 @@
 var { apiKeys, users } = require("../lib/db");
 var { sha3Hash } = require("../lib/crypto");
 var { validateBearerToken } = require("../app/shared/validate");
+var { extractBearerToken } = require("../lib/http-utils");
 
 module.exports = function apiAuth(req, res, next) {
-  var auth = req.headers && req.headers.authorization;
-  if (!auth || !auth.startsWith("Bearer ")) return next();
-
-  var token = auth.substring(7);
+  var token = extractBearerToken(req);
+  if (!token) return next();
   if (!validateBearerToken(token)) return next(); // malformed token — skip auth, don't waste cycles hashing
   var hash = sha3Hash(token);
   var key = apiKeys.findOne({ keyHash: hash });

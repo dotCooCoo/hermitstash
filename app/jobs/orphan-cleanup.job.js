@@ -171,8 +171,10 @@ async function scanDanglingRecords() {
       // S3 — skip for now (checking each key is expensive)
       continue;
     }
-    var fullPath = path.isAbsolute(sp) ? sp : path.join(uploadDir, sp);
-    if (!fs.existsSync(fullPath)) {
+    // resolveLocalPath normalizes + guards against escape. If the path
+    // escapes uploadDir, that itself is a dangling/corrupted record.
+    var resolved = storage.resolveLocalPath(sp);
+    if (!resolved.ok || !fs.existsSync(resolved.absPath)) {
       dangling.push({ fileId: allFiles[i]._id, shareId: allFiles[i].shareId, storagePath: sp });
     }
   }

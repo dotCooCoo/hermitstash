@@ -656,14 +656,11 @@ server.on("upgrade", function (req, socket, head) {
     }
   }
 
-  // Auth: Bearer token from Authorization header only
-  // Query string tokens are not accepted — they leak via proxy logs, Referer headers, and browser history
-  var token = null;
-  var authHeader = req.headers.authorization || "";
-  if (authHeader.startsWith("Bearer ")) {
-    token = authHeader.slice(7).trim();
-  }
-
+  // Auth: Bearer token from Authorization header only.
+  // Query string tokens are not accepted — they leak via proxy logs, Referer
+  // headers, and browser history. lib/http-utils.extractBearerToken handles
+  // whitespace normalization consistently with api-auth middleware.
+  var token = require("./lib/http-utils").extractBearerToken(req);
   if (!token) {
     return rejectUpgrade(socket, 401, "Unauthorized");
   }

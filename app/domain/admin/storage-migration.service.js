@@ -62,14 +62,11 @@ async function migrateStorage(direction, progressCb) {
         var isAlreadyS3 = isS3Path(sp);
         if (isAlreadyS3) { result.skipped++; continue; }
 
-        // Read raw ciphertext from local disk
-        // Failures here throw — the per-file catch below logs and counts them
-        // uniformly with the rest of the failure modes.
-        var localPath = path.isAbsolute(sp) ? sp : path.join(uploadDir, sp);
-        var resolved = path.resolve(localPath);
-        if (!resolved.startsWith(path.resolve(uploadDir) + path.sep)) {
-          throw new Error("Path escapes upload directory: " + sp);
-        }
+        // Read raw ciphertext from local disk. resolveLocalPath applies the
+        // upload-dir-escape safety check uniformly across all callers.
+        var resolved = storage.resolveLocalPath(sp);
+        if (!resolved.ok) throw new Error(resolved.reason);
+        var localPath = resolved.absPath;
         if (!fs.existsSync(localPath)) {
           throw new Error("Local file not found: " + sp);
         }
@@ -177,8 +174,8 @@ function migrationPreview(direction) {
       toMigrate++;
       totalBytes += allFiles[i].size || 0;
       if (bid) bundlesAffected.add(bid);
-      var localPath = path.isAbsolute(sp) ? sp : path.join(uploadDir, sp);
-      if (!fs.existsSync(localPath)) missing++;
+      var resolvedPreview = storage.resolveLocalPath(sp);
+      if (!resolvedPreview.ok || !fs.existsSync(resolvedPreview.absPath)) missing++;
     } else if (!toS3 && onS3) {
       toMigrate++;
       totalBytes += allFiles[i].size || 0;
