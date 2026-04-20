@@ -239,7 +239,11 @@ app.post("/sync/enroll", require("./lib/rate-limit").middleware("sync-enroll", 5
     }));
 
     audit.log(audit.ACTIONS.ENROLLMENT_REDEEMED, { details: "Sync enrollment code redeemed", req: req });
-  } catch (_e) {
+  } catch (err) {
+    // Don't leak the specific error to the client (it may reference DB rows,
+    // crypto state, etc.) — but log it so operators can diagnose failed
+    // enrollment attempts.
+    logger.error("[sync/enroll] Error", { error: err.message, stack: err.stack });
     res.writeHead(500, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "Enrollment failed." }));
   }
@@ -316,7 +320,11 @@ app.post("/sync/renew-cert", require("./lib/rate-limit").middleware("sync-renew"
     }));
 
     audit.log(audit.ACTIONS.CERT_RENEWED, { details: "Sync client auto-renewed certificate: " + apiKey.prefix, req: req });
-  } catch (_e) {
+  } catch (err) {
+    // mTLS CA signing or DB update failed — surface the specific cause to
+    // operators (not the client). Without this log the caller just sees
+    // "Certificate renewal failed." with no way to diagnose.
+    logger.error("[sync/renew-cert] Error", { error: err.message, stack: err.stack });
     res.writeHead(500, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "Certificate renewal failed." }));
   }
@@ -437,37 +445,37 @@ scheduler.register("email_sends_cleanup", C.TIME.ONE_DAY, function () { // daily
   try {
     var cutoff = new Date(Date.now() - C.TIME.NINETY_DAYS).toISOString(); // 90 days
     db.rawExec("DELETE FROM email_sends WHERE createdAt < ?", cutoff);
-  } catch (_e) {}
+  } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
 scheduler.register("expired_tokens_cleanup", C.TIME.ONE_DAY, function () { // daily
   try {
     var now = new Date().toISOString();
     db.rawExec("DELETE FROM verification_tokens WHERE expiresAt < ?", now);
-  } catch (_e) {}
+  } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
 scheduler.register("expired_bundles_cleanup", C.TIME.ONE_HOUR, function () { // hourly
   try {
     db.rawExec("DELETE FROM bundles WHERE status = 'uploading' AND createdAt < ?",
       new Date(Date.now() - C.TIME.ONE_DAY).toISOString()); // stale uploads > 24h
-  } catch (_e) {}
+  } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
 scheduler.register("chunk_gc", C.TIME.ONE_HOUR, function () { // hourly
-  try { chunkGcJob.cleanupStaleChunks(); } catch (_e) {}
+  try { chunkGcJob.cleanupStaleChunks(); } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
 scheduler.register("expired_invites_cleanup", C.TIME.ONE_DAY, function () { // daily
   try {
     var now = new Date().toISOString();
     db.rawExec("DELETE FROM invites WHERE status = 'pending' AND expiresAt < ?", now);
-  } catch (_e) {}
+  } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
 scheduler.register("tombstone_cleanup", C.TIME.ONE_DAY, function () { // daily
-  try { expiryCleanupJob.cleanupTombstones(); } catch (_e) {}
+  try { expiryCleanupJob.cleanupTombstones(); } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
 scheduler.register("expired_enrollment_codes_cleanup", C.TIME.ONE_HOUR, function () { // hourly
-  try { expiryCleanupJob.cleanupExpiredEnrollmentCodes(); } catch (_e) {}
+  try { expiryCleanupJob.cleanupExpiredEnrollmentCodes(); } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
 scheduler.register("expired_access_codes_cleanup", C.TIME.ONE_HOUR, function () { // hourly
-  try { expiryCleanupJob.cleanupExpiredAccessCodes(); } catch (_e) {}
+  try { expiryCleanupJob.cleanupExpiredAccessCodes(); } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
 scheduler.register("bundle_lockout_cleanup", C.TIME.ONE_HOUR, function () { // hourly
   // Remove lockout rows that haven't seen an attempt in 24h.
@@ -475,20 +483,20 @@ scheduler.register("bundle_lockout_cleanup", C.TIME.ONE_HOUR, function () { // h
   try {
     var cutoff = new Date(Date.now() - C.TIME.ONE_DAY).toISOString();
     db.rawExec("DELETE FROM bundle_access_lockouts WHERE lastAttempt < ?", cutoff);
-  } catch (_e) {}
+  } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
 scheduler.register("orphan_storage_cleanup", C.TIME.ONE_DAY, async function () { // daily
   try {
     var local = orphanCleanupJob.scanLocalOrphans();
     var deleted = orphanCleanupJob.deleteLocalOrphans(local.orphans);
     if (deleted > 0) logger.info("[orphan-cleanup] Removed " + deleted + " orphaned local files");
-  } catch (_e) {}
+  } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
 scheduler.register("cert_expiry_check", C.TIME.ONE_DAY, function () { // daily
   return certExpiryJob.run().catch(function (e) { logger.error("cert_expiry_check failed", { error: e.message }); });
 });
 scheduler.register("incremental_vacuum", C.TIME.ONE_DAY, function () { // daily
-  try { db.rawExec("PRAGMA incremental_vacuum(100)"); } catch (_e) {} // reclaim ~100 pages
+  try { db.rawExec("PRAGMA incremental_vacuum(100)"); } catch (_e) { /* reclaim ~100 pages — best-effort */ }
 });
 scheduler.register("shm_usage_monitor", C.TIME.FIVE_MIN, function () { // every 5 minutes
   if (process.platform === "win32") return; // statfsSync not available on Windows
@@ -794,7 +802,7 @@ server.on("upgrade", function (req, socket, head) {
   // Send immediate heartbeat on connect so clients know the connection is live
   try {
     ws.send(JSON.stringify({ type: "heartbeat", seq: bundle.seq || 0, timestamp: new Date().toISOString() }));
-  } catch (_e) {}
+  } catch (_e) { /* socket may have closed between upgrade and first write */ }
 
   // Heartbeat interval
   var heartbeatTimer = setInterval(function () {
@@ -802,7 +810,7 @@ server.on("upgrade", function (req, socket, head) {
       var freshBundle = bundlesRepo.findById(bundleId);
       ws.send(JSON.stringify({ type: "heartbeat", seq: freshBundle ? freshBundle.seq || 0 : 0, timestamp: new Date().toISOString() }));
       ws.ping();
-    } catch (_e) {}
+    } catch (_e) { /* client disconnected between heartbeats — close handler runs next tick */ }
   }, SYNC_HEARTBEAT_INTERVAL);
 
   // Pong timeout detection
@@ -900,7 +908,7 @@ function gracefulShutdown(signal) {
   // Close all WebSocket connections so server.close() can drain
   syncConnections.forEach(function (conns) {
     conns.forEach(function (entry) {
-      try { if (entry.ws && entry.ws.readyState === 1) entry.ws.close(1001, "Server shutting down"); } catch (_e) {}
+      try { if (entry.ws && entry.ws.readyState === 1) entry.ws.close(1001, "Server shutting down"); } catch (_e) { /* socket may already be closed */ }
     });
   });
 

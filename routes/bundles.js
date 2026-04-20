@@ -423,7 +423,7 @@ module.exports = function (app) {
     }
     var bundleFiles = filesRepo.findByBundleShareId(bundle.shareId);
     for (var i = 0; i < bundleFiles.length; i++) {
-      try { await storage.deleteFile(bundleFiles[i].storagePath); } catch (_e) {}
+      try { await storage.deleteFile(bundleFiles[i].storagePath); } catch (_e) { /* cleanup — storage file may already be gone */ }
       filesRepo.remove(bundleFiles[i]._id);
     }
     // Decrement stash stats if bundle belongs to a stash page

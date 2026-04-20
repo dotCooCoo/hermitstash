@@ -433,7 +433,7 @@ module.exports = function (app) {
       if (!bundle || bundle.stashId !== stash._id) return res.status(404).json({ error: "Bundle not found." });
       var bundleFiles = filesRepo.findByBundleShareId(bundle.shareId);
       for (var i = 0; i < bundleFiles.length; i++) {
-        if (bundleFiles[i].storagePath) { try { await storage.deleteFile(bundleFiles[i].storagePath); } catch (_e) {} }
+        if (bundleFiles[i].storagePath) { try { await storage.deleteFile(bundleFiles[i].storagePath); } catch (_e) { /* cleanup — storage file may already be gone */ } }
         filesRepo.remove(bundleFiles[i]._id);
       }
       // Decrement stash stats
@@ -679,7 +679,7 @@ module.exports = function (app) {
       try {
         var existing = fs.readdirSync(STASH_LOGO_DIR);
         existing.forEach(function (f) { if (f.startsWith(stash._id)) fs.unlinkSync(path.join(STASH_LOGO_DIR, f)); });
-      } catch (_e) {}
+      } catch (_e) { /* STASH_LOGO_DIR may not exist on first upload */ }
 
       var filename = stash._id + ext;
       fs.writeFileSync(path.join(STASH_LOGO_DIR, filename), data);
@@ -749,7 +749,7 @@ module.exports = function (app) {
             }});
           }
         }
-      } catch (_e) {}
+      } catch (_e) { /* old key revocation is best-effort — new enrollment still issues */ }
 
       // Generate enrollment code — short, typeable, one-time use
       var enrollment = generateEnrollmentCode();

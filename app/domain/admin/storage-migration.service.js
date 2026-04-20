@@ -104,7 +104,7 @@ async function migrateStorage(direction, progressCb) {
             await fsp.rmdir(parentDir);
             parentDir = path.dirname(parentDir);
           }
-        } catch (_e) {}
+        } catch (_e) { /* parent dir cleanup — stop on first non-empty or permission error */ }
 
         result.migrated++;
       } else {

@@ -21,7 +21,7 @@ async function run() {
   // The passphrase is vault-sealed in settings for scheduled runs
   var passphrase = config.backup.passphrase;
   if (passphrase) {
-    try { passphrase = vault.unseal(passphrase); } catch (_e) {}
+    try { passphrase = vault.unseal(passphrase); } catch (_e) { /* not sealed — treat as plaintext (legacy config) */ }
   }
   if (!passphrase) {
     logger.error("[backup] No backup passphrase configured — skipping scheduled backup");

@@ -143,7 +143,7 @@ async function handleFileUpload(ctx) {
       var storagePath = "bundles/" + bundle.shareId + "/" + Date.now() + "-" + fileShareId + ext;
       checksum = sha3Hash(file.data);
       saved = await storage.saveFile(file.data, storagePath);
-      try { await storage.deleteFile(old.storagePath); } catch (_e) {}
+      try { await storage.deleteFile(old.storagePath); } catch (_e) { /* cleanup — old replaced-file may already be gone on S3 */ }
       var now = new Date().toISOString();
       filesRepo.update(old._id, { $set: {
         originalName: sanitizeFilename(file.filename),

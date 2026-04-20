@@ -205,7 +205,7 @@ module.exports = function (app) {
       total += c.length;
       if (total > 2048) {
         aborted = true;
-        try { req.destroy(); } catch (_e) {}
+        try { req.destroy(); } catch (_e) { /* request may already be destroyed — oversize body aborted */ }
         return;
       }
       chunks.push(c);

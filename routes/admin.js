@@ -45,7 +45,7 @@ function walkDiskUsage(dir) {
     if (entries[i].isDirectory()) {
       total += walkDiskUsage(full);
     } else if (entries[i].isFile()) {
-      try { total += fs.statSync(full).size; } catch (_e) {}
+      try { total += fs.statSync(full).size; } catch (_e) { /* file may have been removed between readdir and stat */ }
     }
   }
   return total;
@@ -390,7 +390,7 @@ module.exports = function (app) {
           var data = await backend.getBuffer(manifestKeys[i]);
           var m = JSON.parse(data.toString("utf8"));
           if (m.timestamp === timestamp) { targetPrefix = manifestKeys[i].replace("manifest.json", ""); break; }
-        } catch (_e) {}
+        } catch (_e) { /* skip unreadable/corrupt manifest — continue scanning */ }
       }
       if (!targetPrefix) return res.status(404).json({ error: "Backup not found" });
       // Delete all files under this backup's prefix
@@ -582,7 +582,7 @@ module.exports = function (app) {
       try {
         var existing = fs.readdirSync(LOGO_DIR);
         existing.forEach(function (f) { if (f.startsWith("logo")) fs.unlinkSync(path.join(LOGO_DIR, f)); });
-      } catch (_e) {}
+      } catch (_e) { /* LOGO_DIR may not exist on first upload */ }
 
       var filename = "logo" + ext;
       fs.writeFileSync(path.join(LOGO_DIR, filename), data);
@@ -607,7 +607,8 @@ module.exports = function (app) {
       config.updateSettings({ customLogo: "" });
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Custom logo removed", req: req });
       res.json({ success: true });
-    } catch (_e) {
+    } catch (err) {
+      logger.error("[admin/logo/remove] Error", { error: err.message, stack: err.stack });
       res.status(500).json({ error: "Failed to remove logo." });
     }
   });
@@ -726,7 +727,7 @@ module.exports = function (app) {
             summary: summary,
             byUser: req.session && req.session.userId ? req.session.userId : null,
           }));
-        } catch (_e) {}
+        } catch (_e) { /* regen flag file is best-effort — startup banner only */ }
         // Commit CA files atomically
         mtlsCa.commitNewCa(fresh.caCertPem, fresh.caKeyPem);
         // Delete browser cert api_keys — their cert was issued by the old CA
@@ -795,7 +796,7 @@ module.exports = function (app) {
             restartInMs: ACK_TIMEOUT_MS + RESTART_DELAY_MS,
             dryRun: skipRestart,
           }));
-        } catch (_e) {}
+        } catch (_e) { /* WS send failure — client will reconnect with new cert after restart */ }
       }
 
       summary.restartInMs = ACK_TIMEOUT_MS + RESTART_DELAY_MS;
@@ -863,7 +864,7 @@ module.exports = function (app) {
       var fileCount = allFiles.length;
       for (var i = 0; i < allFiles.length; i++) {
         if (allFiles[i].storagePath) {
-          try { await storage.deleteFile(allFiles[i].storagePath); } catch (_e) {}
+          try { await storage.deleteFile(allFiles[i].storagePath); } catch (_e) { /* cleanup — storage file may already be gone */ }
         }
         filesRepo.remove(allFiles[i]._id);
       }
@@ -878,7 +879,7 @@ module.exports = function (app) {
         for (var k = 0; k < allStash.length; k++) {
           stashRepo.update(allStash[k]._id, { $set: { bundleCount: 0, totalBytes: 0 } });
         }
-      } catch (_e) {}
+      } catch (_e) { /* stash stats reset is best-effort — files already purged */ }
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Purged " + fileCount + " files, " + bundleCount + " bundles", req: req });
       res.json({ success: true, deletedFiles: fileCount, deletedBundles: bundleCount });
     } catch (e) {
@@ -899,7 +900,7 @@ module.exports = function (app) {
       var allFiles = filesRepo.findAll({});
       for (var i = 0; i < allFiles.length; i++) {
         if (allFiles[i].storagePath) {
-          try { await storage.deleteFile(allFiles[i].storagePath); } catch (_e) {}
+          try { await storage.deleteFile(allFiles[i].storagePath); } catch (_e) { /* cleanup — storage file may already be gone */ }
         }
       }
 
@@ -929,7 +930,7 @@ module.exports = function (app) {
       try {
         var allStash = stashRepo.findAll();
         for (var st = 0; st < allStash.length; st++) stashRepo.remove(allStash[st]._id);
-      } catch (_e) {}
+      } catch (_e) { /* stash purge is best-effort — database reset still completes */ }
 
       sessionService.revokeAll(req);
       // Log after purge so at least one audit entry exists

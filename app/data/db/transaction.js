@@ -27,13 +27,13 @@ function init(db) {
 function transaction(fn) {
   if (!_db) throw new Error("Transaction helper not initialized. Call init(db) first.");
   // SQLite DatabaseSync.exec (not child_process)
-  _db.exec("BEGIN IMMEDIATE"); // eslint-disable-line
+  _db.exec("BEGIN IMMEDIATE");
   try {
     var result = fn();
-    _db.exec("COMMIT"); // eslint-disable-line
+    _db.exec("COMMIT");
     return result;
   } catch (e) {
-    _db.exec("ROLLBACK"); // eslint-disable-line
+    _db.exec("ROLLBACK");
     throw e;
   }
 }

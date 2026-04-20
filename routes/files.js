@@ -95,7 +95,10 @@ module.exports = function (app) {
         "Content-Type": "application/octet-stream",
       });
       forceResult.stream.pipe(res);
-    } catch (_e) {
+    } catch (err) {
+      // Storage backend (local fs or S3) or stream decrypt failed. Log so
+      // operators can investigate; keep the user-facing body generic.
+      logger.error("[files/download] Error", { shareId: req.params.shareId, error: err.message });
       if (!res.writableEnded) { res.writeHead(500); res.end("File unavailable"); }
     }
   });

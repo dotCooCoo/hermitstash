@@ -20,7 +20,7 @@ function resolveAnalyticsDomains() {
   var urlMatches = config.analyticsScript.match(/https?:\/\/([^"'\s\/\)]+)/gi) || [];
   var domains = new Set();
   srcMatches.concat(urlMatches).forEach(function (m) {
-    try { var host = m.replace(/^.*?https?:\/\//i, "").split(/[/"'\s]/)[0]; if (host && host.includes(".")) domains.add("https://" + host); } catch (_e) {}
+    try { var host = m.replace(/^.*?https?:\/\//i, "").split(/[/"'\s]/)[0]; if (host && host.includes(".")) domains.add("https://" + host); } catch (_e) { /* URL parse failure — skip this match */ }
   });
   return Array.from(domains);
 }

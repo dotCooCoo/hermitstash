@@ -81,7 +81,7 @@ function run() {
       var flagData = JSON.parse(fs.readFileSync(regenFlagPath, "utf8"));
       var s = flagData.summary || {};
       warnings.push("mTLS CA was regenerated at " + flagData.at + " (v" + s.caGenerationBefore + " → v" + s.caGenerationAfter + "). Acked: " + (s.syncClientsAcked || 0) + "/" + (s.syncClientsConnected || 0) + " live sync clients. " + (s.syncClientsOffline || 0) + " offline clients need re-enrollment. " + (s.browserCertsRevoked || 0) + " browser cert(s) invalidated — admins must re-download.");
-      try { fs.unlinkSync(regenFlagPath); } catch (_e) {}
+      try { fs.unlinkSync(regenFlagPath); } catch (_e) { /* flag file may have been removed by a concurrent boot */ }
     }
   } catch (_e) { /* flag corrupted or unreadable — non-fatal */ }
 
@@ -139,7 +139,7 @@ function run() {
       if (process.platform !== "win32" && (stat.mode & 0o077) !== 0) {
         warnings.push("data/ directory has loose permissions (" + (stat.mode & 0o777).toString(8) + "). Consider chmod 700.");
       }
-    } catch (_e) {}
+    } catch (_e) { /* platform probe — stat/mode not available on this OS */ }
   }
 
   // ---- Print results ----

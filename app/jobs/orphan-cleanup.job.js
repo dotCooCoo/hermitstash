@@ -224,7 +224,7 @@ function scanEmptyBundles() {
               else if (entries[k].isFile()) hasFiles = true;
             }
           })(bundleDir);
-        } catch (_e) {}
+        } catch (_e) { /* directory may have been removed concurrently — treat as empty */ }
         if (hasFiles) continue; // skip — orphan files present, defer to next pass
       }
     }

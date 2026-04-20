@@ -13,12 +13,12 @@
 module.exports = {
   up: function (db) {
     try {
-      db.exec("ALTER TABLE users ADD COLUMN failedLoginAttempts INTEGER DEFAULT 0");  // eslint-disable-line
+      db.exec("ALTER TABLE users ADD COLUMN failedLoginAttempts INTEGER DEFAULT 0");
     } catch (_e) {
       // Column already exists — safe to ignore
     }
     try {
-      db.exec("ALTER TABLE users ADD COLUMN lockedUntil TEXT");  // eslint-disable-line
+      db.exec("ALTER TABLE users ADD COLUMN lockedUntil TEXT");
     } catch (_e) {
       // Column already exists — safe to ignore
     }

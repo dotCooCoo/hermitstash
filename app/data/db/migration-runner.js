@@ -19,8 +19,8 @@ var migrationsDir = path.join(__dirname, "migrations");
  * Ensure the _migrations tracking table exists.
  */
 function ensureTable(db) {
-  // SQLite DatabaseSync.exec (not child_process)
-  db.exec(  // eslint-disable-line
+  // SQLite DatabaseSync.exec — not child_process
+  db.exec(
     "CREATE TABLE IF NOT EXISTS _migrations (" +
       "_id TEXT PRIMARY KEY, " +
       "name TEXT NOT NULL, " +

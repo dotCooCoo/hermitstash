@@ -32,66 +32,13 @@ jobs:
         run: npm install --no-save eslint@^10 eslint-plugin-security@^4
 
       # ── ESLint ─────────────────────────────────────────────────
+      # Uses the canonical eslint.config.js committed at the repo root.
+      # Same config runs locally via `npx eslint .` — no drift.
       - name: Run ESLint
         id: eslint
         run: |
-          cat > eslint.ci.config.js << 'ESLINT_CONFIG'
-          var security = require("eslint-plugin-security");
-          module.exports = [
-            {
-              ignores: [
-                "tests/", "public/js/", "node_modules/**", "template/",
-                "scripts/", "deploy/", "lib/vendor/", "eslint.ci.config.js",
-              ],
-            },
-            {
-              files: ["**/*.js"],
-              plugins: { security: security },
-              linterOptions: { reportUnusedDisableDirectives: "off" },
-              languageOptions: {
-                ecmaVersion: 2022,
-                sourceType: "commonjs",
-                globals: {
-                  require: "readonly", module: "readonly", exports: "readonly",
-                  __dirname: "readonly", __filename: "readonly",
-                  process: "readonly", console: "readonly", Buffer: "readonly",
-                  setTimeout: "readonly", setInterval: "readonly", setImmediate: "readonly",
-                  clearTimeout: "readonly", clearInterval: "readonly",
-                  URL: "readonly", URLSearchParams: "readonly",
-                  global: "readonly", crypto: "readonly",
-                  TextEncoder: "readonly", TextDecoder: "readonly",
-                },
-              },
-              rules: {
-                // Built-in
-                "no-unused-vars": ["warn", { argsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" }],
-                "no-console": "off",
-                "no-eval": "error",
-                "no-implied-eval": "error",
-                "no-new-func": "error",
-                "no-self-compare": "error",
-                "no-constructor-return": "error",
-                "no-new-wrappers": "error",
-                "no-throw-literal": "error",
-                // Security plugin
-                "security/detect-eval-with-expression": "error",
-                "security/detect-child-process": "warn",
-                "security/detect-unsafe-regex": "error",
-                "security/detect-buffer-noassert": "error",
-                "security/detect-new-buffer": "error",
-                "security/detect-possible-timing-attacks": "warn",
-                "security/detect-pseudoRandomBytes": "warn",
-                "security/detect-object-injection": "off",
-                "security/detect-non-literal-fs-filename": "off",
-                "security/detect-non-literal-require": "off",
-                "security/detect-non-literal-regexp": "off",
-              },
-            },
-          ];
-          ESLINT_CONFIG
-
           set +e
-          OUTPUT=$(npx eslint --config eslint.ci.config.js . 2>&1)
+          OUTPUT=$(npx eslint . 2>&1)
           EXIT_CODE=$?
           set -e
 

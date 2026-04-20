@@ -45,7 +45,7 @@ async function run() {
       try {
         var webhook = require("../domain/integrations/webhook.service");
         webhook.fire("cert_expiring", { prefix: key.prefix, expiresAt: key.certExpiresAt, daysLeft: Math.ceil((expiresAt - now) / TIME.ONE_DAY) });
-      } catch (_e) {}
+      } catch (_e) { /* webhook dispatch is best-effort — core alert already logged above */ }
     }
 
     if (expiresAt < day30) {
@@ -97,7 +97,7 @@ async function run() {
         try {
           var webhook = require("../domain/integrations/webhook.service");
           webhook.fire("cert_renewed", { prefix: key.prefix, newExpiresAt: newCert.expiresAt });
-        } catch (_e) {}
+        } catch (_e) { /* webhook dispatch is best-effort — renewal already succeeded + logged */ }
       } catch (e) {
         logger.error("[cert-expiry] Auto-renewal failed", { prefix: key.prefix, error: e.message });
       }

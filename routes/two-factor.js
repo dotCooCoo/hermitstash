@@ -157,7 +157,7 @@ module.exports = function (app) {
     if (!requireAuth(req, res)) return;
     var user = usersRepo.findById(req.user._id);
     var backupCount = 0;
-    try { var codes = Array.isArray(user.totpBackupCodes) ? user.totpBackupCodes : JSON.parse(user.totpBackupCodes || "[]"); backupCount = codes.length; } catch (_e) {}
+    try { var codes = Array.isArray(user.totpBackupCodes) ? user.totpBackupCodes : JSON.parse(user.totpBackupCodes || "[]"); backupCount = codes.length; } catch (_e) { /* malformed backupCodes — report 0 remaining */ }
     res.json({ enabled: user.totpEnabled === "true", backupCodesRemaining: backupCount });
   });
 };

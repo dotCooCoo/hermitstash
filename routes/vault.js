@@ -98,7 +98,7 @@ module.exports = function (app) {
       for (var i = 0; i < vaultFiles.length; i++) {
         try {
           await storage.deleteFile(vaultFiles[i].storagePath);
-        } catch (_e) {}
+        } catch (_e) { /* cleanup — storage file may already be gone */ }
         filesRepo.remove(vaultFiles[i]._id);
         deleted++;
       }
@@ -127,7 +127,8 @@ module.exports = function (app) {
       // This toggle itself is always logged (so admin knows stealth was activated)
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { targetId: req.user._id, details: "Vault stealth " + (enable ? "enabled" : "disabled"), req: req });
       res.json({ success: true, stealth: enable });
-    } catch (_e) {
+    } catch (err) {
+      logger.error("[vault/stealth] Error", { userId: req.user && req.user._id, error: err.message });
       res.status(500).json({ error: "Failed to toggle stealth." });
     }
   });
@@ -439,7 +440,7 @@ module.exports = function (app) {
     // Delete the encrypted blob
     try {
       await storage.deleteFile(doc.storagePath);
-    } catch (_e) {}
+    } catch (_e) { /* cleanup — storage file may already be gone */ }
     filesRepo.remove(doc._id);
     audit.log(audit.ACTIONS.FILE_DELETED, { targetId: doc._id, details: "vault file: " + doc.originalName, req: req, vaultOp: true });
     res.json({ success: true });
@@ -483,7 +484,7 @@ module.exports = function (app) {
       for (var i = 0; i < vaultFiles.length; i++) {
         try {
           await storage.deleteFile(vaultFiles[i].storagePath);
-        } catch (_e) {}
+        } catch (_e) { /* cleanup — storage file may already be gone */ }
         filesRepo.remove(vaultFiles[i]._id);
       }
       audit.log(audit.ACTIONS.FILE_DELETED, { targetId: req.user._id, details: "vault batch delete: " + body.batchId + ", files: " + vaultFiles.length, req: req, vaultOp: true });
