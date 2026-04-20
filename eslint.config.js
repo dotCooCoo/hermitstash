@@ -55,7 +55,12 @@ module.exports = [
       },
     },
     rules: {
-      "no-unused-vars": ["warn", { argsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" }],
+      // Promoted to error: these accumulated silently across two refactor
+      // passes (v1.8.14 auth-gate consolidation, v1.8.15 resolveLocalPath
+      // extraction) because "warn" only surfaced as CI annotations that
+      // noone bounced on. Prefix intentionally unused vars with `_` to
+      // skip the check (argsIgnorePattern + caughtErrorsIgnorePattern).
+      "no-unused-vars": ["error", { argsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" }],
       "no-console": "off",
       "no-eval": "error",
       "no-implied-eval": "error",

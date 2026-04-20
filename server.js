@@ -10,7 +10,7 @@ var { Router, serveStatic } = require("./lib/router");
 var { sessionMiddleware } = require("./lib/session");
 var db = require("./lib/db");
 var { users } = db;
-var { hashPassword, sha3Hash, generateBytes, timingSafeEqual } = require("./lib/crypto");
+var { hashPassword, sha3Hash, generateBytes } = require("./lib/crypto");
 var storage = require("./lib/storage");
 var audit = require("./lib/audit");
 var logger = require("./app/shared/logger");
@@ -32,7 +32,6 @@ var errorHandler = require("./middleware/error-handler");
 var startupChecks = require("./app/bootstrap/startup-checks");
 var txHelper = require("./app/data/db/transaction");
 var originPolicy = require("./app/security/origin-policy");
-var { hasScope } = require("./app/security/scope-policy");
 var apiKeysRepo = require("./app/data/repositories/apiKeys.repo");
 var bundlesRepo = require("./app/data/repositories/bundles.repo");
 var filesRepo = require("./app/data/repositories/files.repo");
@@ -630,7 +629,10 @@ server.on("upgrade", function (req, socket, head) {
   // which skips the presence check but keeps revocation/expiry enforcement
   // for clients that do present a cert, and still honors per-key cert
   // binding (see apiKey.certFingerprint check below).
-  var peerCertFingerprint = null;
+  //
+  // The fingerprint itself isn't captured locally — sync-guards.js re-reads
+  // it from the socket when it needs to enforce per-key cert binding, so a
+  // second copy here would only risk drift.
   if (mtlsCaCert) {
     var peerCert = socket.getPeerCertificate ? socket.getPeerCertificate() : null;
     var hasValidCert = peerCert && peerCert.subject && socket.authorized;
@@ -652,7 +654,6 @@ server.on("upgrade", function (req, socket, head) {
           return rejectUpgrade(socket, 403, "Certificate expired");
         }
       }
-      peerCertFingerprint = peerCert.fingerprint256 || null;
     }
   }
 

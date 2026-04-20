@@ -161,7 +161,6 @@ async function deleteS3Orphans(orphans) {
  * outside of the application.
  */
 async function scanDanglingRecords() {
-  var uploadDir = storage.uploadDir;
   var allFiles = files.find({}).filter(function (f) { return f.status === "complete" && f.storagePath; });
   var dangling = [];
 

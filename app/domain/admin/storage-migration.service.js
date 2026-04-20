@@ -154,7 +154,6 @@ async function migrateStorage(direction, progressCb) {
  */
 function migrationPreview(direction) {
   var toS3 = direction === "local-to-s3";
-  var uploadDir = storage.uploadDir;
   var allFiles = filesRepo.findAll({}).filter(function (f) {
     return f.status === "complete" && f.storagePath;
   });
