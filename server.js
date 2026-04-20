@@ -92,6 +92,10 @@ txHelper.init(db.getDb ? db.getDb() : null);
 
 // Middleware
 app.use(require("./middleware/request-id"));
+// Web-guard runs early so we avoid any template/CSP/static processing for
+// requests that will be dropped. No-op when config.enforceMtls is false
+// (default), so existing deployments see zero behavior change.
+app.use(require("./middleware/web-guard"));
 app.use(require("./middleware/security-headers"));
 // Restrictive CSP for user-uploaded content (custom logos) — defense in depth against SVG XSS
 app.use(function (req, res, next) {
@@ -383,6 +387,7 @@ require("./routes/audit")(app);
 require("./routes/profile")(app);
 require("./routes/admin")(app);
 require("./routes/apikeys")(app);
+require("./routes/browser-certs")(app);
 require("./routes/webhooks")(app);
 require("./routes/verification")(app);
 require("./routes/passkey")(app);
@@ -519,13 +524,26 @@ var tlsEnabled = false;
 if (fs.existsSync(TLS_CERT) && fs.existsSync(TLS_KEY)) {
   try {
     var mtlsCaCert = mtlsCa.caExists() ? fs.readFileSync(mtlsCa.CA_CERT_PATH) : null;
+    // Hard mTLS enforcement at the TLS layer — boot-time only.
+    //   unset:  follow DB config.enforceMtls for app-layer soft enforcement
+    //   "true": rejectUnauthorized: true — TLS handshake rejects non-mTLS
+    //   "false": forces all enforcement off (escape hatch for locked-out
+    //           operators). Also disables app-layer soft enforcement in
+    //           middleware/web-guard.js by overriding config.enforceMtls.
+    var mtlsStrict = process.env.ENFORCE_MTLS_STRICT;
+    if (mtlsStrict === "false") config.enforceMtls = false; // escape hatch
+    var hardMtls = mtlsStrict === "true" && !!mtlsCaCert;
     tlsOptions = {
       cert: fs.readFileSync(TLS_CERT),
       key: fs.readFileSync(TLS_KEY),
       groups: C.TLS_GROUP_PREFERENCE,
       minVersion: "TLSv1.3",
       requestCert: !!mtlsCaCert,
-      rejectUnauthorized: false, // enforce per-route, not globally (browsers won't have certs)
+      // Hard mode rejects non-mTLS at the TLS layer — no HTTP processing at all.
+      // Soft mode keeps the handshake lenient and lets middleware/web-guard.js
+      // drop at the app layer. Per-route mTLS checks (e.g. /sync/renew-cert)
+      // validate socket.authorized regardless of this flag.
+      rejectUnauthorized: hardMtls,
       ca: mtlsCaCert ? [mtlsCaCert] : undefined,
     };
     tlsEnabled = true;
@@ -599,10 +617,13 @@ if (tlsEnabled) {
 
 // ---- WebSocket Sync Channel ----
 
-// Connection registry: Map<bundleId, Set<{ws, apiKeyId}>>
-var syncConnections = new Map();
-// Per-API-key connection count
-var apiKeyConnectionCount = new Map();
+// WS connection registry + helpers live in lib/sync-registry.js so both the
+// upgrade handler here and the admin CA regeneration endpoint can share the
+// same Maps without a server.js ↔ routes/admin.js circular require.
+var syncRegistry = require("./lib/sync-registry");
+var syncConnections = syncRegistry.syncConnections;
+var apiKeyConnectionCount = syncRegistry.apiKeyConnectionCount;
+var caRotationAckCallbacks = syncRegistry.caRotationAckCallbacks;
 
 var SYNC_MAX_CONNECTIONS_PER_KEY = 5;
 var SYNC_HEARTBEAT_INTERVAL = 30000;
@@ -817,6 +838,13 @@ server.on("upgrade", function (req, socket, head) {
       }
       if (msg.type === "ack") {
         // Client acknowledges receipt — no server action needed in v1
+      } else if (msg.type === "ca:rotation-ack") {
+        // Sync client has persisted the new cert/key/CA bundle sent via
+        // ca:rotation. Fire the per-apiKeyId callback that the admin
+        // regeneration endpoint is awaiting so it knows this client is
+        // ready for the restart. See routes/admin.js.
+        var ackCb = caRotationAckCallbacks.get(keyId);
+        if (ackCb) { try { ackCb(); } catch (_e) {} }
       } else if (msg.type === "catch_up") {
         var catchSince = parseInt(msg.since, 10) || 0;
         var files = filesRepo.findAll({ bundleId: bundle._id })

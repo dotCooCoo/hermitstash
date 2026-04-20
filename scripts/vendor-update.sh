@@ -131,10 +131,13 @@ VER="${2:-latest}"
 
 echo "=== Vendoring $PKG@$VER ==="
 
-# Install temporarily
-npm install "${PKG}@${VER}" --no-save --ignore-scripts 2>/dev/null
-INSTALLED_VER=$(node -e "console.log(require('./node_modules/${PKG}/package.json').version)")
-echo "Installed: $PKG@$INSTALLED_VER"
+# Install temporarily (skipped for meta-bundles like peculiar-pki that
+# install multiple packages inside the case block).
+if [ "$PKG" != "peculiar-pki" ]; then
+  npm install "${PKG}@${VER}" --no-save --ignore-scripts 2>/dev/null
+  INSTALLED_VER=$(node -e "console.log(require('./node_modules/${PKG}/package.json').version)")
+  echo "Installed: $PKG@$INSTALLED_VER"
+fi
 
 case "$PKG" in
   "@noble/ciphers")
@@ -182,6 +185,51 @@ console.log('Created lib/vendor/noble-pq.cjs');
     npx esbuild _entry.cjs --bundle --format=cjs --platform=node --minify --outfile=lib/vendor/simplewebauthn-server.cjs --external:crypto --external:node:crypto
     rm _entry.cjs
     sed -i "1s|^|// @simplewebauthn/server v${INSTALLED_VER} — vendored. License: MIT\n// https://github.com/MasterKale/SimpleWebAuthn\n|" lib/vendor/simplewebauthn-server.cjs
+    ;;
+
+  "peculiar-pki")
+    # Bundles @peculiar/x509 + pkijs + reflect-metadata + all transitive ASN.1
+    # deps into a single CJS file. Used by lib/mtls-ca.js for pure-JS cert
+    # authority operations (no openssl CLI required). Picks up:
+    #   - reflect-metadata (decorator metadata polyfill for @peculiar/asn1-schema)
+    #   - pvutils, pvtsutils
+    #   - asn1js
+    #   - @peculiar/asn1-schema, @peculiar/asn1-x509, @peculiar/asn1-ecc,
+    #     @peculiar/asn1-rsa, @peculiar/asn1-cms, @peculiar/asn1-pkcs9, etc.
+    #   - @peculiar/x509, pkijs
+    # Set VER to a space-separated list of the top-level packages to install.
+    npm install --no-save --ignore-scripts \
+      reflect-metadata \
+      pvutils pvtsutils asn1js \
+      "@peculiar/asn1-schema" "@peculiar/asn1-x509" "@peculiar/asn1-ecc" "@peculiar/asn1-rsa" \
+      "@peculiar/x509" pkijs 2>/dev/null
+    X509_VER=$(node -e "console.log(require('./node_modules/@peculiar/x509/package.json').version)")
+    PKIJS_VER=$(node -e "console.log(require('./node_modules/pkijs/package.json').version)")
+    echo "Installed: @peculiar/x509@$X509_VER, pkijs@$PKIJS_VER"
+    cat > _pki-entry.mjs <<'ENTRY'
+// Side-effect import: reflect-metadata installs Reflect.metadata / defineMetadata /
+// getMetadata on the global Reflect object. @peculiar/asn1-schema's TypeScript
+// decorators emit calls into these at runtime, so the polyfill must load first.
+import "reflect-metadata";
+import * as pkijsLib from "pkijs";
+import * as x509Lib from "@peculiar/x509";
+import { webcrypto } from "node:crypto";
+const engine = new pkijsLib.CryptoEngine({ name: "node", crypto: webcrypto, subtle: webcrypto.subtle });
+pkijsLib.setEngine("node", engine);
+x509Lib.cryptoProvider.set(webcrypto);
+export const pkijs = pkijsLib;
+export const x509 = x509Lib;
+export const crypto = webcrypto;
+ENTRY
+    npx esbuild _pki-entry.mjs --bundle --format=cjs --platform=node --minify \
+      --external:node:crypto --external:crypto \
+      --outfile=lib/vendor/pki.cjs
+    rm _pki-entry.mjs
+    # Header
+    sed -i "1s|^|// Peculiar PKI — vendored @peculiar/x509 v${X509_VER} + pkijs v${PKIJS_VER}\n// License: MIT. Bundled with esbuild.\n// Exports: { pkijs, x509, crypto (node:webcrypto bound) }\n// Includes: reflect-metadata, pvutils, pvtsutils, asn1js, @peculiar/asn1-*\n// Used by lib/mtls-ca.js for pure-JS CA + PKCS#12 operations.\n|" lib/vendor/pki.cjs
+    # Record just the two user-visible versions in MANIFEST (transitive deps
+    # noted in this case block; node_modules is thrown away right after).
+    INSTALLED_VER="$X509_VER+pkijs-$PKIJS_VER"
     ;;
 
   "argon2")

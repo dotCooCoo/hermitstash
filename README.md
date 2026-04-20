@@ -316,6 +316,12 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - Stash sync mode -- persistent mutable bundle per stash for desktop sync clients
 - Admin UI: sync toggle per stash, one-click sync token generation with copy button
 - Desktop sync client: [hermitstash-sync](https://github.com/dotCooCoo/hermitstash-sync) — watches a local folder and syncs via WebSocket + PQC TLS
+- **Enforce mTLS** mode — restricts the web UI to clients that present a valid CA-signed certificate. Sync clients, Bearer-authenticated API calls, `/sync/*`, and `/health` always pass through.
+  - **Soft** (Admin → Auth → Enforce mTLS): instant toggle, no restart. Non-mTLS connections are dropped at the app layer via `socket.destroy()` — no HTTP response rendered, no information leakage.
+  - **Hard** (env `ENFORCE_MTLS_STRICT=true`, boot-time): TLS handshake itself rejects non-mTLS clients. Requires restart to change.
+  - **Escape hatch** (env `ENFORCE_MTLS_STRICT=false`): forces all enforcement off at boot regardless of DB setting. Use when locked out.
+- **Browser certificates** — admin panel on `/admin` (Browser Certificates section) issues a PKCS#12 for install in OS / browser cert stores. AES-256-CBC + SHA-512 MAC + 2M PBKDF2 iterations. See "Installing a browser certificate" below.
+- **mTLS CA regeneration** — Admin → General → Danger Zone → Regenerate mTLS CA rolls the CA to the current algorithm envelope (SHA-384 cert signatures, 2M iterations, SHA-512 PRF). Every CA is version-tagged (`OU=CAv{N}` in the subject DN); boot-time and UI banners surface when the on-disk CA is a legacy generation. Active sync clients receive new certificates via a WebSocket `ca:rotation` message and ack back before the server auto-restarts — offline sync clients must re-enroll, browser certs must be re-downloaded. Operators who want a preview without committing can POST `{ confirm: "REGEN", skipRestart: true }` to `/admin/api/mtls-ca/regenerate`.
 
 **Security Hardening**
 - Security headers on all responses (CSP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy, COOP, CORP)
@@ -375,6 +381,23 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f
 - PWA web app manifest with dynamic site name and theme colors
 - Automatic database schema migrations on startup
 - Startup invariant checks -- validates vault key, warns on default credentials/secrets, checks directory permissions
+
+## Installing a browser certificate
+
+When Enforce mTLS is on, every browser session needs a client certificate signed by HermitStash's internal CA. Generate one from **Admin → Browser Certificates → Issue + Download**. The server returns a `.p12` file (AES-256-CBC + SHA-512 MAC + 2M PBKDF2 iterations). Install it per your OS:
+
+**macOS** — double-click the `.p12`, Keychain Access opens, enter the password. The cert is installed to the **login** keychain. When you next visit HermitStash, Safari / Chrome / Firefox will offer it in the cert picker.
+
+**Windows** — double-click the `.p12`, Certificate Import Wizard opens. Choose **Current User → Personal store**, enter the password. Edge / Chrome pick it up automatically; Firefox uses its own store (see below).
+
+**Linux (Chrome/Chromium)** — use NSS command-line:
+```bash
+pk12util -i hermitstash-browser-<cn>.p12 -d sql:$HOME/.pki/nssdb
+```
+
+**Firefox (any OS)** — Preferences → Privacy & Security → Certificates → **View Certificates** → **Your Certificates** tab → **Import** → pick the `.p12` → enter password.
+
+After install, visit your HermitStash URL. The browser will prompt you to select a certificate (pick "HermitStash: \<cn\>"), then you'll land on the login page as normal.
 
 ## Docker Deployment
 

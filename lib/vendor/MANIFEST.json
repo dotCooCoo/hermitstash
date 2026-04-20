@@ -51,6 +51,30 @@
       "bundler": "esbuild --format=cjs --minify --platform=node --external:crypto --external:node:crypto",
       "bundledAt": "2026-04-09"
     },
+    "peculiar-pki": {
+      "description": "Bundled @peculiar/x509 + pkijs + reflect-metadata + transitive ASN.1 deps for pure-JS mTLS CA operations (no openssl CLI needed at runtime)",
+      "version": "@peculiar/x509@2.0.0 + pkijs@3.4.0",
+      "license": "MIT",
+      "source": "https://github.com/PeculiarVentures",
+      "exports": ["x509", "pkijs", "crypto"],
+      "files": {
+        "server": "lib/vendor/pki.cjs"
+      },
+      "includes": [
+        "reflect-metadata",
+        "pvutils",
+        "pvtsutils",
+        "asn1js",
+        "@peculiar/asn1-schema",
+        "@peculiar/asn1-x509",
+        "@peculiar/asn1-ecc",
+        "@peculiar/asn1-rsa",
+        "@peculiar/asn1-cms",
+        "@peculiar/asn1-pkcs9"
+      ],
+      "bundler": "esbuild --format=cjs --minify --platform=node --external:node:crypto",
+      "bundledAt": "2026-04-19"
+    },
     "argon2": {
       "version": "0.44.0",
       "license": "MIT",

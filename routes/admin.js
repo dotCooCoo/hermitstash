@@ -14,7 +14,9 @@ var apiKeysRepo = require("../app/data/repositories/apiKeys.repo");
 var webhooksRepo = require("../app/data/repositories/webhooks.repo");
 var teamsRepo = require("../app/data/repositories/teams.repo");
 var { parseJson, parseMultipart } = require("../lib/multipart");
-var { hashPassword, generateToken } = require("../lib/crypto");
+var { hashPassword, generateToken, sha3Hash } = require("../lib/crypto");
+var mtlsCa = require("../lib/mtls-ca");
+var syncRegistry = require("../lib/sync-registry");
 var storage = require("../lib/storage");
 var requireAdmin = require("../middleware/require-admin");
 var { send, host } = require("../middleware/send");
@@ -600,6 +602,215 @@ module.exports = function (app) {
       res.json({ success: true });
     } catch (_e) {
       res.status(500).json({ error: "Failed to remove logo." });
+    }
+  });
+
+  // Toggle the enforceMtls setting. Reachable via:
+  //   - admin session (standard cookie auth) — through the Auth pane toggle
+  //   - Bearer admin API key — for sync-client / CLI tooling that needs to
+  //     re-enable the web UI when the admin is locked out of the browser.
+  // This is also on the web-guard's always-allowed list so a Bearer admin
+  // can always reach it even while enforceMtls is on.
+  app.post("/admin/api/enforce-mtls", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      var body = await parseJson(req);
+      var enabled = body && body.enabled === true;
+      config.updateSettings({ enforceMtls: enabled ? "true" : "false" });
+      audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "enforceMtls " + (enabled ? "enabled" : "disabled"), req: req });
+      res.json({ success: true, enforceMtls: enabled });
+    } catch (e) {
+      logger.error("enforce-mtls toggle error", { error: e.message || String(e) });
+      res.status(500).json({ error: "Failed to update enforceMtls." });
+    }
+  });
+
+  // CA status — exposes whether the on-disk CA is current-generation or
+  // legacy. The Danger Zone card reads this to conditionally surface the
+  // "regeneration recommended" banner.
+  app.get("/admin/api/mtls-ca/status", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    res.json(mtlsCa.getCaStatus());
+  });
+
+  // Regenerate the mTLS CA. Used when the algorithm envelope in lib/mtls-ca.js
+  // is upgraded (CA_GENERATION bump) and the existing CA needs to be lifted
+  // to the new generation. Orchestration:
+  //   1. Pre-generate a new CA keypair in memory (no disk write yet)
+  //   2. For every live sync WS connection, issue a new client cert signed by
+  //      the new CA and push it via `ca:rotation` message. The existing
+  //      TLS/WS connection stays open (uses the OLD cert) through the ack
+  //      window, so clients can persist new credentials without reconnecting.
+  //   3. Wait up to ACK_TIMEOUT_MS for clients to confirm via `ca:rotation-ack`
+  //   4. Commit the new CA to disk (atomic rename)
+  //   5. Delete orphaned browser cert api_keys (they were issued by the old
+  //      CA — no longer trusted post-restart; admin redownloads from panel)
+  //   6. Write a regen flag so post-restart admin UI can surface a banner
+  //   7. process.exit(0) so Docker/systemd restarts us with the new CA loaded
+  // Offline sync clients miss the rotation — their certs become invalid and
+  // they must re-enroll via /sync/enroll with a fresh enrollment code.
+  app.post("/admin/api/mtls-ca/regenerate", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      var body = await parseJson(req);
+      if (!body || body.confirm !== "REGEN") {
+        return res.status(400).json({ error: "Confirmation required: POST { confirm: 'REGEN' }" });
+      }
+      if (!mtlsCa.caExists()) {
+        return res.status(400).json({ error: "No CA exists yet. Nothing to regenerate." });
+      }
+      // skipRestart: run the full orchestration (version check → in-memory CA
+      // generation → WS broadcast → ack collection → summary response) but do
+      // NOT commit to disk and do NOT exit. Useful for:
+      //   1. E2E tests that need to verify the rotation protocol against a
+      //      shared server without destroying the old CA (which would break
+      //      client certs already issued by it).
+      //   2. Operators who want to preview what rotation would do and trigger
+      //      the commit + restart themselves via a separate mechanism.
+      var skipRestart = body.skipRestart === true;
+
+      var ACK_TIMEOUT_MS = 15000;
+      var RESTART_DELAY_MS = 1000; // gap between ack-window close and process.exit
+
+      // Generate the new CA in memory — not yet written to disk
+      var fresh = await mtlsCa.generateNewCaInMemory();
+
+      // Categorize existing cert-bound api_keys
+      var allCertKeys = apiKeysRepo.findAll().filter(function (k) { return !!k.certFingerprint; });
+      var browserCerts = allCertKeys.filter(function (k) { return (k.keyHash || "").indexOf("browser:") === 0; });
+      var syncCerts = allCertKeys.filter(function (k) { return (k.keyHash || "").indexOf("browser:") !== 0; });
+
+      // Find unique connected sync apiKeys (clients may have multiple bundle
+      // connections open under the same key — dedupe so we rotate each key once)
+      var liveConns = syncRegistry.listSyncConnections();
+      var liveByKeyId = new Map();
+      for (var lc = 0; lc < liveConns.length; lc++) {
+        if (!liveByKeyId.has(liveConns[lc].apiKeyId)) {
+          liveByKeyId.set(liveConns[lc].apiKeyId, liveConns[lc]);
+        }
+      }
+
+      var summary = {
+        caGenerationBefore: mtlsCa.getCaStatus().generation,
+        caGenerationAfter: mtlsCa.CA_GENERATION,
+        syncCertsTotal: syncCerts.length,
+        syncClientsConnected: liveByKeyId.size,
+        syncClientsAcked: 0,
+        syncClientsOffline: Math.max(syncCerts.length - liveByKeyId.size, 0),
+        browserCertsRevoked: browserCerts.length,
+        restartInMs: 0,
+      };
+
+      function finalize(note) {
+        if (skipRestart) {
+          // Dry-run mode: skip commit, skip browser cert revocation, skip
+          // exit. The in-memory new CA and the pre-signed client certs are
+          // discarded. The DB-side fingerprint updates on connected clients
+          // still happened (already issued above) — callers using skipRestart
+          // should understand this mutates api_keys.certFingerprint.
+          audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "mTLS CA regenerate dry-run (skipRestart): " + JSON.stringify(summary), req: req });
+          logger.info("[mTLS] CA regenerate dry-run — not committing, not exiting", { summary: summary, note: note });
+          return;
+        }
+        // Write a flag file so startup-checks can show a post-restart banner
+        try {
+          fs.writeFileSync(path.join(PATHS.DATA_DIR, "ca-regen-flag.json"), JSON.stringify({
+            at: new Date().toISOString(),
+            summary: summary,
+            byUser: req.session && req.session.userId ? req.session.userId : null,
+          }));
+        } catch (_e) {}
+        // Commit CA files atomically
+        mtlsCa.commitNewCa(fresh.caCertPem, fresh.caKeyPem);
+        // Delete browser cert api_keys — their cert was issued by the old CA
+        for (var bc = 0; bc < browserCerts.length; bc++) {
+          try { apiKeysRepo.remove(browserCerts[bc]._id); } catch (_e) {}
+        }
+        audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "mTLS CA regenerated: " + JSON.stringify(summary), req: req });
+        logger.info("[mTLS] CA regenerated — exiting for restart", { summary: summary, note: note });
+        // Give the HTTP response time to flush before exit
+        setTimeout(function () { process.exit(0); }, RESTART_DELAY_MS);
+      }
+
+      // Fast path: no live sync clients → skip rotation, commit + exit
+      if (liveByKeyId.size === 0) {
+        summary.restartInMs = RESTART_DELAY_MS;
+        res.json({ ok: true, summary: summary, note: "No active sync clients — committing new CA and restarting." });
+        finalize("fast-path");
+        return;
+      }
+
+      // Rotation path: pre-sign new certs, push to each connected client,
+      // update DB with new fingerprints, await acks.
+      var ackCount = 0;
+      var ackPromises = [];
+      var liveEntries = Array.from(liveByKeyId.entries());
+      for (var le = 0; le < liveEntries.length; le++) {
+        var keyId = liveEntries[le][0];
+        var conn = liveEntries[le][1];
+        var apiKey = apiKeysRepo.findOne({ _id: keyId });
+        if (!apiKey) continue;
+        var cn = apiKey.prefix || "client";
+        var newCert = await mtlsCa.generateClientCertWithCa(cn, fresh.caCertPem, fresh.caKeyPem);
+        if (!newCert) continue;
+        // Update fingerprint binding — any subsequent request with the old
+        // cert will fail per-key binding check, but the existing WS stays
+        // open since TLS doesn't re-validate on an already-authenticated
+        // connection. After restart, clients reconnect with the new cert.
+        // In skipRestart mode, leave the DB unchanged so the shared server
+        // remains usable by subsequent tests (old cert still validates).
+        if (!skipRestart) {
+          var newFp = sha3Hash(newCert.cert);
+          apiKeysRepo.update(apiKey._id, { $set: {
+            certFingerprint: newFp,
+            certIssuedAt: newCert.issuedAt,
+            certExpiresAt: newCert.expiresAt,
+          } });
+        }
+        // Wire ack callback
+        (function (kid) {
+          var resolveFn;
+          ackPromises.push(new Promise(function (r) { resolveFn = r; }));
+          syncRegistry.caRotationAckCallbacks.set(kid, function () {
+            ackCount++;
+            resolveFn(true);
+          });
+        })(keyId);
+        // Push rotation message. dryRun: true tells clients to ack without
+        // writing files to disk — so a skipRestart test doesn't clobber
+        // the client's real cert/key/CA files.
+        try {
+          conn.ws.send(JSON.stringify({
+            type: "ca:rotation",
+            newCaPem: fresh.caCertPem,
+            newCertPem: newCert.cert,
+            newKeyPem: newCert.key,
+            restartInMs: ACK_TIMEOUT_MS + RESTART_DELAY_MS,
+            dryRun: skipRestart,
+          }));
+        } catch (_e) {}
+      }
+
+      summary.restartInMs = ACK_TIMEOUT_MS + RESTART_DELAY_MS;
+
+      // Race allSettled against the ack-window timeout
+      var timeoutP = new Promise(function (r) { setTimeout(function () { r("timeout"); }, ACK_TIMEOUT_MS); });
+      await Promise.race([Promise.allSettled(ackPromises), timeoutP]);
+
+      // Clear ack callbacks so stray late acks don't leak
+      for (var ce = 0; ce < liveEntries.length; ce++) {
+        syncRegistry.caRotationAckCallbacks.delete(liveEntries[ce][0]);
+      }
+
+      summary.syncClientsAcked = ackCount;
+
+      // Respond with the summary BEFORE committing + exiting so the admin UI
+      // sees the ack count and knows which clients will need manual recovery.
+      res.json({ ok: true, summary: summary, note: "CA rotation pushed to " + liveByKeyId.size + " client(s); " + ackCount + " acked. Committing and restarting." });
+      finalize("rotation-path");
+    } catch (e) {
+      logger.error("CA regeneration failed", { error: e.message || String(e), stack: e.stack });
+      if (!res.headersSent) res.status(500).json({ error: "CA regeneration failed: " + (e.message || String(e)) });
     }
   });
 

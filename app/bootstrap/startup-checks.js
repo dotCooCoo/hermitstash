@@ -60,6 +60,44 @@ function run() {
     warnings.push("ARGON2_FAST=1 is set — password hashing uses dangerously weak parameters (1MB, 1 iteration). DO NOT use in production. Passwords are trivially crackable with these settings.");
   }
 
+  // ---- Info: enforce mTLS is on ----
+  // Operators who've enabled this intentionally know what it does, but a loud
+  // boot-time confirmation helps when the mode is unexpectedly on (e.g., a
+  // teammate toggled it, or the DB setting survived a restore).
+  if (process.env.ENFORCE_MTLS_STRICT === "true") {
+    warnings.push("ENFORCE_MTLS_STRICT=true — TLS handshake rejects non-mTLS clients at the network layer. Set ENFORCE_MTLS_STRICT=false to exit this mode.");
+  } else if (config.enforceMtls) {
+    warnings.push("Enforce mTLS is ON (soft) — non-mTLS browser connections will be dropped at the app layer. Escape hatch: set ENFORCE_MTLS_STRICT=false and restart.");
+  }
+
+  // ---- Info: CA regen flag — surface a post-restart notice ----
+  // The /admin/api/mtls-ca/regenerate endpoint writes this flag immediately
+  // before exiting. On restart we log the summary (admins can redistribute
+  // browser certs and, if any, notify offline sync clients to re-enroll).
+  // The flag is consumed and deleted to prevent repeated warnings.
+  try {
+    var regenFlagPath = require("path").join(PATHS.DATA_DIR, "ca-regen-flag.json");
+    if (fs.existsSync(regenFlagPath)) {
+      var flagData = JSON.parse(fs.readFileSync(regenFlagPath, "utf8"));
+      var s = flagData.summary || {};
+      warnings.push("mTLS CA was regenerated at " + flagData.at + " (v" + s.caGenerationBefore + " → v" + s.caGenerationAfter + "). Acked: " + (s.syncClientsAcked || 0) + "/" + (s.syncClientsConnected || 0) + " live sync clients. " + (s.syncClientsOffline || 0) + " offline clients need re-enrollment. " + (s.browserCertsRevoked || 0) + " browser cert(s) invalidated — admins must re-download.");
+      try { fs.unlinkSync(regenFlagPath); } catch (_e) {}
+    }
+  } catch (_e) { /* flag corrupted or unreadable — non-fatal */ }
+
+  // ---- Warning: mTLS CA is a legacy generation ----
+  // When the algorithm envelope in lib/mtls-ca.js is bumped (CA_GENERATION),
+  // any CA issued by a previous version becomes "legacy". The CA still works,
+  // but regenerating it picks up the newer signature/KDF/cipher primitives.
+  // The admin Danger Zone exposes a one-click regeneration flow.
+  try {
+    var mtlsCa = require("../../lib/mtls-ca");
+    var caStatus = mtlsCa.getCaStatus();
+    if (caStatus.exists && caStatus.isLegacy) {
+      warnings.push("mTLS CA is a legacy generation (v" + caStatus.generation + " → current v" + caStatus.current + "). Regenerate via Admin → General → Danger Zone to pick up the upgraded algorithm envelope. All existing client certificates will be re-issued to active sync clients; offline clients will need to re-enroll.");
+    }
+  } catch (_e) { /* mtls-ca not loaded — non-fatal */ }
+
   // ---- Warning: email features enabled without a working backend ----
   // Admin endpoints (invite create/resend, /admin/users/:id/resend-verification,
   // /admin/users/:id/password-reset-link) already surface the URL when email
