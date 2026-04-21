@@ -458,15 +458,15 @@ cd hermitstash
 docker compose up -d
 ```
 
-Uses `node:24-slim` (OpenSSL 3.5+ for PQC support). No config files needed — all dependencies vendored, no `npm install`. Starts with defaults and generates the vault keypair on first run. Configure everything from the admin panel at `/admin` once running.
+Uses `cgr.dev/chainguard/node:latest-dev` — a wolfi-based, glibc-dynamic Node image rebuilt continuously by Chainguard when upstream CVE fixes land, so the image's CVE count at any given digest is typically near zero. Node 24.8+ is still required for PQC (OpenSSL 3.5). No config files needed — all dependencies vendored, no `npm install`. Starts with defaults and generates the vault keypair on first run. Configure everything from the admin panel at `/admin` once running.
 
 ### Image details
 
 | | |
 |---|---|
-| **Base image** | `node:24-slim` (Debian Trixie) |
+| **Base image** | `cgr.dev/chainguard/node:latest-dev` (wolfi, glibc — continuously rebuilt for CVE fixes) |
 | **Node.js** | 24.8+ (required for ML-KEM-1024, ML-DSA-87, SLH-DSA via OpenSSL 3.5) |
-| **User** | Runs as `hermit` (non-root) via `setpriv` (util-linux, pre-installed) — PUID/PGID env vars remap UID/GID at runtime (default 99:100, standard Linux 1000:1000) |
+| **User** | Runs as `hermit` (non-root) via `setpriv` (util-linux, installed at build time) — PUID/PGID env vars remap UID/GID at runtime (default 99:100, standard Linux 1000:1000) |
 | **Tmpfs** | `HERMITSTASH_TMPDIR=/dev/shm` — plaintext DB held in memory, never on disk. Set `shm_size: 256m` in compose. Also consider `CHUNK_SCRATCH_DIR=/dev/shm/hermitstash-chunks` for RAM-backed chunked-upload staging. |
 | **Volumes** | `/app/data` (encrypted DB, vault keys, TLS certs), `/app/uploads` (files if using local storage) |
 | **Port** | 3000 (configurable via `PORT` env var) |

@@ -98,7 +98,7 @@ jobs:
           ESLINT_CONFIG
 
           set +e
-          npx eslint --config eslint.ci.config.js .
+          npx eslint --config eslint.ci.config.js . --max-warnings=0
           EXIT_CODE=$?
           set -e
 
@@ -112,7 +112,7 @@ jobs:
         uses: hadolint/hadolint-action@v3.3.0
         with:
           dockerfile: Dockerfile
-          failure-threshold: error
+          failure-threshold: style
 
       - name: Run ShellCheck
         if: always()
@@ -121,7 +121,7 @@ jobs:
           SCRIPTS=$(find . -name '*.sh' -not -path './node_modules/*' -not -path './tests/*' | sort)
           echo "Checking: $SCRIPTS"
           set +e
-          echo "$SCRIPTS" | xargs shellcheck --severity=warning --format=gcc
+          echo "$SCRIPTS" | xargs shellcheck --severity=style --format=gcc
           EXIT_CODE=$?
           set -e
           if [ $EXIT_CODE -ne 0 ]; then echo "::error::ShellCheck found issues"; fi
@@ -227,14 +227,29 @@ jobs:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: cosign sign --yes ${{ env.IMAGE }}@${DIGEST}
 
-      - name: Scan image with Trivy
+      # Two-step Trivy: full visibility for the next-release fix log,
+      # narrow gate that fails on actionable CRITICAL/HIGH with a fix available.
+      - name: Scan image with Trivy (visibility — all severities, informational)
         if: ${{ !inputs.dry_run && steps.build.outputs.digest }}
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
           format: 'table'
           exit-code: '0'
-          severity: 'CRITICAL,HIGH'
+          severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
+          scanners: 'vuln,secret,misconfig'
+          ignore-unfixed: false
+
+      - name: Scan image with Trivy (gate — CRITICAL/HIGH with fix available)
+        if: ${{ !inputs.dry_run && steps.build.outputs.digest }}
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          format: 'table'
+          exit-code: '1'
+          severity: 'HIGH,CRITICAL'
+          scanners: 'vuln,secret,misconfig'
+          ignore-unfixed: true
 
       - name: Generate SHA3-512 digest
         if: ${{ !inputs.dry_run }}

@@ -1,5 +1,23 @@
-FROM node:24-slim
-# Requires Node 24.8+ for PQC: ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f (OpenSSL 3.5)
+FROM cgr.dev/chainguard/node:latest-dev
+# Chainguard wolfi-based Node image — glibc-dynamic (not musl), continuously
+# rebuilt when upstream CVE fixes land. CVE count at any given digest is
+# typically near-zero; chosen over debian-slim to eliminate the unfixed
+# systemd/ncurses/util-linux/glibc base-image noise previously flagged by
+# Trivy (debian:trixie-slim surfaced ~100 findings of which almost none were
+# fixable).
+#
+# Wolfi uses apk-tools (like Alpine) but stays on glibc, so the vendored
+# argon2 prebuilds under lib/vendor/argon2/prebuilds/linux-{x64,arm64}
+# (glibc-linked) work unmodified — the Alpine musl trap doesn't apply here.
+#
+# Requires Node 24.8+ for PQC: ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f
+# (OpenSSL 3.5). `:latest-dev` tracks the current Node major and includes
+# apk-tools + shell needed by docker-entrypoint.sh.
+
+# Chainguard images default to a non-root USER; override for the build so
+# we can install packages and create the hermit user. Runtime privilege drop
+# happens in docker-entrypoint.sh via setpriv.
+USER root
 
 # Build-time args for OCI labels (injected by CI)
 ARG VERSION=dev
@@ -18,11 +36,20 @@ LABEL org.opencontainers.image.title="HermitStash" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later" \
       org.opencontainers.image.vendor="dotCooCoo"
 
-# Security: non-root user. setpriv (from util-linux, pre-installed in node:24-slim)
-# drops privileges in the entrypoint with direct exec semantics — node becomes the
-# PID, signals reach it natively. No apt-get install at all → no DL3008, no version
-# drift, no apt cache layer. PUID/PGID env vars remap UID/GID at runtime (see
-# docker-entrypoint.sh).
+# Runtime tooling required by docker-entrypoint.sh:
+#   - util-linux: setpriv (drops privileges to hermit with direct exec
+#     semantics — node becomes PID 1's successor, signals reach it natively)
+#   - shadow: groupmod / usermod / groupadd / useradd for PUID/PGID remap
+#     at container start (Unraid/Synology integration — see entrypoint)
+# --no-cache keeps the layer small. Intentionally NOT pinning package
+# versions (hadolint DL3018): Chainguard's value proposition is that each
+# rebuild of :latest-dev carries the latest patched wolfi packages. Pinning
+# defeats the continuous-rebuild CVE posture we switched bases to get.
+# hadolint ignore=DL3018
+RUN apk add --no-cache util-linux shadow
+
+# Security: non-root user for runtime. PUID/PGID env vars remap UID/GID at
+# runtime via groupmod/usermod (installed above); setpriv then drops privs.
 RUN groupadd -r hermit && useradd -r -g hermit -s /bin/sh hermit
 
 WORKDIR /app

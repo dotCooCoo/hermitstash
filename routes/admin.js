@@ -1,3 +1,25 @@
+/**
+ * Admin domain routes — every endpoint gated by requireAdmin middleware.
+ *
+ * This is a large multi-domain surface (deliberately kept in one file per
+ * CLAUDE.md Rule 5: routes live in existing files that own the domain, and
+ * the "admin" domain spans the full management surface). Sub-domains covered:
+ *   - Dashboard + activity / file / bundle / blocklist / task inspection
+ *   - Settings (site config) and environment introspection
+ *   - Backup, restore, and manifest browsing
+ *   - Export (users, files, audit)
+ *   - Logo upload and removal (SVG sanitized via lib/sanitize-svg)
+ *   - mTLS CA status, regeneration, and enforcement toggle
+ *   - API key issuance, revocation, and cert enrollment
+ *   - Webhook CRUD and delivery inspection
+ *   - Team management (members, invites, revocation)
+ *   - Sync-client registry + remote trigger
+ *
+ * Heavier business logic lives in app/domain/admin/*.service.js — this file
+ * is intentionally thin glue: parseJson → validator → service → send.
+ * When a sub-domain outgrows that shape, extract a service; don't fatten
+ * the route handler.
+ */
 var fs = require("fs");
 var path = require("path");
 var audit = require("../lib/audit");

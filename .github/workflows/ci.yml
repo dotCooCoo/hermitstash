@@ -38,7 +38,7 @@ jobs:
         id: eslint
         run: |
           set +e
-          OUTPUT=$(npx eslint . 2>&1)
+          OUTPUT=$(npx eslint . --max-warnings=0 2>&1)
           EXIT_CODE=$?
           set -e
 
@@ -61,7 +61,7 @@ jobs:
         uses: hadolint/hadolint-action@v3.3.0
         with:
           dockerfile: Dockerfile
-          failure-threshold: error
+          failure-threshold: style
 
       - name: Capture Hadolint result
         if: always()
@@ -88,7 +88,7 @@ jobs:
           echo "Checking: $SCRIPTS"
 
           set +e
-          OUTPUT=$(echo "$SCRIPTS" | xargs shellcheck --severity=warning --format=gcc 2>&1)
+          OUTPUT=$(echo "$SCRIPTS" | xargs shellcheck --severity=style --format=gcc 2>&1)
           EXIT_CODE=$?
           set -e
 
