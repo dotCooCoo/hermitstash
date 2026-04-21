@@ -338,6 +338,24 @@ jobs:
           echo "$HEALTH"
           echo "$HEALTH" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['status'] == 'ok', 'unhealthy: ' + str(d)"
 
+      - name: Capture container diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== docker ps ==="
+          docker ps -a --filter name=smoke-test
+          echo ""
+          echo "=== docker inspect (State + ExitCode + Health) ==="
+          docker inspect smoke-test --format '{{json .State}}' | python3 -m json.tool 2>&1 || docker inspect smoke-test --format '{{.State}}'
+          echo ""
+          echo "=== docker logs (full) ==="
+          docker logs smoke-test 2>&1 || echo "  (container gone — can't fetch logs)"
+          echo ""
+          echo "=== runtime probes (container may have exited) ==="
+          docker exec smoke-test ls -la /app/docker-entrypoint.sh 2>&1 || echo "  (can't exec — container not running)"
+          docker exec smoke-test which node setpriv groupmod usermod 2>&1 || true
+          docker exec smoke-test id hermit 2>&1 || true
+          docker exec smoke-test node --version 2>&1 || true
+
       - name: Verify non-root user
         run: |
           echo "=== Diagnostics ==="
