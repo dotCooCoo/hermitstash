@@ -63,6 +63,10 @@ pct start "$CTID"
 sleep 5
 
 echo "Installing Docker and HermitStash..."
+# shellcheck disable=SC2016
+# Single-quoted heredoc is intentional: the $(...) expansions inside must
+# evaluate inside the LXC container (via `pct exec ... bash -c`), not on
+# the Proxmox host.
 pct exec "$CTID" -- bash -c '
   apt-get update && apt-get install -y curl ca-certificates gnupg
 

@@ -79,6 +79,9 @@ done
 
 # ---- Install Docker + run HermitStash ----
 echo "Installing Docker and HermitStash..."
+# shellcheck disable=SC2016
+# Single-quoted heredoc is intentional: the $(...) expansions inside must
+# evaluate inside the container (via `$CLI exec ... bash -c`), not on the host.
 $CLI exec "$NAME" -- bash -c '
   apt-get update && apt-get install -y curl ca-certificates gnupg
 

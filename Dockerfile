@@ -16,7 +16,13 @@ FROM cgr.dev/chainguard/node:latest-dev
 
 # Chainguard images default to a non-root USER; override for the build so
 # we can install packages and create the hermit user. Runtime privilege drop
-# happens in docker-entrypoint.sh via setpriv.
+# happens in docker-entrypoint.sh via setpriv — the entrypoint NEEDS to start
+# as root so it can remap hermit's UID/GID to the user's PUID/PGID before
+# dropping privs. Hadolint DL3002 ("last USER should not be root") flags this
+# because it can't see the runtime privilege drop; the `docker-entrypoint.sh`
+# execution ends with `setpriv --reuid=hermit --regid=hermit` so the node
+# process never runs as root.
+# hadolint ignore=DL3002
 USER root
 
 # Build-time args for OCI labels (injected by CI)
