@@ -62,12 +62,12 @@ echo "Starting container..."
 pct start "$CTID"
 sleep 5
 
+# Quoted-delimiter heredoc (<<'REMOTE_SCRIPT') is the idiom for "literal
+# payload, expand inside the target shell, not on the host." The $(...)
+# expansions here evaluate inside the LXC container (dpkg, /etc/os-release)
+# rather than on the Proxmox host.
 echo "Installing Docker and HermitStash..."
-# shellcheck disable=SC2016
-# Single-quoted heredoc is intentional: the $(...) expansions inside must
-# evaluate inside the LXC container (via `pct exec ... bash -c`), not on
-# the Proxmox host.
-pct exec "$CTID" -- bash -c '
+pct exec "$CTID" -- bash -s <<'REMOTE_SCRIPT'
   apt-get update && apt-get install -y curl ca-certificates gnupg
 
   # Install Docker
@@ -98,7 +98,7 @@ pct exec "$CTID" -- bash -c '
     fi
     sleep 1
   done
-'
+REMOTE_SCRIPT
 
 CONTAINER_IP=$(pct exec "$CTID" -- hostname -I | awk '{print $1}')
 echo ""

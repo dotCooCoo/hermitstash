@@ -78,11 +78,12 @@ for _ in $(seq 1 30); do
 done
 
 # ---- Install Docker + run HermitStash ----
+# Quoted-delimiter heredoc (<<'REMOTE_SCRIPT') is the idiom for "literal
+# payload, expand inside the target shell, not on the host." The $(...)
+# expansions here evaluate inside the LXC container (dpkg, /etc/os-release)
+# rather than on the host.
 echo "Installing Docker and HermitStash..."
-# shellcheck disable=SC2016
-# Single-quoted heredoc is intentional: the $(...) expansions inside must
-# evaluate inside the container (via `$CLI exec ... bash -c`), not on the host.
-$CLI exec "$NAME" -- bash -c '
+$CLI exec "$NAME" -- bash -s <<'REMOTE_SCRIPT'
   apt-get update && apt-get install -y curl ca-certificates gnupg
 
   # Install Docker
@@ -113,7 +114,7 @@ $CLI exec "$NAME" -- bash -c '
     fi
     sleep 1
   done
-'
+REMOTE_SCRIPT
 
 # ---- Port forward ----
 echo "Adding proxy device for port forwarding..."
