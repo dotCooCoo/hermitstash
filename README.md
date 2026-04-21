@@ -11,7 +11,7 @@
 >
 > A few things I want to be honest about:
 >
-> - **I'm not a cryptographer.** I've used well-reviewed primitives and tried to assemble them carefully, but I haven't had this audited, and there are almost certainly things I don't know that I don't know.
+> - **I'm not a cryptographer.** I've used well-reviewed primitives and tried to assemble them carefully, but I haven't had this audited, and there are almost certainly things I don't know that I don't know. I've written [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) as a detailed design document specifically so that review is *possible* — it describes every protocol, lists known limitations honestly, and includes specific questions for cryptographers. If that's you: thank you, and please open an issue.
 > - **This is a personal project.** I maintain it solo, in my spare time, and I can't promise fast response times or backwards compatibility.
 > - **I'm not currently accepting code contributions** (more on that below), but bug reports, security findings, and feedback are genuinely welcome — they're how I learn.
 >
@@ -44,6 +44,8 @@ No config files. No build step. No `npm install` — all dependencies are vendor
 - **One-command deploy** — Docker or bare metal, no build step, no config files needed
 
 ## Crypto Suite
+
+For the detailed design — protocols, security goals, non-goals, adversary model, key hierarchy, known limitations, and open questions for reviewers — see [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md). The table below is a summary.
 
 All cryptographic operations use NIST-standardized post-quantum algorithms:
 
