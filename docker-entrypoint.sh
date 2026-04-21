@@ -41,11 +41,16 @@ if [ -n "$UMASK" ]; then
 fi
 
 # ── Volume permissions ─────────────────────────────────────────────
-# Docker/Coolify volumes mount as root — fix ownership at runtime
+# Docker/Coolify volumes mount as root — fix ownership at runtime.
+# NOTE: chmod MUST come before chown. Our runtime cap set is
+# CHOWN + SETUID + SETGID + DAC_OVERRIDE (no FOWNER), which means root
+# CAN chown a file it owns but CAN'T chmod a file it no longer owns.
+# If we chowned first, the subsequent chmod on the now-hermit-owned
+# dir would fail with "Operation not permitted".
 for dir in /app/data /app/uploads /app/public/img/custom; do
   if [ -d "$dir" ] && [ "$(id -u)" = "0" ]; then
-    chown -R hermit:hermit "$dir"
     chmod 700 "$dir"
+    chown -R hermit:hermit "$dir"
   fi
 done
 
@@ -65,10 +70,14 @@ fi
 
 # ── Start ──────────────────────────────────────────────────────────
 # Drop to hermit user if running as root.
-# setpriv (util-linux, pre-installed) does direct exec — node becomes the PID,
-# SIGTERM reaches it natively for graceful shutdown.
+# su-exec (installed via apk in Dockerfile) does direct exec — node
+# becomes the PID, SIGTERM reaches it natively for graceful shutdown.
+# We previously used setpriv from util-linux, but wolfi's BusyBox ships
+# its own setpriv applet that doesn't support --reuid/--regid and takes
+# PATH priority over the real util-linux binary. su-exec is purpose-built
+# for this, ~10KB, and standard in the Alpine/wolfi ecosystem.
 if [ "$(id -u)" = "0" ]; then
-  exec setpriv --reuid=hermit --regid=hermit --init-groups -- node server.js
+  exec su-exec hermit:hermit node server.js
 else
   exec node server.js
 fi

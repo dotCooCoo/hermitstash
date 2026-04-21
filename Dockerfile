@@ -43,8 +43,13 @@ LABEL org.opencontainers.image.title="HermitStash" \
       org.opencontainers.image.vendor="dotCooCoo"
 
 # Runtime tooling required by docker-entrypoint.sh:
-#   - util-linux: setpriv (drops privileges to hermit with direct exec
-#     semantics — node becomes PID 1's successor, signals reach it natively)
+#   - su-exec: drops privileges to hermit and direct-execs node — node
+#     becomes PID 1's successor, signals reach it natively. We originally
+#     used util-linux's setpriv, but wolfi ships BusyBox which provides
+#     its own stripped setpriv applet (no --reuid/--regid/--init-groups),
+#     and `apk add util-linux` didn't override the BusyBox PATH priority.
+#     su-exec is tiny (~10KB), purpose-built, and standard in wolfi/Alpine
+#     images for this exact workflow.
 #   - shadow: groupmod / usermod / groupadd / useradd for PUID/PGID remap
 #     at container start (Unraid/Synology integration — see entrypoint)
 # --no-cache keeps the layer small. Intentionally NOT pinning package
@@ -52,7 +57,7 @@ LABEL org.opencontainers.image.title="HermitStash" \
 # rebuild of :latest-dev carries the latest patched wolfi packages. Pinning
 # defeats the continuous-rebuild CVE posture we switched bases to get.
 # hadolint ignore=DL3018
-RUN apk add --no-cache util-linux shadow
+RUN apk add --no-cache shadow su-exec
 
 # Security: non-root user for runtime. PUID/PGID env vars remap UID/GID at
 # runtime via groupmod/usermod (installed above); setpriv then drops privs.
