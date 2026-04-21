@@ -472,7 +472,7 @@ Uses `cgr.dev/chainguard/node:latest-dev` — a wolfi-based, glibc-dynamic Node 
 | **Port** | 3000 (configurable via `PORT` env var) |
 | **Health check** | Built-in: `GET /health` every 30s, 5s timeout, 3 retries, 30s start period |
 | **Security** | `init: true` (tini PID 1), `no-new-privileges`, `cap_drop: ALL` + minimal `cap_add` |
-| **Entrypoint** | `docker-entrypoint.sh` — remaps PUID/PGID, sets TZ/UMASK, chowns volumes, drops to `hermit` via `setpriv` |
+| **Entrypoint** | `docker-entrypoint.sh` — remaps PUID/PGID, sets TZ/UMASK, chowns volumes, drops to `hermit` via `su-exec` |
 
 ### docker-compose.yml
 
@@ -864,12 +864,13 @@ All runtime dependencies are committed to the repo -- no `npm install` needed. M
 | [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) | 0.6.0 | [Paul Miller](https://github.com/paulmillr) | ML-KEM-1024 (browser vault + server ECIES) |
 | [`@simplewebauthn/server`](https://github.com/MasterKale/SimpleWebAuthn) | 13.3.0 | [Matthew Miller](https://github.com/MasterKale) | WebAuthn/passkey verification |
 | [`argon2`](https://github.com/ranisalt/node-argon2) | 0.44.0 | [Ranieri Althoff](https://github.com/ranisalt) | Password hashing (native prebuilds, 8 platforms) |
+| [`@peculiar/x509`](https://github.com/PeculiarVentures/x509) + [`pkijs`](https://github.com/PeculiarVentures/PKI.js) | 2.0.0 + 3.4.0 | [Peculiar Ventures](https://github.com/PeculiarVentures) | Pure-JS mTLS CA (ECDSA P-384 signing, PKCS#12 bundle generation — no openssl CLI at runtime) |
 
 These libraries are exceptional work. HermitStash wouldn't exist without them. All are MIT licensed.
 
 ## Architecture
 
-100+ JS files, 26 HTML templates, 20 database tables. Small files, one job each.
+~180 JS files, 25 HTML templates, 21 database tables. Small files, one job each.
 
 ```
 server.js             Bootstrap, middleware, scheduled tasks, default accounts
@@ -885,7 +886,7 @@ lib/
                       saveRaw/getRawBuffer for pre-encrypted data (vault files)
   cert-utils.js       Certificate fingerprint hashing + indexed revocation checks
   config.js           Settings from encrypted DB, env fallback, onReset registry
-  settings-schema.js  Type-safe settings sanitization + validation (74 settings)
+  settings-schema.js  Type-safe settings sanitization + validation (77 settings)
   audit.js            Audit logging with auto-sealed entries
   rate-limit.js       Per-IP rate limiting with proxy validation
   ip-quota.js         Per-IP storage quota for anonymous uploads
@@ -917,8 +918,8 @@ app/
   shared/             Errors, logger, validation helpers, filename sanitization
 
 scripts/              vendor-update.sh, vendor-font.js, sync-to-public.sh
-routes/               18 route files (includes stash.js for Customer Stash)
-middleware/           12 files (auth, CORS, CSRF, API encryption, security headers, bot guard)
+routes/               19 route files (includes stash.js for Customer Stash)
+middleware/           15 files (auth, CORS, CSRF, API encryption, security headers, bot guard, require-access, require-admin, require-auth)
 views/                25 templates
 public/               CSS, JS, logos, icons, vendored fonts
 ```
