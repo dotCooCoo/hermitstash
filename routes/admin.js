@@ -375,11 +375,19 @@ module.exports = function (app) {
 
   app.get("/admin/backup/history", async (req, res) => {
     if (!requireAdmin(req, res)) return;
+    // Compute current status FIRST (synchronous, just config inspection) so
+    // we can surface diagnostics even when getBackupHistory throws because
+    // S3 isn't configured. Without this, an admin with broken S3 config
+    // sees a generic error toast and no clue what to fix.
+    var status;
+    try { status = backup.getBackupStatus(); } catch (_e) { status = null; }
     try {
       var history = await backup.getBackupHistory();
-      res.json({ success: true, history: history });
+      res.json({ success: true, history: history, status: status });
     } catch (err) {
-      res.json({ error: "Failed to load history: " + err.message });
+      // Return status alongside the error so the UI can render the
+      // diagnostic block instead of just an error toast.
+      res.json({ error: "Failed to load history: " + err.message, status: status });
     }
   });
 

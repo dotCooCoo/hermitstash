@@ -47,6 +47,29 @@ function validateSettingsInput(body) {
   }
 
   if (errors.length > 0) return { error: errors.join("; ") };
+
+  // Cross-field guard: refuse a save that enables backups without a
+  // passphrase being configured. This catches the scenario where an
+  // operator checks "Enable Backup" and saves without entering a
+  // passphrase — the scheduled job would then silently no-op every
+  // tick. The check is permissive: passes if EITHER (a) the new save
+  // includes a non-empty passphrase, OR (b) the masked-bullets value
+  // is being sent back (preserving an existing passphrase), OR
+  // (c) backup.passphraseHash is already set in the running config
+  // (passphrase was previously saved). Bug discovered 2026-04-22.
+  if (cleaned.backupEnabled === true || cleaned.backupEnabled === "true") {
+    var pwIncoming = cleaned.backupPassphrase;
+    var pwIsMaskBullets = typeof pwIncoming === "string" && /^•+$/.test(pwIncoming);
+    var pwIsNewValue = typeof pwIncoming === "string" && pwIncoming.length > 0 && !pwIsMaskBullets;
+    if (!pwIsMaskBullets && !pwIsNewValue) {
+      var config = require("../../../lib/config");
+      var hasExisting = !!(config.backup && config.backup.passphraseHash);
+      if (!hasExisting) {
+        return { error: "Backup is enabled but no passphrase has been set. Enter a passphrase before saving." };
+      }
+    }
+  }
+
   return { settings: cleaned };
 }
 

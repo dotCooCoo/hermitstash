@@ -575,8 +575,13 @@ Receivers verify with `hmac.compare_digest()` (Python) or `crypto.timingSafeEqua
   data/db.key.enc      — DB file encryption key, vault-sealed on disk
                           Protects the SQLite file at rest when the DB is paused
 
-  mTLS CA private key  — ECDSA P-384, data/mtls/ca.key (plaintext, 0o600)
-                          Signs client certs; unrelated to vault
+  mTLS CA private key  — ECDSA P-384, data/ca.key (plaintext, 0o600)
+                          OR data/ca.key.sealed (vault-sealed, v1.9.4+ opt-in
+                          via CA_KEY_SEALED=required). Signs client certs.
+
+  TLS server private key — data/tls/privkey.pem (plaintext, 0o600)
+                          OR data/tls/privkey.pem.sealed (vault-sealed,
+                          v1.9.4+ opt-in via TLS_KEY_SEALED=required).
 
   Browser passkey PRF  — client-side derivation for personal vault (§5.7)
                           Zero-knowledge: server never sees seed in PRF mode

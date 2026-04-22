@@ -497,15 +497,26 @@ if (config.backup && config.backup.enabled) {
 }
 scheduler.start();
 
-// TLS configuration — conditional HTTPS with PQC hybrid key exchange
+// TLS configuration — conditional HTTPS with PQC hybrid key exchange.
+// v1.9.4: TLS_KEY can be plaintext (data/tls/privkey.pem) OR vault-sealed
+// (data/tls/privkey.pem.sealed). Loaded via lib/pem-seal dispatch table
+// keyed on TLS_KEY_SEALED env var (auto/required/disabled).
 var TLS_CERT = process.env.TLS_CERT || path.join(C.PATHS.TLS_DIR, "fullchain.pem");
 var TLS_KEY = process.env.TLS_KEY || path.join(C.PATHS.TLS_DIR, "privkey.pem");
+var TLS_KEY_SEALED = TLS_KEY + ".sealed";
+var pemSeal = require("./lib/pem-seal");
 var PQC_ENFORCE = process.env.PQC_ENFORCE !== "false"; // default: true
 var INTERNAL_TLS_PORT = parseInt(process.env.INTERNAL_TLS_PORT, 10) || 3001;
 var tlsOptions = null;
 var tlsEnabled = false;
 
-if (fs.existsSync(TLS_CERT) && fs.existsSync(TLS_KEY)) {
+// True when a TLS key is available in either form. Cert MUST be plaintext
+// (it's public material; no sealing benefit).
+function tlsKeyAvailable() {
+  return fs.existsSync(TLS_KEY) || fs.existsSync(TLS_KEY_SEALED);
+}
+
+if (fs.existsSync(TLS_CERT) && tlsKeyAvailable()) {
   try {
     var mtlsCaCert = mtlsCa.caExists() ? fs.readFileSync(mtlsCa.CA_CERT_PATH) : null;
     // Hard mTLS enforcement at the TLS layer — boot-time only.
@@ -519,7 +530,7 @@ if (fs.existsSync(TLS_CERT) && fs.existsSync(TLS_KEY)) {
     var hardMtls = mtlsStrict === "true" && !!mtlsCaCert;
     tlsOptions = {
       cert: fs.readFileSync(TLS_CERT),
-      key: fs.readFileSync(TLS_KEY),
+      key: pemSeal.loadPemDispatch(TLS_KEY, TLS_KEY_SEALED, "TLS_KEY_SEALED"),
       groups: C.TLS_GROUP_PREFERENCE,
       minVersion: "TLSv1.3",
       requestCert: !!mtlsCaCert,
@@ -531,7 +542,10 @@ if (fs.existsSync(TLS_CERT) && fs.existsSync(TLS_KEY)) {
       ca: mtlsCaCert ? [mtlsCaCert] : undefined,
     };
     tlsEnabled = true;
-    logger.info("[TLS] PQC TLS enabled", { groups: C.TLS_GROUP_PREFERENCE.join(" + ") });
+    logger.info("[TLS] PQC TLS enabled", {
+      groups: C.TLS_GROUP_PREFERENCE.join(" + "),
+      keySealed: fs.existsSync(TLS_KEY_SEALED),
+    });
   } catch (e) {
     logger.error("[TLS] Failed to load certificates", { error: e.message });
   }
@@ -581,21 +595,68 @@ if (tlsEnabled && PQC_ENFORCE) {
 }
 server.timeout = config.uploadTimeout;
 
-// Certificate reload on renewal (Let's Encrypt certs update on disk)
-if (tlsEnabled) {
-  fs.watchFile(TLS_CERT, { interval: C.TIME.ONE_HOUR }, function () {
+// Certificate reload on renewal (Let's Encrypt / ACME tooling updates the
+// PEM files on disk). Watches the cert file at a 1-minute poll cadence so
+// renewals propagate to the live TLS context within a minute.
+//
+// v1.9.4 ACME auto-reconcile: when TLS_KEY_SEALED=required and ACME tools
+// drop a plaintext privkey.pem into the watched directory, this callback
+// auto-seals the plaintext (pemSeal round-trips it through vault.seal),
+// deletes the plaintext, and reloads. This means certbot/acme.sh hooks
+// don't need to know about the sealing — they keep writing plaintext as
+// they always have, and the watcher converts on the fly.
+function reloadTlsContext() {
+  // ACME reconcile: if we're in sealed-required mode and a plaintext
+  // privkey.pem exists, that's a freshly-renewed key from ACME. Seal it.
+  var modeRequired = (process.env.TLS_KEY_SEALED || "auto").toLowerCase() === "required";
+  if (modeRequired && fs.existsSync(TLS_KEY) && !fs.existsSync(TLS_KEY_SEALED)) {
     try {
-      var newContext = {
-        cert: fs.readFileSync(TLS_CERT),
-        key: fs.readFileSync(TLS_KEY),
-        groups: C.TLS_GROUP_PREFERENCE,
-        minVersion: "TLSv1.3",
-      };
-      server.setSecureContext(newContext);
-      logger.info("[TLS] Certificate reloaded");
+      pemSeal.sealPemFile(TLS_KEY, TLS_KEY_SEALED);
+      logger.info("[TLS] Auto-sealed plaintext privkey from ACME renewal", {
+        path: TLS_KEY_SEALED,
+      });
     } catch (e) {
-      logger.error("[TLS] Certificate reload failed", { error: e.message });
+      logger.error("[TLS] Auto-seal failed during ACME reconcile", { error: e.message });
+      return; // don't reload with potentially mismatched key
     }
+  } else if (modeRequired && fs.existsSync(TLS_KEY) && fs.existsSync(TLS_KEY_SEALED)) {
+    // Edge case: sealed already exists AND ACME wrote a new plaintext.
+    // The plaintext is the FRESHER key; replace the sealed one with it.
+    try {
+      fs.unlinkSync(TLS_KEY_SEALED);
+      pemSeal.sealPemFile(TLS_KEY, TLS_KEY_SEALED);
+      logger.info("[TLS] Auto-sealed ACME renewal (replacing previous sealed key)", {
+        path: TLS_KEY_SEALED,
+      });
+    } catch (e) {
+      logger.error("[TLS] Auto-seal failed during ACME reconcile (replace path)", { error: e.message });
+      return;
+    }
+  }
+
+  try {
+    var newContext = {
+      cert: fs.readFileSync(TLS_CERT),
+      key: pemSeal.loadPemDispatch(TLS_KEY, TLS_KEY_SEALED, "TLS_KEY_SEALED"),
+      groups: C.TLS_GROUP_PREFERENCE,
+      minVersion: "TLSv1.3",
+    };
+    server.setSecureContext(newContext);
+    logger.info("[TLS] Certificate reloaded");
+  } catch (e) {
+    logger.error("[TLS] Certificate reload failed", { error: e.message });
+  }
+}
+
+if (tlsEnabled) {
+  // Poll cadence: 1 minute (was 1 hour pre-v1.9.4). Spec §12.Q2 — cheap
+  // polling is fine and shortens the ACME-renewal-to-active-key window.
+  fs.watchFile(TLS_CERT, { interval: 60000 }, reloadTlsContext);
+  // SIGHUP triggers an immediate reload — used by scripts/tls-key-seal.js
+  // --reload after manually sealing a freshly-rotated key.
+  process.on("SIGHUP", function () {
+    logger.info("[TLS] SIGHUP received — reloading TLS context");
+    reloadTlsContext();
   });
 }
 

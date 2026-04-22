@@ -637,6 +637,62 @@ Sessions are invalidated by the required server restart (sessions live in tmpfs 
 
 For just changing the passphrase (e.g. the old passphrase leaked but the sealed file did NOT), keep using `vault-passphrase-rotate.js` — it's a faster operation that only re-wraps the same vault key.
 
+### PEM at-rest sealing for CA + TLS keys (v1.9.4+, opt-in)
+
+v1.9.0 closed the disk-snapshot threat for `data/vault.key`. v1.9.4 extends the same protection to two other long-lived plaintext PEM files:
+
+- **`data/ca.key`** — the mTLS root of trust. Whoever reads it can mint trusted client certs forever; rotation never undoes that. This is the most important PEM to seal.
+- **`data/tls/privkey.pem`** — the TLS server private key. Lower long-term risk because it rotates via Let's Encrypt every 60-90 days, but a snapshot during the renewal window still enables MITM until cert expiry.
+
+Both are independent opt-in via env var:
+
+| Env var | Default | When `=required` |
+|---|---|---|
+| `CA_KEY_SEALED` | `auto` (load whichever exists) | Refuse to operate on plaintext `ca.key`; require `ca.key.sealed` |
+| `TLS_KEY_SEALED` | `auto` | Refuse to boot on plaintext `tls/privkey.pem`; require `tls/privkey.pem.sealed` |
+
+#### CA key
+
+```bash
+# stop the server (or leave running — CA is loaded lazily on cert ops)
+docker exec hermitstash node scripts/ca-key-seal.js
+# then set CA_KEY_SEALED=required and restart
+```
+
+To revert: `docker exec hermitstash node scripts/ca-key-unseal.js` (do this BEFORE downgrading to v1.9.3 or earlier; older versions don't understand `.sealed` files).
+
+#### TLS server key — ACME-friendly
+
+```bash
+docker exec hermitstash node scripts/tls-key-seal.js
+# set TLS_KEY_SEALED=required and restart
+```
+
+After enabling sealed mode, **certbot / acme.sh hooks need no changes**. The running server's cert watcher polls every minute and **auto-seals plaintext `privkey.pem` files that ACME tools drop into `tls/`**. Renewal flow: ACME writes plaintext → watcher detects within ~1 min → vault-seals → deletes plaintext → reloads `setSecureContext`.
+
+For ACME hooks that need immediate effect (no 1-minute wait), call `scripts/tls-key-seal.js --reload` from your hook — it sends `SIGHUP` to the running server's PID file (`data/hermitstash.pid`) which triggers an immediate reload.
+
+To revert: `scripts/tls-key-unseal.js`.
+
+#### What sealing does and does NOT protect
+
+- ✅ Closes the disk-snapshot gap for the CA + TLS keys (no longer recoverable from a stolen volume snapshot without the vault keypair)
+- ✅ ACME workflows continue without modification
+- ❌ Does NOT protect a running server (key is in process memory once unsealed, recoverable by any code-execution attacker — same N1 caveat as the vault key itself)
+- ❌ Does NOT survive vault key loss — these PEMs are now downstream of the vault. If the vault is unrecoverable, the CA is too (every existing client cert becomes invalid; users must re-enroll). Trade-off: same risk profile as every other vault-sealed value.
+
+### Backup configuration — v1.9.4 recovery for v1.9.3-affected deployments
+
+A bug in v1.9.0–v1.9.3 silently blanked the saved backup passphrase whenever the operator edited any other backup setting (schedule, timezone, retention, S3 endpoint) without re-typing the passphrase. The form pre-populated empty for the passphrase field, the form submitted that empty value on save, the backend overwrote the stored passphrase. Once blanked, the scheduled backup job silently skipped on every tick with only a stderr log line — no audit log, no admin UI surface.
+
+If you upgraded from v1.9.3 or earlier and your `BACKUP_PASSPHRASE` may have been silently cleared:
+
+1. Open the admin Backup section
+2. Re-enter your passphrase in the Backup Passphrase field
+3. Click Save Backup
+
+After v1.9.4, the form pre-populates with bullets when a passphrase is saved, and the submission round-trip preserves the saved value when the bullets aren't replaced. The fix also adds a diagnostic block to the Backup History section that surfaces "Backups are silently skipping because: $reason" when scheduled backup is misconfigured — instead of a bare "No backups found" with no clue why.
+
 #### Reverting
 
 Stop the server, then run:

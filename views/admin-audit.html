@@ -11,8 +11,11 @@
   <div class="admin-inner">
 
     <!-- Toolbar -->
-    <div class="users-toolbar">
-      <input type="text" id="auditSearch" class="text-input" placeholder="Search actions, details, emails..." style="flex:2">
+    <div class="users-toolbar" style="position:relative">
+      <div style="flex:2;position:relative">
+        <input type="text" id="auditSearch" class="text-input" placeholder="Search actions, details, emails..." style="width:100%">
+        <span id="auditSpinner" aria-hidden="true" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--text-body);border-radius:50%;display:none;animation:audit-spin .8s linear infinite"></span>
+      </div>
       <select id="filterAction" class="text-input" onchange="loadAudit(1)">
         <option value="">All Actions</option>
         <option value="login_success">Login Success</option>
@@ -72,6 +75,7 @@
 .audit-details{font-size:.82rem;color:var(--text-body);margin-top:3px}
 .audit-meta{font-size:.72rem;color:var(--text-muted);margin-top:4px;display:flex;gap:16px;flex-wrap:wrap}
 .audit-meta span{display:inline-flex;align-items:center;gap:4px}
+@keyframes audit-spin{from{transform:translateY(-50%) rotate(0deg)}to{transform:translateY(-50%) rotate(360deg)}}
 </style>
 
 <script>
@@ -98,6 +102,14 @@ var ACTION_COLORS={
 function actionColor(a){return ACTION_COLORS[a]||'grey'}
 function actionLabel(a){return a.replace(/_/g,' ')}
 
+// Monotonically-increasing in-flight token. Each loadAudit() call captures
+// its own token at start; only the response with the LATEST token is allowed
+// to render. Prevents a slow query (sealed-column search can be slow because
+// the server must vault.unseal every candidate row) from rendering over a
+// faster newer one if the operator types quickly. Same idea as React Query's
+// "staleness" tracking, just done by hand.
+var _auditInFlight=0;
+
 function loadAudit(page){
   currentPage=page||1;
   var q=document.getElementById('auditSearch').value;
@@ -110,11 +122,20 @@ function loadAudit(page){
   if(dateFrom)params+='&dateFrom='+dateFrom;
   if(dateTo)params+='&dateTo='+dateTo;
 
+  var myToken=++_auditInFlight;
+  var spinner=document.getElementById('auditSpinner');
+  if(spinner)spinner.style.display='inline-block';
+
   fetch('/admin/audit/api'+params).then(function(r){return r.json()}).then(function(d){
+    if(myToken!==_auditInFlight)return; // a newer query started — drop this stale response
+    if(spinner)spinner.style.display='none';
     document.getElementById('auditCount').textContent=d.total;
     totalPages=d.pages;
     renderAudit(d.entries);
     renderPagination(d.page,d.pages);
+  }).catch(function(){
+    if(myToken!==_auditInFlight)return;
+    if(spinner)spinner.style.display='none';
   });
 }
 

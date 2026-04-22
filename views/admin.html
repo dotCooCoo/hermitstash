@@ -1660,11 +1660,46 @@ function renderTzDropdown(zones){
   }
 }
 
+function _renderBackupStatusBlock(el,status){
+  // Surface the diagnostic when scheduled backups can't run. Without this,
+  // an empty Backup History table looks identical regardless of WHY it's
+  // empty — operators have no way to know their config is silently broken.
+  if(!status||!status.blocked&&(!status.lastAttempt||status.lastAttempt.status==='completed'))return false;
+  var box=document.createElement('div');
+  box.style.cssText='padding:12px 14px;margin-bottom:12px;border-radius:6px;font-size:.85rem;line-height:1.5';
+  if(status.blocked){
+    box.style.background='rgba(242,78,106,.1)';box.style.border='1px solid var(--red,#f24e6a)';box.style.color='var(--red,#f24e6a)';
+    var t='Scheduled backups cannot run: '+(status.blockedReason||'unknown reason')+'.';
+    if(status.lastAttempt&&status.lastAttempt.timestamp){
+      var ts=new Date(status.lastAttempt.timestamp).toLocaleString();
+      t+=' Last attempt at '+ts+' was '+status.lastAttempt.status+'.';
+    }
+    box.textContent=t;
+  }else if(status.lastAttempt&&status.lastAttempt.status==='failed'){
+    box.style.background='rgba(242,78,106,.1)';box.style.border='1px solid var(--red,#f24e6a)';box.style.color='var(--red,#f24e6a)';
+    var fts=new Date(status.lastAttempt.timestamp).toLocaleString();
+    box.textContent='Last scheduled backup at '+fts+' FAILED: '+(status.lastAttempt.reason||'unknown error');
+  }else if(status.lastAttempt&&status.lastAttempt.status==='skipped'){
+    box.style.background='rgba(255,165,0,.1)';box.style.border='1px solid orange';box.style.color='orange';
+    var sts=new Date(status.lastAttempt.timestamp).toLocaleString();
+    box.textContent='Last scheduled backup at '+sts+' was skipped: '+(status.lastAttempt.reason||'unknown reason');
+  }else return false;
+  el.appendChild(box);return true;
+}
+
 function loadBackupHistory(){
   if(_backupHistoryLoaded)return;_backupHistoryLoaded=true;
   var el=document.getElementById('backupHistoryTable');
   fetch('/admin/backup/history',{headers:{'Content-Type':'application/json'}}).then(function(r){return r.json()}).then(function(d){
-    if(!d.success||!d.history||d.history.length===0){el.textContent='No backups found.';return}
+    el.textContent='';
+    var hadStatusBlock=_renderBackupStatusBlock(el,d.status);
+    if(!d.success||!d.history||d.history.length===0){
+      var empty=document.createElement('div');
+      empty.textContent=hadStatusBlock?'(no completed backups yet)':'No backups found.';
+      empty.style.opacity='.7';
+      el.appendChild(empty);
+      return;
+    }
     var tbl=document.createElement('table');tbl.style.cssText='width:100%;border-collapse:collapse;font-size:.82rem';
     var thead=document.createElement('thead');
     var hr=document.createElement('tr');hr.style.borderBottom='1px solid var(--border)';
@@ -1689,7 +1724,9 @@ function loadBackupHistory(){
       tbody.appendChild(tr);
     });
     tbl.appendChild(tbody);
-    el.textContent='';el.appendChild(tbl);
+    // Don't clear el here — the status block (if any) was added at the top
+    // by _renderBackupStatusBlock; preserve it and append the table after it.
+    el.appendChild(tbl);
     // Show restore warning if latest backup has mismatched backend
     if(d.history.length>0&&d.history[0].storageBackend&&d.history[0].storageBackend!==currentBackend){
       var warn=document.createElement('p');warn.style.cssText='margin-top:12px;font-size:.82rem;color:var(--red,#f24e6a);line-height:1.5';
