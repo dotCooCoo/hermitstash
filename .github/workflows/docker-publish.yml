@@ -417,20 +417,22 @@ jobs:
           echo "$HEADERS" | grep -qi "x-content-type-options" || { echo "ERROR: missing x-content-type-options"; exit 1; }
           echo "Security headers OK"
 
-      - name: Verify STOPSIGNAL (graceful shutdown)
-        run: |
-          docker stop smoke-test --time 10
-          EXIT=$(docker inspect smoke-test --format '{{.State.ExitCode}}')
-          echo "Exit code: $EXIT"
-          [ "$EXIT" = "0" ] || echo "WARNING: non-zero exit ($EXIT) — may be expected on first run without setup"
-
       - name: Verify wrapped-mode artifact (sealed key file present)
+        # MUST run BEFORE STOPSIGNAL — that step does `docker stop` and
+        # subsequent `docker exec` calls fail with "container is not running".
         if: matrix.vault_mode == 'wrapped'
         run: |
           # In wrapped first-run, vault.init writes vault.key.sealed (NOT vault.key)
           docker exec smoke-test ls -la /app/data/ | grep "vault.key.sealed" || { echo "ERROR: vault.key.sealed missing in wrapped mode"; docker exec smoke-test ls -la /app/data/; exit 1; }
           docker exec smoke-test sh -c '[ ! -f /app/data/vault.key ]' || { echo "ERROR: plaintext vault.key exists in wrapped mode"; exit 1; }
           echo "Wrapped-mode artifacts OK: sealed file present, plaintext absent"
+
+      - name: Verify STOPSIGNAL (graceful shutdown)
+        run: |
+          docker stop smoke-test --time 10
+          EXIT=$(docker inspect smoke-test --format '{{.State.ExitCode}}')
+          echo "Exit code: $EXIT"
+          [ "$EXIT" = "0" ] || echo "WARNING: non-zero exit ($EXIT) — may be expected on first run without setup"
 
       - name: Smoke test summary
         if: always()
