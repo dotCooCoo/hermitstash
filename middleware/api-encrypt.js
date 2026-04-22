@@ -23,6 +23,7 @@
 var crypto = require("node:crypto");
 var vault = require("../lib/vault");
 var config = require("../lib/config");
+var { generateBytes } = require("../lib/crypto");
 var { encryptPayload, decryptPayload, generateApiKey } = require("../lib/api-crypto");
 var { xchacha20poly1305 } = require("../lib/vendor/noble-ciphers.cjs");
 var { ml_kem1024 } = require("../lib/vendor/noble-pq.cjs");
@@ -66,7 +67,7 @@ function hybridEciesEncrypt(sessionKeyBuffer, clientKemPubKeyBytes, clientEcdhPu
   var wrappingKey = crypto.hkdfSync("sha3-512", combinedSecret, "", HYBRID_HKDF_INFO, 32);
 
   // --- Encrypt session key with XChaCha20-Poly1305 using the wrapping key ---
-  var nonce = crypto.randomBytes(24);
+  var nonce = generateBytes(24);
   var ct = xchacha20poly1305(new Uint8Array(Buffer.from(wrappingKey)), nonce).encrypt(new Uint8Array(sessionKeyBuffer));
   // Pack: version(1) + nonce(24) + ciphertext_with_tag
   var encryptedSessionKey = Buffer.concat([Buffer.from([ECIES_PROTOCOL_VERSION]), Buffer.from(nonce), Buffer.from(ct)]);

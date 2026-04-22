@@ -198,7 +198,9 @@ The vault key is the root of at-rest encryption. On first boot the server genera
           └─► Session API encryption keys — wraps per-session XChaCha20 keys (§5.6)
 ```
 
-**Critical limitation (re-emphasized):** Anyone with read access to `data/vault.key` decrypts everything HermitStash has ever stored. This is called out in the README's "Critical Files" section and the Upgrading section warns operators to back it up. It is **not** encrypted at rest on its own.
+**Critical limitation:** Anyone with read access to `data/vault.key` decrypts everything HermitStash has ever stored. This is the largest gap in the default configuration.
+
+**Optional mitigation (v1.9+) — passphrase wrapping.** When `VAULT_PASSPHRASE_MODE=required`, the on-disk file is `data/vault.key.sealed` instead of plaintext `data/vault.key`. Format: 4-byte magic `0xE2` header (see `lib/vault-wrap.js`), Argon2id-derived wrapping key (64 MiB, 3 iterations, 4 parallelism by default), XChaCha20-Poly1305 AEAD with the full header bound as AAD. An attacker with the wrapped file but not the passphrase cannot recover the vault keys. The passphrase is read at boot from one of: `VAULT_PASSPHRASE` env, `VAULT_PASSPHRASE_FILE`, or interactive stdin. This protection addresses the disk-snapshot threat scenarios (N1 listed host compromise is explicitly out of scope — once unwrapped, the plaintext key lives in process memory and is recoverable by any attacker with code execution). See §9 L2 and L15, and the README's "Passphrase protection" section for operator UX.
 
 ### 5.3 Field encryption (field-crypto middleware)
 
@@ -628,8 +630,13 @@ Listed honestly for reviewers. In order of perceived importance.
 ### L1 — No independent cryptographic audit
 No external cryptographer has reviewed this design. Primitives are well-reviewed; *compositions* are not.
 
-### L2 — Vault key on disk in plaintext
-`data/vault.key` is a JSON file protected only by filesystem permissions (0o600). There is no passphrase wrap, no HSM, no TPM sealing. An attacker with filesystem read access defeats all at-rest encryption. See N1.
+### L2 — Vault key on disk in plaintext (partially addressable in v1.9+)
+By default, `data/vault.key` is a JSON file protected only by filesystem permissions (0o600). There is no HSM, no TPM sealing. An attacker with filesystem read access defeats all at-rest encryption. See N1.
+
+**Partial mitigation:** v1.9+ adds opt-in passphrase wrapping via `VAULT_PASSPHRASE_MODE=required`. See §5.2. When enabled, the disk-snapshot threat (stolen backup, leaked volume dump) is addressed — the attacker needs both the sealed file AND the passphrase. The limitation is NOT fully addressed because:
+- The passphrase must be readable by the server at boot (env var, file, or stdin), so *some* secret still lives where the server can access it
+- Once the server unwraps the key into memory, a live-host attacker recovers it (see N1, L15)
+- The wrapping is operator-initiated; existing deployments stay in the plaintext posture until they opt in
 
 ### L3 — No forward secrecy for stored data
 Vault key compromise retroactively decrypts every blob ever stored. See N3.
@@ -666,6 +673,18 @@ An attacker sending malformed envelopes forces server-side ML-KEM decapsulation 
 
 ### L14 — Session cookie forward secrecy
 Vault-sealed session data means a later vault compromise decrypts all captured cookies. Per-session ephemeral keys would fix this but add complexity and don't match the threat model (see §3 — we don't defend against host compromise, and in-transit protection is already provided by TLS).
+
+### L15 — Passphrase material in process memory (v1.9+ opt-in path)
+When passphrase wrapping is enabled (§5.2 opt-in), the passphrase and the derived wrapping key exist in process memory briefly during boot:
+
+1. `passphrase-source.js` reads the passphrase from env/file/stdin as a `Buffer`
+2. `vault-wrap.deriveWrappingKey()` passes it to Argon2id
+3. The resulting 32-byte wrapping key decrypts the sealed file
+4. The plaintext vault key is cached in the vault module's local `keys` variable for the process lifetime
+
+Node.js provides no mechanism to zero a Buffer's backing memory on demand. `delete process.env.VAULT_PASSPHRASE` limits exposure to later env-dump surfaces but doesn't scrub the bytes. The passphrase Buffer and wrapping-key Buffer remain GC-candidates but may persist until the allocator reuses those pages. An attacker with code execution on the running host can read them.
+
+This is unavoidable for any at-rest encryption scheme on a service that boots without human interaction each request. The passphrase wrapping closes the disk-snapshot threat but does not close the live-host-compromise threat (which is already a non-goal — see N1). Operators who need defense against a compromised host need a completely different architecture (HSM, enclave, etc.) which is out of scope for this project.
 
 ---
 
