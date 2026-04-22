@@ -436,6 +436,11 @@ module.exports = function (app) {
       // Build the structured response. Each item: a stable key, label,
       // status (ok|warn|info), short description, optional operator guidance.
       // Frontend renders one row per item with an icon based on status.
+      // v1.9.9 — `actions` field: each entry is a button the UI may render.
+      //   { kind: "seal" | "unseal", route, needsPassphrase, label, confirmText }
+      // null when no action is available (state already what it would be, or
+      // the underlying file isn't present). Used by views/admin.html to
+      // render Enable/Disable buttons + modals per row.
       var items = [
         {
           key: "vault_passphrase",
@@ -446,6 +451,10 @@ module.exports = function (app) {
           guidance: vaultMode === "required"
             ? "Set VAULT_PASSPHRASE (env), VAULT_PASSPHRASE_FILE (file path), or use stdin at boot."
             : "RECOMMENDED: enable via VAULT_PASSPHRASE_MODE=required + scripts/vault-passphrase-setup.js",
+          actions: vaultSealedExists
+            ? [{ kind: "unseal", route: "/admin/security/unseal/vault-passphrase", needsPassphrase: true, label: "Disable", confirmText: "This will unwrap vault.key.sealed back to plaintext. You'll need to unset VAULT_PASSPHRASE_MODE before the next restart." }]
+            : (fs.existsSync(C.PATHS.VAULT_KEY) ? [{ kind: "seal", route: "/admin/security/seal/vault-passphrase", needsPassphrase: true, label: "Enable", confirmText: "After enabling, you MUST add VAULT_PASSPHRASE_FILE=/path to your environment AND drop the passphrase into that file BEFORE the next server restart, OR the next restart will FAIL." }]
+                : []),
         },
         {
           key: "ca_key_sealed",
@@ -456,6 +465,10 @@ module.exports = function (app) {
           guidance: caSealedExists
             ? "Set CA_KEY_SEALED=required to enforce on subsequent boots."
             : (caExists ? "RECOMMENDED: scripts/ca-key-seal.js (works with server running)" : "Will be configured on first cert-issue operation."),
+          actions: caSealedExists
+            ? [{ kind: "unseal", route: "/admin/security/unseal/ca-key", needsPassphrase: false, label: "Disable", confirmText: "This will unwrap ca.key.sealed back to plaintext data/ca.key. Unset CA_KEY_SEALED before restart." }]
+            : (caPlainExists ? [{ kind: "seal", route: "/admin/security/seal/ca-key", needsPassphrase: false, label: "Enable", confirmText: "Wraps data/ca.key with the vault key. CA loads via dispatch on next cert op — no restart needed. Set CA_KEY_SEALED=required to enforce on subsequent boots." }]
+                : []),
         },
         {
           key: "tls_key_sealed",
@@ -466,6 +479,10 @@ module.exports = function (app) {
           guidance: tlsSealedExists
             ? "Set TLS_KEY_SEALED=required to enforce; ACME hooks need no changes."
             : (tlsPlainExists ? "RECOMMENDED: scripts/tls-key-seal.js" : "Configure TLS first (see TLS section)."),
+          actions: tlsSealedExists
+            ? [{ kind: "unseal", route: "/admin/security/unseal/tls-key", needsPassphrase: false, label: "Disable", confirmText: "Unwraps privkey.pem.sealed. Cert watcher will reload immediately. Unset TLS_KEY_SEALED before restart." }]
+            : (tlsPlainExists ? [{ kind: "seal", route: "/admin/security/seal/tls-key", needsPassphrase: false, label: "Enable", confirmText: "Wraps tls/privkey.pem with the vault key. Cert watcher reloads immediately (SIGHUP). ACME renewal hooks need NO changes — future plaintext renewals are auto-sealed." }]
+                : []),
         },
         {
           key: "mtls_enforcement",
@@ -477,6 +494,7 @@ module.exports = function (app) {
           guidance: enforceMtlsStrict === "false"
             ? "ENFORCE_MTLS_STRICT=false is the escape hatch for locked-out operators. Remove once recovered."
             : (mtlsHardEnforced ? "Set via ENFORCE_MTLS_STRICT=true (env)." : "Set ENFORCE_MTLS_STRICT=true for hard enforcement at the TLS layer."),
+          actions: [], // env-only; no UI action available
         },
         {
           key: "tls",
@@ -485,6 +503,7 @@ module.exports = function (app) {
           value: tlsPlainExists || tlsSealedExists ? "enabled" : "disabled (HTTP only)",
           description: "PQC TLS 1.3 with X25519MLKEM768 hybrid key exchange when both client + server support it.",
           guidance: tlsPlainExists || tlsSealedExists ? null : "Mount cert + key into data/tls/ or set TLS_CERT and TLS_KEY env vars.",
+          actions: [], // config-only; no UI action available
         },
       ];
 
@@ -500,6 +519,207 @@ module.exports = function (app) {
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // v1.9.9 — admin UI seal/unseal action endpoints. Six routes total
+  // (3 seal + 3 unseal) for vault passphrase, CA key, TLS key. Each is a
+  // thin wrapper around lib primitives that the CLIs also call. Concurrency
+  // protected by a per-process lock — the underlying file operations are
+  // crash-safe individually, but two concurrent runs against the same files
+  // could race the .tmp + rename dance.
+  var _securityOpRunning = false;
+  function _withSecurityLock(res, fn) {
+    if (_securityOpRunning) {
+      res.status(409).json({ error: "Another security operation is in progress. Wait for it to finish before retrying." });
+      return Promise.resolve();
+    }
+    _securityOpRunning = true;
+    return Promise.resolve()
+      .then(fn)
+      .finally(function () { _securityOpRunning = false; });
+  }
+
+  app.post("/admin/security/seal/vault-passphrase", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    return _withSecurityLock(res, async function () {
+      try {
+        var body = await parseJson(req);
+        var passphrase = body && body.passphrase;
+        var confirm = body && body.confirmPassphrase;
+        if (typeof passphrase !== "string" || passphrase.length === 0) {
+          return res.status(400).json({ error: "Passphrase is required." });
+        }
+        if (passphrase !== confirm) {
+          return res.status(400).json({ error: "Passphrase and confirmation do not match." });
+        }
+        var ops = require("../lib/vault-passphrase-ops");
+        var pre = ops.preflightSealable();
+        if (!pre.ok) return res.status(409).json({ error: pre.reason });
+        var result = await ops.sealVaultKey(Buffer.from(passphrase, "utf8"), {});
+        audit.log(audit.ACTIONS.VAULT_PASSPHRASE_ENABLED, { details: "Vault key wrapped via admin UI", req: req });
+        res.json({
+          success: true,
+          sealedPath: result.sealedPath,
+          followUp: [
+            "The vault key is now wrapped, but the next server restart will FAIL unless the passphrase is configured at boot time.",
+            "BEFORE restarting:",
+            "  1. Add VAULT_PASSPHRASE_FILE=/path/to/secret to your container environment.",
+            "  2. Drop the passphrase you just entered into that file (file mode 0600).",
+            "  3. Set VAULT_PASSPHRASE_MODE=required.",
+            "  4. Then restart. Expected log line: '[vault] Unsealed successfully.'",
+            "If you can't configure the env var, run scripts/vault-passphrase-remove.js BEFORE restarting to revert.",
+          ],
+        });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+  });
+
+  app.post("/admin/security/unseal/vault-passphrase", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    return _withSecurityLock(res, async function () {
+      try {
+        var body = await parseJson(req);
+        var passphrase = body && body.passphrase;
+        if (typeof passphrase !== "string" || passphrase.length === 0) {
+          return res.status(400).json({ error: "Passphrase is required to unseal." });
+        }
+        var ops = require("../lib/vault-passphrase-ops");
+        var pre = ops.preflightUnsealable();
+        if (!pre.ok) return res.status(409).json({ error: pre.reason });
+        var result = await ops.unsealVaultKey(Buffer.from(passphrase, "utf8"));
+        audit.log(audit.ACTIONS.VAULT_PASSPHRASE_DISABLED, { details: "Vault key unwrapped via admin UI", req: req });
+        res.json({
+          success: true,
+          plaintextPath: result.plaintextPath,
+          followUp: [
+            "The vault key is now plaintext on disk again.",
+            "BEFORE restarting:",
+            "  1. Unset VAULT_PASSPHRASE_MODE (or set to 'disabled').",
+            "  2. Remove VAULT_PASSPHRASE / VAULT_PASSPHRASE_FILE from the container environment.",
+            "Otherwise the next restart will FAIL with 'plaintext but VAULT_PASSPHRASE_MODE=required'.",
+          ],
+        });
+      } catch (err) {
+        // unsealVaultKey throws "passphrase rejected: ..." on wrong passphrase
+        var status = /passphrase rejected/.test(err.message) ? 401 : 500;
+        res.status(status).json({ error: err.message });
+      }
+    });
+  });
+
+  app.post("/admin/security/seal/ca-key", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    return _withSecurityLock(res, async function () {
+      try {
+        var fs2 = require("fs");
+        var pemSeal = require("../lib/pem-seal");
+        var caPlain = PATHS.CA_KEY;
+        var caSealed = PATHS.CA_KEY_SEALED;
+        if (!fs2.existsSync(caPlain)) return res.status(409).json({ error: "data/ca.key does not exist — nothing to seal" });
+        if (fs2.existsSync(caSealed)) return res.status(409).json({ error: "data/ca.key.sealed already exists — refusing to overwrite" });
+        var result = pemSeal.sealPemFile(caPlain, caSealed, {});
+        audit.log(audit.ACTIONS.CA_KEY_SEALED, { details: "mTLS CA private key sealed via admin UI", req: req });
+        res.json({
+          success: true,
+          sealedPath: result.sealedPath,
+          followUp: [
+            "ca.key is now sealed and readable only via the vault key.",
+            "Set CA_KEY_SEALED=required to enforce sealed mode on subsequent boots.",
+            "No restart needed for cert operations — the dispatch picks up the sealed file lazily on the next cert issue/revoke.",
+          ],
+        });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+  });
+
+  app.post("/admin/security/unseal/ca-key", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    return _withSecurityLock(res, async function () {
+      try {
+        var fs2 = require("fs");
+        var pemSeal = require("../lib/pem-seal");
+        var caPlain = PATHS.CA_KEY;
+        var caSealed = PATHS.CA_KEY_SEALED;
+        if (!fs2.existsSync(caSealed)) return res.status(409).json({ error: "data/ca.key.sealed does not exist — nothing to unseal" });
+        if (fs2.existsSync(caPlain)) return res.status(409).json({ error: "data/ca.key already exists — refusing to overwrite" });
+        pemSeal.unsealPemFile(caSealed, caPlain);
+        audit.log(audit.ACTIONS.CA_KEY_UNSEALED, { details: "mTLS CA private key unsealed via admin UI", req: req });
+        res.json({
+          success: true,
+          plaintextPath: caPlain,
+          followUp: [
+            "ca.key is back to plaintext.",
+            "Unset CA_KEY_SEALED (or set =disabled) before restart.",
+          ],
+        });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+  });
+
+  app.post("/admin/security/seal/tls-key", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    return _withSecurityLock(res, async function () {
+      try {
+        var fs2 = require("fs");
+        var path2 = require("path");
+        var pemSeal = require("../lib/pem-seal");
+        var tlsPlain = process.env.TLS_KEY || path2.join(PATHS.TLS_DIR, "privkey.pem");
+        var tlsSealed = tlsPlain + ".sealed";
+        if (!fs2.existsSync(tlsPlain)) return res.status(409).json({ error: tlsPlain + " does not exist — nothing to seal" });
+        if (fs2.existsSync(tlsSealed)) return res.status(409).json({ error: tlsSealed + " already exists — refusing to overwrite" });
+        var result = pemSeal.sealPemFile(tlsPlain, tlsSealed, {});
+        // Best-effort SIGHUP self-signal so the server's cert watcher picks
+        // up the new sealed file immediately (server-main.js installs the
+        // SIGHUP handler from the v1.9.4 ACME work).
+        try { process.kill(process.pid, "SIGHUP"); } catch (_e) { /* not all platforms support self-SIGHUP */ }
+        audit.log(audit.ACTIONS.TLS_KEY_SEALED, { details: "TLS server private key sealed via admin UI", req: req });
+        res.json({
+          success: true,
+          sealedPath: result.sealedPath,
+          followUp: [
+            "TLS privkey is now sealed. The cert watcher was signaled to reload immediately.",
+            "Set TLS_KEY_SEALED=required to enforce sealed mode on subsequent boots.",
+            "ACME / Let's Encrypt hooks need NO changes — future renewals are auto-sealed by the watcher.",
+          ],
+        });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+  });
+
+  app.post("/admin/security/unseal/tls-key", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    return _withSecurityLock(res, async function () {
+      try {
+        var fs2 = require("fs");
+        var path2 = require("path");
+        var pemSeal = require("../lib/pem-seal");
+        var tlsPlain = process.env.TLS_KEY || path2.join(PATHS.TLS_DIR, "privkey.pem");
+        var tlsSealed = tlsPlain + ".sealed";
+        if (!fs2.existsSync(tlsSealed)) return res.status(409).json({ error: tlsSealed + " does not exist — nothing to unseal" });
+        if (fs2.existsSync(tlsPlain)) return res.status(409).json({ error: tlsPlain + " already exists — refusing to overwrite" });
+        pemSeal.unsealPemFile(tlsSealed, tlsPlain);
+        try { process.kill(process.pid, "SIGHUP"); } catch (_e) { /* same */ }
+        audit.log(audit.ACTIONS.TLS_KEY_UNSEALED, { details: "TLS server private key unsealed via admin UI", req: req });
+        res.json({
+          success: true,
+          plaintextPath: tlsPlain,
+          followUp: [
+            "TLS privkey is back to plaintext. Cert watcher was signaled to reload.",
+            "Unset TLS_KEY_SEALED (or set =disabled) before restart.",
+          ],
+        });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
   });
 
   app.post("/admin/backup/delete", async (req, res) => {

@@ -683,7 +683,7 @@ To revert: `scripts/tls-key-unseal.js`.
 
 ### Security overview at a glance (v1.9.5+)
 
-The admin **Settings → Security** tab shows the live status of every security-related setting in one view:
+The admin **Settings → Security** tab shows the live status of every security-related setting in one view, with **Enable/Disable buttons** (v1.9.9+) for the three sealable layers.
 
 - Vault key passphrase wrapping (status of `VAULT_PASSPHRASE_MODE` + whether `vault.key.sealed` exists)
 - mTLS CA private key sealing (status of `CA_KEY_SEALED` + whether `ca.key.sealed` exists)
@@ -691,7 +691,22 @@ The admin **Settings → Security** tab shows the live status of every security-
 - mTLS enforcement strictness (`ENFORCE_MTLS_STRICT` mode and whether mTLS is currently active at TLS or app layer)
 - TLS / HTTPS configuration
 
-Each row shows a ✓ / · / ! indicator, the current effective value (masked for sensitive bits), a short explanation of what the setting does, and operator guidance for the right way to configure it. **Read-only by design** — boot-time secrets must come from environment variables (or `*_FILE` variants for Docker secrets), never the admin UI.
+Each row shows a ✓ / · / ! indicator, the current effective value (masked for sensitive bits), a short explanation of what the setting does, and operator guidance for the right way to configure it.
+
+**Boot-time secrets must come from environment variables** (or `*_FILE` variants for Docker secrets), never the admin UI. The Action buttons in v1.9.9+ create the sealed file artifacts but they CANNOT write your `.env` / Docker secret / Kubernetes Secret for you — those live on the host, outside the container's mount. The vault-passphrase-enable wizard surfaces a copyable env-var snippet tailored to your deployment style (Docker Compose with Secrets, Compose with .env, Kubernetes, or systemd) so you can paste it into your config before sealing.
+
+#### How the Enable wizards work (v1.9.9+)
+
+For **vault key passphrase wrapping** — a 4-step wizard:
+
+1. Pick deployment style → wizard renders the right env-var snippet
+2. Copy the snippet, paste it into your deployment config, save it
+3. Three-checkbox confirmation: env vars added, passphrase stored safely, you understand loss-of-passphrase = loss-of-data
+4. Enter the passphrase + confirm → server seals `vault.key` → success message
+
+After the wizard completes, the next server restart will use the configured env var to unwrap. **If you skip the env-var setup step, the next restart will fail with "passphrase rejected"** — an explicit failure mode, not silent breakage. Run `scripts/vault-passphrase-remove.js` BEFORE restart to revert if you're not ready.
+
+For **CA key sealing** and **TLS server key sealing** — single confirmation modals (no operator-side env config needed; the vault key is already in memory, so the dispatch picks up the sealed file automatically). TLS sealing also triggers an immediate cert reload via SIGHUP.
 
 #### Two env-var conventions in use
 

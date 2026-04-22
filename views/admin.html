@@ -959,6 +959,19 @@
   </div>
 </section>
 
+<!-- v1.9.9 — Security Action Wizard Modal -->
+<div class="modal-overlay" id="securityActionModal" style="display:none" onclick="if(event.target===this)closeSecurityAction()">
+  <div class="modal-card" style="max-width:680px;max-height:85vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <h3 class="modal-title" id="securityActionTitle" style="margin:0">Security Action</h3>
+      <button onclick="closeSecurityAction()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.4rem;padding:4px 8px;line-height:1" aria-label="Close">&times;</button>
+    </div>
+    <div id="securityActionStepIndicator" style="font-size:.75rem;color:var(--muted);margin-bottom:16px"></div>
+    <div id="securityActionBody" style="overflow-y:auto;flex:1;font-size:.9rem;line-height:1.5;color:var(--body-color)"></div>
+    <div id="securityActionFooter" style="display:flex;justify-content:space-between;gap:12px;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)"></div>
+  </div>
+</div>
+
 <!-- Setup Guide Modal -->
 <div class="modal-overlay" id="helpModal" style="display:none" onclick="if(event.target===this)closeHelp()">
   <div class="modal-card" style="max-width:640px;max-height:85vh;display:flex;flex-direction:column">
@@ -1883,6 +1896,201 @@ function runBackupNow(){
 
 // ---- Environment tab ----
 var _envLoaded=false;
+// v1.9.9 — Security tab Action Wizard. Multi-step modal that walks operators
+// through enabling vault passphrase wrapping safely. CA/TLS sealing uses a
+// simpler one-screen confirmation (no operator-side env config needed).
+// All DOM construction uses createElement/textContent — no innerHTML.
+var _secWizard={action:null,item:null,step:0,deployStyle:'compose-secrets',acks:{config:false,passphrase:false,understand:false}};
+
+function _el(tag,attrs,text){
+  var e=document.createElement(tag);
+  if(attrs){for(var k in attrs){if(k==='style')e.style.cssText=attrs[k];else if(k==='onclick')e.onclick=attrs[k];else if(k==='onchange')e.onchange=attrs[k];else e.setAttribute(k,attrs[k])}}
+  if(text!==undefined&&text!==null)e.textContent=String(text);
+  return e;
+}
+
+function openSecurityAction(item,actionEntry){
+  _secWizard={action:actionEntry,item:item,step:1,deployStyle:'compose-secrets',acks:{config:false,passphrase:false,understand:false}};
+  document.getElementById('securityActionModal').style.display='flex';
+  renderSecurityWizard();
+}
+function closeSecurityAction(){
+  document.getElementById('securityActionModal').style.display='none';
+}
+
+function _envSnippet(style){
+  if(style==='compose-secrets')return'# 1. Create the passphrase secret on the host:\nprintf \'YOUR-PASSPHRASE\' > /path/to/vault-pw.secret\nchmod 600 /path/to/vault-pw.secret\n\n# 2. Add to docker-compose.yml:\nservices:\n  hermitstash:\n    environment:\n      VAULT_PASSPHRASE_MODE: "required"\n      VAULT_PASSPHRASE_FILE: "/run/secrets/vault-pw"\n    secrets:\n      - vault-pw\nsecrets:\n  vault-pw:\n    file: /path/to/vault-pw.secret';
+  if(style==='compose-env')return'# Add to your .env (or directly to compose environment):\nVAULT_PASSPHRASE_MODE=required\nVAULT_PASSPHRASE=YOUR-PASSPHRASE\n\n# In docker-compose.yml, reference the env vars:\nservices:\n  hermitstash:\n    environment:\n      VAULT_PASSPHRASE_MODE: "${VAULT_PASSPHRASE_MODE}"\n      VAULT_PASSPHRASE: "${VAULT_PASSPHRASE}"\n\n# WARNING: passphrase appears in plain env. Docker Secrets is more secure.';
+  if(style==='k8s')return'# 1. Create a Secret:\napiVersion: v1\nkind: Secret\nmetadata:\n  name: hermitstash-vault\ntype: Opaque\nstringData:\n  passphrase: YOUR-PASSPHRASE\n---\n# 2. Reference it in the Pod / Deployment env:\nenv:\n  - name: VAULT_PASSPHRASE_MODE\n    value: "required"\n  - name: VAULT_PASSPHRASE\n    valueFrom:\n      secretKeyRef:\n        name: hermitstash-vault\n        key: passphrase';
+  if(style==='systemd')return'# 1. Create the passphrase file (root-owned, 0600):\nsudo install -m 0600 -o root -g root /dev/stdin /etc/hermitstash/vault-pw <<<\'YOUR-PASSPHRASE\'\n\n# 2. Add to /etc/systemd/system/hermitstash.service:\n[Service]\nEnvironment="VAULT_PASSPHRASE_MODE=required"\nEnvironment="VAULT_PASSPHRASE_FILE=/etc/hermitstash/vault-pw"\n\n# 3. systemctl daemon-reload && systemctl restart hermitstash';
+  return'# (no snippet — choose a deployment style above)';
+}
+
+function _wizardBtn(label,opts){
+  var b=_el('button',{class:'butn '+((opts&&opts.primary)?'butn-bg':'butn-bord-thin')+' butn-sm radius-30',onclick:opts&&opts.onClick});
+  if(opts&&opts.disabled){b.disabled=true;b.style.opacity='.4';b.style.cursor='not-allowed'}
+  if(opts&&opts.id)b.id=opts.id;
+  var span=_el('span',null,label);
+  b.appendChild(span);
+  return b;
+}
+
+function _wizardClear(){
+  document.getElementById('securityActionBody').textContent='';
+  document.getElementById('securityActionFooter').textContent='';
+}
+
+function _wizardStepWrapEnable(){
+  var st=_secWizard;
+  var body=document.getElementById('securityActionBody');
+  var foot=document.getElementById('securityActionFooter');
+
+  if(st.step===1){
+    body.appendChild(_el('p',null,'Choose how you deploy HermitStash. The wizard will show the right env-var snippet for your stack.'));
+    var list=_el('div',{style:'display:flex;flex-direction:column;gap:8px;margin-top:16px'});
+    var styles=[
+      ['compose-secrets','Docker Compose with Docker Secrets (recommended)'],
+      ['compose-env','Docker Compose with .env file'],
+      ['k8s','Kubernetes'],
+      ['systemd','Bare metal / systemd'],
+    ];
+    styles.forEach(function(pair){
+      var lbl=_el('label',{style:'display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:6px;cursor:pointer'});
+      var radio=_el('input',{type:'radio',name:'ds',value:pair[0]});
+      if(st.deployStyle===pair[0])radio.checked=true;
+      radio.onchange=function(){_secWizard.deployStyle=this.value;renderSecurityWizard()};
+      lbl.appendChild(radio);
+      lbl.appendChild(document.createTextNode(' '+pair[1]));
+      list.appendChild(lbl);
+    });
+    body.appendChild(list);
+    foot.appendChild(_wizardBtn('Cancel',{onClick:closeSecurityAction}));
+    foot.appendChild(_wizardBtn('Next →',{primary:true,onClick:function(){_secWizard.step=2;renderSecurityWizard()}}));
+  } else if(st.step===2){
+    var snippet=_envSnippet(st.deployStyle);
+    body.appendChild(_el('p',null,'Add this to your deployment config before proceeding. The server will not boot after sealing if these env vars aren\'t set.'));
+    var pre=_el('pre',{style:'background:#0a0a0a;color:#d4d4d4;padding:14px;border-radius:6px;font-size:.78rem;overflow-x:auto;line-height:1.5;margin:12px 0'},snippet);
+    body.appendChild(pre);
+    var copyBtn=_wizardBtn('Copy snippet',{onClick:function(){
+      navigator.clipboard.writeText(snippet);
+      copyBtn.firstChild.textContent='✓ Copied';
+      setTimeout(function(){copyBtn.firstChild.textContent='Copy snippet'},2000);
+    }});
+    body.appendChild(copyBtn);
+    body.appendChild(_el('p',{style:'margin-top:14px;font-size:.78rem;color:var(--muted);font-style:italic'},'Replace YOUR-PASSPHRASE with the actual passphrase you\'ll enter on step 4. The passphrase you enter must match what you put in your config above, or the next restart will fail.'));
+    foot.appendChild(_wizardBtn('← Back',{onClick:function(){_secWizard.step=1;renderSecurityWizard()}}));
+    foot.appendChild(_wizardBtn('Next →',{primary:true,onClick:function(){_secWizard.step=3;renderSecurityWizard()}}));
+  } else if(st.step===3){
+    body.appendChild(_el('p',null,'Confirm you\'ve completed the manual steps. The server can\'t verify these for you.'));
+    var ackBox=_el('div',{style:'display:flex;flex-direction:column;gap:10px;margin-top:14px'});
+    var acks=[
+      ['config','I\'ve added the env-var configuration above to my deployment.'],
+      ['passphrase','I\'ve stored the passphrase in a secure location (password manager, vault, etc.) and the passphrase in my deployment config matches what I\'ll enter here.'],
+      ['understand','I understand: loss of the passphrase = loss of all encrypted data. There is no recovery mechanism.'],
+    ];
+    acks.forEach(function(pair){
+      var lbl=_el('label',{style:'display:flex;align-items:flex-start;gap:10px;padding:8px 0'});
+      var cb=_el('input',{type:'checkbox',style:'margin-top:4px'});
+      if(st.acks[pair[0]])cb.checked=true;
+      cb.onchange=function(){_secWizard.acks[pair[0]]=this.checked;renderSecurityWizard()};
+      lbl.appendChild(cb);
+      lbl.appendChild(_el('span',null,pair[1]));
+      ackBox.appendChild(lbl);
+    });
+    body.appendChild(ackBox);
+    var allChecked=st.acks.config&&st.acks.passphrase&&st.acks.understand;
+    foot.appendChild(_wizardBtn('← Back',{onClick:function(){_secWizard.step=2;renderSecurityWizard()}}));
+    foot.appendChild(_wizardBtn('Next →',{primary:true,disabled:!allChecked,onClick:allChecked?function(){_secWizard.step=4;renderSecurityWizard()}:null}));
+  } else if(st.step===4){
+    body.appendChild(_el('p',null,'Enter the passphrase. This MUST match what you configured in step 2.'));
+    var grp=_el('div',{style:'display:flex;flex-direction:column;gap:10px;margin-top:14px'});
+    grp.appendChild(_el('input',{type:'password',id:'secWizPw1',class:'text-input',placeholder:'Passphrase',autocomplete:'new-password'}));
+    grp.appendChild(_el('input',{type:'password',id:'secWizPw2',class:'text-input',placeholder:'Confirm passphrase',autocomplete:'new-password'}));
+    grp.appendChild(_el('div',{id:'secWizErr',style:'color:var(--red,#f24e6a);font-size:.82rem;min-height:1.2em'}));
+    body.appendChild(grp);
+    foot.appendChild(_wizardBtn('← Back',{onClick:function(){_secWizard.step=3;renderSecurityWizard()}}));
+    foot.appendChild(_wizardBtn('Enable wrapping',{primary:true,id:'secWizExec',onClick:executeSecurityAction}));
+  }
+}
+
+function renderSecurityWizard(){
+  var st=_secWizard;
+  document.getElementById('securityActionTitle').textContent=(st.action.kind==='seal'?'Enable: ':'Disable: ')+st.item.label;
+  var stepEl=document.getElementById('securityActionStepIndicator');
+  _wizardClear();
+  var isVaultEnable=st.item.key==='vault_passphrase'&&st.action.kind==='seal';
+  var isVaultDisable=st.item.key==='vault_passphrase'&&st.action.kind==='unseal';
+  var body=document.getElementById('securityActionBody');
+  var foot=document.getElementById('securityActionFooter');
+  if(isVaultEnable){
+    stepEl.textContent='Step '+st.step+' of 4';
+    _wizardStepWrapEnable();
+  } else if(isVaultDisable){
+    stepEl.textContent='';
+    var warn=_el('p',{style:'color:var(--red,#f24e6a)'});
+    warn.appendChild(_el('strong',null,'Warning: '));
+    warn.appendChild(document.createTextNode(st.action.confirmText));
+    body.appendChild(warn);
+    body.appendChild(_el('p',{style:'margin-top:14px'},'Enter the current passphrase to unwrap:'));
+    body.appendChild(_el('input',{type:'password',id:'secWizPw1',class:'text-input',placeholder:'Current passphrase',autocomplete:'off',style:'margin-top:8px'}));
+    body.appendChild(_el('div',{id:'secWizErr',style:'color:var(--red,#f24e6a);font-size:.82rem;margin-top:8px;min-height:1.2em'}));
+    foot.appendChild(_wizardBtn('Cancel',{onClick:closeSecurityAction}));
+    foot.appendChild(_wizardBtn('Disable wrapping',{primary:true,id:'secWizExec',onClick:executeSecurityAction}));
+  } else {
+    // CA / TLS seal+unseal: simple confirmation
+    stepEl.textContent='';
+    body.appendChild(_el('p',null,st.action.confirmText));
+    foot.appendChild(_wizardBtn('Cancel',{onClick:closeSecurityAction}));
+    foot.appendChild(_wizardBtn(st.action.label,{primary:true,id:'secWizExec',onClick:executeSecurityAction}));
+  }
+}
+
+function executeSecurityAction(){
+  var st=_secWizard;
+  var btn=document.getElementById('secWizExec');
+  var errEl=document.getElementById('secWizErr');
+  var body={};
+  if(st.item.key==='vault_passphrase'){
+    var pw1=(document.getElementById('secWizPw1')||{}).value||'';
+    var pw2=(document.getElementById('secWizPw2')||{}).value||'';
+    if(!pw1){if(errEl)errEl.textContent='Passphrase is required.';return}
+    if(st.action.kind==='seal'&&pw1!==pw2){if(errEl)errEl.textContent='Passphrase and confirmation do not match.';return}
+    body.passphrase=pw1;
+    if(st.action.kind==='seal')body.confirmPassphrase=pw2;
+  }
+  btn.disabled=true;
+  var origLabel=btn.firstChild.textContent;
+  btn.firstChild.textContent='Working…';
+  if(errEl)errEl.textContent='';
+  fetch(st.action.route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(function(r){return r.json().then(function(d){return{status:r.status,d:d}})})
+    .then(function(r){
+      if(!r.d.success){
+        btn.disabled=false;btn.firstChild.textContent=origLabel;
+        if(errEl)errEl.textContent=r.d.error||'Operation failed';return;
+      }
+      _renderSecuritySuccess(r.d);
+    }).catch(function(e){
+      btn.disabled=false;btn.firstChild.textContent=origLabel;
+      if(errEl)errEl.textContent='Network error: '+(e&&e.message||'unknown');
+    });
+}
+
+function _renderSecuritySuccess(resp){
+  var body=document.getElementById('securityActionBody');
+  var foot=document.getElementById('securityActionFooter');
+  body.textContent='';foot.textContent='';
+  document.getElementById('securityActionStepIndicator').textContent='';
+  document.getElementById('securityActionTitle').textContent='✓ '+_secWizard.item.label;
+  body.appendChild(_el('p',{style:'color:#22c55e;font-weight:600'},'Operation succeeded.'));
+  if(resp.followUp&&resp.followUp.length){
+    var ul=_el('ul',{style:'margin-top:14px;padding-left:20px;font-size:.82rem;line-height:1.5'});
+    resp.followUp.forEach(function(s){ul.appendChild(_el('li',{style:'margin:4px 0'},s))});
+    body.appendChild(ul);
+  }
+  foot.appendChild(_wizardBtn('Done',{primary:true,onClick:function(){closeSecurityAction();_securityLoaded=false;loadSecurityStatus()}}));
+}
+
 // v1.9.5 — Security overview tab (read-only)
 var _securityLoaded=false;
 function loadSecurityStatus(){
@@ -1909,6 +2117,18 @@ function loadSecurityStatus(){
       value.style.cssText='font-size:.78rem;color:var(--muted);font-family:monospace';
       value.textContent=item.value;
       header.appendChild(icon);header.appendChild(label);header.appendChild(value);
+      // v1.9.9 — render action button(s) inline in the header (Enable/Disable)
+      if(item.actions&&item.actions.length){
+        item.actions.forEach(function(a){
+          var btn=document.createElement('button');
+          btn.className='butn butn-bord-thin butn-sm radius-30';
+          btn.style.cssText='margin-left:8px';
+          var span=document.createElement('span');span.textContent=a.label;
+          btn.appendChild(span);
+          btn.onclick=(function(itemRef,actionRef){return function(){openSecurityAction(itemRef,actionRef)}})(item,a);
+          header.appendChild(btn);
+        });
+      }
       row.appendChild(header);
       var desc=document.createElement('div');
       desc.style.cssText='font-size:.82rem;color:var(--text-body);margin:6px 0 4px;padding-left:32px;line-height:1.4';
