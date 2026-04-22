@@ -641,6 +641,8 @@ By default, `data/vault.key` is a JSON file protected only by filesystem permiss
 ### L3 — No forward secrecy for stored data
 Vault key compromise retroactively decrypts every blob ever stored. See N3.
 
+**Reactive mitigation (v1.9.3+):** `scripts/vault-key-rotate.js` performs a full vault key rotation that re-encrypts every sealed value in the data directory (DB rows, the SQLite file's wrapping key, every per-file XChaCha20 key index). After rotation, the OLD vault key cannot read live data — closing the door on a compromised key that hasn't yet been used to exfiltrate everything. This does NOT provide forward secrecy in the cryptographic sense (data already exfiltrated under the old key remains compromised), but it does bound the window of usefulness for a stolen vault key. See README "Full vault key rotation" section.
+
 ### L4 — No AAD on storage envelope header
 The KEM/cipher/KDF bytes of the envelope are not included as AAD in the AEAD tag. Today only one of each is supported so the attack surface is empty, but adding a second cipher without also adding header-as-AAD could enable cross-protocol attacks. **Mitigation:** add envelope header bytes to AEAD's AAD whenever a second cipher is introduced.
 

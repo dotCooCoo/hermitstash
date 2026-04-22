@@ -600,7 +600,42 @@ Rotation reads the current sealed file, unwraps with the OLD passphrase, re-wrap
 
 **Important caveat — what passphrase rotation does and does NOT protect:**
 
-Passphrase rotation protects the **future**, not the past. If an attacker already captured both the sealed file AND the old passphrase, they already have the vault key. Changing the passphrase after the fact doesn't undo that. For suspected vault-key compromise (not just passphrase compromise) you need a **full vault key rotation** that re-encrypts every DB field and file — a separate feature planned for v1.9.3.
+Passphrase rotation protects the **future**, not the past. If an attacker already captured both the sealed file AND the old passphrase, they already have the vault key. Changing the passphrase after the fact doesn't undo that. For suspected vault-key compromise (not just passphrase compromise) use **full vault key rotation** (v1.9.3+) — see below.
+
+### Full vault key rotation (v1.9.3+)
+
+When you suspect the vault keypair itself has been compromised — not just the passphrase — run the offline full rotation tool. It generates a brand new ML-KEM-1024 + P-384 hybrid keypair and re-encrypts every vault-sealed value in the data directory: every sealed DB column, every per-file XChaCha20 key index, the SQLite file's wrapping key, and the vault key itself. File blobs in the upload directory are NOT re-encrypted — their per-file keys are, so rotation completes in seconds even for multi-terabyte upload directories.
+
+```bash
+# stop the server first, then:
+docker exec -it hermitstash node scripts/vault-key-rotate.js
+
+# scripted (wrapped mode):
+VAULT_PASSPHRASE_OLD='current' VAULT_PASSPHRASE_NEW='new' \
+  docker exec hermitstash node scripts/vault-key-rotate.js
+
+# dry-run — exercise everything except the final swap:
+docker exec hermitstash node scripts/vault-key-rotate.js --dry-run
+```
+
+The tool builds a complete rotated copy of `data/` at `data.rotating/`, verifies it round-trips, then atomically swaps `data/` → `data.old.<ISO timestamp>/` and `data.rotating/` → `data/`. A crash at any point leaves `data/` either fully pre-rotation or fully post-rotation, never partial — server boot recovery handles every interruption point.
+
+After success:
+1. `data.old.<ISO timestamp>/` is retained (delete with `rm -rf` once you've verified the rotated state)
+2. If the passphrase changed, update `VAULT_PASSPHRASE` / `VAULT_PASSPHRASE_FILE` to the new value
+3. Restart the server
+4. Verify access: `docker exec hermitstash node scripts/vault-key-verify.js`
+
+Sessions are invalidated by the required server restart (sessions live in tmpfs by design).
+
+**Performance:** ~500 sealed-column-values rotated per second per CPU core. A typical 100k-row DB with ~5 sealed columns per row (~500k values) takes ~15 minutes; 1M rows takes ~90 minutes. Bottleneck is per-value PQC envelope crypto, not I/O.
+
+**⚠ When to use:**
+- Suspected vault-key compromise (sealed file + passphrase both leaked)
+- Annual key rotation per compliance policy
+- Investigating? Run `--dry-run` first; it does everything except the final swap
+
+For just changing the passphrase (e.g. the old passphrase leaked but the sealed file did NOT), keep using `vault-passphrase-rotate.js` — it's a faster operation that only re-wraps the same vault key.
 
 #### Reverting
 
