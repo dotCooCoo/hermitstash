@@ -94,6 +94,18 @@ spec:
             # Set to your ingress URL (required for passkeys + HSTS)
             - name: RP_ORIGIN
               value: ""   # e.g. https://files.example.com
+            # ── Vault passphrase protection (opt-in, v1.9+) ───────────────
+            # Default disabled. To enable:
+            #   1. Create a Secret:  kubectl create secret generic hermitstash-vault \
+            #                          --from-literal=passphrase='YOUR_PASSPHRASE'
+            #   2. Uncomment the VAULT_PASSPHRASE_* env + volumeMount below.
+            #   3. Before first deploy: run the setup tool via a one-shot Job
+            #      (or kubectl exec) to migrate plaintext vault.key → sealed.
+            # LOSS of passphrase = LOSS of all encrypted data.
+            # - name: VAULT_PASSPHRASE_MODE
+            #   value: "required"
+            # - name: VAULT_PASSPHRASE_FILE
+            #   value: "/run/secrets/vault-passphrase/passphrase"
           volumeMounts:
             - name: data
               mountPath: /app/data
@@ -101,6 +113,13 @@ spec:
               mountPath: /app/uploads
             - name: shm
               mountPath: /dev/shm
+            # ── Vault passphrase mount (opt-in) ──────────────────────────
+            # Uncomment alongside the env vars above. The Secret must contain
+            # a `passphrase` key (plain bytes of the passphrase, no trailing
+            # newline required — the file source driver trims them).
+            # - name: vault-passphrase
+            #   mountPath: /run/secrets/vault-passphrase
+            #   readOnly: true
           # PQC key generation on first start can take 10-15s — startupProbe
           # gives the container time to initialise before liveness/readiness
           # start polling, avoiding restart loops during initial bootstrap.
@@ -158,6 +177,15 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 256Mi
+        # ── Vault passphrase Secret volume (opt-in, v1.9+) ───────────────
+        # Uncomment alongside the VAULT_PASSPHRASE_* env vars and
+        # volumeMount above. Create the Secret first:
+        #   kubectl -n hermitstash create secret generic hermitstash-vault \
+        #     --from-literal=passphrase='YOUR_PASSPHRASE'
+        # - name: vault-passphrase
+        #   secret:
+        #     secretName: hermitstash-vault
+        #     defaultMode: 0400
 
 ---
 apiVersion: v1

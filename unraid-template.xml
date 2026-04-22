@@ -67,4 +67,12 @@
     <!-- Backup schedule (advanced; admin UI also exposes these) -->
     <Config Name="Backup Time of Day" Target="BACKUP_TIME_OF_DAY" Default="03:00" Description="HH:MM (24-hour) when daily/weekly backups run. Anchored to Backup Timezone." Type="Variable" Display="advanced" Required="false" Mask="false"/>
     <Config Name="Backup Timezone" Target="BACKUP_TIMEZONE" Default="" Description="IANA timezone name (e.g. America/New_York). Empty = follows the container Timezone (TZ) setting above." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
+    <!-- Vault passphrase protection (opt-in, v1.9+) -->
+    <!-- Default is disabled. When enabled, the vault key is encrypted at rest with an Argon2id-derived passphrase. -->
+    <!-- ⚠ LOSS of passphrase = LOSS of all encrypted data. HermitStash has no recovery mechanism. -->
+    <!-- Enable only after: (1) storing the passphrase in a password manager, AND (2) running scripts/vault-passphrase-setup.js -->
+    <!-- via `docker exec -it hermitstash node scripts/vault-passphrase-setup.js` to migrate the existing plaintext vault.key. -->
+    <Config Name="Vault Passphrase Mode" Target="VAULT_PASSPHRASE_MODE" Default="" Description="Set to 'required' to enable passphrase-encrypted vault.key. Leave empty (default) for plaintext vault.key protected by filesystem permissions only. See README 'Passphrase protection (opt-in)' — LOSS OF PASSPHRASE = LOSS OF DATA." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+    <Config Name="Vault Passphrase" Target="VAULT_PASSPHRASE" Default="" Description="The passphrase itself — only set when Vault Passphrase Mode is 'required'. Store it in a password manager BEFORE entering it here; there is no recovery if lost." Type="Variable" Display="advanced" Required="false" Mask="true"/>
 </Container>

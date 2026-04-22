@@ -56,4 +56,16 @@ services:
 
       # All other settings (email, S3, branding, etc.) are configured
       # via the admin panel at /admin after first start.
+
+      # ── Vault passphrase protection (opt-in, v1.9+) ────────────────────
+      # Wraps data/vault.key with an Argon2id-derived passphrase. Closes
+      # the disk-snapshot threat — see README "Passphrase protection".
+      # LOSS of passphrase = LOSS of all encrypted data. Enable only after
+      # storing the passphrase in a password manager, and only after
+      # running scripts/vault-passphrase-setup.js to migrate the existing
+      # plaintext vault.key to the wrapped format.
+      #
+      # VAULT_PASSPHRASE_MODE: "required"
+      # VAULT_PASSPHRASE_FILE: "/run/secrets/vault-pw"   # preferred — Docker secrets
+      # VAULT_PASSPHRASE: ""                             # env-var alternative (less secure)
     restart: unless-stopped

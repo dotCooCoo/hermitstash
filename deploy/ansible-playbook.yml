@@ -65,6 +65,13 @@
               HERMITSTASH_TMPDIR: /dev/shm
               TRUST_PROXY: "true"
               RP_ORIGIN: "{{ 'https://' + hermitstash_domain if hermitstash_domain else '' }}"
+              # Vault passphrase protection (opt-in). Default disabled.
+              # To enable: set hermitstash_vault_passphrase in your playbook
+              # vars file AND run scripts/vault-passphrase-setup.js on the
+              # target host before flipping the mode. LOSS of passphrase =
+              # LOSS of all encrypted data.
+              VAULT_PASSPHRASE_MODE: "{{ 'required' if hermitstash_vault_passphrase | default('') else '' }}"
+              VAULT_PASSPHRASE: "{{ hermitstash_vault_passphrase | default('') }}"
 
         - name: Wait for health check
           uri:

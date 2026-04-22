@@ -64,4 +64,23 @@ services:
 
       # All other settings (email, S3, branding, etc.) are configured
       # via the admin panel at /admin after first start.
+
+      # ── Vault passphrase protection (opt-in, v1.9+) ────────────────────
+      # This rootless config already minimizes the live-process attack
+      # surface. Passphrase wrapping adds at-rest protection for scenarios
+      # where the container (or its data volume) is snapshotted or stolen.
+      # See README "Passphrase protection (opt-in)". LOSS of passphrase =
+      # LOSS of all encrypted data.
+      #
+      # Recommended pattern with Docker secrets:
+      #   secrets:
+      #     vault_pw:
+      #       file: ./secrets/vault-pw
+      #   services:
+      #     hermitstash:
+      #       secrets:
+      #         - vault_pw
+      #       environment:
+      #         VAULT_PASSPHRASE_MODE: "required"
+      #         VAULT_PASSPHRASE_FILE: "/run/secrets/vault_pw"
     restart: unless-stopped

@@ -66,4 +66,14 @@ services:
 
       # All other settings (email, S3, branding, etc.) are configured
       # via the admin panel at /admin after first start.
+
+      # ── Vault passphrase protection (opt-in, v1.9+) ────────────────────
+      # See README "Passphrase protection (opt-in)". In Coolify, store the
+      # passphrase as an Environment Secret (not a plain Environment Variable)
+      # so it's masked in the UI and stored encrypted. Then reference it as
+      # VAULT_PASSPHRASE below, and set VAULT_PASSPHRASE_MODE=required.
+      # LOSS of passphrase = LOSS of all encrypted data.
+      #
+      # VAULT_PASSPHRASE_MODE: "required"
+      # VAULT_PASSPHRASE: ""     # set via Coolify Environment Secrets
     restart: unless-stopped

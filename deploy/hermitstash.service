@@ -31,6 +31,21 @@ Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=HERMITSTASH_TMPDIR=/opt/hermitstash/shm
 
+# Vault passphrase protection (opt-in, v1.9+)
+# Default: disabled (vault.key is plaintext JSON, filesystem-protected only).
+# To enable:
+#   1. Store the passphrase in a secured file owned by root, mode 0400:
+#        sudo install -m 0400 -o root -g root /dev/stdin /etc/hermitstash/vault-passphrase
+#      then type (or pipe) the passphrase. systemd will read the file at start.
+#   2. Stop the service, run `sudo -u hermit node scripts/vault-passphrase-setup.js`
+#      to migrate plaintext vault.key → vault.key.sealed.
+#   3. Uncomment the two lines below and `systemctl daemon-reload`.
+#   4. Start the service.
+# LOSS of the passphrase file = LOSS of all encrypted data. Back it up safely.
+#
+# Environment=VAULT_PASSPHRASE_MODE=required
+# Environment=VAULT_PASSPHRASE_FILE=/etc/hermitstash/vault-passphrase
+
 # Security hardening
 NoNewPrivileges=yes
 ProtectSystem=strict

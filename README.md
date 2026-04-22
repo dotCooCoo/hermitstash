@@ -583,6 +583,25 @@ v1.9+ adds an **opt-in** layer that wraps the vault key with an Argon2id-derived
    [vault] Unsealed successfully.
    ```
 
+#### Rotating the passphrase
+
+Once protection is enabled, rotate the passphrase periodically or whenever exposure is suspected:
+
+```bash
+# Interactive (recommended for local ops):
+docker exec -it hermitstash node scripts/vault-passphrase-rotate.js
+
+# Scripted (secrets-manager / CI friendly):
+VAULT_PASSPHRASE_OLD='current' VAULT_PASSPHRASE_NEW='new-value' \
+  docker exec hermitstash node scripts/vault-passphrase-rotate.js
+```
+
+Rotation reads the current sealed file, unwraps with the OLD passphrase, re-wraps with the NEW one using a fresh Argon2id salt and XChaCha20 nonce, verifies round-trip in-process, and atomically replaces the sealed file. After success, update the server's `VAULT_PASSPHRASE` (or `_FILE`) to the new value and restart.
+
+**Important caveat — what passphrase rotation does and does NOT protect:**
+
+Passphrase rotation protects the **future**, not the past. If an attacker already captured both the sealed file AND the old passphrase, they already have the vault key. Changing the passphrase after the fact doesn't undo that. For suspected vault-key compromise (not just passphrase compromise) you need a **full vault key rotation** that re-encrypts every DB field and file — a separate feature planned for v1.9.3.
+
 #### Reverting
 
 Stop the server, then run:

@@ -36,6 +36,23 @@ services:
       SITE_NAME: HermitStash
       TRUST_PROXY: "true"
 
+      # ── Vault passphrase protection (opt-in) ────────────────────────────
+      # Default: disabled (vault.key is plaintext JSON at rest, protected
+      # only by filesystem permissions). Enable to close the disk-snapshot
+      # threat (stolen backup, leaked volume dump). See README section
+      # "Passphrase protection (opt-in)" for the full walkthrough.
+      #
+      #   1. Run scripts/vault-passphrase-setup.js while the server is
+      #      stopped. It migrates vault.key → vault.key.sealed.
+      #   2. Uncomment VAULT_PASSPHRASE_MODE below and supply the
+      #      passphrase via ONE of: env var, Docker secret file, or stdin
+      #      (interactive only).
+      #   3. Restart. LOSS of the passphrase = LOSS of all encrypted data.
+      #
+      # VAULT_PASSPHRASE_MODE: "required"
+      # VAULT_PASSPHRASE: ""                             # INSECURE in compose — prefer FILE
+      # VAULT_PASSPHRASE_FILE: "/run/secrets/vault-pw"   # Docker secrets idiom
+
       # Auth
       LOCAL_AUTH: "true"
       REGISTRATION_OPEN: "true"
