@@ -404,6 +404,104 @@ module.exports = function (app) {
     }
   });
 
+  // v1.9.5 — Security overview surface for the new admin Security tab.
+  // Read-only summary of every security-related setting + its current state,
+  // with operator-facing guidance for each. Boot-time secrets (vault
+  // passphrase, sealed-key passphrases) are NOT in the response — they're
+  // exclusively env-driven and shouldn't ever surface in an admin API.
+  app.get("/admin/security/status", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      var fs = require("fs");
+      var C = require("../lib/constants");
+      var mtlsCa = require("../lib/mtls-ca");
+
+      var vaultMode = (process.env.VAULT_PASSPHRASE_MODE || "disabled").toLowerCase();
+      var vaultSealedExists = fs.existsSync(C.PATHS.VAULT_KEY_SEALED);
+
+      var caKeyMode = (process.env.CA_KEY_SEALED || "auto").toLowerCase();
+      var caSealedExists = fs.existsSync(C.PATHS.CA_KEY_SEALED);
+      var caPlainExists = fs.existsSync(C.PATHS.CA_KEY);
+      var caExists = mtlsCa.caExists();
+
+      var tlsKeyMode = (process.env.TLS_KEY_SEALED || "auto").toLowerCase();
+      var tlsSealedExists = fs.existsSync(C.PATHS.TLS_KEY_SEALED);
+      var tlsPlainExists = fs.existsSync(process.env.TLS_KEY ||
+        require("path").join(C.PATHS.TLS_DIR, "privkey.pem"));
+
+      var enforceMtlsStrict = process.env.ENFORCE_MTLS_STRICT;
+      var mtlsHardEnforced = enforceMtlsStrict === "true" && caExists;
+      var mtlsSoftEnforced = enforceMtlsStrict !== "false" && config.enforceMtls;
+
+      // Build the structured response. Each item: a stable key, label,
+      // status (ok|warn|info), short description, optional operator guidance.
+      // Frontend renders one row per item with an icon based on status.
+      var items = [
+        {
+          key: "vault_passphrase",
+          label: "Vault key passphrase wrapping",
+          status: vaultMode === "required" && vaultSealedExists ? "ok" : (vaultMode === "required" ? "warn" : "info"),
+          value: vaultMode === "required" ? "active (vault.key.sealed)" : "disabled (vault.key plaintext)",
+          description: "Encrypts the long-lived vault keypair at rest with an Argon2id-derived key.",
+          guidance: vaultMode === "required"
+            ? "Set VAULT_PASSPHRASE (env), VAULT_PASSPHRASE_FILE (file path), or use stdin at boot."
+            : "RECOMMENDED: enable via VAULT_PASSPHRASE_MODE=required + scripts/vault-passphrase-setup.js",
+        },
+        {
+          key: "ca_key_sealed",
+          label: "mTLS CA private key sealing",
+          status: caKeyMode === "required" && caSealedExists ? "ok" : (caExists && !caSealedExists ? "info" : "info"),
+          value: caSealedExists ? "active (ca.key.sealed)" : (caPlainExists ? "disabled (ca.key plaintext)" : "no CA generated yet"),
+          description: "Vault-seals the mTLS root signing key. Compromise of this key allows forging client certs forever.",
+          guidance: caSealedExists
+            ? "Set CA_KEY_SEALED=required to enforce on subsequent boots."
+            : (caExists ? "RECOMMENDED: scripts/ca-key-seal.js (works with server running)" : "Will be configured on first cert-issue operation."),
+        },
+        {
+          key: "tls_key_sealed",
+          label: "TLS server private key sealing",
+          status: tlsKeyMode === "required" && tlsSealedExists ? "ok" : (tlsPlainExists && !tlsSealedExists ? "info" : "info"),
+          value: tlsSealedExists ? "active (privkey.pem.sealed)" : (tlsPlainExists ? "disabled (privkey.pem plaintext)" : "no TLS key configured"),
+          description: "Vault-seals the TLS server private key. Cert watcher auto-seals plaintext renewals from ACME (certbot/acme.sh).",
+          guidance: tlsSealedExists
+            ? "Set TLS_KEY_SEALED=required to enforce; ACME hooks need no changes."
+            : (tlsPlainExists ? "RECOMMENDED: scripts/tls-key-seal.js" : "Configure TLS first (see TLS section)."),
+        },
+        {
+          key: "mtls_enforcement",
+          label: "mTLS enforcement",
+          status: mtlsHardEnforced ? "ok" : (mtlsSoftEnforced ? "info" : "warn"),
+          value: enforceMtlsStrict === "false" ? "OFF (escape hatch)" :
+            (mtlsHardEnforced ? "hard (TLS layer)" : (mtlsSoftEnforced ? "soft (app layer)" : "off")),
+          description: "Hard mode rejects non-mTLS at the TLS handshake; soft mode rejects in middleware. Hard is stricter and faster.",
+          guidance: enforceMtlsStrict === "false"
+            ? "ENFORCE_MTLS_STRICT=false is the escape hatch for locked-out operators. Remove once recovered."
+            : (mtlsHardEnforced ? "Set via ENFORCE_MTLS_STRICT=true (env)." : "Set ENFORCE_MTLS_STRICT=true for hard enforcement at the TLS layer."),
+        },
+        {
+          key: "tls",
+          label: "TLS / HTTPS",
+          status: tlsPlainExists || tlsSealedExists ? "ok" : "warn",
+          value: tlsPlainExists || tlsSealedExists ? "enabled" : "disabled (HTTP only)",
+          description: "PQC TLS 1.3 with X25519MLKEM768 hybrid key exchange when both client + server support it.",
+          guidance: tlsPlainExists || tlsSealedExists ? null : "Mount cert + key into data/tls/ or set TLS_CERT and TLS_KEY env vars.",
+        },
+      ];
+
+      // Two-pattern note: not every env var follows the same convention.
+      // Surfacing it here so operators don't get confused looking at the
+      // tab and seeing inconsistent flag styles.
+      var notes = [
+        "Two env-var conventions are in use: (a) *_SEALED / *_MODE = auto/required/disabled (newer); (b) ENFORCE_MTLS_STRICT = true/false/unset (older, with 'false' as escape hatch). Both are intentional.",
+        "Boot-time secrets (VAULT_PASSPHRASE, BACKUP_PASSPHRASE) are not displayed here — by design. Set them via env vars OR _FILE-suffix variants for Docker secrets.",
+      ];
+
+      res.json({ success: true, items: items, notes: notes });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.post("/admin/backup/delete", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     var body = await parseJson(req);

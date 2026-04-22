@@ -207,6 +207,7 @@
         <button class="settings-tab" onclick="showTab('storage')">Storage</button>
         <button class="settings-tab" onclick="showTab('theme')">Theme</button>
         <button class="settings-tab" onclick="showTab('email')">Email</button>
+        <button class="settings-tab" onclick="showTab('security');loadSecurityStatus()">Security</button>
         <button class="settings-tab" onclick="showTab('environment');loadEnvironment()">Environment</button>
         <button class="settings-tab" onclick="showTab('backup');loadBackupHistory()">Backup</button>
       </div>
@@ -801,6 +802,19 @@
           <button class="butn butn-bg butn-sm radius-30" onclick="saveTab('email')"><span>Save Email</span></button>
         </div>
       </div>
+      <!-- Security (v1.9.5) — read-only overview of every security-related
+           setting. Boot-time secrets (passphrases) are NEVER displayed here. -->
+      <div class="settings-pane" id="pane-security">
+        <div class="settings-group">
+          <h4 style="margin:0 0 8px;font-weight:600">Security Overview</h4>
+          <p style="font-size:.82rem;color:var(--muted);margin:0 0 16px;line-height:1.5">
+            Status of every security-related setting. Read-only — boot-time secrets must be set via environment variables (or Docker secrets via the <code>*_FILE</code> variants), not from this UI.
+          </p>
+          <div id="securityStatusList"></div>
+          <div id="securityStatusNotes" style="margin-top:20px"></div>
+        </div>
+      </div>
+
       <!-- Environment -->
       <div class="settings-pane" id="pane-environment">
         <div class="settings-group">
@@ -1869,6 +1883,63 @@ function runBackupNow(){
 
 // ---- Environment tab ----
 var _envLoaded=false;
+// v1.9.5 — Security overview tab (read-only)
+var _securityLoaded=false;
+function loadSecurityStatus(){
+  if(_securityLoaded)return;_securityLoaded=true;
+  var listEl=document.getElementById('securityStatusList');
+  var notesEl=document.getElementById('securityStatusNotes');
+  fetch('/admin/security/status').then(function(r){return r.json()}).then(function(d){
+    if(!d.success){listEl.textContent='Failed to load security status: '+(d.error||'unknown');return}
+    listEl.textContent='';
+    d.items.forEach(function(item){
+      var row=document.createElement('div');
+      row.style.cssText='padding:14px 16px;margin-bottom:10px;border:1px solid var(--border);border-radius:8px;background:var(--card-bg)';
+      var iconColor=item.status==='ok'?'#22c55e':(item.status==='warn'?'#f59e0b':'var(--muted)');
+      var iconChar=item.status==='ok'?'✓':(item.status==='warn'?'!':'·');
+      var header=document.createElement('div');
+      header.style.cssText='display:flex;align-items:center;gap:10px;margin-bottom:6px';
+      var icon=document.createElement('span');
+      icon.textContent=iconChar;
+      icon.style.cssText='display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:'+iconColor+';color:white;font-weight:700;font-size:.85rem;flex-shrink:0';
+      var label=document.createElement('div');
+      label.style.cssText='font-weight:600;font-size:.95rem;flex:1';
+      label.textContent=item.label;
+      var value=document.createElement('div');
+      value.style.cssText='font-size:.78rem;color:var(--muted);font-family:monospace';
+      value.textContent=item.value;
+      header.appendChild(icon);header.appendChild(label);header.appendChild(value);
+      row.appendChild(header);
+      var desc=document.createElement('div');
+      desc.style.cssText='font-size:.82rem;color:var(--text-body);margin:6px 0 4px;padding-left:32px;line-height:1.4';
+      desc.textContent=item.description;
+      row.appendChild(desc);
+      if(item.guidance){
+        var guide=document.createElement('div');
+        guide.style.cssText='font-size:.78rem;color:var(--muted);padding-left:32px;line-height:1.4;font-style:italic';
+        guide.textContent=item.guidance;
+        row.appendChild(guide);
+      }
+      listEl.appendChild(row);
+    });
+    notesEl.textContent='';
+    if(d.notes&&d.notes.length){
+      var notesHeader=document.createElement('h5');
+      notesHeader.style.cssText='margin:16px 0 8px;font-weight:600;font-size:.85rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em';
+      notesHeader.textContent='Notes';
+      notesEl.appendChild(notesHeader);
+      d.notes.forEach(function(n){
+        var p=document.createElement('p');
+        p.style.cssText='font-size:.78rem;color:var(--muted);margin:0 0 6px;line-height:1.5';
+        p.textContent=n;
+        notesEl.appendChild(p);
+      });
+    }
+  }).catch(function(e){
+    listEl.textContent='Failed to load security status: '+(e&&e.message||'network error');
+  });
+}
+
 function loadEnvironment(){
   if(_envLoaded)return;_envLoaded=true;
   fetch('/admin/environment').then(function(r){return r.json()}).then(function(d){

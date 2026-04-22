@@ -53,6 +53,35 @@ services:
       # VAULT_PASSPHRASE: ""                             # INSECURE in compose — prefer FILE
       # VAULT_PASSPHRASE_FILE: "/run/secrets/vault-pw"   # Docker secrets idiom
 
+      # ── PEM at-rest sealing for CA + TLS keys (v1.9.4+, opt-in) ───────────
+      # Defaults OFF for backwards-compat. When enabled, the server refuses
+      # to boot/operate on plaintext PEMs and uses *.sealed variants instead.
+      # Both are independent — enable either, neither, or both.
+      #
+      # CA key (data/ca.key.sealed): mTLS root signing key. Whoever reads it
+      # can mint client certs forever. RECOMMENDED to seal once you've
+      # confirmed your deployment works.
+      #   1. Run: docker exec hermitstash node scripts/ca-key-seal.js
+      #   2. Set CA_KEY_SEALED=required and restart
+      # CA_KEY_SEALED: "required"
+      #
+      # TLS server key (data/tls/privkey.pem.sealed): the cert reload watcher
+      # auto-seals plaintext renewals from ACME/certbot/acme.sh — your
+      # renewal hooks need no changes after enabling this.
+      #   1. Run: docker exec hermitstash node scripts/tls-key-seal.js
+      #   2. Set TLS_KEY_SEALED=required and restart
+      # TLS_KEY_SEALED: "required"
+
+      # ── mTLS enforcement strictness ───────────────────────────────────────
+      # When mTLS is configured (a CA exists in data/), this controls where
+      # non-mTLS clients are rejected:
+      #   unset (default): soft enforcement at the app layer (middleware/web-guard.js)
+      #   "true":          hard enforcement at the TLS handshake (rejectUnauthorized)
+      #   "false":         escape hatch — DISABLES all mTLS (use only for
+      #                    locked-out recovery; remove once you can boot in)
+      # Hard mode is stricter and faster (no HTTP cycle for rejected clients).
+      # ENFORCE_MTLS_STRICT: "true"
+
       # Auth
       LOCAL_AUTH: "true"
       REGISTRATION_OPEN: "true"

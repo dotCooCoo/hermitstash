@@ -681,6 +681,38 @@ To revert: `scripts/tls-key-unseal.js`.
 - ❌ Does NOT protect a running server (key is in process memory once unsealed, recoverable by any code-execution attacker — same N1 caveat as the vault key itself)
 - ❌ Does NOT survive vault key loss — these PEMs are now downstream of the vault. If the vault is unrecoverable, the CA is too (every existing client cert becomes invalid; users must re-enroll). Trade-off: same risk profile as every other vault-sealed value.
 
+### Security overview at a glance (v1.9.5+)
+
+The admin **Settings → Security** tab shows the live status of every security-related setting in one view:
+
+- Vault key passphrase wrapping (status of `VAULT_PASSPHRASE_MODE` + whether `vault.key.sealed` exists)
+- mTLS CA private key sealing (status of `CA_KEY_SEALED` + whether `ca.key.sealed` exists)
+- TLS server private key sealing (status of `TLS_KEY_SEALED` + whether `privkey.pem.sealed` exists)
+- mTLS enforcement strictness (`ENFORCE_MTLS_STRICT` mode and whether mTLS is currently active at TLS or app layer)
+- TLS / HTTPS configuration
+
+Each row shows a ✓ / · / ! indicator, the current effective value (masked for sensitive bits), a short explanation of what the setting does, and operator guidance for the right way to configure it. **Read-only by design** — boot-time secrets must come from environment variables (or `*_FILE` variants for Docker secrets), never the admin UI.
+
+#### Two env-var conventions in use
+
+1. **Tristate `*_MODE` / `*_SEALED`** — `auto` (default; load whichever exists) / `required` (refuse to operate on plaintext) / `disabled` (refuse to operate on sealed). Used by `VAULT_PASSPHRASE_MODE`, `CA_KEY_SEALED`, `TLS_KEY_SEALED`. Newer convention introduced in v1.9.x.
+2. **Binary `ENFORCE_MTLS_STRICT`** — `true` (hard enforcement at TLS handshake) / `false` (escape hatch — disables ALL mTLS, use only for locked-out recovery) / unset (soft enforcement at app layer, default). Predates the tristate convention; kept for backwards compat. The Security tab labels both styles clearly so operators don't need to remember which is which.
+
+#### Recommended secure defaults
+
+For any deployment beyond a personal homelab where the host is fully trusted:
+
+```bash
+# .env or compose environment
+VAULT_PASSPHRASE_MODE=required
+VAULT_PASSPHRASE_FILE=/run/secrets/vault-passphrase   # Docker secrets
+CA_KEY_SEALED=required
+TLS_KEY_SEALED=required
+ENFORCE_MTLS_STRICT=true                              # if mTLS is configured
+```
+
+Run the corresponding seal scripts once to migrate existing plaintext keys: `vault-passphrase-setup.js`, `ca-key-seal.js`, `tls-key-seal.js`.
+
 ### Backup configuration — v1.9.4 recovery for v1.9.3-affected deployments
 
 A bug in v1.9.0–v1.9.3 silently blanked the saved backup passphrase whenever the operator edited any other backup setting (schedule, timezone, retention, S3 endpoint) without re-typing the passphrase. The form pre-populated empty for the passphrase field, the form submitted that empty value on save, the backend overwrote the stored passphrase. Once blanked, the scheduled backup job silently skipped on every tick with only a stderr log line — no audit log, no admin UI surface.

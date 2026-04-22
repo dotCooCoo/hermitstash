@@ -290,6 +290,13 @@ jobs:
     timeout-minutes: 5
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    # v1.9.5 — matrix over [plaintext, wrapped] to catch wrapped-mode regressions
+    # earlier (the v1.9.2 backup-wrapped-mode bug shipped because plaintext-only
+    # smoke tests didn't exercise the unwrap code path).
+    strategy:
+      fail-fast: false
+      matrix:
+        vault_mode: [plaintext, wrapped]
 
     steps:
       - name: Pull published image
@@ -310,7 +317,18 @@ jobs:
           "
 
       - name: Start container
+        env:
+          # In wrapped mode, vault.init() must:
+          #   1. See VAULT_PASSPHRASE_MODE=required
+          #   2. Find no existing vault.key OR vault.key.sealed (first-run wrapped bootstrap)
+          #   3. Read VAULT_PASSPHRASE from env
+          #   4. Generate keypair, seal with the passphrase, write vault.key.sealed
+          # ARGON2_FAST=1 keeps the Argon2id derivation fast for CI; not safe in prod
+          # but acceptable for an ephemeral smoke-test container that's destroyed
+          # after the test.
+          VAULT_MODE_ENV: ${{ matrix.vault_mode == 'wrapped' && '-e VAULT_PASSPHRASE_MODE=required -e VAULT_PASSPHRASE=ci-smoke-test-passphrase-do-not-use-in-prod -e ARGON2_FAST=1' || '' }}
         run: |
+          # shellcheck disable=SC2086
           docker run -d --name smoke-test \
             --init \
             --security-opt no-new-privileges:true \
@@ -321,9 +339,13 @@ jobs:
             -e TZ=UTC \
             -p 3000:3000 \
             --shm-size=256m \
+            $VAULT_MODE_ENV \
             ${{ env.IMAGE }}@${{ needs.build-and-push.outputs.digest }}
-          echo "Waiting for health check..."
-          for i in $(seq 1 30); do
+          echo "Waiting for health check (vault_mode=${{ matrix.vault_mode }})..."
+          # Wrapped mode needs extra time for first-run keypair generation +
+          # Argon2 derivation; allow 60s instead of 30s
+          MAX_WAIT=${{ matrix.vault_mode == 'wrapped' && '60' || '30' }}
+          for i in $(seq 1 "$MAX_WAIT"); do
             if curl -sf http://localhost:3000/health > /dev/null 2>&1; then
               echo "Healthy after ${i}s"
               break
@@ -402,10 +424,18 @@ jobs:
           echo "Exit code: $EXIT"
           [ "$EXIT" = "0" ] || echo "WARNING: non-zero exit ($EXIT) — may be expected on first run without setup"
 
+      - name: Verify wrapped-mode artifact (sealed key file present)
+        if: matrix.vault_mode == 'wrapped'
+        run: |
+          # In wrapped first-run, vault.init writes vault.key.sealed (NOT vault.key)
+          docker exec smoke-test ls -la /app/data/ | grep "vault.key.sealed" || { echo "ERROR: vault.key.sealed missing in wrapped mode"; docker exec smoke-test ls -la /app/data/; exit 1; }
+          docker exec smoke-test sh -c '[ ! -f /app/data/vault.key ]' || { echo "ERROR: plaintext vault.key exists in wrapped mode"; exit 1; }
+          echo "Wrapped-mode artifacts OK: sealed file present, plaintext absent"
+
       - name: Smoke test summary
         if: always()
         run: |
-          echo "### Smoke Test Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Smoke Test Results (vault_mode=${{ matrix.vault_mode }})" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| Check | Status |" >> "$GITHUB_STEP_SUMMARY"
           echo "|-------|--------|" >> "$GITHUB_STEP_SUMMARY"
@@ -416,6 +446,9 @@ jobs:
           echo "| Version report | Passed |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Security headers | Passed |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Graceful shutdown | Passed |" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ matrix.vault_mode }}" = "wrapped" ]; then
+            echo "| Wrapped-mode artifacts | Passed |" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Cleanup
         if: always()

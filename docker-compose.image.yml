@@ -68,4 +68,13 @@ services:
       # VAULT_PASSPHRASE_MODE: "required"
       # VAULT_PASSPHRASE_FILE: "/run/secrets/vault-pw"   # preferred — Docker secrets
       # VAULT_PASSPHRASE: ""                             # env-var alternative (less secure)
+
+      # ── PEM at-rest sealing for CA + TLS keys (v1.9.4+, opt-in) ─────────
+      # See docker-compose.yml for the full walkthrough. Both default OFF.
+      # CA_KEY_SEALED: "required"
+      # TLS_KEY_SEALED: "required"
+
+      # ── mTLS strictness (v1.9.5 documented) ─────────────────────────────
+      # unset = soft (app-layer); "true" = hard (TLS-layer); "false" = OFF
+      # ENFORCE_MTLS_STRICT: "true"
     restart: unless-stopped

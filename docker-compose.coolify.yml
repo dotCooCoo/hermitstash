@@ -76,4 +76,9 @@ services:
       #
       # VAULT_PASSPHRASE_MODE: "required"
       # VAULT_PASSPHRASE: ""     # set via Coolify Environment Secrets
+
+      # ── PEM at-rest sealing for CA + TLS keys (v1.9.4+, opt-in) ─────
+      # CA_KEY_SEALED: "required"
+      # TLS_KEY_SEALED: "required"
+      # ENFORCE_MTLS_STRICT: "true"     # v1.9.5
     restart: unless-stopped
