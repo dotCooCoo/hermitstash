@@ -46,6 +46,12 @@ Environment=HERMITSTASH_TMPDIR=/opt/hermitstash/shm
 # Environment=VAULT_PASSPHRASE_MODE=required
 # Environment=VAULT_PASSPHRASE_FILE=/etc/hermitstash/vault-passphrase
 
+# ── PEM at-rest sealing for CA + TLS keys (v1.9.4+) ──────────────────────
+# Tristate: auto (default) | required | disabled. Flip to "required" after
+# sealing via admin UI (v1.9.6+) or the CLI scripts.
+Environment="CA_KEY_SEALED=auto"
+Environment="TLS_KEY_SEALED=auto"
+
 # Security hardening
 NoNewPrivileges=yes
 ProtectSystem=strict

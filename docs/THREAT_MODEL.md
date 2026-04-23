@@ -643,6 +643,8 @@ By default, `data/vault.key` is a JSON file protected only by filesystem permiss
 - Once the server unwraps the key into memory, a live-host attacker recovers it (see N1, L15)
 - The wrapping is operator-initiated; existing deployments stay in the plaintext posture until they opt in
 
+**Extended mitigation (v1.9.4+) — `ca.key` and `tls/privkey.pem` sealing.** The same wrap-with-the-vault-key pattern extends to the mTLS CA private key (`CA_KEY_SEALED=required` → `data/ca.key.sealed`) and TLS server private key (`TLS_KEY_SEALED=required` → `data/tls/privkey.pem.sealed`). With all three opt-ins enabled, every long-lived key in `data/` is either sealed or downstream of the vault key. The CA case closes a worse disk-snapshot gap than the vault itself — a plaintext-leaked CA key lets an attacker mint trusted client certs forever, and rotation doesn't undo that retroactively. The TLS case is ACME-friendly: the cert watcher auto-seals plaintext renewals (certbot/acme.sh hooks need no changes). v1.9.6+ adds admin UI wizards that walk the operator through enabling these sealing layers without docker-exec'ing. See README's "PEM at-rest sealing" section for operator UX.
+
 ### L3 — No forward secrecy for stored data
 Vault key compromise retroactively decrypts every blob ever stored. See N3.
 

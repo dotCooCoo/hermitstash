@@ -78,6 +78,14 @@ RUN mkdir -p data uploads public/img/custom && \
 ENV NODE_ENV=production
 ENV HERMITSTASH_TMPDIR=/dev/shm
 
+# v1.9.4+ opt-in PEM at-rest sealing — tristate: auto (default) |
+# required | disabled. "auto" = load whichever plain/sealed file exists.
+# Operators flip to "required" after sealing via admin UI (v1.9.6+) or
+# scripts/ca-key-seal.js / scripts/tls-key-seal.js. Compose-level env
+# setting overrides this default.
+ENV CA_KEY_SEALED=auto
+ENV TLS_KEY_SEALED=auto
+
 # Persistent volumes — mount these in Coolify/Docker
 VOLUME ["/app/data", "/app/uploads"]
 

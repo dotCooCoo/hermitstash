@@ -83,4 +83,10 @@ services:
       #       environment:
       #         VAULT_PASSPHRASE_MODE: "required"
       #         VAULT_PASSPHRASE_FILE: "/run/secrets/vault_pw"
+
+      # ── PEM at-rest sealing for CA + TLS keys (v1.9.4+) ────────────────
+      # Tristate: auto (default) | required | disabled. Flip to "required"
+      # after sealing via admin UI (v1.9.6+) or the CLI scripts.
+      CA_KEY_SEALED: "auto"
+      TLS_KEY_SEALED: "auto"
     restart: unless-stopped

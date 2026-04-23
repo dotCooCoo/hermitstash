@@ -73,6 +73,12 @@
               VAULT_PASSPHRASE_MODE: "{{ 'required' if hermitstash_vault_passphrase | default('') else '' }}"
               VAULT_PASSPHRASE: "{{ hermitstash_vault_passphrase | default('') }}"
 
+              # ── PEM at-rest sealing for CA + TLS keys (v1.9.4+) ─────────
+              # Tristate: auto (default) | required | disabled. Set to
+              # "required" after sealing via admin UI (v1.9.6+) or CLI.
+              CA_KEY_SEALED: "{{ hermitstash_ca_key_sealed | default('auto') }}"
+              TLS_KEY_SEALED: "{{ hermitstash_tls_key_sealed | default('auto') }}"
+
         - name: Wait for health check
           uri:
             url: "http://localhost:{{ hermitstash_port }}/health"

@@ -102,6 +102,12 @@ fi
 if [ -n "$RP_ORIGIN" ]; then
   ENV_FLAGS="$ENV_FLAGS -e RP_ORIGIN=$RP_ORIGIN"
 fi
+# v1.9.4+ opt-in PEM at-rest sealing. "auto" = load whichever of
+# plain/sealed exists; "required" = refuse plaintext; "disabled" =
+# refuse sealed. Flip to "required" after sealing via admin UI
+# (v1.9.6+) or CLI: scripts/ca-key-seal.js / scripts/tls-key-seal.js
+ENV_FLAGS="$ENV_FLAGS -e CA_KEY_SEALED=${CA_KEY_SEALED:-auto}"
+ENV_FLAGS="$ENV_FLAGS -e TLS_KEY_SEALED=${TLS_KEY_SEALED:-auto}"
 
 # ---- Run container ----
 echo "Starting HermitStash..."

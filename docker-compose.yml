@@ -53,24 +53,27 @@ services:
       # VAULT_PASSPHRASE: ""                             # INSECURE in compose — prefer FILE
       # VAULT_PASSPHRASE_FILE: "/run/secrets/vault-pw"   # Docker secrets idiom
 
-      # ── PEM at-rest sealing for CA + TLS keys (v1.9.4+, opt-in) ───────────
-      # Defaults OFF for backwards-compat. When enabled, the server refuses
-      # to boot/operate on plaintext PEMs and uses *.sealed variants instead.
-      # Both are independent — enable either, neither, or both.
+      # ── PEM at-rest sealing for CA + TLS keys (v1.9.4+) ───────────────────
+      # Tristate: "auto" (default; load whichever plain/sealed file exists),
+      # "required" (refuse to boot/operate on plaintext), "disabled"
+      # (refuse to operate on sealed). Both are independent.
       #
-      # CA key (data/ca.key.sealed): mTLS root signing key. Whoever reads it
-      # can mint client certs forever. RECOMMENDED to seal once you've
-      # confirmed your deployment works.
-      #   1. Run: docker exec hermitstash node scripts/ca-key-seal.js
-      #   2. Set CA_KEY_SEALED=required and restart
-      # CA_KEY_SEALED: "required"
+      # CA key (mTLS root signing key): data/ca.key plaintext, OR
+      # data/ca.key.sealed when CA_KEY_SEALED=required. Whoever reads a
+      # plaintext ca.key can mint trusted client certs forever.
+      # RECOMMENDED to seal once your deployment is stable:
+      #   1. Either click "Enable" on the admin Security tab (v1.9.6+), OR:
+      #      docker exec hermitstash node scripts/ca-key-seal.js
+      #   2. Change CA_KEY_SEALED below to "required" and restart
+      CA_KEY_SEALED: "auto"
       #
-      # TLS server key (data/tls/privkey.pem.sealed): the cert reload watcher
-      # auto-seals plaintext renewals from ACME/certbot/acme.sh — your
-      # renewal hooks need no changes after enabling this.
-      #   1. Run: docker exec hermitstash node scripts/tls-key-seal.js
-      #   2. Set TLS_KEY_SEALED=required and restart
-      # TLS_KEY_SEALED: "required"
+      # TLS server key (data/tls/privkey.pem or .sealed): when required,
+      # the cert reload watcher auto-seals plaintext renewals from ACME
+      # (certbot/acme.sh) — your renewal hooks need no changes.
+      #   1. Either click "Enable" on the admin Security tab, OR:
+      #      docker exec hermitstash node scripts/tls-key-seal.js
+      #   2. Change TLS_KEY_SEALED below to "required" and restart
+      TLS_KEY_SEALED: "auto"
 
       # ── mTLS enforcement strictness ───────────────────────────────────────
       # When mTLS is configured (a CA exists in data/), this controls where

@@ -106,6 +106,13 @@ spec:
             #   value: "required"
             # - name: VAULT_PASSPHRASE_FILE
             #   value: "/run/secrets/vault-passphrase/passphrase"
+            # ── PEM at-rest sealing for CA + TLS keys (v1.9.4+) ───────────
+            # Tristate: auto (default) | required | disabled. Flip to
+            # "required" after sealing via admin UI (v1.9.6+) or CLI.
+            - name: CA_KEY_SEALED
+              value: "auto"
+            - name: TLS_KEY_SEALED
+              value: "auto"
           volumeMounts:
             - name: data
               mountPath: /app/data
