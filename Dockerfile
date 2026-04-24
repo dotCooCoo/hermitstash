@@ -1,3 +1,11 @@
+# check=skip=SecretsUsedInArgOrEnv
+# The CA_KEY_SEALED / TLS_KEY_SEALED ENV values below are a single-word
+# mode string ("auto" | "required" | "disabled"), not a secret. The buildx
+# Dockerfile linter flags any ENV whose name contains "_KEY" or "_SEALED"
+# on a heuristic; this directive suppresses that false positive. Real
+# secrets (vault passphrase, SMTP credentials, OAuth secrets) continue to
+# be delivered at runtime via env / Docker secrets / mounted files — never
+# baked into the image.
 FROM cgr.dev/chainguard/node:latest-dev
 # Chainguard wolfi-based Node image — glibc-dynamic (not musl), continuously
 # rebuilt when upstream CVE fixes land. CVE count at any given digest is
