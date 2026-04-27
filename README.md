@@ -186,7 +186,7 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default signa
 
 **Authentication**
 - Argon2id local auth, Google OAuth, WebAuthn passkeys -- all simultaneous
-- TOTP 2FA with single-use backup codes
+- TOTP 2FA with single-use backup codes — HMAC-SHA-512, 128-byte secret, 8-digit codes (legacy SHA-1 enrollments are forced through a one-time re-pair on next login)
 - Email verification with SHA3-hashed tokens
 - Hybrid KEM encrypted session cookies
 - Per-session XChaCha20-Poly1305 encrypted API payloads with anti-replay and anti-tamper
@@ -1116,7 +1116,8 @@ lib/
   template.js         Custom template engine with caching
   sanitize.js         Filename sanitization + HTML escaping
   sanitize-svg.js     SVG sanitizer (strips scripts, events, dangerous tags)
-  totp.js             TOTP generation/verification, backup codes
+  totp.js             TOTP generation/verification (HMAC-SHA-512 default,
+                      legacy HMAC-SHA-1 verification retained), backup codes
   google-auth.js      Google OAuth2 (OpenID Connect, CSRF state)
   constants.js        Paths, versions, theme, hash prefixes, time constants
   zip.js              ZIP writer with Deflate compression

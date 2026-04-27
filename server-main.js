@@ -360,6 +360,27 @@ app.use(function (req, res, next) {
   next();
 });
 
+// Forced TOTP re-enrollment guard — when a session has used a legacy SHA-1
+// TOTP secret to satisfy 2FA, every subsequent request is gated on completing
+// the re-pair to SHA-512 (set in routes/two-factor.js /2fa/verify). The guard
+// allows: static assets, the re-enroll page + its API endpoints, logout,
+// and the auth routes themselves so the user can sign out cleanly.
+app.use(function (req, res, next) {
+  if (!req.session || req.session.requiresTotpReEnroll !== "true") return next();
+  var p = req.pathname || "";
+  if (p === "/2fa/re-enroll" || p === "/2fa/re-enroll/start" || p === "/2fa/re-enroll/confirm") return next();
+  if (p === "/auth/logout" || p === "/logout") return next();
+  if (p.startsWith("/css") || p.startsWith("/js") || p.startsWith("/img") || p.startsWith("/fonts")) return next();
+  // HTML navigations get redirected; XHR/JSON callers get a structured 403.
+  var accept = (req.headers && req.headers.accept) || "";
+  if (accept.indexOf("text/html") !== -1) {
+    res.writeHead(302, { Location: "/2fa/re-enroll" });
+    return res.end();
+  }
+  res.writeHead(403, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ error: "TOTP re-enrollment required.", code: "TOTP_REENROLL_REQUIRED", redirect: "/2fa/re-enroll" }));
+});
+
 // Routes
 require("./routes/auth")(app);
 require("./routes/password-reset")(app);

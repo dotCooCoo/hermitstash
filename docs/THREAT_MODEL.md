@@ -93,7 +93,7 @@ All primitives are sourced from vendored libraries — zero npm runtime dependen
 | HMAC | HMAC-SHA3-512 | `node:crypto` | FIPS 198-1 over FIPS 202. Used for webhook signatures |
 | Password hash | Argon2id | `argon2` 0.44.0 (vendored native) | RFC 9106. Memory-hard. Default parameters: 64 MiB memory, 3 time cost, 4 parallelism. `ARGON2_FAST=1` env flag switches to 1 MiB / 1 / 1 for automated test runs only |
 | Signatures | SLH-DSA-SHAKE-256f (default) / ML-DSA-87 (legacy) | `node:crypto` (OpenSSL 3.5+) | FIPS 205 / 204. `generateSigningKeyPair()` defaults to SLH-DSA-SHAKE-256f — chosen as the conservative SHAKE-based hash-only signature, robust against future cryptanalytic findings against lattice schemes. ML-DSA-87 remains supported for callers that explicitly request it (smaller key/signature) and for verifying any legacy keys persisted in databases (algorithm auto-detected from key PEM). Used for signing vendored assets and release verification — not yet used for mTLS certificates (see §5.8) |
-| RNG | SHA3-512(node.randomBytes) | `node:crypto` wrapper in `lib/crypto.js:47` | A belt-and-suspenders wrapper hashes `crypto.randomBytes(n)` through SHA3-512 before returning the first `n` bytes. See §9 for the rationale and the associated limitation |
+| RNG | SHAKE256(node.randomBytes, n) | `node:crypto` wrapper in `lib/crypto.js:47` | A belt-and-suspenders wrapper post-hashes `crypto.randomBytes(n)` through SHAKE256 (the FIPS 202 XOF) and returns `n` bytes. The XOF variant scales to any `n` — the older SHA3-512 implementation silently truncated to 64 bytes for `n > 64`. See §9 for the rationale |
 
 Vendored third-party libraries:
 - **@noble/ciphers** (Paul Miller) — XChaCha20-Poly1305, server + browser
@@ -545,6 +545,22 @@ Receivers verify with `hmac.compare_digest()` (Python) or `crypto.timingSafeEqua
 
 ---
 
+### 5.11 TOTP 2FA (`lib/totp.js`)
+
+**Default for new enrollments (v1.9.11+):** RFC 6238 with HMAC-SHA-512, 128-byte secret, 8-digit codes, 30 s step, ±1 step drift window. The 128-byte secret sits exactly at the HMAC-SHA-512 block size (B=128) — every byte contributes to the inner/outer pads without HMAC pre-hashing them down to L=64 bytes.
+
+**Algorithm choice rationale.** RFC 6238 §1.2 defines SHA-256 and SHA-512 variants alongside SHA-1; the legacy default in many implementations is SHA-1 only because of authenticator-app interop history, not because the spec requires it. SHA-512 is the strongest standardized RFC 6238 variant. SHA-3 / KMAC variants would require a custom URI scheme that no third-party authenticator app verifies, so they are not used.
+
+**Legacy path.** SHA-1 secrets enrolled before v1.9.11 (20-byte, 6-digit) remain verifiable so users can complete one final login. On any successful login that satisfies 2FA against a legacy algorithm, `req.session.requiresTotpReEnroll` is set; a `server-main.js` guard then redirects every subsequent request to `/2fa/re-enroll` (allowing only static assets, the re-enroll endpoints themselves, and the logout route) until the user re-pairs to SHA-512. The stored algorithm is tracked in the `users.totpAlgorithm` column (sealed with all other user fields per §5.3).
+
+**Backup codes.** 10 single-use codes per enrollment, hashed SHA3-512 at rest, algorithm-independent (the codes themselves are 8-character hex tokens; algorithm only affects the TOTP path).
+
+**Replay prevention.** `users.totpLastStep` records the last accepted time-step; subsequent verifies for the same or earlier step are rejected. Reset to NULL on re-enrollment.
+
+**Constant-time comparison.** All code comparisons use `timingSafeEqual` (`lib/crypto.js:60-66`).
+
+---
+
 ## 6. Key hierarchy summary
 
 ```
@@ -609,22 +625,20 @@ Upgrade points are tagged with `TODO(pqc-certs)` and `TODO(pkcs12-upgrade)` in t
 
 ## 8. Randomness
 
-Code: `lib/crypto.js:46-49` (`random` function).
+Code: `lib/crypto.js:46-54` (`random` function).
 
 ```javascript
 function random(byteLength) {
   var n = byteLength || 32;
-  return hash(nodeCrypto.randomBytes(n), "sha3-512").subarray(0, n);
+  return hash(nodeCrypto.randomBytes(n), "shake256", n);
 }
 ```
 
-Every call to `random()` (which is used by `generateBytes`, `generateToken`, `generateShareId`, and every nonce generator) hashes `crypto.randomBytes(n)` through SHA3-512 and returns the first `n` bytes.
+Every call to `random()` (which is used by `generateBytes`, `generateToken`, `generateShareId`, and every nonce generator) post-hashes `crypto.randomBytes(n)` through SHAKE256 (the FIPS 202 XOF) and returns `n` bytes.
 
-**Rationale:** defense-in-depth. If `crypto.randomBytes` were ever compromised by a biased seed or broken entropy source, the SHA3-512 pass would mask patterns. This adds negligible cost (SHA3 is fast) and costs nothing security-wise.
+**Rationale:** defense-in-depth. If `crypto.randomBytes` were ever compromised by a biased seed or broken entropy source, the SHAKE256 pass would mask patterns. This adds negligible cost (SHAKE256 is fast) and costs nothing security-wise. SHAKE256 doubles as the project's KDF primitive (§5.1, §5.6 use the same XOF for KDF), so the random and KDF paths share one FIPS 202 family member.
 
-**Caveats:**
-- For byte lengths above 64, this construction truncates SHA3-512's 64-byte output — callers requesting more than 64 bytes get less entropy than they might assume (specifically: they get 64 bytes of SHA3-stretched randomness repeated across the output). **Check**: code review should verify no caller requests `random(n > 64)`. Quick audit: the largest observed request is 32 bytes (session keys, nonces). Worth enforcing `n <= 64` with an explicit check
-- A reviewer might prefer using `crypto.randomBytes` directly and treating the double-hashing as cargo cult. Either position is defensible; the current choice is explicit in the source
+**History note:** v1.9.10 and earlier used `createHash("sha3-512").subarray(0, n)`, which silently truncated to 64 bytes for `n > 64`. No caller in tree exceeded 32 bytes at the time, so the bug was latent. v1.9.11 introduced a 128-byte TOTP secret (HMAC-SHA-512 block size) which exercised the cap; the fix replaced SHA3-512 with its native XOF sibling SHAKE256, which has no fixed output length.
 
 ---
 
@@ -659,8 +673,8 @@ The storage envelope's hybrid KEM concatenates `ml_kem_ss || ecdh_ss` with no do
 ### L6 — Hash prefixes are not per-record salts
 Email / IP / share-ID hashes use static prefixes (`hs-email:`, `hs-ip:`, etc). This is intentional (indexed lookup requires determinism) but means they are *identifiers*, not anonymizers. See N7.
 
-### L7 — `random()` above 64 bytes degrades
-The SHA3-wrapped random function silently truncates SHA3-512's 64-byte output if callers request more. No caller currently asks for more than 32 bytes, but this should be asserted in code rather than relying on external audit. See §8.
+### L7 — `random()` above 64 bytes degrades (FIXED in v1.9.11)
+Resolved by switching the post-hash from SHA3-512 to SHAKE256 (variable-length XOF). See §8 for the current implementation. Retained as a numbered limitation only so the L-series numbering remains stable for cross-references in older release notes; new readers can skip to L8.
 
 ### L8 — No formal verification or symbolic model
 Nothing has been modeled in ProVerif / Tamarin / Cryptol. See N9.

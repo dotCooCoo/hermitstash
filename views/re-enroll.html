@@ -1,0 +1,77 @@
+{{> head}}
+<main class="main" id="main-content">
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-logo"><img src="{{{brand.logo}}}" alt="" class="auth-logo-img"></div>
+    <h2 class="auth-title">Upgrade your <span style="font-weight:200">2FA.</span></h2>
+    <p class="auth-desc">Your existing TOTP secret was issued under HMAC-SHA-1. Re-pair your authenticator with HMAC-SHA-512 (8-digit codes) to continue. Your previous secret keeps working until re-pairing completes.</p>
+
+    <div id="reenrollError" class="auth-error" style="display:none"></div>
+
+    <div id="step1">
+      <div style="text-align:center;margin:24px 0">
+        <button class="butn butn-bg butn-full radius-30" id="startBtn" onclick="startReEnroll()"><span>Generate new TOTP secret</span></button>
+      </div>
+    </div>
+
+    <div id="step2" style="display:none">
+      <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:8px">Open your authenticator app and add an account using <strong>manual entry</strong>. Paste the URI below or enter the algorithm/secret/digits manually.</p>
+      <textarea id="otpauthUri" readonly rows="4" class="text-input" style="font-family:monospace;font-size:.78rem;word-break:break-all;width:100%;resize:vertical"></textarea>
+      <div style="font-size:.78rem;color:var(--text-muted);margin:8px 0 18px"><strong>Algorithm:</strong> SHA-512 &middot; <strong>Digits:</strong> 8 &middot; <strong>Period:</strong> 30 s</div>
+
+      <form class="auth-form" onsubmit="return confirmReEnroll(event)">
+        <div class="auth-field">
+          <label class="input-label">Enter an 8-digit code from your authenticator</label>
+          <input type="text" id="reenrollCode" class="text-input" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" placeholder="00000000" required>
+        </div>
+        <button type="submit" class="butn butn-bg butn-full radius-30" id="confirmBtn"><span>Confirm and replace old secret</span></button>
+      </form>
+    </div>
+
+    <div id="step3" style="display:none">
+      <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:12px">Re-pair complete. Save these one-time backup codes somewhere safe — they will not be shown again.</p>
+      <ol id="backupCodesList" style="font-family:monospace;font-size:.95rem;line-height:1.8;padding-left:24px;margin-bottom:18px"></ol>
+      <a href="/dashboard" class="butn butn-bg butn-full radius-30"><span>Continue to dashboard</span></a>
+    </div>
+
+    <div class="auth-alt" style="margin-top:16px">
+      <form method="POST" action="/auth/logout" style="display:inline"><input type="hidden" name="_csrf" value="{{csrfToken}}"><button type="submit" class="auth-link-btn">Sign out instead</button></form>
+    </div>
+  </div>
+</div>
+
+<script>
+function showError(msg){var el=document.getElementById('reenrollError');el.textContent=msg;el.style.display='block'}
+function clearError(){document.getElementById('reenrollError').style.display='none'}
+function clearChildren(node){while(node.firstChild)node.removeChild(node.firstChild)}
+
+function startReEnroll(){
+  clearError();
+  var btn=document.getElementById('startBtn');
+  btn.disabled=true;btn.querySelector('span').textContent='Generating...';
+  fetch('/2fa/re-enroll/start',{method:'POST',headers:{'Content-Type':'application/json'}}).then(function(r){return r.json().then(function(d){return{status:r.status,body:d}})}).then(function(o){
+    if(o.status!==200){showError(o.body.error||'Failed to start re-enrollment.');btn.disabled=false;btn.querySelector('span').textContent='Generate new TOTP secret';return}
+    document.getElementById('otpauthUri').value=o.body.uri;
+    document.getElementById('step1').style.display='none';
+    document.getElementById('step2').style.display='block';
+    document.getElementById('reenrollCode').focus();
+  }).catch(function(){showError('Network error.');btn.disabled=false;btn.querySelector('span').textContent='Generate new TOTP secret'});
+}
+
+function confirmReEnroll(ev){
+  ev.preventDefault();clearError();
+  var btn=document.getElementById('confirmBtn');
+  var code=document.getElementById('reenrollCode').value.trim();
+  btn.disabled=true;btn.querySelector('span').textContent='Verifying...';
+  fetch('/2fa/re-enroll/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code})}).then(function(r){return r.json().then(function(d){return{status:r.status,body:d}})}).then(function(o){
+    if(o.status!==200){showError(o.body.error||'Verification failed.');btn.disabled=false;btn.querySelector('span').textContent='Confirm and replace old secret';return}
+    var list=document.getElementById('backupCodesList');clearChildren(list);
+    (o.body.backupCodes||[]).forEach(function(c){var li=document.createElement('li');li.textContent=c;list.appendChild(li)});
+    document.getElementById('step2').style.display='none';
+    document.getElementById('step3').style.display='block';
+  }).catch(function(){showError('Network error.');btn.disabled=false;btn.querySelector('span').textContent='Confirm and replace old secret'});
+  return false;
+}
+</script>
+</main>
+{{> foot}}
