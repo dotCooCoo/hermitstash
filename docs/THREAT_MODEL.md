@@ -92,7 +92,7 @@ All primitives are sourced from vendored libraries — zero npm runtime dependen
 | Hash | SHA3-512 | `node:crypto` | FIPS 202. Truncated when shorter outputs are needed. SHA-256 was rejected in favor of a SHA-3 family member to avoid length-extension concerns even where they don't technically apply |
 | HMAC | HMAC-SHA3-512 | `node:crypto` | FIPS 198-1 over FIPS 202. Used for webhook signatures |
 | Password hash | Argon2id | `argon2` 0.44.0 (vendored native) | RFC 9106. Memory-hard. Default parameters: 64 MiB memory, 3 time cost, 4 parallelism. `ARGON2_FAST=1` env flag switches to 1 MiB / 1 / 1 for automated test runs only |
-| Signatures | ML-DSA-87 / SLH-DSA-SHAKE-256f | `node:crypto` (OpenSSL 3.5+) | FIPS 204 / 205. Auto-detected from key PEM. Used for signing vendored assets and release verification — not yet used for mTLS certificates (see §5.8) |
+| Signatures | SLH-DSA-SHAKE-256f (default) / ML-DSA-87 (legacy) | `node:crypto` (OpenSSL 3.5+) | FIPS 205 / 204. `generateSigningKeyPair()` defaults to SLH-DSA-SHAKE-256f — chosen as the conservative SHAKE-based hash-only signature, robust against future cryptanalytic findings against lattice schemes. ML-DSA-87 remains supported for callers that explicitly request it (smaller key/signature) and for verifying any legacy keys persisted in databases (algorithm auto-detected from key PEM). Used for signing vendored assets and release verification — not yet used for mTLS certificates (see §5.8) |
 | RNG | SHA3-512(node.randomBytes) | `node:crypto` wrapper in `lib/crypto.js:47` | A belt-and-suspenders wrapper hashes `crypto.randomBytes(n)` through SHA3-512 before returning the first `n` bytes. See §9 for the rationale and the associated limitation |
 
 Vendored third-party libraries:
@@ -433,7 +433,7 @@ Code: `lib/mtls-ca.js` (406 lines).
 
 | Component | Algorithm | Rationale |
 |-----------|-----------|-----------|
-| CA signature | ECDSA P-384 with SHA-384 | Best available today on all browsers/OS cert stores. ML-DSA-87 is supported in Node 24.8+ but no browser verifies PQ signatures on client certs; issuing PQ-signed certs today would break every mTLS handshake |
+| CA signature | ECDSA P-384 with SHA-384 | Best available today on all browsers/OS cert stores. SLH-DSA-SHAKE-256f and ML-DSA-87 are supported in Node 24.8+ but no browser verifies PQ signatures on client certs; issuing PQ-signed certs today would break every mTLS handshake |
 | Client cert signature | Same as CA | Chain consistency |
 | PKCS#12 key bag | PBES2 + AES-256-CBC + PBKDF2-HMAC-SHA-512 | SHA-512 PRF for consistency with MAC. AES-CBC chosen over AES-GCM because Windows / macOS importers still reject PBES2-AES-GCM key bags on some OS versions (confirmed 2026-04) |
 | PKCS#12 outer MAC | HMAC-SHA-512 | Matches key bag KDF |
@@ -666,7 +666,7 @@ The SHA3-wrapped random function silently truncates SHA3-512's 64-byte output if
 Nothing has been modeled in ProVerif / Tamarin / Cryptol. See N9.
 
 ### L9 — mTLS CA uses classical signatures (ECDSA P-384)
-PQ signature algorithms (ML-DSA-87, SLH-DSA-SHAKE-256f) are implemented and available in the project but not used for the CA. Browsers and OS cert stores don't yet verify PQ signatures on client certs. Migration is tagged with `TODO(pqc-certs)` in `lib/mtls-ca.js:42`. When browsers catch up, the CA can be regenerated with a PQ signature algorithm; the CA generation mechanism (§5.8) handles this.
+PQ signature algorithms (SLH-DSA-SHAKE-256f as the default, ML-DSA-87 as a legacy option) are implemented and available in the project but not used for the CA. Browsers and OS cert stores don't yet verify PQ signatures on client certs. Migration is tagged with `TODO(pqc-certs)` in `lib/mtls-ca.js:42`. When browsers catch up, the CA can be regenerated with a PQ signature algorithm; the CA generation mechanism (§5.8) handles this.
 
 ### L10 — @noble and argon2 are single points of trust
 The entire browser-side crypto stack depends on Paul Miller's @noble libraries. The server Argon2 path depends on the ranisalt/node-argon2 native binding. Both are well-regarded and audited (noble-pq has been reviewed by Cure53), but they are concentrated dependencies.
@@ -701,7 +701,7 @@ This is unavoidable for any at-rest encryption scheme on a service that boots wi
 
 These are properties HermitStash assumes but does not verify:
 
-- **Node.js 24.8+ OpenSSL 3.5+** correctly implements ML-KEM-1024, ML-DSA-87, ECDH P-384, SHAKE256, and HKDF-SHA3-512. Tested through the Node / OpenSSL test suites; HermitStash adds no independent validation
+- **Node.js 24.8+ OpenSSL 3.5+** correctly implements ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87, ECDH P-384, SHAKE256, and HKDF-SHA3-512. Tested through the Node / OpenSSL test suites; HermitStash adds no independent validation
 - **@noble libraries** correctly implement XChaCha20-Poly1305 (server + browser), SHAKE256 (browser), and ML-KEM-1024 (browser). noble-post-quantum was audited by Cure53 in 2024; noble-ciphers and noble-hashes are heavily used across the ecosystem
 - **argon2 native binding** correctly implements Argon2id per RFC 9106 with our chosen parameters (64 MiB memory, 3 time, 4 parallelism)
 - **Host filesystem permissions are enforced**. `data/vault.key` is created with mode 0o600 and relies on the OS to honor it

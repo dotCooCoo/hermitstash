@@ -57,7 +57,7 @@ All cryptographic operations use NIST-standardized post-quantum algorithms:
 | **Hash** | SHA3-512 | FIPS 202 | Integrity, email/IP hashing, checksums |
 | **HMAC** | HMAC-SHA3-512 | FIPS 202 | Webhook signing, token verification |
 | **Password** | Argon2id | RFC 9106 | Memory-hard password hashing |
-| **Signatures** | ML-DSA-87 / SLH-DSA-SHAKE-256f | FIPS 204 / 205 | Digital signatures (auto-detected from key) |
+| **Signatures** | SLH-DSA-SHAKE-256f (default) / ML-DSA-87 (legacy) | FIPS 205 / 204 | Digital signatures. New keys default to SLH-DSA-SHAKE-256f; existing ML-DSA-87 keys continue to verify (algorithm auto-detected from key PEM) |
 | **Random** | SHA3-512(entropy) | FIPS 202 | All random generation via centralized KDF |
 
 ### Envelope versioning
@@ -180,7 +180,7 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | Timing attack on access codes | SHA3-512 hash comparison uses constant-time `timingSafeEqual` on all security-sensitive comparisons (access codes, CSRF, TOTP) |
 | Crash during backup restore | Pre-restore snapshots of vault.key, db.key.enc, hermitstash.db.enc enable rollback if restore is interrupted |
 
-Built on Node.js 24.8+ (LTS) with ML-KEM-1024, ML-DSA-87, and SLH-DSA-SHAKE-256f via OpenSSL 3.5, XChaCha20-Poly1305 and SHAKE256 via vendored @noble/ciphers and @noble/hashes, Argon2id via vendored native prebuilds, WebAuthn via vendored @simplewebauthn/server, and built-in SQLite via `node:sqlite`. Zero npm runtime dependencies.
+Built on Node.js 24.8+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default signature) and ML-DSA-87 (legacy) via OpenSSL 3.5, XChaCha20-Poly1305 and SHAKE256 via vendored @noble/ciphers and @noble/hashes, Argon2id via vendored native prebuilds, WebAuthn via vendored @simplewebauthn/server, and built-in SQLite via `node:sqlite`. Zero npm runtime dependencies.
 
 ## Features
 
@@ -467,7 +467,7 @@ Uses `cgr.dev/chainguard/node:latest-dev` — a wolfi-based, glibc-dynamic Node 
 | | |
 |---|---|
 | **Base image** | `cgr.dev/chainguard/node:latest-dev` (wolfi, glibc — continuously rebuilt for CVE fixes) |
-| **Node.js** | 24.8+ (required for ML-KEM-1024, ML-DSA-87, SLH-DSA via OpenSSL 3.5) |
+| **Node.js** | 24.8+ (required for ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87 via OpenSSL 3.5) |
 | **User** | Runs as `hermit` (non-root) via `su-exec` (installed at build time) — PUID/PGID env vars remap UID/GID at runtime (default 99:100, standard Linux 1000:1000) |
 | **Tmpfs** | `HERMITSTASH_TMPDIR=/dev/shm` — plaintext DB held in memory, never on disk. Set `shm_size: 256m` in compose. Also consider `CHUNK_SCRATCH_DIR=/dev/shm/hermitstash-chunks` for RAM-backed chunked-upload staging. |
 | **Volumes** | `/app/data` (encrypted DB, vault keys, TLS certs), `/app/uploads` (files if using local storage) |
@@ -1095,7 +1095,8 @@ These libraries are exceptional work. HermitStash wouldn't exist without them. A
 server.js             Bootstrap, middleware, scheduled tasks, default accounts
 lib/
   crypto.js           PQC crypto: ML-KEM-1024+P-384, XChaCha20, SHAKE256,
-                      ML-DSA-87, SLH-DSA-SHAKE-256f, envelope versioning
+                      SLH-DSA-SHAKE-256f (default sig), ML-DSA-87 (legacy),
+                      envelope versioning
   vault.js            Hybrid keypair management, seal/unseal, auto key upgrade
   field-crypto.js     FIELD_SCHEMA: auto seal/unseal/hash for all DB fields
   db.js               SQLite + auto field crypto + DB file encryption
