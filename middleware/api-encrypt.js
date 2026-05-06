@@ -25,8 +25,8 @@ var vault = require("../lib/vault");
 var config = require("../lib/config");
 var { generateBytes } = require("../lib/crypto");
 var { encryptPayload, decryptPayload, generateApiKey } = require("../lib/api-crypto");
-var { xchacha20poly1305 } = require("../lib/vendor/noble-ciphers.cjs");
-var { ml_kem1024 } = require("../lib/vendor/noble-pq.cjs");
+var { xchacha20poly1305 } = require("../lib/vendor/blamejs/lib/vendor/noble-ciphers.cjs");
+var { ml_kem1024 } = require("../lib/vendor/blamejs/lib/vendor/noble-post-quantum.cjs");
 
 var REPLAY_WINDOW = 30000; // 30 seconds
 var HYBRID_HKDF_INFO = "hermitstash-hybrid-ecies-v1";

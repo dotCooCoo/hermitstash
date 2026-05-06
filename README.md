@@ -180,7 +180,7 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | Timing attack on access codes | SHA3-512 hash comparison uses constant-time `timingSafeEqual` on all security-sensitive comparisons (access codes, CSRF, TOTP) |
 | Crash during backup restore | Pre-restore snapshots of vault.key, db.key.enc, hermitstash.db.enc enable rollback if restore is interrupted |
 
-Built on Node.js 24.8+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default signature) and ML-DSA-87 (legacy) via OpenSSL 3.5, XChaCha20-Poly1305 and SHAKE256 via vendored @noble/ciphers and @noble/hashes, Argon2id via vendored native prebuilds, WebAuthn via vendored @simplewebauthn/server, and built-in SQLite via `node:sqlite`. Zero npm runtime dependencies.
+Built on Node.js 24.8+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default signature) and ML-DSA-87 (legacy) via OpenSSL 3.5, XChaCha20-Poly1305 and SHAKE256 via vendored blamejs (which bundles @noble/ciphers and @noble/post-quantum), Argon2id via Node 24+'s built-in `crypto.argon2` (no native binding required), WebAuthn via vendored blamejs (which bundles @simplewebauthn/server), and built-in SQLite via `node:sqlite`. Zero npm runtime dependencies.
 
 ## Features
 
@@ -1068,24 +1068,33 @@ All in the `data/` directory (gitignored):
 
 ## Vendored Dependencies
 
-All runtime dependencies are committed to the repo -- no `npm install` needed. Managed via `scripts/vendor-update.sh`:
+All runtime dependencies are committed to the repo -- no `npm install` needed. As of v1.9.12, every server-side crypto / identity dependency is vendored as a single framework — **blamejs** — at `lib/vendor/blamejs/`. Browser-side bundles continue to ship individually until blamejs grows browser builds.
+
+Managed via `scripts/vendor-update.sh`:
 
 ```bash
-./scripts/vendor-update.sh --check        # see what's outdated
-./scripts/vendor-update.sh --diff @noble/ciphers  # see changelog
-./scripts/vendor-update.sh @noble/ciphers 2.2.0   # update a package
+./scripts/vendor-update.sh blamejs                # refresh the framework bundle
+./scripts/vendor-update.sh --check                # see what's outdated (browser bundles)
+./scripts/vendor-update.sh --diff @noble/ciphers  # see changelog (browser bundles)
 ```
 
-| Package | Version | Author | Purpose |
-|---------|---------|--------|---------|
-| [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) | 2.1.1 | [Paul Miller](https://github.com/paulmillr) | XChaCha20-Poly1305 (server + browser) |
-| [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) | 2.0.1 | [Paul Miller](https://github.com/paulmillr) | SHAKE256 KDF (browser) |
-| [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) | 0.6.0 | [Paul Miller](https://github.com/paulmillr) | ML-KEM-1024 (browser vault + server ECIES) |
-| [`@simplewebauthn/server`](https://github.com/MasterKale/SimpleWebAuthn) | 13.3.0 | [Matthew Miller](https://github.com/MasterKale) | WebAuthn/passkey verification |
-| [`argon2`](https://github.com/ranisalt/node-argon2) | 0.44.0 | [Ranieri Althoff](https://github.com/ranisalt) | Password hashing (native prebuilds, 8 platforms) |
-| [`@peculiar/x509`](https://github.com/PeculiarVentures/x509) + [`pkijs`](https://github.com/PeculiarVentures/PKI.js) | 2.0.0 + 3.4.0 | [Peculiar Ventures](https://github.com/PeculiarVentures) | Pure-JS mTLS CA (ECDSA P-384 signing, PKCS#12 bundle generation — no openssl CLI at runtime) |
+| Vendored | Version | Author | Purpose |
+|----------|---------|--------|---------|
+| [`blamejs`](https://github.com/blamejs/blamejs) | 0.8.0 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, etc. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
+| [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) (browser only) | 2.1.1 | [Paul Miller](https://github.com/paulmillr) (MIT) | XChaCha20-Poly1305 in the browser vault + outbox flows |
+| [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (browser only) | 2.0.1 | [Paul Miller](https://github.com/paulmillr) (MIT) | SHAKE256 KDF in the browser |
+| [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) (browser only) | 0.6.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | ML-KEM-1024 in the browser vault flow |
 
-These libraries are exceptional work. HermitStash wouldn't exist without them. All are MIT licensed.
+blamejs internally vendors @noble/ciphers, @noble/post-quantum, @simplewebauthn/server,
+@peculiar/x509 + pkijs (peculiar-pki bundle), and the SecLists top-10000 password list —
+each tracked under `packages.blamejs.components` in `lib/vendor/MANIFEST.json` so
+Trivy / Grype can flag CVEs against any nested dep.
+
+Argon2id derivation runs through Node 24+'s built-in `crypto.argon2` API via blamejs's
+`lib/argon2-builtin.js` wrapper — the @ranisalt/argon2 native binding (and its 8-platform
+prebuilds) is no longer vendored.
+
+These libraries are exceptional work. HermitStash wouldn't exist without them.
 
 ## Architecture
 
@@ -1126,7 +1135,7 @@ lib/
   webhook.js          Webhook dispatch queue
   pqc-gate.js         ClientHello PQC group inspection at TCP level
   pqc-agent.js        PQC-only outbound HTTPS agent
-  vendor/             Vendored dependencies (argon2, noble-*, simplewebauthn)
+  vendor/blamejs/     Vendored framework (server-side crypto + identity primitives)
 
 app/
   bootstrap/          Startup invariant checks

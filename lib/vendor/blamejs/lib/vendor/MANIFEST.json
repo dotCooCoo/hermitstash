@@ -1,0 +1,111 @@
+{
+  "_comment": "Vendored dependencies — no npm runtime packages. Use scripts/vendor-update.sh to update.",
+  "packages": {
+    "@noble/ciphers": {
+      "version": "2.2.0",
+      "license": "MIT",
+      "author": "Paul Miller",
+      "source": "https://github.com/paulmillr/noble-ciphers",
+      "exports": [
+        "xchacha20poly1305"
+      ],
+      "files": {
+        "server": "lib/vendor/noble-ciphers.cjs"
+      },
+      "bundler": "esbuild --format=cjs --minify --platform=node",
+      "bundledAt": "2026-04-25",
+      "hashes": {
+        "server": "sha256:5d539dfc9ef47121d4c09bd7256d76448a1f5ac47ee09ac44c78ff6a062af9ab"
+      }
+    },
+    "@noble/post-quantum": {
+      "version": "0.6.1",
+      "license": "MIT",
+      "author": "Paul Miller",
+      "source": "https://github.com/paulmillr/noble-post-quantum",
+      "_about": "FIPS 203 / 204 / 205 PQC algorithms in pure JS. First-class on both server-side and client-side — interoperable with Node's built-in WebCrypto ML-KEM (a ciphertext encapsulated with Node ML-KEM-1024 decapsulates correctly with b.pqcSoftware.ml_kem_1024 and vice versa). Operators wire it server-side via `b.pqcSoftware.{ml_kem_1024,ml_dsa_87,slh_dsa_shake_256f,...}` (security-first defaults are the highest cat-5 levels), or re-bundle for browser / mobile clients shipping b.middleware.apiEncrypt.client. Older Node versions without the experimental WebCrypto ML-KEM extension can use the vendored bundle as the primary PQC path.",
+      "exports": [
+        "ml_kem512",
+        "ml_kem768",
+        "ml_kem1024",
+        "ml_dsa44",
+        "ml_dsa65",
+        "ml_dsa87",
+        "slh_dsa_sha2_128f",
+        "slh_dsa_sha2_192f",
+        "slh_dsa_sha2_256f",
+        "slh_dsa_shake_128f",
+        "slh_dsa_shake_192f",
+        "slh_dsa_shake_256f"
+      ],
+      "files": {
+        "server": "lib/vendor/noble-post-quantum.cjs"
+      },
+      "bundler": "esbuild --format=cjs --minify --platform=node",
+      "bundledAt": "2026-05-06",
+      "hashes": {
+        "server": "sha256:f9190309daadca4c2e2cc2b76beaa6b96e463429cc3c390bd9f0ceaf7b588c68"
+      }
+    },
+    "@simplewebauthn/server": {
+      "version": "13.3.0",
+      "license": "MIT",
+      "author": "Matthew Miller",
+      "source": "https://github.com/MasterKale/SimpleWebAuthn",
+      "exports": [
+        "generateRegistrationOptions",
+        "verifyRegistrationResponse",
+        "generateAuthenticationOptions",
+        "verifyAuthenticationResponse",
+        "MetadataService"
+      ],
+      "files": {
+        "server": "lib/vendor/simplewebauthn-server.cjs"
+      },
+      "bundler": "esbuild --format=cjs --minify --platform=node --external:crypto --external:node:crypto",
+      "bundledAt": "2026-04-26",
+      "hashes": {
+        "server": "sha256:a9777dca582095d67f17ca24e19a0791de29928555b6b779c2233429175eb3f0"
+      }
+    },
+    "SecLists-common-passwords-top-10000": {
+      "version": "10k-most-common (master)",
+      "license": "CC-BY-3.0",
+      "author": "Daniel Miessler / SecLists contributors",
+      "source": "https://github.com/danielmiessler/SecLists",
+      "_about": "Top 10,000 most-common passwords (breach-derived). Loaded by b.auth.password.policy() to satisfy NIST 800-63B §5.1.1.2 'previously breached' check. Operators with deeper enforcement (HIBP downloads, NCSC 100k) layer on top via opts.forbidCommon — the bundled set is additive.",
+      "files": {
+        "server": "lib/vendor/common-passwords-top-10000.txt"
+      },
+      "bundler": "curl https://raw.githubusercontent.com/danielmiessler/SecLists/master/Passwords/Common-Credentials/10k-most-common.txt",
+      "bundledAt": "2026-05-02",
+      "hashes": {
+        "server": "sha256:4adb3f0afb4a10cf19ebe48d8c69a46f934bbc8d77c694c210564f9583e7f4ba"
+      }
+    },
+    "peculiar-pki": {
+      "version": "2.0.0+pkijs-3.4.0",
+      "license": "MIT",
+      "author": "Peculiar Ventures",
+      "source": "https://github.com/PeculiarVentures",
+      "_about": "Meta-bundle of @peculiar/x509 + pkijs + reflect-metadata + every transitive ASN.1 schema package. Used by lib/mtls-engine-default.js as the pure-JS CA + PKCS#12 engine wired into b.mtlsCa.",
+      "components": {
+        "@peculiar/x509": "https://github.com/PeculiarVentures/x509",
+        "pkijs": "https://github.com/PeculiarVentures/PKI.js"
+      },
+      "exports": [
+        "x509",
+        "pkijs",
+        "crypto"
+      ],
+      "files": {
+        "server": "lib/vendor/pki.cjs"
+      },
+      "bundler": "esbuild --format=cjs --minify --platform=node --external:crypto --external:node:crypto",
+      "bundledAt": "2026-04-29",
+      "hashes": {
+        "server": "sha256:9bbc191afaaa2b1e5757f00480457c08134cdc2c55d541df18d9155bba9cbf77"
+      }
+    }
+  }
+}

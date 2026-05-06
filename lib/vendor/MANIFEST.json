@@ -1,123 +1,60 @@
 {
   "_comment": "Vendored dependencies — no npm runtime packages. Use scripts/vendor-update.sh to update.",
+  "_about": "As of v1.9.12 HermitStash vendors a single framework — blamejs — which itself bundles every server-side crypto/identity dependency. The transitive packages blamejs ships are listed below for SBOM transparency (Trivy / Grype rely on the nested-package data to flag CVEs against any of them). Argon2id derivation runs through Node 24+'s built-in `crypto.argon2` via blamejs's `lib/argon2-builtin.js` wrapper — the @ranisalt/argon2 native binding (and its 8-platform prebuilds) are no longer vendored.",
   "packages": {
-    "@noble/ciphers": {
-      "version": "2.2.0",
-      "license": "MIT",
-      "author": "Paul Miller",
-      "source": "https://github.com/paulmillr/noble-ciphers",
-      "exports": [
-        "xchacha20poly1305"
-      ],
+    "blamejs": {
+      "version": "0.8.0",
+      "license": "Apache-2.0",
+      "author": "blamejs contributors",
+      "source": "https://github.com/blamejs/blamejs",
+      "_about": "The Node framework HermitStash builds on. Vendored as a full source tree (index.js + lib/) at lib/vendor/blamejs/. Transitive vendored packages live at lib/vendor/blamejs/lib/vendor/ and are listed below.",
       "files": {
-        "server": "lib/vendor/noble-ciphers.cjs",
-        "browser": "public/js/noble-ciphers.js"
+        "server": "lib/vendor/blamejs/"
       },
-      "bundler": "esbuild --format=cjs/esm --minify --platform=node/browser",
-      "bundledAt": "2026-04-23"
-    },
-    "@noble/hashes": {
-      "version": "2.2.0",
-      "license": "MIT",
-      "author": "Paul Miller",
-      "source": "https://github.com/paulmillr/noble-hashes",
-      "exports": [
-        "shake256"
-      ],
-      "files": {
-        "browser": "public/js/noble-hashes.js"
-      },
-      "bundler": "esbuild --format=esm --minify --platform=browser",
-      "bundledAt": "2026-04-23"
-    },
-    "@noble/post-quantum": {
-      "version": "0.6.1",
-      "license": "MIT",
-      "author": "Paul Miller",
-      "source": "https://github.com/paulmillr/noble-post-quantum",
-      "exports": [
-        "ml_kem512",
-        "ml_kem768",
-        "ml_kem1024"
-      ],
-      "files": {
-        "server": "lib/vendor/noble-pq.cjs",
-        "browser": "public/js/noble-pq.js"
-      },
-      "bundler": "esbuild (browser ESM) + manual ESM→CJS conversion (server)",
-      "bundledAt": "2026-04-23"
-    },
-    "@simplewebauthn/server": {
-      "version": "13.3.0",
-      "license": "MIT",
-      "author": "Matthew Miller",
-      "source": "https://github.com/MasterKale/SimpleWebAuthn",
-      "exports": [
-        "generateRegistrationOptions",
-        "verifyRegistrationResponse",
-        "generateAuthenticationOptions",
-        "verifyAuthenticationResponse",
-        "MetadataService"
-      ],
-      "files": {
-        "server": "lib/vendor/simplewebauthn-server.cjs"
-      },
-      "bundler": "esbuild --format=cjs --minify --platform=node --external:crypto --external:node:crypto",
-      "bundledAt": "2026-04-09"
-    },
-    "peculiar-pki": {
-      "description": "Bundled @peculiar/x509 + pkijs + reflect-metadata + transitive ASN.1 deps for pure-JS mTLS CA operations (no openssl CLI needed at runtime)",
-      "version": "@peculiar/x509@2.0.0 + pkijs@3.4.0",
-      "license": "MIT",
-      "source": "https://github.com/PeculiarVentures",
-      "exports": [
-        "x509",
-        "pkijs",
-        "crypto"
-      ],
-      "files": {
-        "server": "lib/vendor/pki.cjs"
-      },
-      "includes": [
-        "reflect-metadata",
-        "pvutils",
-        "pvtsutils",
-        "asn1js",
-        "@peculiar/asn1-schema",
-        "@peculiar/asn1-x509",
-        "@peculiar/asn1-ecc",
-        "@peculiar/asn1-rsa",
-        "@peculiar/asn1-cms",
-        "@peculiar/asn1-pkcs9"
-      ],
-      "bundler": "esbuild --format=cjs --minify --platform=node --external:node:crypto",
-      "bundledAt": "2026-04-19"
-    },
-    "argon2": {
-      "version": "0.44.0",
-      "license": "MIT",
-      "author": "Ranieri Althoff",
-      "source": "https://github.com/ranisalt/node-argon2",
-      "exports": [
-        "hash",
-        "verify"
-      ],
-      "files": {
-        "server": "lib/vendor/argon2/argon2.cjs",
-        "prebuilds": "lib/vendor/argon2/prebuilds/"
-      },
-      "platforms": [
-        "darwin-arm64",
-        "darwin-x64",
-        "freebsd-arm64",
-        "freebsd-x64",
-        "linux-arm",
-        "linux-arm64",
-        "linux-x64",
-        "win32-x64"
-      ],
-      "bundler": "esbuild --format=cjs --platform=node (inlines @phc/format + node-gyp-build)",
-      "bundledAt": "2026-04-09"
+      "bundler": "scripts/vendor-update.sh blamejs (rsync from ../blamejs source tree)",
+      "bundledAt": "2026-05-06",
+      "components": {
+        "@noble/ciphers": {
+          "version": "2.2.0",
+          "license": "MIT",
+          "author": "Paul Miller",
+          "source": "https://github.com/paulmillr/noble-ciphers",
+          "exports": ["xchacha20poly1305"],
+          "file": "lib/vendor/blamejs/lib/vendor/noble-ciphers.cjs"
+        },
+        "@noble/post-quantum": {
+          "version": "0.6.1",
+          "license": "MIT",
+          "author": "Paul Miller",
+          "source": "https://github.com/paulmillr/noble-post-quantum",
+          "exports": ["ml_kem1024", "ml_dsa87", "slh_dsa_shake_256f", "slh_dsa_sha2_256f"],
+          "file": "lib/vendor/blamejs/lib/vendor/noble-post-quantum.cjs"
+        },
+        "@simplewebauthn/server": {
+          "version": "13.3.0",
+          "license": "MIT",
+          "author": "Matthew Miller",
+          "source": "https://github.com/MasterKale/SimpleWebAuthn",
+          "exports": ["generateRegistrationOptions", "verifyRegistrationResponse", "generateAuthenticationOptions", "verifyAuthenticationResponse", "MetadataService"],
+          "file": "lib/vendor/blamejs/lib/vendor/simplewebauthn-server.cjs"
+        },
+        "peculiar-pki": {
+          "version": "@peculiar/x509@2.0.0 + pkijs@3.4.0",
+          "license": "MIT",
+          "author": "Peculiar Ventures",
+          "source": "https://github.com/PeculiarVentures",
+          "exports": ["x509", "pkijs", "crypto"],
+          "file": "lib/vendor/blamejs/lib/vendor/pki.cjs",
+          "includes": ["reflect-metadata", "pvutils", "pvtsutils", "asn1js", "@peculiar/asn1-schema", "@peculiar/asn1-x509", "@peculiar/asn1-ecc", "@peculiar/asn1-rsa", "@peculiar/asn1-cms", "@peculiar/asn1-pkcs9"]
+        },
+        "SecLists-common-passwords-top-10000": {
+          "version": "10k-most-common (master)",
+          "license": "CC-BY-3.0",
+          "author": "Daniel Miessler / SecLists contributors",
+          "source": "https://github.com/danielmiessler/SecLists",
+          "file": "lib/vendor/blamejs/lib/vendor/common-passwords-top-10000.txt"
+        }
+      }
     }
   }
 }

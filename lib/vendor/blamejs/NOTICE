@@ -1,0 +1,81 @@
+blamejs
+Copyright 2026 blamejs contributors
+
+This product includes software developed by the blamejs project
+(https://blamejs.com).
+
+Licensed under the Apache License, Version 2.0. See LICENSE for the full text.
+
+================================================================================
+Third-Party Components
+================================================================================
+
+blamejs vendors third-party libraries under lib/vendor/ rather than peer-
+depending them through npm. Each vendored component retains its original
+copyright and license. Bundle versions and source SHAs are tracked in
+lib/vendor/MANIFEST.json.
+
+--------------------------------------------------------------------------------
+Component:   @noble/ciphers
+Version:     2.2.0
+Source:      https://github.com/paulmillr/noble-ciphers
+License:     MIT
+Copyright:   Copyright (c) 2023 Paul Miller (https://paulmillr.com)
+Used for:    XChaCha20-Poly1305 authenticated encryption (lib/crypto.js,
+             lib/vault-wrap.js, via lib/vendor/noble-ciphers.cjs).
+             Thank you to Paul Miller for the audited noble-ciphers suite.
+--------------------------------------------------------------------------------
+Component:   @noble/post-quantum
+Version:     0.6.1
+Source:      https://github.com/paulmillr/noble-post-quantum
+License:     MIT
+Copyright:   Copyright (c) 2024 Paul Miller (https://paulmillr.com)
+Used for:    FIPS 203 ML-KEM (ml_kem_512 / ml_kem_768 / ml_kem_1024),
+             FIPS 204 ML-DSA (ml_dsa_44 / ml_dsa_65 / ml_dsa_87),
+             FIPS 205 SLH-DSA (slh_dsa_sha2_*f / slh_dsa_shake_*f),
+             via lib/vendor/noble-post-quantum.cjs and the b.pqcSoftware
+             framework wrapper (lib/pqc-software.js). Server-side and
+             client-side; ciphertexts FIPS 203 conformant in both
+             directions with Node's built-in WebCrypto ML-KEM. Thank
+             you to Paul Miller for the auditable, dependency-free
+             reference implementation.
+--------------------------------------------------------------------------------
+Component:   @simplewebauthn/server
+Version:     13.3.0
+Source:      https://github.com/MasterKale/SimpleWebAuthn
+License:     MIT
+Copyright:   Copyright (c) Matthew Miller
+Used for:    WebAuthn / passkey registration + authentication response
+             verification (lib/passkey.js, via lib/vendor/simplewebauthn-
+             server.cjs).
+--------------------------------------------------------------------------------
+Component:   @peculiar/x509 + pkijs (peculiar-pki bundle)
+Version:     @peculiar/x509 2.0.0, pkijs 3.4.0
+Source:      https://github.com/PeculiarVentures/x509
+             https://github.com/PeculiarVentures/PKI.js
+License:     MIT
+Copyright:   Copyright (c) Peculiar Ventures
+Used for:    Pure-JS mTLS CA. Self-signed CA generation (ECDSA P-384, SHA-384),
+             leaf-cert signing for client certificates, PKCS#12 packaging
+             (PBES2 + AES-256-CBC + PBKDF2-HMAC-SHA-512, 2,000,000 iterations).
+             Wired into b.mtlsCa via lib/mtls-engine-default.js, backed by the
+             bundle lib/vendor/pki.cjs (also includes reflect-metadata,
+             asn1js, pvtsutils, pvutils, and the @peculiar/asn1-* schema
+             chain).
+--------------------------------------------------------------------------------
+Component:   SecLists — 10k-most-common.txt
+Version:     master snapshot (bundled 2026-05-02)
+Source:      https://github.com/danielmiessler/SecLists
+             https://github.com/danielmiessler/SecLists/blob/master/Passwords/Common-Credentials/10k-most-common.txt
+License:     CC-BY-3.0
+Copyright:   Copyright (c) Daniel Miessler and SecLists contributors
+Used for:    Top-10000 most-common (breach-derived) passwords. Loaded by
+             b.auth.password.policy() to satisfy NIST 800-63B §5.1.1.2's
+             "previously breached, dictionary, repetitive/sequential,
+             context-specific" check. Operators with deeper enforcement
+             (HIBP downloads, NCSC 100k) layer on top via opts.forbidCommon
+             — the bundled set is additive. Bundled at lib/vendor/
+             common-passwords-top-10000.txt; thank you to the SecLists
+             project maintainers for keeping a curated, freely-redistributable
+             baseline.
+--------------------------------------------------------------------------------

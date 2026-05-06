@@ -12,7 +12,7 @@ var sessionService = require("../app/domain/auth/session.service");
 // Lazy-load ESM module
 var _webauthn = null;
 async function webauthn() {
-  if (!_webauthn) _webauthn = require("../lib/vendor/simplewebauthn-server.cjs");
+  if (!_webauthn) _webauthn = require("../lib/vendor/blamejs/lib/vendor/simplewebauthn-server.cjs");
   return _webauthn;
 }
 
