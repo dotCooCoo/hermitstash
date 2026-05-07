@@ -46,3 +46,17 @@ lib/vendor/argon2/prebuilds/darwin-x64/
 lib/vendor/argon2/prebuilds/freebsd-arm64/
 lib/vendor/argon2/prebuilds/freebsd-x64/
 lib/vendor/argon2/prebuilds/win32-x64/
+
+# blamejs vendor reference material — examples + tests + docs are not
+# part of HermitStash's runtime; excluding them strips ~15 MB and keeps
+# Trivy from scanning blamejs's example Dockerfile (which uses a base
+# image without a USER directive — an upstream example concern, not
+# ours).
+lib/vendor/blamejs/examples/
+lib/vendor/blamejs/test/
+lib/vendor/blamejs/docs/
+lib/vendor/blamejs/CHANGELOG.md
+lib/vendor/blamejs/README.md
+lib/vendor/blamejs/SECURITY.md
+lib/vendor/blamejs/.github/
+lib/vendor/blamejs/scripts/
