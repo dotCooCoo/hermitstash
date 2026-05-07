@@ -862,6 +862,27 @@ docker compose up -d
 
 Database migrations run automatically on startup — no manual steps needed. The server logs applied migrations at startup. If something goes wrong, restore `vault.key` and `hermitstash.db.enc` from your backup and restart with the previous image version.
 
+### One-time envelope migration before v1.9.18+ (v1.9.16+)
+
+Starting in **v1.9.16**, HermitStash ships a one-time on-disk envelope migration tool at `scripts/envelope-migrate-0xE1-to-0xE2.js`. The vendored framework (blamejs) bumped its sealed-value envelope magic from `0xE1` to `0xE2` (NIST SP 800-56C r2 / RFC 9180 FixedInfo binding), and refuses legacy `0xE1` blobs on decrypt. v1.9.16 itself runs unchanged on existing 0xE1 data — the migration tool is shipped early so operators can plan, but is **only required before upgrading to v1.9.18+** (which swaps HermitStash's vault/db/storage to the framework's primitives). Operator workflow:
+
+```bash
+# Stop the server
+docker compose down
+
+# Inside the container or with a host Node 24+ install:
+node scripts/envelope-migrate-0xE1-to-0xE2.js                # dry-run
+node scripts/envelope-migrate-0xE1-to-0xE2.js --apply        # actually migrate
+
+# Pull the v1.9.18+ image and restart
+docker pull ghcr.io/dotcoocoo/hermitstash:1
+docker compose up -d
+```
+
+The tool migrates: `data/ca.key.sealed`, `data/tls/privkey.pem.sealed`, `data/api-encrypt-keypair.sealed`, `data/db.key.enc`, and every `vault:`-prefixed cell in the encrypted DB. **Cross-version-compatible formats are NOT migrated** — the DB file and per-file storage blobs use a version-byte symmetric format (`encryptPacked`) that reads identically across HermitStash and the framework, so neither needs re-encryption. Backup blobs use a passphrase-derived key with no envelope wrapper — also unchanged.
+
+The tool is crash-safe via a marker file at `data/envelope-migration.marker` and refuses to re-run after success (re-running on already-migrated data would otherwise trip `lib/db`'s auto-regenerate fallback and lose the symmetric DB key). Restore from backup before re-running.
+
 ### Auto-update (opt-in)
 
 Auto-update is off by default on every deployment method. Turn it on when you want it.

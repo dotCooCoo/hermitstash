@@ -1,0 +1,21 @@
+{% extends "_layout" %}
+{% block content %}
+<h1>Admin dashboard</h1>
+<p>{{ pages.length }} pages currently published.</p>
+<p><a href="/admin/edit">Create a new page</a></p>
+<table>
+  <thead><tr><th>Group</th><th>Slug</th><th>Title</th><th>Last updated</th><th>By</th><th></th></tr></thead>
+  <tbody>
+  {% for p in pages %}
+    <tr>
+      <td><code>{{ p.groupName }}</code></td>
+      <td><code>{{ p.slug }}</code></td>
+      <td>{{ p.title }}</td>
+      <td>{{ p.updatedAtIso }}</td>
+      <td>{{ p.updatedBy }}</td>
+      <td><a href="/admin/edit/{{ p.groupName }}/{{ p.slug }}">Edit</a> &middot; <a href="/{{ p.groupName }}/{{ p.slug }}">View</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

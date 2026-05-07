@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="{{ locale }}" dir="{{ dir }}">
+<head>
+<meta charset="utf-8">
+<title>{{ title }} &middot; blamejs</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="{{ description }}">
+<meta name="theme-color" content="#0b0b12">
+<link rel="canonical" href="{{ canonical }}">
+<link rel="icon" type="image/png" href="/img/blamejs-logo.png">
+<link rel="stylesheet" href="/wiki.css">
+<link rel="stylesheet" href="/vendor/prism.css">
+
+<meta property="og:type" content="{{ ogType }}">
+<meta property="og:title" content="{{ title }} · blamejs">
+<meta property="og:description" content="{{ description }}">
+<meta property="og:url" content="{{ canonical }}">
+<meta property="og:site_name" content="blamejs">
+<meta property="og:image" content="{{ ogImage }}">
+<meta property="og:image:alt" content="blamejs logo — neon-magenta shield with terminal prompt and JS mark">
+<meta property="og:locale" content="{{ locale }}">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{{ title }} · blamejs">
+<meta name="twitter:description" content="{{ description }}">
+<meta name="twitter:image" content="{{ ogImage }}">
+<meta name="twitter:image:alt" content="blamejs logo">
+
+<script type="application/ld+json" nonce="{{ cspNonce }}">
+{
+  "@context": "https://schema.org",
+  "@type": "{% if ogType == 'article' %}TechArticle{% else %}WebSite{% endif %}",
+  "name": "blamejs",
+  "headline": "{{ title }}",
+  "description": "{{ description }}",
+  "url": "{{ canonical }}",
+  "image": "{{ ogImage }}",
+  "publisher": {
+    "@type": "Organization",
+    "name": "blamejs",
+    "url": "{{ siteUrl }}",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "{{ ogImage }}"
+    }
+  }
+}
+</script>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="rail" aria-label="Site navigation">
+    <div class="rail-brand">
+      <a href="/">
+        <img src="/img/blamejs-logo.png" alt="blamejs">
+        <span>blamejs</span>
+      </a>
+    </div>
+
+    <form class="rail-search" action="/search" method="get" role="search">
+      <label for="rail-q" class="visually-hidden">Search</label>
+      <input id="rail-q" type="search" name="q" placeholder="Search the docs" value="{{ searchQuery }}">
+    </form>
+
+    <p class="rail-nav-title">Concern groups</p>
+    <ul class="rail-nav">
+      {{> nav }}
+    </ul>
+
+    <p class="rail-nav-title">External</p>
+    <ul class="rail-nav">
+      <li><a href="https://github.com/blamejs/blamejs">GitHub</a></li>
+      <li><a href="https://blamejs.com">blamejs.com</a></li>
+    </ul>
+
+    <div class="rail-foot">
+      {% if user %}
+        <p>Signed in as <strong>{{ user.email }}</strong></p>
+        <p><a href="/admin">Admin dashboard</a></p>
+        <form class="logout-form" method="post" action="/logout">
+          <input type="hidden" name="csrf" value="{{ csrfToken }}">
+          <button type="submit" class="btn">Log out</button>
+        </form>
+      {% else %}
+        <p><a href="/login">Admin login</a></p>
+      {% endif %}
+    </div>
+  </aside>
+
+  <main role="main">
+    {% block content %}{% endblock %}
+  </main>
+
+</div>
+
+<script src="/vendor/prism.js" nonce="{{ cspNonce }}"></script>
+<script src="{{ assets.wiki }}" nonce="{{ cspNonce }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

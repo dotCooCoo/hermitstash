@@ -1,0 +1,166 @@
+# Wiki reference app — single-container deploy.
+#
+# Run from this directory:
+#   docker compose up --build
+#
+# First boot generates a random admin password and prints it. Set
+# WIKI_ADMIN_PASSWORD in a .env file alongside this compose file (or in
+# the host environment) to pin a stable credential. The data volume
+# persists the vault key, sqlite db, and audit chain across container
+# restarts; deleting it resets everything to first-boot state.
+
+services:
+  wiki:
+    build:
+      context: ../..
+      dockerfile: examples/wiki/Dockerfile
+    image: blamejs-wiki:0.3.8
+    container_name: blamejs-wiki
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      WIKI_DATA_DIR: /data
+      WIKI_PORT: "8080"
+      WIKI_ADMIN_EMAIL: ${WIKI_ADMIN_EMAIL:-admin@blamejs.com}
+      WIKI_ADMIN_PASSWORD: ${WIKI_ADMIN_PASSWORD:-}
+      WIKI_WEBHOOK_URL: ${WIKI_WEBHOOK_URL:-}
+      WIKI_WEBHOOK_SECRET: ${WIKI_WEBHOOK_SECRET:-}
+      # Trust-proxy posture: set to "1" only when this container sits
+      # behind a TLS terminator (Caddy / Nginx / Traefik / cloud LB)
+      # that injects x-forwarded-proto. With it OFF (default), the
+      # cookie Secure-flag honours only req.socket.encrypted — a
+      # misconfigured deploy can't accept attacker-supplied
+      # x-forwarded-proto: https as proof a request was over TLS.
+      WIKI_TRUST_PROXY: ${WIKI_TRUST_PROXY:-}
+      # In-process CIDR fence on /admin paths. Comma-separated CIDRs;
+      # empty = no fence (operators using a reverse proxy / NACL
+      # typically gate at that layer). When set, the wiki mounts
+      # b.middleware.networkAllowlist as the in-process layer above
+      # the application-layer auth gate. Pair with WIKI_TRUST_PROXY=1
+      # if the proxy injects x-forwarded-for.
+      WIKI_ADMIN_ALLOWED_CIDRS: ${WIKI_ADMIN_ALLOWED_CIDRS:-}
+      WIKI_ADMIN_DENIED_CIDRS:  ${WIKI_ADMIN_DENIED_CIDRS:-}
+      # Production-posture assertion gate. "1" = the wiki refuses to
+      # boot when vault / dbAtRest / audit-signing / NTP / required
+      # env vars / dataDir POSIX-mode aren't production-shaped. Off
+      # by default so dev `docker compose up` works without setting
+      # every production knob; flip on for production deploys.
+      WIKI_REQUIRE_PROD_ASSERTS: ${WIKI_REQUIRE_PROD_ASSERTS:-}
+      # Posture overrides — flip from the auto-detect (vault passphrase
+      # presence → wrapped) to an explicit choice. WIKI_* are app-level;
+      # BLAMEJS_AUDIT_SIGNING_MODE is the framework-level fallback the
+      # audit-sign primitive reads when init() leaves mode unset.
+      WIKI_VAULT_MODE:           ${WIKI_VAULT_MODE:-}
+      WIKI_DB_AT_REST:           ${WIKI_DB_AT_REST:-}
+      WIKI_AUDIT_SIGNING_MODE:   ${WIKI_AUDIT_SIGNING_MODE:-}
+      BLAMEJS_AUDIT_SIGNING_MODE: ${BLAMEJS_AUDIT_SIGNING_MODE:-}
+      # Temporary-file directory for the encrypted-DB working file. The
+      # framework requires either opts.tmpDir or BLAMEJS_TMPDIR when
+      # atRest is "encrypted"; default unset so the dev path uses the
+      # OS tmpdir, prod overlay pins a tmpfs path.
+      BLAMEJS_TMPDIR:            ${BLAMEJS_TMPDIR:-}
+      # Bind address (default 0.0.0.0). Operators behind a reverse-proxy
+      # constraining to localhost set "127.0.0.1".
+      WIKI_BIND:                 ${WIKI_BIND:-}
+      # Fully-qualified site URL — emitted in canonical-link headers,
+      # passwordless-login redirects, OAuth client_id callbacks. Required
+      # when running behind a TLS terminator (the wiki can't infer the
+      # public scheme + host from the inbound request when the proxy
+      # rewrites them).
+      WIKI_SITE_URL:             ${WIKI_SITE_URL:-}
+      # ---- Network configurability (b.network.bootFromEnv) ----
+      # NTP — comma-separated server list, timeout (ms), tunable warn /
+      # fatal drift thresholds (ms). Default servers pool.ntp.org +
+      # time.cloudflare.com; defaults 5-min warn / 1-hour fatal.
+      BLAMEJS_NTP_SERVERS:           ${BLAMEJS_NTP_SERVERS:-}
+      BLAMEJS_NTP_TIMEOUT_MS:        ${BLAMEJS_NTP_TIMEOUT_MS:-}
+      BLAMEJS_NTP_DRIFT_WARN_MS:     ${BLAMEJS_NTP_DRIFT_WARN_MS:-}
+      BLAMEJS_NTP_DRIFT_FATAL_MS:    ${BLAMEJS_NTP_DRIFT_FATAL_MS:-}
+      BLAMEJS_NTP_STRICT:            ${BLAMEJS_NTP_STRICT:-}
+      BLAMEJS_SKIP_NTP_CHECK:        ${BLAMEJS_SKIP_NTP_CHECK:-}
+      # NTS (RFC 8915 — authenticated NTP). When set, b.network.ntp.nts
+      # negotiates TLS-1.3 keys with the listed NTS-KE servers and uses
+      # AEAD-authenticated NTP packets. Servers are comma-separated
+      # host[:port] entries. BLAMEJS_NTS_REQUIRE=1 fails closed when NTS
+      # negotiation fails (default warns and falls back to plain NTP).
+      BLAMEJS_NTS_SERVERS:           ${BLAMEJS_NTS_SERVERS:-}
+      BLAMEJS_NTS_REQUIRE:           ${BLAMEJS_NTS_REQUIRE:-}
+      # DNS — operator-pinned resolvers, IPv4/IPv6 ordering and family
+      # selection, lookup timeout (Node has no native dns.lookup
+      # timeout), in-memory cache TTL (ms). DoH/DoT take precedence over
+      # the OS resolver when set. BLAMEJS_DOH_PROVIDER selects from
+      # {cloudflare,google,quad9}; BLAMEJS_DOH_URL pins a custom DoH
+      # endpoint. BLAMEJS_DOT_HOST + _PORT use DNS-over-TLS instead.
+      BLAMEJS_DNS_SERVERS:           ${BLAMEJS_DNS_SERVERS:-}
+      BLAMEJS_DNS_RESULT_ORDER:      ${BLAMEJS_DNS_RESULT_ORDER:-}
+      BLAMEJS_DNS_FAMILY:            ${BLAMEJS_DNS_FAMILY:-}
+      BLAMEJS_DNS_LOOKUP_TIMEOUT_MS: ${BLAMEJS_DNS_LOOKUP_TIMEOUT_MS:-}
+      BLAMEJS_DNS_CACHE_TTL_MS:      ${BLAMEJS_DNS_CACHE_TTL_MS:-}
+      BLAMEJS_DOH_PROVIDER:          ${BLAMEJS_DOH_PROVIDER:-}
+      BLAMEJS_DOH_URL:               ${BLAMEJS_DOH_URL:-}
+      BLAMEJS_DOT_HOST:              ${BLAMEJS_DOT_HOST:-}
+      BLAMEJS_DOT_PORT:              ${BLAMEJS_DOT_PORT:-}
+      # Outbound HTTP proxy — standard env vars; BLAMEJS_PROXY_AUTH is
+      # "user:pass" for basic auth. NO_PROXY entries are comma-separated
+      # host names, dotted-suffixes, or CIDRs.
+      HTTP_PROXY:                    ${HTTP_PROXY:-}
+      HTTPS_PROXY:                   ${HTTPS_PROXY:-}
+      NO_PROXY:                      ${NO_PROXY:-}
+      ALL_PROXY:                     ${ALL_PROXY:-}
+      BLAMEJS_PROXY_AUTH:            ${BLAMEJS_PROXY_AUTH:-}
+      # DPI / corporate trust store — file or directory of PEM CAs added
+      # to the framework's outbound TLS trust at runtime. _USE_SYSTEM_TRUST
+      # opts into the OS trust store. Every CA add is audited.
+      BLAMEJS_EXTRA_CA_CERTS:        ${BLAMEJS_EXTRA_CA_CERTS:-}
+      BLAMEJS_EXTRA_CA_CERTS_DIR:    ${BLAMEJS_EXTRA_CA_CERTS_DIR:-}
+      BLAMEJS_USE_SYSTEM_TRUST:      ${BLAMEJS_USE_SYSTEM_TRUST:-}
+      # TCP socket defaults applied to inbound + outbound sockets.
+      BLAMEJS_SOCKET_NO_DELAY:           ${BLAMEJS_SOCKET_NO_DELAY:-}
+      BLAMEJS_SOCKET_KEEPALIVE:          ${BLAMEJS_SOCKET_KEEPALIVE:-}
+      BLAMEJS_SOCKET_KEEPALIVE_DELAY_MS: ${BLAMEJS_SOCKET_KEEPALIVE_DELAY_MS:-}
+      # ---- Optional log-stream sink (b.logStream.bootFromEnv) ----
+      # Framework-level env config: BLAMEJS_LOG_STREAM_PROTOCOL selects
+      # the sink (local | webhook | otlp | cloudwatch); per-protocol
+      # opts populate from the BLAMEJS_LOG_STREAM_* and standard AWS_*
+      # env vars below. When the protocol var is unset, the framework
+      # keeps stdout-only logging — operators flip it on per deploy.
+      BLAMEJS_LOG_STREAM_PROTOCOL:           ${BLAMEJS_LOG_STREAM_PROTOCOL:-}
+      BLAMEJS_LOG_STREAM_MIN_LEVEL:          ${BLAMEJS_LOG_STREAM_MIN_LEVEL:-}
+      # webhook + otlp shared opts:
+      BLAMEJS_LOG_STREAM_URL:                ${BLAMEJS_LOG_STREAM_URL:-}
+      BLAMEJS_LOG_STREAM_TOKEN:              ${BLAMEJS_LOG_STREAM_TOKEN:-}
+      # otlp-only opts:
+      BLAMEJS_LOG_STREAM_SERVICE_NAME:       ${BLAMEJS_LOG_STREAM_SERVICE_NAME:-}
+      BLAMEJS_LOG_STREAM_SERVICE_VERSION:    ${BLAMEJS_LOG_STREAM_SERVICE_VERSION:-}
+      # cloudwatch-only opts (AWS_* are standard AWS SDK vars):
+      AWS_REGION:                            ${AWS_REGION:-}
+      AWS_ACCESS_KEY_ID:                     ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY:                 ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN:                     ${AWS_SESSION_TOKEN:-}
+      BLAMEJS_LOG_STREAM_CLOUDWATCH_LOG_GROUP:  ${BLAMEJS_LOG_STREAM_CLOUDWATCH_LOG_GROUP:-}
+      BLAMEJS_LOG_STREAM_CLOUDWATCH_LOG_STREAM: ${BLAMEJS_LOG_STREAM_CLOUDWATCH_LOG_STREAM:-}
+      # local-only opt:
+      BLAMEJS_LOG_STREAM_PATH:               ${BLAMEJS_LOG_STREAM_PATH:-}
+      # ---- Optional Redis-backed queue (b.queue.bootFromEnv) ----
+      # When BLAMEJS_QUEUE_PROTOCOL=redis, the framework swaps the local
+      # SQLite-backed queue for a shared Redis queue — multi-replica
+      # apps coordinate through Redis instead of relying on cluster
+      # leadership for queue ownership. Defaults to local when unset.
+      BLAMEJS_QUEUE_PROTOCOL:                ${BLAMEJS_QUEUE_PROTOCOL:-}
+      BLAMEJS_QUEUE_REDIS_URL:               ${BLAMEJS_QUEUE_REDIS_URL:-}
+      BLAMEJS_QUEUE_REDIS_PASSWORD:          ${BLAMEJS_QUEUE_REDIS_PASSWORD:-}
+      BLAMEJS_QUEUE_REDIS_USERNAME:          ${BLAMEJS_QUEUE_REDIS_USERNAME:-}
+      BLAMEJS_QUEUE_REDIS_TLS:               ${BLAMEJS_QUEUE_REDIS_TLS:-}
+      BLAMEJS_QUEUE_REDIS_KEY_PREFIX:        ${BLAMEJS_QUEUE_REDIS_KEY_PREFIX:-}
+    volumes:
+      - wiki-data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  wiki-data:

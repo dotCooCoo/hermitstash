@@ -1,0 +1,183 @@
+{
+  "schemaVersion": 1,
+  "machine": {
+    "platform": "win32",
+    "arch": "x64",
+    "node": "v25.9.0",
+    "cpuModel": "AMD Ryzen 9 9950X3D 16-Core Processor          ",
+    "cpuCount": 32,
+    "totalMemMB": 128568
+  },
+  "recordedAt": "2026-04-30T05:35:54.971Z",
+  "benchOpts": {
+    "warmupIters": null,
+    "runMs": null
+  },
+  "results": [
+    {
+      "label": "crypto-hash / sha3Hash 11 bytes",
+      "result": {
+        "iterations": 686415,
+        "elapsedMs": 1000,
+        "opsPerSec": 686410,
+        "p50ns": 1000,
+        "p95ns": 1300,
+        "p99ns": 2200
+      }
+    },
+    {
+      "label": "crypto-hash / sha3Hash 1 KB",
+      "result": {
+        "iterations": 260606,
+        "elapsedMs": 1000,
+        "opsPerSec": 260604,
+        "p50ns": 3300,
+        "p95ns": 3600,
+        "p99ns": 5000
+      }
+    },
+    {
+      "label": "crypto-hash / sha3Hash 64 KB",
+      "result": {
+        "iterations": 6658,
+        "elapsedMs": 1000,
+        "opsPerSec": 6657,
+        "p50ns": 149500,
+        "p95ns": 152600,
+        "p99ns": 159900
+      }
+    },
+    {
+      "label": "crypto-hash / generateBytes 32",
+      "result": {
+        "iterations": 367193,
+        "elapsedMs": 1000,
+        "opsPerSec": 367190,
+        "p50ns": 1900,
+        "p95ns": 2400,
+        "p99ns": 5600
+      }
+    },
+    {
+      "label": "crypto-hash / generateBytes 256",
+      "result": {
+        "iterations": 279821,
+        "elapsedMs": 1000,
+        "opsPerSec": 279814,
+        "p50ns": 2500,
+        "p95ns": 3300,
+        "p99ns": 20700
+      }
+    },
+    {
+      "label": "crypto-symmetric / encryptPacked 16 bytes",
+      "result": {
+        "iterations": 162812,
+        "elapsedMs": 1000,
+        "opsPerSec": 162804,
+        "p50ns": 5200,
+        "p95ns": 6900,
+        "p99ns": 12800
+      }
+    },
+    {
+      "label": "crypto-symmetric / decryptPacked 16 bytes",
+      "result": {
+        "iterations": 269484,
+        "elapsedMs": 1000,
+        "opsPerSec": 269468,
+        "p50ns": 3400,
+        "p95ns": 4600,
+        "p99ns": 7200
+      }
+    },
+    {
+      "label": "crypto-symmetric / encryptPacked 1 KB",
+      "result": {
+        "iterations": 98256,
+        "elapsedMs": 1000,
+        "opsPerSec": 98255,
+        "p50ns": 8800,
+        "p95ns": 11700,
+        "p99ns": 37200
+      }
+    },
+    {
+      "label": "crypto-symmetric / decryptPacked 1 KB",
+      "result": {
+        "iterations": 141384,
+        "elapsedMs": 1000,
+        "opsPerSec": 141375,
+        "p50ns": 6700,
+        "p95ns": 8400,
+        "p99ns": 12000
+      }
+    },
+    {
+      "label": "crypto-symmetric / encryptPacked 16 KB",
+      "result": {
+        "iterations": 16162,
+        "elapsedMs": 1000,
+        "opsPerSec": 16162,
+        "p50ns": 55100,
+        "p95ns": 73900,
+        "p99ns": 91200
+      }
+    },
+    {
+      "label": "crypto-symmetric / decryptPacked 16 KB",
+      "result": {
+        "iterations": 19037,
+        "elapsedMs": 1000,
+        "opsPerSec": 19037,
+        "p50ns": 50600,
+        "p95ns": 55300,
+        "p99ns": 72100
+      }
+    },
+    {
+      "label": "safe-json / stringify small (4 keys)",
+      "result": {
+        "iterations": 1702743,
+        "elapsedMs": 1000,
+        "opsPerSec": 1702742,
+        "p50ns": 500,
+        "p95ns": 600,
+        "p99ns": 600
+      }
+    },
+    {
+      "label": "safe-json / parse small (4 keys)",
+      "result": {
+        "iterations": 445904,
+        "elapsedMs": 1000,
+        "opsPerSec": 445903,
+        "p50ns": 2200,
+        "p95ns": 2300,
+        "p99ns": 2600
+      }
+    },
+    {
+      "label": "safe-json / stringify medium (nested + 20 tags)",
+      "result": {
+        "iterations": 466688,
+        "elapsedMs": 1000,
+        "opsPerSec": 466687,
+        "p50ns": 2100,
+        "p95ns": 2100,
+        "p99ns": 2300
+      }
+    },
+    {
+      "label": "safe-json / parse medium (nested + 20 tags)",
+      "result": {
+        "iterations": 96024,
+        "elapsedMs": 1000,
+        "opsPerSec": 96024,
+        "p50ns": 10100,
+        "p95ns": 10700,
+        "p99ns": 15900
+      }
+    }
+  ]
+}

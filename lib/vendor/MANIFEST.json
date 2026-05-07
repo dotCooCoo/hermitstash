@@ -3,16 +3,16 @@
   "_about": "As of v1.9.12 HermitStash vendors a single framework — blamejs — which itself bundles every server-side crypto/identity dependency. The transitive packages blamejs ships are listed below for SBOM transparency (Trivy / Grype rely on the nested-package data to flag CVEs against any of them). Argon2id derivation runs through Node 24+'s built-in `crypto.argon2` via blamejs's `lib/argon2-builtin.js` wrapper — the @ranisalt/argon2 native binding (and its 8-platform prebuilds) are no longer vendored.",
   "packages": {
     "blamejs": {
-      "version": "0.8.4",
+      "version": "0.8.42",
       "license": "Apache-2.0",
       "author": "blamejs contributors",
       "source": "https://github.com/blamejs/blamejs",
-      "_about": "The Node framework HermitStash builds on. Vendored as a full source tree (index.js + lib/) at lib/vendor/blamejs/. Transitive vendored packages live at lib/vendor/blamejs/lib/vendor/ and are listed below. Drift between this entry and the upstream sibling repo at ../blamejs is checked by tests/unit/regression.test.js — refresh with scripts/vendor-update.sh blamejs when the test fails.",
+      "_about": "The Node framework HermitStash builds on. Vendored as a full source tree (index.js + lib/) at lib/vendor/blamejs/. Transitive vendored packages live at lib/vendor/blamejs/lib/vendor/ and are listed below. Drift between this entry and the upstream sibling repo at ../blamejs is checked by tests/unit/regression.test.js (warning only as of v1.9.15) — refresh by archiving from ../blamejs HEAD when the test warns.",
       "files": {
         "server": "lib/vendor/blamejs/"
       },
-      "bundler": "scripts/vendor-update.sh blamejs (rsync from ../blamejs source tree)",
-      "bundledAt": "2026-05-06",
+      "bundler": "git -C ../blamejs archive HEAD | tar -x -C lib/vendor/blamejs (sibling repo source tree)",
+      "bundledAt": "2026-05-07",
       "components": {
         "@noble/ciphers": {
           "version": "2.2.0",

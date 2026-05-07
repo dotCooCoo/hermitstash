@@ -1,0 +1,46 @@
+# Caddy config — auto-TLS reverse proxy with HTTP/3 and PQC-hybrid groups.
+# Caddy 2.8+ ships with X25519MLKEM768 enabled by default in TLS 1.3.
+#
+# Used for:
+#   - Reverse-proxying to mailpit's web UI on a TLS endpoint
+#   - Demonstrating ACME-issued certs (against step-ca, when added)
+#   - Exercising the framework's HTTP client against modern PQC TLS
+
+{
+	auto_https off
+	servers {
+		protocols h1 h2 h3
+	}
+}
+
+# HTTPS listener with our generated cert.
+:443 {
+	tls /certs/caddy.crt /certs/caddy.key
+
+	# Reverse-proxy mailpit's web UI under /mail/.
+	handle_path /mail/* {
+		reverse_proxy mailpit:8025
+	}
+
+	# Reverse-proxy minio's S3 API under /s3/.
+	handle_path /s3/* {
+		reverse_proxy minio:9000
+	}
+
+	# Health endpoint for the host-side checker.
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	# Default — display a small landing page so tests confirming
+	# the proxy responds get something sensible.
+	handle {
+		respond "blamejs-test-caddy" 200
+	}
+}
+
+# Plain HTTP listener for tests that don't need TLS.
+:80 {
+	respond /healthz "ok" 200
+	respond "blamejs-test-caddy (http)" 200
+}

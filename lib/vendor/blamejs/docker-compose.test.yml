@@ -1,0 +1,493 @@
+# Test-only infrastructure for blamejs integration tests.
+#
+# Provides real backends — both plain and TLS — for every protocol the
+# framework declares in its protocolDispatcher deferred-blocks plus the
+# bring-your-own-client gaps for external-db, mail, and ntp.
+#
+# Dual-stack:
+#   - Host port bindings published on BOTH 127.0.0.1 and [::1] so tests
+#     exercise the framework's connect path on IPv4 and IPv6.
+#   - Container-side network is a bridge with enable_ipv6 + an
+#     fd00::/48 ULA subnet so service-to-service traffic also flows
+#     over IPv6 when the framework prefers it.
+#
+# Bring up:
+#   docker compose -f docker-compose.test.yml up -d --wait
+#
+# Validate every endpoint:
+#   node scripts/check-services.js
+#
+# All host bindings stay on loopback — no LAN exposure.
+# Credentials are deterministic test-only values.
+
+networks:
+  default:
+    name: blamejs_test
+    driver: bridge
+    enable_ipv6: true
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.30.0.0/16
+        - subnet: fd00:dead:beef::/48
+
+services:
+
+  pki-init:
+    image: alpine/openssl:latest
+    container_name: blamejs-test-pki-init
+    entrypoint: ["/bin/sh", "/init/generate-certs.sh"]
+    volumes:
+      - certs:/certs
+      - ./docker/init:/init:ro
+    restart: "no"
+
+  redis:
+    image: redis:8-alpine
+    container_name: blamejs-test-redis
+    ports:
+      - "127.0.0.1:6379:6379"
+      - "[::1]:6379:6379"
+      - "127.0.0.1:6380:6380"
+      - "[::1]:6380:6380"
+    volumes:
+      - certs:/certs:ro
+      - ./docker/redis/redis.conf:/etc/redis/redis.conf:ro
+    command: ["redis-server", "/etc/redis/redis.conf"]
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:18-alpine
+    container_name: blamejs-test-postgres
+    ports:
+      - "127.0.0.1:5432:5432"
+      - "[::1]:5432:5432"
+    environment:
+      POSTGRES_USER: blamejs
+      POSTGRES_PASSWORD: blamejs_test
+      POSTGRES_DB: blamejs_test
+    volumes:
+      - certs:/certs:ro
+      - ./docker/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./docker/postgres/init-tls.sh:/init-tls.sh:ro
+      - blamejs_test_pgdata:/var/lib/postgresql
+    entrypoint:
+      - "/bin/sh"
+      - "-c"
+      - "/init-tls.sh && exec docker-entrypoint.sh postgres -c config_file=/etc/postgresql/postgresql.conf"
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blamejs -d blamejs_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.4
+    container_name: blamejs-test-mysql
+    ports:
+      - "127.0.0.1:3306:3306"
+      - "[::1]:3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: blamejs_test_root
+      MYSQL_USER: blamejs
+      MYSQL_PASSWORD: blamejs_test
+      MYSQL_DATABASE: blamejs_test
+    volumes:
+      - certs:/certs:ro
+      - ./docker/mysql/my.cnf:/etc/mysql/conf.d/blamejs.cnf:ro
+      - blamejs_test_mysqldata:/var/lib/mysql
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "mysqladmin ping -h 127.0.0.1 -u blamejs -pblamejs_test --silent"
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:8
+    container_name: blamejs-test-mongo
+    ports:
+      - "127.0.0.1:27017:27017"
+      - "[::1]:27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: blamejs
+      MONGO_INITDB_ROOT_PASSWORD: blamejs_test
+    volumes:
+      - certs:/certs:ro
+      - blamejs_test_mongodata:/data/db
+    command:
+      - "--bind_ip_all"
+      - "--ipv6"
+      - "--tlsMode=preferTLS"
+      - "--tlsCertificateKeyFile=/certs/mongo.combined.pem"
+      - "--tlsCAFile=/certs/ca.crt"
+      - "--tlsAllowConnectionsWithoutCertificates"
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - "CMD"
+        - "mongosh"
+        - "--quiet"
+        - "--tls"
+        - "--tlsCAFile=/certs/ca.crt"
+        - "--tlsAllowInvalidHostnames"
+        - "--username"
+        - "blamejs"
+        - "--password"
+        - "blamejs_test"
+        - "--authenticationDatabase"
+        - "admin"
+        - "--eval"
+        - "db.adminCommand('ping').ok"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: blamejs-test-minio
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "[::1]:9000:9000"
+      - "127.0.0.1:9001:9001"
+      - "[::1]:9001:9001"
+    environment:
+      MINIO_ROOT_USER: blamejs
+      MINIO_ROOT_PASSWORD: blamejs_test_password
+    command:
+      - "server"
+      - "/data"
+      - "--console-address"
+      - ":9001"
+    volumes:
+      - blamejs_test_miniodata:/data
+    # MinIO image is scratch-based (no wget/curl/sh). The host-side
+    # checker (scripts/check-services.js) probes /minio/health/live
+    # directly; disabling the in-container check stops `up --wait`
+    # from looping on a tool that doesn't exist in the image.
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+
+  minio-tls:
+    image: minio/minio:latest
+    container_name: blamejs-test-minio-tls
+    ports:
+      - "127.0.0.1:9443:9000"
+      - "[::1]:9443:9000"
+      - "127.0.0.1:9444:9001"
+      - "[::1]:9444:9001"
+    environment:
+      MINIO_ROOT_USER: blamejs
+      MINIO_ROOT_PASSWORD: blamejs_test_password
+    command:
+      - "server"
+      - "/data"
+      - "--console-address"
+      - ":9001"
+      - "--certs-dir"
+      - "/certs/minio"
+    volumes:
+      - certs:/certs:ro
+      - blamejs_test_miniotlsdata:/data
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+    # See note on minio above — same scratch-image constraint.
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: blamejs-test-rabbitmq
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "[::1]:5672:5672"
+      - "127.0.0.1:5671:5671"
+      - "[::1]:5671:5671"
+      - "127.0.0.1:15672:15672"
+      - "[::1]:15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: blamejs
+      RABBITMQ_DEFAULT_PASS: blamejs_test
+    volumes:
+      - certs:/certs:ro
+      - ./docker/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 45s
+    restart: unless-stopped
+
+  nats:
+    image: nats:2-alpine
+    container_name: blamejs-test-nats
+    ports:
+      - "127.0.0.1:4222:4222"
+      - "[::1]:4222:4222"
+      - "127.0.0.1:8222:8222"
+      - "[::1]:8222:8222"
+    volumes:
+      - certs:/certs:ro
+      - ./docker/nats/nats.conf:/etc/nats/nats.conf:ro
+    command:
+      - "-c"
+      - "/etc/nats/nats.conf"
+      - "-js"
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - "CMD"
+        - "wget"
+        - "--spider"
+        - "--quiet"
+        - "http://127.0.0.1:8222/healthz"
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
+    restart: unless-stopped
+
+  syslog:
+    image: balabit/syslog-ng:latest
+    container_name: blamejs-test-syslog
+    ports:
+      - "127.0.0.1:5514:514/udp"
+      - "[::1]:5514:514/udp"
+      - "127.0.0.1:5514:514/tcp"
+      - "[::1]:5514:514/tcp"
+      - "127.0.0.1:6514:6514/tcp"
+      - "[::1]:6514:6514/tcp"
+    volumes:
+      - certs:/certs:ro
+      - ./docker/syslog/syslog-ng.conf:/etc/syslog-ng/syslog-ng.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "syslog-ng-ctl stats >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  # NTP host port: 12300 instead of 123 because Windows reserves
+  # privileged ports (<1024) for SYSTEM. Tests override
+  # ntpCheck.querySingle(server, { port: 12300 }) to hit this fixture.
+  ntp:
+    image: cturra/ntp:latest
+    container_name: blamejs-test-ntp
+    ports:
+      - "127.0.0.1:12300:123/udp"
+      - "[::1]:12300:123/udp"
+    environment:
+      NTP_SERVERS: "time.cloudflare.com,time.google.com,pool.ntp.org"
+      LOG_LEVEL: "0"
+    cap_add:
+      - SYS_TIME
+      - SYS_NICE
+    healthcheck:
+      test: ["CMD-SHELL", "chronyc tracking | grep -q 'Leap status'"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    restart: unless-stopped
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: blamejs-test-mailpit
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "[::1]:1025:1025"
+      - "127.0.0.1:8025:8025"
+      - "[::1]:8025:8025"
+      # Note: mailpit only supports STARTTLS on the main SMTP port —
+      # there is no separate SMTPS listener. Tests exercise the
+      # framework's STARTTLS code path against :1025 + EHLO/STARTTLS.
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+      MP_SMTP_TLS_CERT: "/certs/mailpit.crt"
+      MP_SMTP_TLS_KEY: "/certs/mailpit.key"
+      MP_SMTP_REQUIRE_STARTTLS: "false"
+    volumes:
+      - certs:/certs:ro
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - "CMD"
+        - "wget"
+        - "--spider"
+        - "--quiet"
+        - "http://127.0.0.1:8025/readyz"
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
+    restart: unless-stopped
+
+  haproxy:
+    image: haproxy:lts-alpine
+    container_name: blamejs-test-haproxy
+    ports:
+      - "127.0.0.1:8443:8443"
+      - "[::1]:8443:8443"
+      - "127.0.0.1:8404:8404"
+      - "[::1]:8404:8404"
+      - "127.0.0.1:6390:6390"
+      - "[::1]:6390:6390"
+    volumes:
+      - certs:/certs:ro
+      - ./docker/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "wget --spider --quiet http://127.0.0.1:8404/stats"
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: blamejs-test-caddy
+    ports:
+      - "127.0.0.1:8080:80"
+      - "[::1]:8080:80"
+      - "127.0.0.1:8444:443"
+      - "[::1]:8444:443"
+    volumes:
+      - certs:/certs:ro
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - blamejs_test_caddydata:/data
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "wget --spider --quiet http://127.0.0.1/healthz"
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
+    restart: unless-stopped
+
+  mitmproxy:
+    image: mitmproxy/mitmproxy:latest
+    container_name: blamejs-test-mitmproxy
+    ports:
+      - "127.0.0.1:8090:8080"
+      - "[::1]:8090:8080"
+      - "127.0.0.1:8091:8081"
+      - "[::1]:8091:8081"
+    volumes:
+      - blamejs_test_mitmdata:/home/mitmproxy/.mitmproxy
+      - ./docker/mitmproxy/config.yaml:/home/mitmproxy/.mitmproxy/config.yaml:ro
+    command:
+      - "mitmweb"
+      - "--web-host=0.0.0.0"
+      - "--listen-host=0.0.0.0"
+      - "--no-web-open-browser"
+    # mitmproxy image lacks wget; host-side checker probes :8091.
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+
+  # DNS resolver — plain DNS on 53, DoT on 853, DoH on 8053 (HTTPS).
+  # Backs lib/network-dns.js's three-mode resolver against a real
+  # endpoint that honours TLS handshakes the framework cares about.
+  # CoreDNS host ports: privileged ports remapped to non-privileged
+  # because Windows reserves <1024 for SYSTEM. Tests configure
+  # network-dns.servers / network-dns.dot.host with these ports.
+  coredns:
+    image: coredns/coredns:latest
+    container_name: blamejs-test-coredns
+    ports:
+      - "127.0.0.1:1053:53/udp"
+      - "[::1]:1053:53/udp"
+      - "127.0.0.1:1053:53/tcp"
+      - "[::1]:1053:53/tcp"
+      - "127.0.0.1:1853:853/tcp"
+      - "[::1]:1853:853/tcp"
+      - "127.0.0.1:8053:443/tcp"
+      - "[::1]:8053:443/tcp"
+      - "127.0.0.1:8054:8054/tcp"
+      - "[::1]:8054:8054/tcp"
+    volumes:
+      - certs:/certs:ro
+      - ./docker/coredns/Corefile:/etc/coredns/Corefile:ro
+    command: ["-conf", "/etc/coredns/Corefile"]
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+    # CoreDNS image is scratch-based (no shell). Host-side checker
+    # probes /health on :8054 + does a real DNS query on :1053.
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+
+  squid:
+    image: ubuntu/squid:latest
+    container_name: blamejs-test-squid
+    ports:
+      - "127.0.0.1:3128:3128"
+      - "[::1]:3128:3128"
+    volumes:
+      - ./docker/squid/squid.conf:/etc/squid/squid.conf:ro
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "squid -k check 2>&1 || (squidclient -h 127.0.0.1 -p 3128 mgr:info > /dev/null)"
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  certs:
+  blamejs_test_pgdata:
+  blamejs_test_mysqldata:
+  blamejs_test_mongodata:
+  blamejs_test_miniodata:
+  blamejs_test_miniotlsdata:
+  blamejs_test_caddydata:
+  blamejs_test_mitmdata:

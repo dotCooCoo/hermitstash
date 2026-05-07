@@ -1,0 +1,50 @@
+{% extends "_layout" %}
+{% block content %}
+<h1>API Keys</h1>
+<p>Issue API keys for content-management automation. Each key carries a scope set; the framework's <code>b.apiKey.verify</code> gates downstream requests against these scopes.</p>
+
+{% if issued %}
+<aside class="callout callout-warning">
+  <p class="callout-title">Save this secret now</p>
+  <p>The plaintext key value is shown <strong>only once</strong>. Copy it before navigating away — the framework stores only a SHAKE256 envelope hash and cannot reveal the original.</p>
+  <pre><code class="language-bash">{{ issued.key }}</code></pre>
+  <p class="muted">id: <code>{{ issued.id }}</code> · scopes: <code>{{ issued.scopes }}</code></p>
+</aside>
+{% endif %}
+
+<h2 id="issue">Issue a key <a class="anchor" href="#issue">#</a></h2>
+<form class="editor" method="post" action="/admin/api-keys/issue">
+  <input type="hidden" name="csrf" value="{{ csrfToken }}">
+  <label for="label">Label</label>
+  <input id="label" type="text" name="label" placeholder="e.g. ci-pipeline">
+  <label for="scopes">Scopes <span class="muted">(comma-separated; defaults to <code>wiki:read</code>)</span></label>
+  <input id="scopes" type="text" name="scopes" placeholder="wiki:read, wiki:write">
+  <p><button type="submit">Issue key</button></p>
+</form>
+
+<h2 id="active">Active keys <a class="anchor" href="#active">#</a></h2>
+{% if keys.length == 0 %}
+  <p class="muted">No keys issued yet.</p>
+{% else %}
+<table>
+  <thead><tr><th>id</th><th>scopes</th><th>last used</th><th>created</th><th></th></tr></thead>
+  <tbody>
+  {% for k in keys %}
+    <tr>
+      <td><code>{{ k.id }}</code></td>
+      <td><code>{{ k.scopes }}</code></td>
+      <td>{{ k.lastUsedAt }}</td>
+      <td>{{ k.createdAt }}</td>
+      <td>
+        <form class="logout-form" method="post" action="/admin/api-keys/revoke">
+          <input type="hidden" name="csrf" value="{{ csrfToken }}">
+          <input type="hidden" name="id" value="{{ k.id }}">
+          <button type="submit" class="btn">Revoke</button>
+        </form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

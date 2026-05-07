@@ -1,0 +1,16 @@
+{% extends "_layout" %}
+{% block scripts %}
+<script src="{{ assets.editor }}"></script>
+{% endblock %}
+{% block content %}
+<h1>{% if isNew %}New page{% else %}Edit {{ groupName }}/{{ slug }}{% endif %}</h1>
+{% if error %}<p class="form-error"><strong>{{ error }}</strong></p>{% endif %}
+<form method="post" action="/admin/save" autocomplete="off">
+  <input type="hidden" name="csrf" value="{{ csrfToken }}">
+  <p><label>Group<br><input type="text" name="groupName" required value="{{ groupName }}" pattern="[a-z0-9-]+"{% if !isNew %} readonly{% endif %}></label></p>
+  <p><label>Slug<br><input type="text" name="slug" required value="{{ slug }}" pattern="[a-z0-9-]+"{% if !isNew %} readonly{% endif %}></label></p>
+  <p><label>Title<br><input type="text" name="title" required value="{{ titleField }}"></label></p>
+  <p><label>Body (HTML — operator-trusted, rendered raw)<br><textarea name="body" rows="20" cols="80" required>{{ body }}</textarea></label></p>
+  <p><button type="submit">Save</button> {% if !isNew %}<a href="/{{ groupName }}/{{ slug }}">Cancel</a>{% else %}<a href="/admin">Cancel</a>{% endif %}</p>
+</form>
+{% endblock %}

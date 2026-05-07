@@ -1,0 +1,466 @@
+# Framework smoke + wiki e2e + lint scans on every push/PR.
+#
+# Lint posture: 0 warnings, 0 errors. Bug-class ESLint rules + Hadolint
+# strict + ShellCheck strict. The ESLint config is tuned to flag real
+# bugs without forcing a stylistic-cleanup sweep on legacy code.
+#
+# Output posture: every step's full output is shown — no `>/dev/null`,
+# no `--quiet`, no `--silent`. Operators reading a failed run see what
+# actually fired without re-running locally.
+#
+# Lint jobs additionally capture their full output and surface it via:
+#   - GitHub Step Summary (visible on the workflow run page without
+#     drilling into per-job logs).
+#   - PR comment (sticky — updated rather than re-posted on each push)
+#     with `<details>` blocks containing the actual linter output for
+#     any failing check.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags:     ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Framework smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node 24 LTS
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Show Node + npm version
+        run: node --version && npm --version
+
+      - name: Run framework smoke
+        # NODE_OPTIONS heap bump — codebase-patterns duplicate-block
+        # detector accumulates ~4M shingle-fingerprint entries across
+        # the lib/ corpus. macOS-arm64 CI runners with the 2 GB Node
+        # default OOMed mid-scan; 4 GB is enough headroom for the
+        # whole smoke run including the parallel-shingle pass.
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: node test/smoke.js
+
+  wiki-e2e:
+    name: Wiki e2e (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node 24 LTS
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Resolve wiki framework dep (file:../..)
+        working-directory: examples/wiki
+        run: npm install --no-package-lock --omit=dev --install-links
+
+      - name: Run wiki e2e
+        working-directory: examples/wiki
+        run: node test/e2e.js
+
+  api-snapshot:
+    name: API surface snapshot gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node 24 LTS
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Compare against committed baseline
+        # Fails on breaking changes (removed methods, type changes).
+        # Additive changes (new methods) are logged but pass — the
+        # baseline gets refreshed at the next release commit alongside
+        # the bump in package.json so the new surface is tracked.
+        run: node scripts/check-api-snapshot.js
+
+  vendor-currency:
+    # Asserts every npm-mapped vendored bundle in lib/vendor/MANIFEST.json
+    # matches the latest registry release. A stale vendored bundle is a
+    # release blocker — the framework's "zero npm runtime deps" rule is
+    # only a security posture if the snapshot we shipped is fresh.
+    name: Vendor currency (vendored bundles vs npm latest)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Run vendor-currency check
+        # Hits registry.npmjs.org/<pkg>/latest for each npm-mapped entry
+        # (vendored bundles plus per-component versions on meta-bundles
+        # like peculiar-pki). Fails on any "stale" finding. Registry
+        # errors stay advisory unless BLAMEJS_VENDOR_CURRENCY_STRICT=1
+        # so a transient registry hang doesn't block unrelated releases.
+        run: node scripts/check-vendor-currency.js
+
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # gitleaks scans full history on a non-shallow checkout, so an
+          # accidentally-committed secret in any prior commit on the
+          # branch is caught even if a later commit reverts it. The
+          # ref-history fetch matches the npm publish workflow's depth.
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        # Pull the OSS gitleaks binary directly from GitHub releases.
+        # The `gitleaks/gitleaks-action` wrapper requires a commercial
+        # license (GITLEAKS_LICENSE secret) for organization accounts,
+        # which is unsuitable for an open-source project. The
+        # underlying `gitleaks` binary itself stays Apache-2.0 and has
+        # no such requirement — install + invoke it directly. We track
+        # the LATEST release rather than pinning a version: gitleaks
+        # is a security gate, new rules ship to catch new attack
+        # patterns, and pinning would silently miss improvements to
+        # the detection set. Aligns with the framework's forward-
+        # looking-defaults policy.
+        run: |
+          set -euo pipefail
+          GITLEAKS_VERSION=$(curl -fsSL https://api.github.com/repos/gitleaks/gitleaks/releases/latest \
+            | grep -oP '"tag_name":\s*"v\K[^"]+' | head -1)
+          if [ -z "$GITLEAKS_VERSION" ]; then
+            echo "::error::Could not resolve latest gitleaks release tag from GitHub API"
+            exit 1
+          fi
+          echo "[gitleaks] resolved latest release: v${GITLEAKS_VERSION}"
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /tmp gitleaks
+          sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Run gitleaks
+        # Default ruleset catches AWS keys, GCP credentials, GitHub
+        # tokens, npm tokens, generic high-entropy strings. The
+        # framework's vendored crypto fixtures live under lib/vendor/
+        # and are explicitly allowlisted in .gitleaks.toml so the
+        # bundled noble-ciphers / argon2 binaries don't trip entropy
+        # heuristics. --redact strips secret values from the report so
+        # an accidentally-leaked one doesn't get re-printed in CI logs.
+        run: |
+          gitleaks git --config=.gitleaks.toml --redact --verbose --exit-code=1
+
+  wiki-section-convention:
+    name: Wiki primitive-section convention
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node 24 LTS
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Validate every primitive section ships heading + opts + prose + example
+        # Fast signal — no app boot, just walks the page seeders. The
+        # wiki-e2e job runs the same validator before its boot, so a
+        # convention break fails this job immediately AND short-circuits
+        # the heavier e2e run.
+        run: node examples/wiki/test/validate-primitive-sections.js
+
+  lint-eslint:
+    name: ESLint (lib + examples + tests)
+    runs-on: ubuntu-latest
+    outputs:
+      outcome: ${{ steps.eslint.outcome }}
+      output:  ${{ steps.eslint.outputs.output }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node 24 LTS
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Run ESLint (max-warnings 0)
+        # Capture full output so the PR comment / step summary can show
+        # exactly what failed without operators re-running locally.
+        # `set +e` prevents the capture from short-circuiting; we re-emit
+        # the original exit code at the end to keep the job-fail signal.
+        id: eslint
+        run: |
+          set +e
+          OUTPUT=$(npx --yes eslint@10.3.0 --max-warnings 0 . 2>&1)
+          EXIT_CODE=$?
+          set -e
+
+          echo "$OUTPUT"
+
+          {
+            echo "output<<ESLINT_EOF"
+            echo "$OUTPUT"
+            echo "ESLINT_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "::error::ESLint found issues"
+          fi
+          exit $EXIT_CODE
+
+  lint-hadolint:
+    name: Hadolint (Dockerfiles)
+    runs-on: ubuntu-latest
+    outputs:
+      outcome: ${{ steps.hadolint_result.outputs.outcome }}
+      output:  ${{ steps.hadolint_result.outputs.output }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run Hadolint (strict, all severities)
+        # `--no-fail` is OFF; any error or warning fails the job.
+        # Config at .hadolint.yaml ignores the small set of rules
+        # that conflict with our intentional patterns.
+        if: always()
+        id: hadolint
+        uses: hadolint/hadolint-action@master
+        with:
+          dockerfile: examples/wiki/Dockerfile
+          config:     .hadolint.yaml
+          format:     tty
+          no-fail:    false
+          failure-threshold: warning
+
+      - name: Capture Hadolint result
+        if: always()
+        id: hadolint_result
+        env:
+          HADOLINT_OUTCOME: ${{ steps.hadolint.outcome }}
+        run: |
+          if [ -z "${HADOLINT_RESULTS:-}" ]; then
+            echo "outcome=$HADOLINT_OUTCOME" >> "$GITHUB_OUTPUT"
+            echo "output=" >> "$GITHUB_OUTPUT"
+          else
+            echo "outcome=$HADOLINT_OUTCOME" >> "$GITHUB_OUTPUT"
+            {
+              echo "output<<HADOLINT_EOF"
+              printf '%s\n' "$HADOLINT_RESULTS"
+              echo "HADOLINT_EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+  lint-shellcheck:
+    name: ShellCheck (shell scripts)
+    runs-on: ubuntu-latest
+    outputs:
+      outcome: ${{ steps.shellcheck.outcome }}
+      output:  ${{ steps.shellcheck.outputs.output }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Detect shell scripts
+        id: sh
+        run: |
+          # ludeeus/action-shellcheck fails when there are no *.sh
+          # files (shellcheck itself exits 3 on empty input). Skip the
+          # lint step when nothing matches; flip back on the moment a
+          # tracked .sh appears.
+          count=$(git ls-files '*.sh' | wc -l)
+          echo "Tracked .sh files: $count"
+          git ls-files '*.sh' || true
+          echo "found=$count" >> "$GITHUB_OUTPUT"
+
+      - name: Run ShellCheck
+        # Captures full output the same way ESLint does so the PR
+        # comment / step summary can show what failed.
+        if: steps.sh.outputs.found != '0'
+        id: shellcheck
+        run: |
+          SCRIPTS=$(git ls-files '*.sh')
+          echo "Checking: $SCRIPTS"
+
+          set +e
+          OUTPUT=$(echo "$SCRIPTS" | xargs shellcheck --severity=style --format=gcc 2>&1)
+          EXIT_CODE=$?
+          set -e
+
+          echo "$OUTPUT"
+
+          {
+            echo "output<<SHELLCHECK_EOF"
+            echo "$OUTPUT"
+            echo "SHELLCHECK_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "::error::ShellCheck found issues"
+          fi
+          exit $EXIT_CODE
+
+  # ── Lint summary + PR comment ────────────────────────────────────────────
+  # Aggregates the three lint job outcomes into a single status table on
+  # the workflow Step Summary and (for PRs) into a sticky PR comment.
+  # `if: always()` so the summary still posts when one or more lint jobs
+  # fail — that's the case we most want operators to see at a glance.
+  lint-summary:
+    name: Lint summary
+    needs: [lint-eslint, lint-hadolint, lint-shellcheck]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build summary
+        id: summary
+        env:
+          ESLINT_OUTCOME:     ${{ needs.lint-eslint.result }}
+          HADOLINT_OUTCOME:   ${{ needs.lint-hadolint.result }}
+          SHELLCHECK_OUTCOME: ${{ needs.lint-shellcheck.result }}
+          ESLINT_OUTPUT:      ${{ needs.lint-eslint.outputs.output }}
+          HADOLINT_OUTPUT:    ${{ needs.lint-hadolint.outputs.output }}
+          SHELLCHECK_OUTPUT:  ${{ needs.lint-shellcheck.outputs.output }}
+        run: |
+          PASS="✅"
+          FAIL="❌"
+
+          ESLINT_OK=$( [ "$ESLINT_OUTCOME" = "success" ] && echo "true" || echo "false" )
+          HADOLINT_OK=$( [ "$HADOLINT_OUTCOME" = "success" ] && echo "true" || echo "false" )
+          SHELLCHECK_OK=$( [ "$SHELLCHECK_OUTCOME" = "success" ] || [ "$SHELLCHECK_OUTCOME" = "skipped" ] && echo "true" || echo "false" )
+
+          ESLINT_ICON=$( [ "$ESLINT_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
+          HADOLINT_ICON=$( [ "$HADOLINT_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
+          SHELLCHECK_ICON=$( [ "$SHELLCHECK_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
+
+          ALL_OK=true
+          [ "$ESLINT_OK" = "true" ] && [ "$HADOLINT_OK" = "true" ] && [ "$SHELLCHECK_OK" = "true" ] || ALL_OK=false
+
+          {
+            echo "body<<SUMMARY_EOF"
+            # Sticky-comment marker — always present so the next run's
+            # github-script matcher can find + update the existing
+            # comment regardless of pass/fail state.
+            echo "<!-- blamejs-lint-comment -->"
+            if [ "$ALL_OK" = "true" ]; then
+              echo "🎉   Linting finished with no errors or warnings   🎉"
+              echo ""
+            fi
+            echo "| Check | Status |"
+            echo "|-------|--------|"
+            echo "| ESLint (JS + bug-class rules) | $ESLINT_ICON |"
+            echo "| Hadolint (Dockerfile)         | $HADOLINT_ICON |"
+            echo "| ShellCheck (shell scripts)    | $SHELLCHECK_ICON |"
+
+            if [ "$ESLINT_OK" != "true" ] && [ -n "$ESLINT_OUTPUT" ]; then
+              echo ""
+              echo "<details><summary>ESLint output</summary>"
+              echo ""
+              echo '```'
+              printf '%s\n' "$ESLINT_OUTPUT"
+              echo '```'
+              echo "</details>"
+            fi
+
+            if [ "$HADOLINT_OK" != "true" ] && [ -n "$HADOLINT_OUTPUT" ]; then
+              echo ""
+              echo "<details><summary>Hadolint output</summary>"
+              echo ""
+              echo '```'
+              printf '%s\n' "$HADOLINT_OUTPUT"
+              echo '```'
+              echo "</details>"
+            fi
+
+            if [ "$SHELLCHECK_OK" != "true" ] && [ -n "$SHELLCHECK_OUTPUT" ]; then
+              echo ""
+              echo "<details><summary>ShellCheck output</summary>"
+              echo ""
+              echo '```'
+              printf '%s\n' "$SHELLCHECK_OUTPUT"
+              echo '```'
+              echo "</details>"
+            fi
+
+            echo "SUMMARY_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "all_ok=$ALL_OK" >> "$GITHUB_OUTPUT"
+
+          # Step summary — same table on the workflow run page.
+          {
+            echo "### Lint Results"
+            echo ""
+            echo "| Check | Status |"
+            echo "|-------|--------|"
+            echo "| ESLint     | $ESLINT_ICON |"
+            echo "| Hadolint   | $HADOLINT_ICON |"
+            echo "| ShellCheck | $SHELLCHECK_ICON |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment on PR
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v9
+        env:
+          PR_BODY: ${{ steps.summary.outputs.body }}
+        with:
+          script: |
+            const body = process.env.PR_BODY;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('<!-- blamejs-lint-comment -->')
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Fail if any linter failed
+        if: always()
+        run: |
+          if [ "${{ steps.summary.outputs.all_ok }}" != "true" ]; then
+            echo "One or more linters failed"
+            exit 1
+          fi

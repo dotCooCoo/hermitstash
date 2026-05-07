@@ -1,0 +1,5 @@
+{% extends "_layout" %}
+{% block content %}
+{{{ body }}}
+<p class="muted">Last updated {{ updatedAtIso }} by {{ updatedBy }}.{% if user %} <a href="/admin/edit/{{ groupName }}/{{ slug }}">Edit this page</a>.{% endif %}</p>
+{% endblock %}

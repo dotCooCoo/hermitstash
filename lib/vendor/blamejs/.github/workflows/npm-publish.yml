@@ -1,0 +1,235 @@
+# Publish @blamejs/core to the npm registry on every `v*` tag push.
+#
+# Same trigger shape as release-container.yml, but a separate workflow
+# so a failure in one doesn't block the other (npm publish failures
+# shouldn't keep the GHCR image from shipping; container failures
+# shouldn't block an operator from `npm install @blamejs/core`).
+#
+# Supply-chain posture matches the container release:
+#   - npm publish --provenance attaches a SLSA v1 provenance attestation
+#     tying the published tarball to this exact GitHub Actions workflow
+#     run + commit + tag (visible at https://www.npmjs.com/package/@blamejs/core
+#     → "Provenance" on each version).
+#   - Lint + smoke gate runs before publish; a tag-time test regression
+#     never lands on the npm registry.
+#   - Version match: the package.json "version" must equal the pushed
+#     tag minus the leading "v". Tag drift fails the publish.
+#
+# `workflow_dispatch.dry_run` lets an operator exercise the validation
+# + lint + test path without actually pushing to npm — useful for
+# verifying a package.json change before tagging.
+
+name: npm publish
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build + lint + smoke without publishing to npm'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write   # gh release upload needs write to attach assets to the release
+  id-token: write   # OIDC token for npm provenance attestation
+
+concurrency:
+  group: npm-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Lint, smoke, publish
+    runs-on: ubuntu-latest
+    # 30-min cap covers the now-larger smoke surface (~7200+ checks) +
+    # wiki e2e + sbom + the cold npx eslint pull. v0.6.38 → v0.6.53
+    # all timed out at the previous 15-min cap, leaving npm registry
+    # stuck at v0.6.37. Bumped 2026-05-03 along with v0.6.54.
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node 24 LTS + npm registry auth
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Fail loud + early if the NPM_TOKEN secret isn't visible to this
+      # workflow run. The publish step otherwise burns ~60s of lint +
+      # smoke + e2e + tarball-build before producing an opaque
+      # ENEEDAUTH. Diagnostic message points operators at the
+      # most-common cause (org-secret with restricted repo access).
+      - name: Verify NPM_TOKEN is reachable
+        if: ${{ !inputs.dry_run }}
+        env:
+          NPM_TOKEN_REACHABLE: ${{ secrets.NPM_TOKEN != '' }}
+        run: |
+          if [ "$NPM_TOKEN_REACHABLE" != "true" ]; then
+            echo "::error::NPM_TOKEN secret is empty in this workflow run."
+            echo "::error::Check at: https://github.com/organizations/blamejs/settings/secrets/actions"
+            echo "::error::  - Confirm a secret named NPM_TOKEN exists at the org level (not personal account)"
+            echo "::error::  - Confirm 'Repository access' includes blamejs/blamejs (or is 'All repositories')"
+            echo "::error::  - Confirm the secret value is not empty/whitespace"
+            exit 1
+          fi
+          echo "NPM_TOKEN secret is reachable (length will be revealed only by the npm publish step)."
+
+      - name: Compute version
+        id: version
+        run: |
+          # On tag push: derive version from the tag (strip leading "v").
+          # On workflow_dispatch (no tag): just pull from package.json
+          # and validate, but don't expect a tag match.
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "${GITHUB_REF#refs/tags/}" != "$GITHUB_REF" ]; then
+            TAG_REF="${GITHUB_REF#refs/tags/v}"
+            if [ "$TAG_REF" != "$PKG_VERSION" ]; then
+              echo "::error::Tag-version drift: pushed tag is v$TAG_REF but package.json version is $PKG_VERSION."
+              echo "::error::Bump package.json AND tag the same version on a single commit."
+              exit 1
+            fi
+            echo "is_tag=true"      >> "$GITHUB_OUTPUT"
+            echo "version=$PKG_VERSION" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_tag=false"     >> "$GITHUB_OUTPUT"
+            echo "version=$PKG_VERSION" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Resolved version: $PKG_VERSION (tag-push: ${GITHUB_REF#refs/tags/})"
+
+      # Lint gate. ESLint covers the framework JS surface; shellcheck
+      # covers vendor-update.sh + docker init scripts (these ARE in the
+      # npm tarball, so a regression should fail the publish). Hadolint
+      # stays in release-container.yml only — the Dockerfile is
+      # container-only and is not part of the npm artifact.
+      - name: ESLint (max-warnings 0)
+        # Pinned to a known-good eslint version. `eslint@latest` was
+        # silently letting new rule additions fail the publish gate
+        # on a release that had passed `eslint@<previous>` cleanly the
+        # day before. The pin moves with operator-confirmed bumps,
+        # not whatever the npm registry happens to ship.
+        run: npx --yes eslint@10.3.0 --max-warnings 0 .
+
+      - name: Detect shell scripts
+        id: sh
+        run: |
+          count=$(git ls-files '*.sh' | wc -l)
+          echo "Tracked .sh files: $count"
+          git ls-files '*.sh' || true
+          echo "found=$count" >> "$GITHUB_OUTPUT"
+
+      - name: ShellCheck
+        if: steps.sh.outputs.found != '0'
+        uses: ludeeus/action-shellcheck@master
+        with:
+          severity: style
+          format:   tty
+          check_together: 'yes'
+
+      - name: Framework smoke
+        run: node test/smoke.js
+
+      - name: Wiki e2e
+        working-directory: examples/wiki
+        run: |
+          rm -rf data data-e2e
+          npm install --no-package-lock --omit=dev --install-links
+          node test/e2e.js
+
+      - name: Generate CycloneDX SBOM
+        # `npm sbom` ships with npm 10+ (Node 24 LTS). Generates a
+        # CycloneDX 1.5 JSON file from package.json + the lockfile.
+        # blamejs has zero npm runtime deps so the SBOM is small —
+        # the value is the discoverability signal (operators / supply-
+        # chain scanners can verify there's nothing hidden) plus the
+        # CI gate that catches a leaked dep being added.
+        run: |
+          npm sbom --sbom-format cyclonedx --omit dev > sbom.cyclonedx.json
+          echo "[sbom] wrote sbom.cyclonedx.json ($(wc -c < sbom.cyclonedx.json) bytes)"
+          # Refuse the publish if any runtime dep snuck in. The framework's
+          # zero-dep contract says lib/vendor/ holds everything; runtime
+          # deps in package.json would silently break that.
+          RUNTIME_DEPS=$(node -e "
+            var s = JSON.parse(require('fs').readFileSync('sbom.cyclonedx.json', 'utf8'));
+            var comps = (s.components || []).filter(function (c) {
+              return c.scope !== 'optional' && c.scope !== 'excluded' &&
+                     c['bom-ref'] !== s.metadata.component['bom-ref'];
+            });
+            console.log(comps.length);
+          ")
+          if [ "$RUNTIME_DEPS" -gt 0 ]; then
+            echo "::error::SBOM lists $RUNTIME_DEPS runtime dependency component(s)."
+            echo "::error::blamejs ships zero npm runtime deps — vendor any new dep into lib/vendor/."
+            exit 1
+          fi
+
+      - name: Attach SBOM as release asset
+        if: ${{ !inputs.dry_run && steps.version.outputs.is_tag == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG:      v${{ steps.version.outputs.version }}
+        run: |
+          # The release was created by the operator's `gh release create`
+          # step before this workflow ran. We attach the SBOM as a second
+          # access path (alongside the npm tarball, which also includes it).
+          #
+          # Failure modes we tolerate:
+          #   - HTTP 422 "Cannot upload assets to an immutable release"
+          #     when the repo has the immutable-releases setting on. The
+          #     SBOM is still in the npm tarball; the GitHub release
+          #     attachment is supplementary, not load-bearing.
+          #   - Asset already exists (--clobber re-uploads).
+          # Any other failure is logged but does not fail the publish —
+          # the npm package is the canonical artifact.
+          set +e
+          OUT=$(gh release upload "$TAG" sbom.cyclonedx.json --repo "$GITHUB_REPOSITORY" --clobber 2>&1)
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -eq 0 ]; then
+            echo "[sbom-attach] uploaded to release $TAG"
+          else
+            echo "[sbom-attach] upload failed (status=$STATUS):"
+            echo "$OUT"
+            if echo "$OUT" | grep -qi "immutable release"; then
+              echo "::warning::GitHub repo has immutable releases enabled — SBOM not attached to GH release. The SBOM is still bundled in the npm tarball at sbom.cyclonedx.json (npm install @blamejs/core && cat node_modules/@blamejs/core/sbom.cyclonedx.json)."
+            else
+              echo "::warning::SBOM attach to GH release failed for $TAG — the npm tarball is the canonical SBOM source."
+            fi
+          fi
+
+      - name: Publish to npm (with SLSA provenance)
+        if: ${{ !inputs.dry_run && steps.version.outputs.is_tag == 'true' }}
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Build summary
+        if: always()
+        run: |
+          IS_TAG="${{ steps.version.outputs.is_tag }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          DRY_RUN="${{ inputs.dry_run || 'false' }}"
+
+          {
+            echo "### npm publish"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| **Package**   | \`@blamejs/core\` |"
+            echo "| **Version**   | \`$VERSION\` |"
+            echo "| **Tag push**  | $IS_TAG |"
+            echo "| **Dry run**   | $DRY_RUN |"
+            echo "| **Registry**  | https://registry.npmjs.org |"
+            if [ "$IS_TAG" = "true" ] && [ "$DRY_RUN" != "true" ]; then
+              echo "| **Provenance** | https://www.npmjs.com/package/@blamejs/core/v/$VERSION → Provenance tab |"
+            fi
+            echo ""
+            echo "Operators can install with:"
+            echo ""
+            echo '```bash'
+            echo "npm install @blamejs/core@$VERSION"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

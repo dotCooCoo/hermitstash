@@ -1,0 +1,401 @@
+# Build, scan with Trivy, sign with cosign, then push the wiki container
+# to GHCR on every `v*` tag. Build → scan → push → sign → smoke order:
+# a vulnerable image never lands in the registry, and a published image
+# is always cosign-signed and post-publish smoke-tested.
+#
+# Two Trivy steps mirror the hermitstash pattern:
+#
+#   1. Visibility (exit-code 0): scans every severity (UNKNOWN→CRITICAL)
+#      plus secrets and misconfig, INCLUDING unfixed CVEs. Informational
+#      only — surfaces the full finding list for the post-release fix
+#      log so the next patch release can address what we can fix.
+#
+#   2. Gate (exit-code 1): fails the release on CRITICAL/HIGH findings
+#      that have a fix available (`ignore-unfixed: true`). Narrow
+#      threshold avoids blocking on unpatched upstream CVEs while still
+#      refusing to ship images with actionable high-severity issues
+#      (a fixable glibc CVE, a leaked secret, a HIGH Dockerfile misconfig).
+#
+# `workflow_dispatch.dry_run` lets an operator manually exercise the
+# build + Trivy scan path without pushing or signing — useful for
+# verifying a Dockerfile change before tagging.
+
+name: Release container
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build and scan without pushing to registry or signing'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write  # cosign keyless signing via GitHub OIDC
+
+concurrency:
+  group: release-container-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE:    ghcr.io/${{ github.repository_owner }}/blamejs-wiki
+
+jobs:
+  # ---- Lint gate ----------------------------------------------------------
+  # ESLint + Hadolint + ShellCheck run on every release tag before the
+  # container build starts. Lint failure here aborts the release — a
+  # tag-time lint regression must never publish a container.
+  lint-eslint:
+    name: ESLint (lib + examples + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Node 24 LTS
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Run ESLint (max-warnings 0)
+        # Pinned to a known-good eslint version; matches ci.yml /
+        # npm-publish.yml so the three pre-tag gates run identical
+        # eslint logic.
+        run: npx --yes eslint@10.3.0 --max-warnings 0 .
+
+  lint-hadolint:
+    name: Hadolint (Dockerfiles)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Run Hadolint (strict, all severities)
+        uses: hadolint/hadolint-action@master
+        with:
+          dockerfile: examples/wiki/Dockerfile
+          config:     .hadolint.yaml
+          format:     tty
+          no-fail:    false
+          failure-threshold: warning
+
+  lint-shellcheck:
+    name: ShellCheck (shell scripts)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Detect shell scripts
+        id: sh
+        run: |
+          count=$(git ls-files '*.sh' | wc -l)
+          echo "Tracked .sh files: $count"
+          git ls-files '*.sh' || true
+          echo "found=$count" >> "$GITHUB_OUTPUT"
+      - name: Run ShellCheck
+        if: steps.sh.outputs.found != '0'
+        uses: ludeeus/action-shellcheck@master
+        with:
+          severity: style
+          format:   tty
+          check_together: 'yes'
+
+  publish:
+    name: Build, scan, publish
+    needs: [lint-eslint, lint-hadolint, lint-shellcheck]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      digest:  ${{ steps.push.outputs.digest }}
+      version: ${{ steps.tags.outputs.semver }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up QEMU (for ARM64 cross-build)
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        if: ${{ !inputs.dry_run }}
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: tags
+        run: |
+          # On workflow_dispatch (no tag) fall back to a sha-based scan tag
+          # so the local-only build + Trivy scan path still works.
+          if [ "${GITHUB_REF#refs/tags/}" != "$GITHUB_REF" ]; then
+            REF="${GITHUB_REF#refs/tags/v}"
+            MAJOR_MINOR="${REF%.*}"
+            {
+              echo "semver=$REF"
+              echo "minor=$MAJOR_MINOR"
+              echo "scan_tag=$REF"
+              echo "is_tag=true"
+            } >> "$GITHUB_OUTPUT"
+          else
+            SHORT_SHA="${GITHUB_SHA::7}"
+            {
+              echo "semver=0.0.0-dev-${SHORT_SHA}"
+              echo "minor=0.0"
+              echo "scan_tag=dev-${SHORT_SHA}"
+              echo "is_tag=false"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      # Build the image into the local Docker daemon (load: true) so
+      # Trivy can scan it. We push only after both Trivy steps pass.
+      # Note: load: true forces single-arch (amd64). The multi-arch
+      # build happens on the post-scan push step below.
+      - name: Build (local-only, for Trivy)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: examples/wiki/Dockerfile
+          load: true
+          push: false
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.tags.outputs.scan_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ---- Trivy step 1 — visibility (no fail) ----
+      # Logs every finding from UNKNOWN to CRITICAL plus secrets and
+      # Dockerfile misconfiguration. ignore-unfixed: false so unpatched
+      # upstream CVEs surface for the next patch's fix log.
+      - name: Trivy scan — visibility (all severities, no fail)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE }}:${{ steps.tags.outputs.scan_tag }}
+          severity:  'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
+          exit-code: '0'
+          scanners:  'vuln,secret,misconfig'
+          ignore-unfixed: false
+          format:    'table'
+
+      # ---- Trivy step 2 — release gate (fixed CRITICAL/HIGH only) ----
+      # Fails the release on CRITICAL/HIGH with fix available. Doesn't
+      # block on unfixed upstream CVEs.
+      - name: Trivy scan — release gate (CRITICAL/HIGH fixed)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref:      ${{ env.IMAGE }}:${{ steps.tags.outputs.scan_tag }}
+          severity:       'CRITICAL,HIGH'
+          exit-code:      '1'
+          ignore-unfixed: true
+          format:         'table'
+
+      - name: Install cosign
+        if: ${{ !inputs.dry_run && steps.tags.outputs.is_tag == 'true' }}
+        uses: sigstore/cosign-installer@v3
+
+      # Reached only when both Trivy steps pass. Multi-arch build is
+      # done here (rather than reusing the load:true single-arch build)
+      # because buildx can't load multi-arch manifests into the local
+      # daemon — they have to go straight to the registry.
+      - name: Push (multi-arch, after Trivy gate)
+        id: push
+        if: ${{ !inputs.dry_run && steps.tags.outputs.is_tag == 'true' }}
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: examples/wiki/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.tags.outputs.semver }}
+            ${{ env.IMAGE }}:${{ steps.tags.outputs.minor }}
+            ${{ env.IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.title=blamejs-wiki
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.tags.outputs.semver }}
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.description=blamejs wiki reference app
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Sign image with cosign (keyless, GitHub OIDC)
+        if: ${{ !inputs.dry_run && steps.tags.outputs.is_tag == 'true' && steps.push.outputs.digest }}
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: cosign sign --yes "${{ env.IMAGE }}@${DIGEST}"
+
+      - name: Generate SHA3-512 digest
+        if: ${{ !inputs.dry_run && steps.tags.outputs.is_tag == 'true' && steps.push.outputs.digest }}
+        id: sha3
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          docker pull "${{ env.IMAGE }}@${DIGEST}"
+          HASH=$(docker save "${{ env.IMAGE }}@${DIGEST}" | openssl dgst -sha3-512 | awk '{print $NF}')
+          echo "SHA3-512: $HASH"
+          echo "sha3=$HASH" >> "$GITHUB_OUTPUT"
+          {
+            echo ""
+            echo "#### SHA3-512"
+            echo '```'
+            echo "$HASH"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build summary
+        if: always()
+        env:
+          DRY_RUN:    ${{ inputs.dry_run || 'false' }}
+          IS_TAG:     ${{ steps.tags.outputs.is_tag }}
+          VERSION:    ${{ steps.tags.outputs.semver }}
+          TAGS_LIST: |
+            ${{ env.IMAGE }}:${{ steps.tags.outputs.semver }}
+            ${{ env.IMAGE }}:${{ steps.tags.outputs.minor }}
+            ${{ env.IMAGE }}:latest
+        run: |
+          {
+            echo "### Container release"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| **Version**   | ${VERSION} |"
+            echo "| **Platforms** | linux/amd64, linux/arm64 |"
+            echo "| **Registry**  | ${{ env.IMAGE }} |"
+            echo "| **Commit**    | ${{ github.sha }} |"
+            echo "| **Dry run**   | ${DRY_RUN} |"
+            echo "| **Tag push**  | ${IS_TAG} |"
+            echo ""
+            echo "#### Tags"
+            echo '```'
+            printf '%s\n' "$TAGS_LIST"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---- Post-publish smoke test --------------------------------------------
+  # Pulls the just-published image by digest, verifies the OCI labels are
+  # present, starts the container with hardened flags (--init, no-new-
+  # privileges, cap-drop ALL, …), curls /healthz on port 8080 and asserts
+  # the body contains `"status":"ok"`. Skipped on dry-run.
+  smoke-test:
+    name: Post-publish smoke test
+    needs: publish
+    if: ${{ !inputs.dry_run && needs.publish.outputs.digest != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Smoke-test runs on a fresh runner — it doesn't inherit the
+      # publish job's GHCR auth. Log in first so `docker pull` works
+      # whether the package is public or private. Login is a no-op
+      # against a public package, so this is the right shape regardless
+      # of visibility.
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull published image
+        run: docker pull "${{ env.IMAGE }}@${{ needs.publish.outputs.digest }}"
+
+      - name: Verify OCI labels
+        run: |
+          set -euo pipefail
+          LABELS=$(docker inspect "${{ env.IMAGE }}@${{ needs.publish.outputs.digest }}" --format '{{json .Config.Labels}}')
+          echo "$LABELS" | python3 -m json.tool
+          echo "$LABELS" | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin) or {}
+          required = [
+            'org.opencontainers.image.title',
+            'org.opencontainers.image.source',
+            'org.opencontainers.image.licenses',
+            'org.opencontainers.image.version',
+          ]
+          missing = [k for k in required if k not in d]
+          assert not missing, 'missing labels: ' + ', '.join(missing)
+          print('Labels OK: title=' + d['org.opencontainers.image.title'] + ', license=' + d['org.opencontainers.image.licenses'] + ', version=' + d['org.opencontainers.image.version'])
+          "
+
+      - name: Start container
+        run: |
+          # The wiki example boots straight on plaintext defaults; no
+          # framework-level vault env wiring needed (vault wrapped-mode
+          # is a framework feature, not an example-app feature).
+          docker run -d --name smoke-test \
+            --init \
+            --security-opt no-new-privileges:true \
+            --cap-drop ALL \
+            -p 8080:8080 \
+            "${{ env.IMAGE }}@${{ needs.publish.outputs.digest }}"
+
+          echo "Waiting for /healthz..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/healthz > /dev/null 2>&1; then
+              echo "Healthy after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Health check
+        run: |
+          set -euo pipefail
+          HEALTH=$(curl -sf http://localhost:8080/healthz)
+          echo "$HEALTH"
+          echo "$HEALTH" | python3 -c "
+          import sys, json
+          d = json.loads(sys.stdin.read())
+          assert d.get('status') == 'ok', 'unhealthy: ' + json.dumps(d)
+          "
+
+      - name: Capture container diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== docker ps ==="
+          docker ps -a --filter name=smoke-test
+          echo ""
+          echo "=== docker inspect (State + ExitCode + Health) ==="
+          docker inspect smoke-test --format '{{json .State}}' | python3 -m json.tool 2>&1 || docker inspect smoke-test --format '{{.State}}' || true
+          echo ""
+          echo "=== docker logs (full) ==="
+          docker logs smoke-test 2>&1 || echo "  (container gone — can't fetch logs)"
+
+      - name: Smoke summary (success only — failures are captured by the diagnostics step above)
+        if: success()
+        run: |
+          {
+            echo "### Post-publish smoke ✅"
+            echo ""
+            echo "| Check | Status |"
+            echo "|-------|--------|"
+            echo "| Pull image     | ✅ Passed |"
+            echo "| OCI labels     | ✅ Passed |"
+            echo "| /healthz       | ✅ Passed |"
+            echo "| Hardened flags | ✅ Passed |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Smoke summary (failure)
+        if: failure()
+        run: |
+          {
+            echo "### Post-publish smoke ❌"
+            echo ""
+            echo "Smoke test failed for ${{ env.IMAGE }}@${{ needs.publish.outputs.digest }}."
+            echo "See the 'Capture container diagnostics on failure' step above for"
+            echo "docker ps / inspect / logs output."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f smoke-test 2>/dev/null || true

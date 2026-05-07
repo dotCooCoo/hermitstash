@@ -1,0 +1,16 @@
+# mitmproxy options — used in interactive web mode for manual TLS
+# inspection during integration test debugging. Tests programmatically
+# drive scenarios through the proxy via mitmproxy's HTTP API on :8081.
+#
+# Default upstream-cert behaviour is fine; we only override knobs that
+# matter for "no warnings or errors": disable the on-disk cert cache
+# warning by pointing it explicitly at a writable path, and silence the
+# update-check noise.
+
+confdir: /home/mitmproxy/.mitmproxy
+ssl_insecure: true
+web_host: 0.0.0.0
+listen_host: 0.0.0.0
+listen_port: 8080
+web_port: 8081
+upstream_cert: true

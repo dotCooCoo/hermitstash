@@ -1,0 +1,109 @@
+title = "blamejs gitleaks config"
+
+# Inherit gitleaks' default ruleset (AWS keys, GCP creds, GitHub tokens,
+# npm tokens, generic high-entropy strings, etc.) and add framework-
+# specific allowlists below. New rules CAN be added here when the
+# framework gains a new credential shape it wants the scan to catch
+# (e.g. WIKI_WEBHOOK_SECRET in operator config); for now the defaults
+# are the policy.
+[extend]
+useDefault = true
+
+# gitleaks 8.21+ requires the [[allowlists]] (plural) form; the
+# singular [allowlist] is deprecated and rejected when [[allowlists]]
+# is also present. Each [[allowlists]] block is independent — a finding
+# is suppressed if ANY block matches.
+
+[[allowlists]]
+description = "Vendored binaries + crypto-fixture entropy in tests"
+paths = [
+  # Vendored deps (lib/vendor/) ship pre-built CJS bundles + native
+  # argon2 prebuilds for every supported platform. The bundles inline
+  # enough random-shaped lookup tables that gitleaks' entropy detector
+  # trips on them every run. The framework's own SECURITY.md + manifest
+  # already cover provenance for these bytes — gitleaks adding noise on
+  # top isn't a useful signal.
+  '''lib/vendor/.*''',
+  # Test fixtures: tests embed deterministic test keys (vault/audit/
+  # webhook signing) for round-trip exercises. They're plainly named
+  # `test-*` / `fixture-*` and never reach prod.
+  '''test/.*\.test\.js''',
+  '''test/00-primitives\.js''',
+  '''test/40-consumers\.js''',
+  '''test/50-integration\.js''',
+  '''test/smoke\.js''',
+  '''test/helpers/.*''',
+  # Wiki seeders embed example tokens / secrets in code blocks for
+  # documentation purposes (e.g. "WIKI_WEBHOOK_SECRET=hunter2-pad-pad").
+  # Each example is operator-readable and obviously fake.
+  '''examples/wiki/seeders/.*''',
+  # Reference SBOM file (committed alongside the package) carries the
+  # vendored package versions, not credentials.
+  '''sbom\.json''',
+]
+
+[[allowlists]]
+description = "Doc-string credential-shaped placeholders"
+# Patterns that match operator-facing docs; real credentials don't ship
+# there. BEARER token templates, hunter2-style example passphrases,
+# the wiki validator's deterministic test JWT secret.
+regexes = [
+  '''Authorization: Bearer <[A-Za-z0-9_-]+>''',
+  '''hunter2-?pass-?[A-Za-z0-9-]+''',
+  '''wiki-validator-jwt-secret''',
+  '''blamejs-(?:wiki-validator-|test-)?passphrase[A-Za-z0-9-]*''',
+  # JWT compact-serialization shape — base64url `eyJ...` header (decodes
+  # to `{"...`), then dot, then base64url payload + dot + base64url
+  # signature. Documentation and test fixtures legitimately embed JWT-
+  # shaped strings (b.guardJwt + b.guardAuth fixtures, examples in
+  # operator-facing wiki). Real signing keys never appear in compact
+  # serialization shape — they're PEM / DER / PKCS#8.
+  '''eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*''',
+  # Source files split JWT fixtures across multiple string literals
+  # for line-length; gitleaks then sees individual base64url segments.
+  # Match a single `eyJ`-prefixed segment of substantive length to
+  # cover that split-literal shape too.
+  '''eyJ[A-Za-z0-9_-]{20,}''',
+  # KEM-envelope object-literal shapes (`{ privateKey, cipherText }`)
+  # appear in error messages and CHANGELOG entries documenting the
+  # ML_KEM_768X25519 / ML_KEM_1024 surfaces. The string `cipherText`
+  # has high enough adjacent-token entropy to trip the generic-api-
+  # key rule; the literal is a parameter name, not a credential.
+  '''\{\s*privateKey\s*,\s*cipherText\s*\}''',
+]
+
+[[allowlists]]
+description = "Pre-config-landing commits (audited manually) + their fingerprints"
+# Commits made before this config landed predate the secret-scan gate
+# and were already audited manually. Pinning the SHA prevents the new
+# scan from blocking the next push on noise from the old history.
+# Operators rotating real secrets STILL must follow the SECURITY.md
+# breach-response process — the skip is for false-positives only.
+#
+# fingerprints are a finer-grained suppression on top of commits —
+# gitleaks 8.21+ requires at least one of (commits/paths/regexes/
+# stopwords) per block, so we combine the two-level suppression here.
+commits = [
+  # v0.4.x-era smoke.js had ~2500 lines (pre layer-N-* split). The
+  # `redact({ field: "REDACTED" })` line at 2415 trips the jwt rule on
+  # the placeholder string used by b.redact tests.
+  "74e627ea0fea39f06e01fe424a19724bea37aee8",
+  # v0.7.28 CHANGELOG entry documents the ML_KEM_768_X25519 envelope
+  # surface; the `privateKey: mlkemPrivateKey` JS-object-literal in
+  # the doc snippet trips the generic-api-key rule on adjacent
+  # high-entropy content. Plain operator-readable doc text, no real
+  # secret. Allowlist matches the same pattern as the 74e627e entry.
+  "fb91792bfe01e3b90478c5a65cbe71affdfdbdb6",
+  # v0.8.0 commit re-stating the same `{ privateKey, cipherText }`
+  # KEM-envelope shape in CHANGELOG.md + lib/crypto.js error
+  # messages. Parameter-name literal, no credential. The regex
+  # allowlist above catches future occurrences.
+  "1a7fef088f29b531d5d4391af6ea611d17f8c644",
+]
+fingerprints = [
+  "74e627ea0fea39f06e01fe424a19724bea37aee8:test/smoke.js:jwt:2415",
+  "fb91792bfe01e3b90478c5a65cbe71affdfdbdb6:CHANGELOG.md:generic-api-key:11",
+  "1a7fef088f29b531d5d4391af6ea611d17f8c644:CHANGELOG.md:generic-api-key:11",
+  "1a7fef088f29b531d5d4391af6ea611d17f8c644:lib/crypto.js:generic-api-key:375",
+  "1a7fef088f29b531d5d4391af6ea611d17f8c644:lib/crypto.js:generic-api-key:380",
+]

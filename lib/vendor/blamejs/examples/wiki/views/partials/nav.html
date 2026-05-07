@@ -1,0 +1,13 @@
+<li><a href="/welcome"{% if currentPath == '/welcome' %} aria-current="page"{% endif %}>Welcome</a></li>
+{% for group in nav %}
+<li class="nav-group-li">
+  <details class="nav-group"{% if currentGroup == group.name %} open{% endif %}>
+    <summary class="nav-section">{{ group.name }}</summary>
+    <ul class="nav-group-items">
+    {% for item in group.items %}
+      <li><a href="/{{ item.slug }}"{% if currentPath == '/' + item.slug %} aria-current="page"{% endif %}>{{ item.title }}</a></li>
+    {% endfor %}
+    </ul>
+  </details>
+</li>
+{% endfor %}

@@ -1,0 +1,45 @@
+.git
+.github
+.gitignore
+.gitattributes
+
+# Local editor / OS scratch
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Dependency / build output (rebuilt inside the image)
+node_modules
+**/node_modules
+**/dist
+**/build
+**/coverage
+
+# Per-app runtime state — never bake into an image
+**/data
+**/data-e2e
+**/public/dist
+
+# Test fixtures, lockfiles for the wiki example, large reproducibles
+test
+**/test
+*.log
+*.pid
+*.pid.lock
+
+# Credential / secret material — defense in depth
+*.pem
+*.key
+*.crt
+*.cert
+*.p12
+*.pfx
+secrets.json
+credentials.json
+
+# Backup / patch artifacts
+*.bak
+*.orig
+*.rej

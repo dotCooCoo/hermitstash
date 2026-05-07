@@ -1,0 +1,280 @@
+{
+  "topCommands": [
+    "api-key",
+    "api-snapshot",
+    "audit",
+    "backup",
+    "config-drift",
+    "dev",
+    "erase",
+    "file-type",
+    "help",
+    "migrate",
+    "mtls",
+    "password",
+    "restore",
+    "retention",
+    "security",
+    "seed",
+    "vault",
+    "version"
+  ],
+  "perCommand": {
+    "migrate": {
+      "subcommands": [
+        "down",
+        "status",
+        "up"
+      ],
+      "flags": [
+        "--db",
+        "--dir",
+        "--steps"
+      ]
+    },
+    "seed": {
+      "subcommands": [
+        "run",
+        "status"
+      ],
+      "flags": [
+        "--db",
+        "--dir",
+        "--env",
+        "--force",
+        "--only"
+      ]
+    },
+    "dev": {
+      "subcommands": [],
+      "flags": [
+        "--arg",
+        "--command",
+        "--grace-ms",
+        "--ignore",
+        "--kill-signal",
+        "--watch"
+      ]
+    },
+    "api-snapshot": {
+      "subcommands": [
+        "capture",
+        "compare"
+      ],
+      "flags": [
+        "--file",
+        "--module"
+      ]
+    },
+    "audit": {
+      "subcommands": [
+        "archive",
+        "export",
+        "purge",
+        "verify-bundle",
+        "verify-chain"
+      ],
+      "flags": [
+        "--in",
+        "--out",
+        "--passphrase"
+      ]
+    },
+    "restore": {
+      "subcommands": [
+        "apply",
+        "inspect",
+        "list",
+        "list-rollbacks",
+        "rollback"
+      ],
+      "flags": [
+        "--bundle",
+        "--bundle-id",
+        "--data-dir",
+        "--passphrase",
+        "--storage-root"
+      ]
+    },
+    "api-key": {
+      "subcommands": [
+        "issue",
+        "list",
+        "revoke",
+        "rotate",
+        "verify"
+      ],
+      "flags": []
+    },
+    "backup": {
+      "subcommands": [
+        "extract",
+        "inspect",
+        "verify"
+      ],
+      "flags": [
+        "--bundle",
+        "--passphrase",
+        "--to"
+      ]
+    },
+    "mtls": {
+      "subcommands": [
+        "init",
+        "issue",
+        "issue-p12",
+        "show-cert",
+        "status"
+      ],
+      "flags": [
+        "--data-dir"
+      ]
+    },
+    "vault": {
+      "subcommands": [
+        "rotate",
+        "seal",
+        "status",
+        "unseal"
+      ],
+      "flags": [
+        "--data-dir",
+        "--keep-plaintext",
+        "--new-passphrase",
+        "--passphrase"
+      ]
+    },
+    "security": {
+      "subcommands": [
+        "assert"
+      ],
+      "flags": [
+        "--data-dir",
+        "--forbid-env",
+        "--no-audit-signing",
+        "--no-db-at-rest",
+        "--no-ntp-strict",
+        "--no-vault",
+        "--require-env"
+      ]
+    },
+    "config-drift": {
+      "subcommands": [
+        "inspect",
+        "verify"
+      ],
+      "flags": [
+        "--baseline",
+        "--data-dir"
+      ]
+    },
+    "file-type": {
+      "subcommands": [],
+      "flags": [
+        "--allowlist",
+        "--json"
+      ]
+    },
+    "password": {
+      "subcommands": [],
+      "flags": [
+        "--breach-check",
+        "--email",
+        "--fail-closed",
+        "--json",
+        "--max-length",
+        "--min-length",
+        "--plaintext",
+        "--profile",
+        "--stdin",
+        "--username"
+      ]
+    },
+    "erase": {
+      "subcommands": [],
+      "flags": [
+        "--confirm",
+        "--data-dir",
+        "--reason",
+        "--row-id",
+        "--table"
+      ]
+    },
+    "retention": {
+      "subcommands": [
+        "preview",
+        "run"
+      ],
+      "flags": []
+    }
+  },
+  "readme": [
+    "api-key",
+    "api-snapshot",
+    "audit",
+    "backup",
+    "config-drift",
+    "dev",
+    "erase",
+    "file-type",
+    "help",
+    "migrate",
+    "mtls",
+    "password",
+    "restore",
+    "retention",
+    "security",
+    "seed",
+    "vault",
+    "version"
+  ],
+  "readmePairs": [
+    "api-key:issue",
+    "api-snapshot:capture",
+    "audit:archive",
+    "backup:inspect",
+    "config-drift:inspect",
+    "file-type:detect",
+    "migrate:up",
+    "mtls:status",
+    "password:check",
+    "restore:list",
+    "retention:preview",
+    "security:assert",
+    "seed:run",
+    "vault:status",
+    "version:blamejs"
+  ],
+  "wiki": [
+    "api-key",
+    "api-snapshot",
+    "audit",
+    "backup",
+    "mtls",
+    "restore",
+    "vault"
+  ],
+  "wikiPairs": [
+    "api-key:issue",
+    "api-key:list",
+    "api-key:revoke",
+    "api-key:rotate",
+    "api-key:verify",
+    "api-snapshot:capture",
+    "api-snapshot:compare",
+    "audit:verify-chain",
+    "backup:extract",
+    "backup:inspect",
+    "backup:verify",
+    "mtls:init",
+    "mtls:issue",
+    "mtls:issue-p12",
+    "mtls:show-cert",
+    "mtls:status",
+    "restore:apply",
+    "vault:rotate",
+    "vault:seal",
+    "vault:status",
+    "vault:unseal"
+  ]
+}

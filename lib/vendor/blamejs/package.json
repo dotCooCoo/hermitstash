@@ -1,6 +1,6 @@
 {
   "name": "@blamejs/core",
-  "version": "0.8.4",
+  "version": "0.8.42",
   "description": "The Node framework that owns its stack.",
   "license": "Apache-2.0",
   "author": "blamejs contributors",
@@ -54,7 +54,7 @@
     "owns-its-stack"
   ],
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=24.4.0"
   },
   "files": [
     "index.js",
@@ -70,7 +70,8 @@
   ],
   "scripts": {
     "test": "node test/smoke.js",
-    "prepack": "node scripts/check-pack-against-gitignore.js"
+    "prepack": "node scripts/check-pack-against-gitignore.js",
+    "check:vendor-currency": "node scripts/check-vendor-currency.js"
   },
   "dependencies": {},
   "devDependencies": {}

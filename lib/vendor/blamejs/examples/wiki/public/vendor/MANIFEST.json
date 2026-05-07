@@ -1,0 +1,30 @@
+{
+  "_comment": "Vendored client-side dependencies for the wiki app. Browser-side only — Node-side framework deps live in lib/vendor/.",
+  "packages": {
+    "prismjs": {
+      "version": "1.30.0",
+      "license": "MIT",
+      "author": "Lea Verou + contributors",
+      "source": "https://prismjs.com/",
+      "cdn":    "https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/",
+      "bundle": [
+        "prism.min.js",
+        "components/prism-markup.min.js",
+        "components/prism-css.min.js",
+        "components/prism-clike.min.js",
+        "components/prism-javascript.min.js",
+        "components/prism-json.min.js",
+        "components/prism-bash.min.js",
+        "components/prism-markup-templating.min.js",
+        "components/prism-sql.min.js"
+      ],
+      "files": {
+        "js":  "prism.js",
+        "css": "prism.css"
+      },
+      "theme": "prism-tomorrow",
+      "vendoredAt": "2026-04-29",
+      "_revendor": "concatenate the bundle listed above + grab themes/prism-tomorrow.min.css"
+    }
+  }
+}

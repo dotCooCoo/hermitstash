@@ -1,0 +1,18 @@
+{% extends "_layout" %}
+{% block content %}
+<h1>Search results for "{{ searchQuery }}"</h1>
+{% if hits.length == 0 %}
+  <p>No matches.</p>
+{% else %}
+  <p class="muted">{{ hits.length }} result(s).</p>
+  <ul class="hits">
+  {% for h in hits %}
+    <li>
+      <a href="/{{ h.groupName }}/{{ h.slug }}"><strong>{{ h.title }}</strong></a>
+      <span class="muted"> &middot; {{ h.groupName }}/{{ h.slug }}</span>
+      <p class="snippet">{{{ h.snippet }}}</p>
+    </li>
+  {% endfor %}
+  </ul>
+{% endif %}
+{% endblock %}

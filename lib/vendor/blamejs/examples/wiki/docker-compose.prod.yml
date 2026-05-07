@@ -1,0 +1,223 @@
+# Production overlay — runs alongside docker-compose.yml.
+#
+# Use:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Adds a Caddy reverse proxy in front of the wiki container. Caddy
+# handles TLS termination + automatic Let's Encrypt cert issuance for
+# the configured domain. Pull from the published GHCR image instead of
+# rebuilding from source — this is the operational path.
+#
+# Configuration: an .env file alongside this compose file. Every value
+# below uses ${VAR:-default} so the operator can override any subset
+# without listing the rest. See DEPLOY.md for a full env-var matrix
+# with explanations of every key.
+#
+#   # required for stable production logins
+#   WIKI_ADMIN_PASSWORD=<strong passphrase>
+#
+#   # required if the framework's vault is in wrapped mode (the
+#   # production default). Argon2id-stretched into the vault wrap key.
+#   BLAMEJS_VAULT_PASSPHRASE=<a different strong passphrase>
+#
+#   # optional — outbound webhook for every wiki.page.edited event
+#   WIKI_WEBHOOK_URL=https://...
+#   WIKI_WEBHOOK_SECRET=<hmac secret>
+#
+#   # optional — defaults shown
+#   WIKI_ADMIN_EMAIL=admin@blamejs.com
+#   WIKI_PORT=8080
+#   LOG_LEVEL=info
+#   BLAMEJS_DEPRECATIONS=warn
+#
+#   # security hardening (production overlay defaults shown)
+#   WIKI_TRUST_PROXY=1                              # honour x-forwarded-proto from Caddy
+#   WIKI_REQUIRE_PROD_ASSERTS=1                     # refuse to boot on weak posture
+#   WIKI_ADMIN_ALLOWED_CIDRS=10.0.0.0/8,192.168.0.0/16   # in-process CIDR fence on /admin
+#   WIKI_ADMIN_DENIED_CIDRS=                        # deny-then-allow precedence
+#
+# The operator points DNS A/AAAA records for blamejs.com + www.blamejs.com
+# at the host running this stack, opens 80/443 inbound, and Caddy does
+# the rest on first boot.
+
+services:
+  wiki:
+    # Pull the published image instead of building from source. Pin to
+    # a specific version in production so a forgotten `docker compose
+    # pull` doesn't quietly upgrade.
+    image: ghcr.io/blamejs/blamejs-wiki:0.3.24
+    build: !reset null
+    container_name: blamejs-wiki
+    # Don't expose 8080 on the host — only Caddy talks to it on the
+    # internal network.
+    ports: !override []
+    expose:
+      - "8080"
+    # Full operator-facing environment surface. Every value is
+    # overridable from the .env file; defaults match the framework's
+    # built-in defaults so an operator who just wants the basics can
+    # leave most blank.
+    environment:
+      # ---- Wiki app ----
+      WIKI_PORT:            ${WIKI_PORT:-8080}
+      WIKI_DATA_DIR:        ${WIKI_DATA_DIR:-/data}
+      WIKI_ADMIN_EMAIL:     ${WIKI_ADMIN_EMAIL:-admin@blamejs.com}
+      WIKI_ADMIN_PASSWORD:  ${WIKI_ADMIN_PASSWORD:?WIKI_ADMIN_PASSWORD must be set in .env for production}
+      WIKI_WEBHOOK_URL:     ${WIKI_WEBHOOK_URL:-}
+      WIKI_WEBHOOK_SECRET:  ${WIKI_WEBHOOK_SECRET:-}
+      # ---- Wiki security hardening ----
+      # Caddy terminates TLS in this stack and injects x-forwarded-*,
+      # so trust-proxy is on by default in the production overlay.
+      # The cookie Secure flag honours x-forwarded-proto when this
+      # is set; without it, only req.socket.encrypted counts and a
+      # misconfigured deploy can't accept attacker-supplied
+      # x-forwarded-proto: https as proof a request was over TLS.
+      WIKI_TRUST_PROXY:     ${WIKI_TRUST_PROXY:-1}
+      # In-process CIDR fence on /admin paths. The production overlay
+      # leaves this empty by default — the operator sets the corporate
+      # bastion / VPN / cloud-LB private CIDRs in their .env. Both
+      # forms (allow + optional deny for "10/8 except 10.0.99/24"
+      # patterns) are operator-settable. Empty = no fence (operators
+      # using a network NACL or proxy-side IP filter typically gate
+      # there instead and leave this blank).
+      WIKI_ADMIN_ALLOWED_CIDRS: ${WIKI_ADMIN_ALLOWED_CIDRS:-}
+      WIKI_ADMIN_DENIED_CIDRS:  ${WIKI_ADMIN_DENIED_CIDRS:-}
+      # Refuse to boot when the production-posture assertions fail
+      # (vault not wrapped, db at-rest plain, audit-sign plaintext,
+      # NTP strict disabled, BLAMEJS_VAULT_PASSPHRASE missing,
+      # WIKI_ADMIN_PASSWORD missing, dataDir POSIX-mode > 0o750,
+      # NODE_ENV=development/test). On by default in the production
+      # overlay; the operator can flip OFF for a controlled brown-out
+      # maintenance window.
+      WIKI_REQUIRE_PROD_ASSERTS: ${WIKI_REQUIRE_PROD_ASSERTS:-1}
+      # Posture overrides — production deploys typically pin all three
+      # to "wrapped" / "encrypted" explicitly so a missing passphrase
+      # falls into the assertProduction gate instead of silently going
+      # plaintext.
+      WIKI_VAULT_MODE:           ${WIKI_VAULT_MODE:-wrapped}
+      WIKI_DB_AT_REST:           ${WIKI_DB_AT_REST:-encrypted}
+      WIKI_AUDIT_SIGNING_MODE:   ${WIKI_AUDIT_SIGNING_MODE:-wrapped}
+      # Framework-level audit-sign mode fallback (read by lib/db.js when
+      # the app's init() doesn't set it explicitly).
+      BLAMEJS_AUDIT_SIGNING_MODE: ${BLAMEJS_AUDIT_SIGNING_MODE:-wrapped}
+      # Encrypted-DB tmpfs working directory — required when atRest is
+      # "encrypted" (the framework refuses to boot otherwise). /dev/shm
+      # is a tmpfs on every Linux distro the GHCR image runs on.
+      BLAMEJS_TMPDIR:            ${BLAMEJS_TMPDIR:-/dev/shm}
+      # Bind address — Caddy is in the same network namespace, so
+      # binding to localhost-only is safe and reduces external attack
+      # surface.
+      WIKI_BIND:                 ${WIKI_BIND:-127.0.0.1}
+      # Fully-qualified site URL — required behind the Caddy TLS
+      # terminator so canonical headers + OAuth callbacks emit the
+      # public host.
+      WIKI_SITE_URL:             ${WIKI_SITE_URL:-https://blamejs.com}
+      # ---- Framework (vault, audit, deprecation reporting) ----
+      # BLAMEJS_VAULT_PASSPHRASE — when set, the wiki auto-flips
+      # vault to `wrapped` mode + DB to encrypted-at-rest. Without
+      # it the wiki boots in plaintext (dev default). Required for
+      # any production deployment.
+      BLAMEJS_VAULT_PASSPHRASE: ${BLAMEJS_VAULT_PASSPHRASE:-}
+      # BLAMEJS_AUDIT_SIGNING_PASSPHRASE — when set, the wiki flips
+      # the audit-chain signing key to `wrapped` mode (sealed on
+      # disk as audit-sign.key.sealed). Read at boot. Different
+      # from BLAMEJS_AUDIT_PASSPHRASE below.
+      BLAMEJS_AUDIT_SIGNING_PASSPHRASE: ${BLAMEJS_AUDIT_SIGNING_PASSPHRASE:-}
+      # BLAMEJS_AUDIT_PASSPHRASE — used by `blamejs audit archive/
+      # export/verify/purge` invocations inside the container; not
+      # read at app boot. Set in the operator's runbook env, not
+      # here, if ops are run from outside the container.
+      BLAMEJS_AUDIT_PASSPHRASE: ${BLAMEJS_AUDIT_PASSPHRASE:-}
+      # BLAMEJS_DEPRECATIONS — "warn" (default) | "throw" | "silent".
+      BLAMEJS_DEPRECATIONS: ${BLAMEJS_DEPRECATIONS:-warn}
+      # ---- Network configurability — production tightening ----
+      # NTP strict mode is on by default in prod (refuse to boot at
+      # >=fatal drift). NTS gives authenticated time; pin to operator-
+      # trusted NTS-KE servers for HIPAA / PCI / FIPS-aligned shops.
+      BLAMEJS_NTP_STRICT:            ${BLAMEJS_NTP_STRICT:-1}
+      BLAMEJS_NTP_SERVERS:           ${BLAMEJS_NTP_SERVERS:-}
+      BLAMEJS_NTP_TIMEOUT_MS:        ${BLAMEJS_NTP_TIMEOUT_MS:-}
+      BLAMEJS_NTP_DRIFT_WARN_MS:     ${BLAMEJS_NTP_DRIFT_WARN_MS:-}
+      BLAMEJS_NTP_DRIFT_FATAL_MS:    ${BLAMEJS_NTP_DRIFT_FATAL_MS:-}
+      BLAMEJS_NTS_SERVERS:           ${BLAMEJS_NTS_SERVERS:-}
+      BLAMEJS_NTS_REQUIRE:           ${BLAMEJS_NTS_REQUIRE:-}
+      # DNS — production deploys typically pin internal resolvers and
+      # set a short cache TTL plus an explicit lookup timeout (Node
+      # has none natively; the OS resolver default can be 30s+).
+      BLAMEJS_DNS_SERVERS:           ${BLAMEJS_DNS_SERVERS:-}
+      BLAMEJS_DNS_RESULT_ORDER:      ${BLAMEJS_DNS_RESULT_ORDER:-}
+      BLAMEJS_DNS_FAMILY:            ${BLAMEJS_DNS_FAMILY:-}
+      BLAMEJS_DNS_LOOKUP_TIMEOUT_MS: ${BLAMEJS_DNS_LOOKUP_TIMEOUT_MS:-2000}
+      BLAMEJS_DNS_CACHE_TTL_MS:      ${BLAMEJS_DNS_CACHE_TTL_MS:-30000}
+      BLAMEJS_DOH_PROVIDER:          ${BLAMEJS_DOH_PROVIDER:-}
+      BLAMEJS_DOH_URL:               ${BLAMEJS_DOH_URL:-}
+      BLAMEJS_DOT_HOST:              ${BLAMEJS_DOT_HOST:-}
+      BLAMEJS_DOT_PORT:              ${BLAMEJS_DOT_PORT:-}
+      # Outbound HTTP proxy — required in many corporate networks where
+      # outbound is funnelled through a tunnel. NO_PROXY exempts
+      # internal mesh hosts.
+      HTTP_PROXY:                    ${HTTP_PROXY:-}
+      HTTPS_PROXY:                   ${HTTPS_PROXY:-}
+      NO_PROXY:                      ${NO_PROXY:-}
+      ALL_PROXY:                     ${ALL_PROXY:-}
+      BLAMEJS_PROXY_AUTH:            ${BLAMEJS_PROXY_AUTH:-}
+      # DPI / corporate-trust CA. Every CA add is audited; the prod
+      # security gate refuses to boot when a CA is installed unless
+      # allowDpiTrust:true is passed to security.assertProduction().
+      BLAMEJS_EXTRA_CA_CERTS:        ${BLAMEJS_EXTRA_CA_CERTS:-}
+      BLAMEJS_EXTRA_CA_CERTS_DIR:    ${BLAMEJS_EXTRA_CA_CERTS_DIR:-}
+      BLAMEJS_USE_SYSTEM_TRUST:      ${BLAMEJS_USE_SYSTEM_TRUST:-}
+      # TCP tuning — keep alive on by default; tune initial-delay for
+      # long-lived idle pools.
+      BLAMEJS_SOCKET_NO_DELAY:           ${BLAMEJS_SOCKET_NO_DELAY:-1}
+      BLAMEJS_SOCKET_KEEPALIVE:          ${BLAMEJS_SOCKET_KEEPALIVE:-1}
+      BLAMEJS_SOCKET_KEEPALIVE_DELAY_MS: ${BLAMEJS_SOCKET_KEEPALIVE_DELAY_MS:-}
+      # ---- Optional log-stream sink (b.logStream.bootFromEnv) ----
+      # Production deploys typically forward to OTel/CloudWatch/SIEM.
+      # Pick the protocol; populate the matching opts.
+      BLAMEJS_LOG_STREAM_PROTOCOL:           ${BLAMEJS_LOG_STREAM_PROTOCOL:-}
+      BLAMEJS_LOG_STREAM_MIN_LEVEL:          ${BLAMEJS_LOG_STREAM_MIN_LEVEL:-info}
+      BLAMEJS_LOG_STREAM_URL:                ${BLAMEJS_LOG_STREAM_URL:-}
+      BLAMEJS_LOG_STREAM_TOKEN:              ${BLAMEJS_LOG_STREAM_TOKEN:-}
+      BLAMEJS_LOG_STREAM_SERVICE_NAME:       ${BLAMEJS_LOG_STREAM_SERVICE_NAME:-blamejs-wiki}
+      BLAMEJS_LOG_STREAM_SERVICE_VERSION:    ${BLAMEJS_LOG_STREAM_SERVICE_VERSION:-}
+      AWS_REGION:                            ${AWS_REGION:-}
+      AWS_ACCESS_KEY_ID:                     ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY:                 ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN:                     ${AWS_SESSION_TOKEN:-}
+      BLAMEJS_LOG_STREAM_CLOUDWATCH_LOG_GROUP:  ${BLAMEJS_LOG_STREAM_CLOUDWATCH_LOG_GROUP:-}
+      BLAMEJS_LOG_STREAM_CLOUDWATCH_LOG_STREAM: ${BLAMEJS_LOG_STREAM_CLOUDWATCH_LOG_STREAM:-}
+      BLAMEJS_LOG_STREAM_PATH:               ${BLAMEJS_LOG_STREAM_PATH:-}
+      # ---- Optional Redis-backed queue (b.queue.bootFromEnv) ----
+      # Multi-replica deploys typically wire BLAMEJS_QUEUE_PROTOCOL=redis
+      # so app replicas share a single queue without each needing to be
+      # cluster leader. Defaults to local when unset.
+      BLAMEJS_QUEUE_PROTOCOL:                ${BLAMEJS_QUEUE_PROTOCOL:-}
+      BLAMEJS_QUEUE_REDIS_URL:               ${BLAMEJS_QUEUE_REDIS_URL:-}
+      BLAMEJS_QUEUE_REDIS_PASSWORD:          ${BLAMEJS_QUEUE_REDIS_PASSWORD:-}
+      BLAMEJS_QUEUE_REDIS_USERNAME:          ${BLAMEJS_QUEUE_REDIS_USERNAME:-}
+      BLAMEJS_QUEUE_REDIS_TLS:               ${BLAMEJS_QUEUE_REDIS_TLS:-}
+      BLAMEJS_QUEUE_REDIS_KEY_PREFIX:        ${BLAMEJS_QUEUE_REDIS_KEY_PREFIX:-}
+      # ---- Standard Node ----
+      NODE_ENV:  ${NODE_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+  caddy:
+    image: caddy:2.9-alpine
+    container_name: blamejs-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3 (QUIC)
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data        # ACME state — DO NOT delete in prod
+      - caddy-config:/config
+    depends_on:
+      wiki:
+        condition: service_healthy
+
+volumes:
+  caddy-data:
+  caddy-config:

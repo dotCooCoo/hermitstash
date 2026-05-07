@@ -1,0 +1,37 @@
+# CoreDNS config — exposes plain DNS (53/udp+tcp), DoT (853/tcp),
+# and DoH (8053/tcp) so blamejs's lib/network-dns.js can be exercised
+# against all three modes with the framework's PQC-first TLS posture.
+#
+# Upstream: 1.1.1.1 + 9.9.9.9 over DoT, so the test resolver itself
+# never leaks plain DNS.
+
+. {
+    bind 0.0.0.0 ::
+    forward . tls://1.1.1.1 tls://9.9.9.9 {
+        tls_servername cloudflare-dns.com
+    }
+    cache 300
+    errors
+    health :8054
+    ready :8055
+}
+
+tls://. {
+    bind 0.0.0.0 ::
+    tls /certs/coredns.crt /certs/coredns.key
+    forward . tls://1.1.1.1 tls://9.9.9.9 {
+        tls_servername cloudflare-dns.com
+    }
+    cache 300
+    errors
+}
+
+https://. {
+    bind 0.0.0.0 ::
+    tls /certs/coredns.crt /certs/coredns.key
+    forward . tls://1.1.1.1 tls://9.9.9.9 {
+        tls_servername cloudflare-dns.com
+    }
+    cache 300
+    errors
+}

@@ -1,0 +1,18 @@
+# Hadolint config — strict by default, with a small set of explicit
+# exceptions for patterns we use intentionally.
+
+failure-threshold: warning
+
+# Trust the Chainguard registry for base images (its tag immutability
+# is stronger than tag pinning for most operators).
+trustedRegistries:
+  - cgr.dev
+  - docker.io
+  - ghcr.io
+
+ignored:
+  # DL3007 (always tag the version) — Chainguard's :latest follows
+  # weekly rebuilds and IS the recommended tag for security updates.
+  # We accept the trade-off and bump the digest pin in lockstep with
+  # release-container.yml when it's pinned at the workflow layer.
+  - DL3007
