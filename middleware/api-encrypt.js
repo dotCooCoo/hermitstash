@@ -97,6 +97,17 @@ module.exports = function apiEncrypt(req, res, next) {
   // Expose plaintext key to send() middleware for template embedding (browser clients)
   res._apiKey = apiKey;
 
+  // Bearer-authenticated clients (sync, API key holders) bypass the
+  // legacy `_e/_t` envelope. The session apiKey above is cookie-bound
+  // and was historically delivered via /drop/init's hybrid ECIES
+  // handshake — sync clients never run that path in production, so
+  // the legacy wrap was dead-end ciphertext for them. Bearer auth
+  // implies mTLS + API-key transport security; encryption-grade JSON
+  // payloads route through blamejs apiEncrypt instead. Bypass here
+  // means: no body interception, no res.json wrap. Browser cookie-
+  // auth flows (no req.apiKey) continue with legacy encryption.
+  if (req.apiKey) return next();
+
   // Capture the client's ML-KEM public key from the first request header (if present)
   var clientKemPubKey = null;
   if (isNewSession && req.headers["x-kem-public-key"]) {

@@ -23,6 +23,10 @@ var scheduler = require("./lib/scheduler");
 var { acceptUpgrade, rejectUpgrade } = require("./lib/ws");
 var syncEmitter = require("./lib/sync-emitter");
 
+// -- vendored framework --
+var b = require("./lib/vendor/blamejs");
+var apiEncryptKeypair = require("./lib/api-encrypt-keypair");
+
 // -- middleware/ --
 var { send } = require("./middleware/send");
 var attachUser = require("./middleware/attach-user");
@@ -310,7 +314,88 @@ app.post("/sync/renew-cert",
 app.use(sessionMiddleware);
 app.use(attachUser);
 app.use(require("./middleware/api-auth"));
-app.use(require("./middleware/api-encrypt"));
+
+// ---- blamejs per-session apiEncrypt protocol (v1.9.15) ----
+//
+// PQC payload-encryption protocol for routes that carry sensitive
+// JSON bodies. Server publishes its long-lived keypair (ML-KEM-1024
+// + P-384 ECDH hybrid) at /.well-known/blamejs-pubkey. Clients fetch
+// the pubkey, generate a session key, wrap it to the server pubkey
+// via the framework's encrypt envelope, send `_ek` on first JSON-
+// bodied request, then continue the session with `_sid` + `_ctr` on
+// subsequent requests.
+//
+// blamejs scope (narrow — JSON POSTs only):
+//   GET    /.well-known/blamejs-pubkey   — pubkey advertisement
+//   POST   /drop/init                    — bundle initialization
+//   POST   /drop/finalize/:bundleId      — bundle finalization
+//   POST   /sync/rename                  — sync file rename
+//
+// Out of blamejs scope (handled by legacy api-encrypt's Bearer-skip
+// path): GET /b/:shareId, DELETE /files/:fileId, multipart uploads,
+// binary downloads. These go plaintext for Bearer-authenticated
+// clients (sync) and stay legacy-encrypted for cookie-authenticated
+// clients (browser). TLS / mTLS protects the wire for plaintext
+// paths; the legacy layer continues to set res._apiKey so HTML
+// templates render the apiKey for browser-side JS.
+//
+// Legacy api-encrypt is carved out for blamejs scope so the two
+// layers never both wrap res.json on the same request.
+var blamejsKeypair = apiEncryptKeypair.loadOrGenerate();
+var blamejsApiEncrypt = b.middleware.apiEncrypt({
+  keypair:     blamejsKeypair,
+  keying:      "per-session",
+  exemptPaths: ["/.well-known/blamejs-pubkey"],
+});
+var blamejsBodyParser = b.middleware.bodyParser({
+  json:       { limit: b.constants.BYTES.mib(2) },
+  urlencoded: false,
+  text:       false,
+  raw:        false,
+  multipart:  false,
+});
+
+function isBlamejsApiEncryptPath(req) {
+  var p = req.pathname || "";
+  if (p === "/.well-known/blamejs-pubkey") return true;
+  if (p === "/drop/init") return req.method === "POST";
+  if (p.indexOf("/drop/finalize/") === 0) return req.method === "POST";
+  if (p === "/sync/rename") return req.method === "POST";
+  return false;
+}
+
+// Legacy api-encrypt — skip when blamejs handles the path. The carve-out
+// list mirrors isBlamejsApiEncryptPath() so the two layers never both
+// wrap res.json on the same request.
+var legacyApiEncrypt = require("./middleware/api-encrypt");
+app.use(function legacyApiEncryptCarve(req, res, next) {
+  if (isBlamejsApiEncryptPath(req)) return next();
+  legacyApiEncrypt(req, res, next);
+});
+
+// blamejs body-parser — populates req.body from JSON for blamejs paths
+// so the apiEncrypt middleware (which reads req.body, not the stream)
+// can decrypt. Skipped for non-body methods so the pubkey GET passes
+// straight through to its route handler.
+app.use(function blamejsBodyParserGate(req, res, next) {
+  if (!isBlamejsApiEncryptPath(req)) return next();
+  if (req.method !== "POST" && req.method !== "PUT" && req.method !== "PATCH") return next();
+  return blamejsBodyParser(req, res, next);
+});
+
+// blamejs apiEncrypt — decrypts `_ek/_ct/_ts/_nonce` (or `_sid/_ctr/_ct`
+// on subsequent requests) and replaces req.body with the plaintext.
+// Wraps res.json to encrypt outgoing responses with the session key.
+// The pubkey route is in exemptPaths above so this layer no-ops there.
+app.use(function blamejsApiEncryptGate(req, res, next) {
+  if (!isBlamejsApiEncryptPath(req)) return next();
+  return blamejsApiEncrypt(req, res, next);
+});
+
+// publishPublicKey route — plain-JSON pre-encrypt advertisement of the
+// server's hybrid keypair. Clients pin / rotate against this document.
+app.get("/.well-known/blamejs-pubkey", blamejsApiEncrypt.publishPublicKey());
+
 app.use(require("./app/security/csrf-policy").csrfMiddleware);
 
 // Maintenance mode — blocks non-admin access when enabled

@@ -9,6 +9,9 @@ var { canEditOwned } = require("../app/shared/authz");
 var fileService = require("../app/domain/uploads/file.service");
 var filesRepo = require("../app/data/repositories/files.repo");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
+var rateLimit = require("../lib/rate-limit");
+var C = require("../lib/constants");
+var syncGuards = require("../middleware/sync-guards");
 
 module.exports = function (app) {
   // Share page
@@ -150,4 +153,43 @@ module.exports = function (app) {
 
     res.json({ success: true });
   });
+
+  // Sync file delete — Bearer + mTLS authed via sync-guards. Path takes
+  // the file's _id (sync clients track by id), distinct from the cookie-
+  // authed POST /files/:shareId/delete which takes the file's shareId.
+  // sync-guards enforces scope + cert binding here; bundle binding +
+  // ownership are checked inline because the sync client doesn't send a
+  // bundleId in the request (it has only the fileId).
+  app.delete("/files/:fileId",
+    rateLimit.middleware("sync-file-delete", 100, C.TIME.ONE_MIN),
+    syncGuards.requireSyncAuth({ requireBundle: false }),
+    async (req, res) => {
+      try {
+        var doc = filesRepo.findById(req.params.fileId);
+        if (!doc) return res.status(404).json({ error: "File not found." });
+
+        // Resolve the file's bundle so binding + ownership can run.
+        var bundle = doc.bundleShareId ? bundlesRepo.findByShareId(doc.bundleShareId) : null;
+        if (!bundle) return res.status(404).json({ error: "Bundle not found." });
+
+        var bindErr = syncGuards.enforceBundleBinding(req.apiKey, bundle._id);
+        if (bindErr) return res.status(bindErr.status).json({ error: bindErr.error });
+
+        var ownerErr = syncGuards.enforceBundleOwnership(req.apiKey, bundle);
+        if (ownerErr) return res.status(ownerErr.status).json({ error: ownerErr.error });
+
+        await fileService.deleteFile(doc);
+        audit.log(audit.ACTIONS.FILE_DELETED, {
+          targetId: doc._id,
+          targetEmail: doc.uploaderEmail,
+          details: "file: " + doc.originalName + ", deletedBy: sync",
+          req: req,
+        });
+        res.json({ success: true });
+      } catch (err) {
+        logger.error("[files DELETE] Error", { error: err.message, stack: err.stack });
+        res.status(500).json({ error: "Delete failed." });
+      }
+    }
+  );
 };

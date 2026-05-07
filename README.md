@@ -73,7 +73,12 @@ byte 3: KDF   (0x02 SHAKE256)
 
 Any component can be swapped independently without re-encrypting existing data. When HQC or future algorithms are standardized, assign a new ID and existing blobs remain readable.
 
-API payload encryption (ECIES key exchange) has its own protocol version byte — the `_ek` field is prefixed with `0x01` identifying ML-KEM-1024 + P-384 + HKDF-SHA3-512 + XChaCha20-Poly1305. Future KEMs get a new version byte; clients reject unknown versions.
+API payload encryption runs through two coexisting protocols, both PQC end-to-end:
+
+- **blamejs apiEncrypt (per-session)** — `/drop/init`, `/drop/finalize/:bundleId`, `/sync/rename`. Clients fetch the server keypair from `GET /.well-known/blamejs-pubkey` (plain JSON `{publicKey, ecPublicKey, kemId, cipherId, kdfId}`), generate a session key, wrap it to the server keypair via the framework envelope (ML-KEM-1024 + P-384 ECDH hybrid → SHAKE256 → XChaCha20-Poly1305), and send `_ek` on first request. Subsequent requests carry `_sid` + monotonically-increasing `_ctr` against an in-memory session store.
+- **Legacy api-encrypt** — every other JSON route for cookie-authenticated browser clients. Per-session XChaCha20-Poly1305 key vault-sealed in the session table; key embedded into HTML templates via `res._apiKey` for browser-side JS to encrypt subsequent requests. The legacy `_ek` field has its own version byte (`0x01` = ML-KEM-1024 + P-384 + HKDF-SHA3-512 + XChaCha20-Poly1305). Bearer-authenticated callers (sync clients, API key holders) skip the legacy layer — TLS + mTLS + Bearer is the transport guarantee for those, and JSON-bodied operations route through blamejs apiEncrypt instead.
+
+Future KEMs get a new version byte / new envelope ID — old blobs remain readable, new wires use the new primitive. The two protocols can be migrated independently.
 
 ### Hybrid KEM
 
@@ -99,7 +104,8 @@ ML-KEM-1024 + P-384 (vault.key)
   |
   +-- Wraps per-file XChaCha20-Poly1305 keys (file encryption at rest)
   +-- Wraps per-session XChaCha20-Poly1305 keys (API payload encryption)
-  +-- Hybrid ECIES key exchange for API clients (ML-KEM-1024 + ECDH P-384 + HKDF-SHA3-512)
+  +-- API payload encryption: blamejs apiEncrypt envelope (ML-KEM-1024 + P-384 ECDH + SHAKE256) for sync writes
+  +--   and legacy ECIES (ML-KEM-1024 + P-384 + HKDF-SHA3-512) for cookie-authed browsers
   +-- Wraps database file XChaCha20-Poly1305 key (DB encryption at rest)
   +-- Directly seals ALL database fields (not just PII)
   +-- Directly seals session cookie values
@@ -190,7 +196,7 @@ Built on Node.js 24.8+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default signa
 - Email verification with SHA3-hashed tokens
 - Hybrid KEM encrypted session cookies
 - Per-session XChaCha20-Poly1305 encrypted API payloads with anti-replay and anti-tamper
-- Hybrid ECIES key exchange for API clients -- ML-KEM-1024 + ECDH P-384 + HKDF-SHA3-512 + XChaCha20-Poly1305 (no plaintext keys in responses)
+- Hybrid PQC payload encryption for API clients -- ML-KEM-1024 + ECDH P-384 hybrid envelope (SHAKE256 KDF, XChaCha20-Poly1305 wrap) via blamejs apiEncrypt for sync write paths and `/drop/init` / `/drop/finalize/:bundleId`; legacy ECIES with HKDF-SHA3-512 retained for cookie-authenticated browsers. Server keypair is published as plain JSON at `/.well-known/blamejs-pubkey` and vault-sealed at rest
 - Rate limiting on login (5/15min), registration (10/15min), 2FA verify (5/5min), passkey login (10/min)
 - Account lockout after 10 consecutive failed password attempts (30-minute cooldown)
 - Password reset flow with single-use, 1-hour-expiry tokens and anti-enumeration (always returns success)
@@ -926,36 +932,40 @@ Public upload endpoints accept API key authentication. When authenticated, uploa
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `POST /drop/init` | Initialize a bundle. Returns `bundleId`, `shareId`, `finalizeToken` |
-| `POST /drop/file/:bundleId` | Upload a file (multipart/form-data, field: `file`) |
-| `POST /drop/chunk/:bundleId` | Upload a chunk for large files (multipart, fields: `chunk`, `filename`, `chunkIndex`, `totalChunks`) |
-| `POST /drop/finalize/:bundleId` | Finalize the bundle. Body: `{ "finalizeToken": "..." }` |
+| `GET  /.well-known/blamejs-pubkey` | Server keypair for the blamejs apiEncrypt envelope. Plain JSON `{publicKey, ecPublicKey, kemId, cipherId, kdfId}`. No auth, no encryption. Cache at the client; re-fetch only when the server keypair rotates |
+| `POST /drop/init` | Initialize a bundle. **Blamejs-encrypted.** Decrypted body: `{ uploaderName, uploaderEmail, password, message, bundleName, expiryDays, fileCount, ... }`. Decrypted response: `{ bundleId, shareId, finalizeToken }` |
+| `POST /drop/file/:bundleId` | Upload a file (multipart/form-data, field: `file`). Body bypasses encryption (multipart not JSON). Response is plaintext JSON for Bearer clients |
+| `POST /drop/chunk/:bundleId` | Upload a chunk for large files (multipart, fields: `chunk`, `filename`, `chunkIndex`, `totalChunks`). Same encryption shape as `/drop/file/:bundleId` |
+| `POST /drop/finalize/:bundleId` | Finalize the bundle. **Blamejs-encrypted.** Decrypted body: `{ finalizeToken }`. Decrypted response: `{ success, shareId, shareUrl, emailSent }` |
+| `GET  /b/:shareId` | Bundle metadata (with `Accept: application/json`). Plaintext for Bearer clients |
+| `POST /sync/rename` | Sync file rename. **Blamejs-encrypted.** Decrypted body: `{ bundleId, oldRelativePath, newRelativePath }` |
+| `DELETE /files/:fileId` | Sync file delete. Plaintext request and response. Sync-guards enforce scope + cert binding + bundle ownership |
 
 ### Example: programmatic upload
 
-```bash
-# 1. Init bundle
-INIT=$(curl -s -X POST https://your-domain/drop/init \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"password": "", "message": "Automated upload", "expiryDays": 7}')
+`POST /drop/init` and `POST /drop/finalize/:bundleId` require the blamejs apiEncrypt envelope (`_ek` / `_ct` / `_ts` / `_nonce`) — plain-JSON callers receive `400 encrypted-payload-required`. Use a blamejs-aware HTTP client; the easiest is `b.httpClient.encrypted({ pubkey, baseUrl, keying: "per-session" })` from a blamejs-bundled app, fetching `pubkey` once from `GET /.well-known/blamejs-pubkey`. Multipart upload (`/drop/file/:bundleId`, `/drop/chunk/:bundleId`) bypasses the encryption layer for body content — the file bytes are application-encrypted at rest after upload.
 
-BUNDLE_ID=$(echo $INIT | jq -r '.bundleId')
-TOKEN=$(echo $INIT | jq -r '.finalizeToken')
-SHARE_ID=$(echo $INIT | jq -r '.shareId')
+```js
+// minimal Node example using vendored blamejs
+var b = require("./vendor/blamejs");
+var pubkey = await fetch("https://your-domain/.well-known/blamejs-pubkey")
+  .then(r => r.json());
+var enc = b.httpClient.encrypted({
+  pubkey, baseUrl: "https://your-domain", keying: "per-session",
+  headers: { Authorization: "Bearer " + process.env.API_KEY },
+});
 
-# 2. Upload file
-curl -X POST "https://your-domain/drop/file/$BUNDLE_ID" \
-  -H "Authorization: Bearer $API_KEY" \
-  -F "file=@report.pdf"
+var init = await enc.request({ method: "POST", path: "/drop/init",
+  body: { password: "", message: "Automated upload", expiryDays: 7 } });
+var { bundleId, finalizeToken, shareId } = init.body;
 
-# 3. Finalize
-curl -X POST "https://your-domain/drop/finalize/$BUNDLE_ID" \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d "{\"finalizeToken\": \"$TOKEN\"}"
+// Multipart upload — plain HTTPS, response is plaintext for Bearer clients
+// (omitted for brevity; field name is "file")
 
-echo "Share link: https://your-domain/b/$SHARE_ID"
+await enc.request({ method: "POST", path: "/drop/finalize/" + bundleId,
+  body: { finalizeToken } });
+
+console.log("Share link: https://your-domain/b/" + shareId);
 ```
 
 ### Admin endpoints

@@ -39,7 +39,10 @@ module.exports = function (app) {
   // Init bundle
   app.post("/drop/init", rateLimit.middleware("drop-init", 20, C.TIME.ONE_MIN), requireScope("upload"), async (req, res) => {
     if (!config.publicUpload) return res.status(403).json({ error: "Disabled." });
-    var body = await parseJson(req);
+    // blamejs apiEncrypt populates req.body with the decrypted plaintext;
+    // fall through to parseJson(req) only when no upstream middleware has
+    // pre-parsed the request (e.g. legacy callers, tests).
+    var body = req.body || await parseJson(req);
     var rawEmail = body.uploaderEmail ? String(body.uploaderEmail).slice(0, 254) : null;
     var rawName = String(body.uploaderName || "Anonymous").slice(0, 200);
     var ownerId = req.user ? req.user._id : null;
@@ -122,7 +125,7 @@ module.exports = function (app) {
     if (existing.stashId) return res.status(403).json({ error: "This bundle must be finalized via its stash endpoint." });
     if (existing.ownerId && (!req.user || existing.ownerId !== req.user._id)) return res.status(403).json({ error: "Forbidden." });
 
-    var body = await parseJson(req);
+    var body = req.body || await parseJson(req);
     var token = String(body.finalizeToken || req.query.finalizeToken || "");
     var result = handleFinalize({
       bundleId: req.params.bundleId, token: token, sendUploaderEmail: true, req: req,
