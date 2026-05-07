@@ -39,5 +39,32 @@
   // Vault is now either loaded (plaintext) or unsealed (wrapped). The module
   // cache for lib/vault holds the plaintext keys, so every downstream
   // vault.seal/unseal from here on is synchronous and safe.
+
+  // Boot-time auto-migrate (Phase 2): if the on-disk envelope is still
+  // 0xE1, convert it to 0xE2 before any subsequent module calls
+  // vault.unseal (which post-Phase-2 refuses 0xE1). Idempotent — the
+  // module's isAlreadyMigrated() probe short-circuits when data is
+  // already 0xE2. Logs progress with [envelope-migrate] lines so an
+  // operator watching `docker logs` sees the conversion happen on
+  // first boot after the v1.9.17 → v1.9.18 upgrade. Subsequent boots
+  // are a no-op.
+  try {
+    var migrate = require("./lib/legacy-envelope-migrate");
+    if (!migrate.isAlreadyMigrated()) {
+      console.log("[envelope-migrate] detected 0xE1 sealed data — converting to 0xE2 before server start...");
+      var keys = JSON.parse(vault.getKeysJson());
+      var result = migrate.run({
+        keys: keys,
+        log:  { info: function (m) { console.log("[envelope-migrate] " + m); }, warn: console.warn, error: console.error },
+      });
+      console.log("[envelope-migrate] complete — " + result.filesMigrated + " sealed files + " + result.rowsMigrated + " DB rows migrated to 0xE2");
+    }
+  } catch (e) {
+    console.error("FATAL: envelope migration failed: " + (e && e.message));
+    if (e && e.stack) console.error(e.stack);
+    console.error("Restore data/ from a pre-upgrade backup, then either re-run the upgrade or run scripts/envelope-migrate-0xE1-to-0xE2.js manually.");
+    process.exit(1);
+  }
+
   require("./server-main");
 })();

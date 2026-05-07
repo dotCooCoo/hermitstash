@@ -42,6 +42,11 @@ RUN rm -rf node_modules data data-e2e public/dist \
  && mkdir -p /home/node/data-skeleton
 
 FROM cgr.dev/chainguard/node:latest AS runtime
+# Explicit USER directive — Chainguard's :latest image already runs as
+# `nonroot` (UID 65532) by default, but Trivy's static Dockerfile
+# checker (DS-0002) flags any image without an explicit USER line
+# regardless of the base image's default. Restate it here.
+USER 65532:65532
 # Non-secret defaults baked into the image. Secrets (passphrases,
 # webhook secrets, admin password) are NEVER ENV-baked — they're
 # injected at runtime via env / docker secrets / mounted files.

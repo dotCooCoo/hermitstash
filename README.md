@@ -862,26 +862,36 @@ docker compose up -d
 
 Database migrations run automatically on startup — no manual steps needed. The server logs applied migrations at startup. If something goes wrong, restore `vault.key` and `hermitstash.db.enc` from your backup and restart with the previous image version.
 
-### One-time envelope migration before v1.9.18+ (v1.9.16+)
+### Envelope migration (v1.9.16 → v1.9.18+) — automatic at boot
 
-Starting in **v1.9.16**, HermitStash ships a one-time on-disk envelope migration tool at `scripts/envelope-migrate-0xE1-to-0xE2.js`. The vendored framework (blamejs) bumped its sealed-value envelope magic from `0xE1` to `0xE2` (NIST SP 800-56C r2 / RFC 9180 FixedInfo binding), and refuses legacy `0xE1` blobs on decrypt. v1.9.16 itself runs unchanged on existing 0xE1 data — the migration tool is shipped early so operators can plan, but is **only required before upgrading to v1.9.18+** (which swaps HermitStash's vault/db/storage to the framework's primitives). Operator workflow:
+Starting in **v1.9.18**, HermitStash auto-migrates its on-disk sealed-value envelope from `0xE1` to `0xE2` (NIST SP 800-56C r2 / RFC 9180 FixedInfo binding) at the first boot after upgrading from v1.9.17 or earlier. The vendored framework (blamejs) bumped the envelope magic in its 0.8.41 release and refuses legacy `0xE1` blobs on decrypt; the auto-migrate hook runs in-process during server startup and converts every `vault:`-prefixed sealed value before any other module reads it.
 
 ```bash
-# Stop the server
-docker compose down
-
-# Inside the container or with a host Node 24+ install:
-node scripts/envelope-migrate-0xE1-to-0xE2.js                # dry-run
-node scripts/envelope-migrate-0xE1-to-0xE2.js --apply        # actually migrate
-
-# Pull the v1.9.18+ image and restart
-docker pull ghcr.io/dotcoocoo/hermitstash:1
-docker compose up -d
+docker compose pull && docker compose up -d
+# First boot logs:
+#   [envelope-migrate] detected 0xE1 sealed data — converting to 0xE2 ...
+#   [envelope-migrate] [ok] api-encrypt-keypair.sealed
+#   [envelope-migrate] [ok] users — 1 rows migrated
+#   [envelope-migrate] [ok] audit_log — 91 rows migrated
+#   ... (remaining tables) ...
+#   [envelope-migrate] [ok] db.key.enc
+#   [envelope-migrate] complete — 2 sealed files + 130 DB rows migrated to 0xE2
 ```
 
-The tool migrates: `data/ca.key.sealed`, `data/tls/privkey.pem.sealed`, `data/api-encrypt-keypair.sealed`, `data/db.key.enc`, and every `vault:`-prefixed cell in the encrypted DB. **Cross-version-compatible formats are NOT migrated** — the DB file and per-file storage blobs use a version-byte symmetric format (`encryptPacked`) that reads identically across HermitStash and the framework, so neither needs re-encryption. Backup blobs use a passphrase-derived key with no envelope wrapper — also unchanged.
+Subsequent boots probe `data/db.key.enc`'s envelope magic byte and skip the migration entirely. Migration scope: `data/ca.key.sealed`, `data/tls/privkey.pem.sealed`, `data/api-encrypt-keypair.sealed`, `data/db.key.enc`, and every `vault:`-prefixed cell in the encrypted DB. Cross-version-compatible formats (DB file `encryptPacked`, per-file storage blobs, backup blobs) are **not** touched — they read identically across versions.
 
-The tool is crash-safe via a marker file at `data/envelope-migration.marker` and refuses to re-run after success (re-running on already-migrated data would otherwise trip `lib/db`'s auto-regenerate fallback and lose the symmetric DB key). Restore from backup before re-running.
+For operators who prefer manual control or want to dry-run before committing, the standalone CLI at `scripts/envelope-migrate-0xE1-to-0xE2.js` is still shipped:
+
+```bash
+docker compose down
+node scripts/envelope-migrate-0xE1-to-0xE2.js                # dry-run, no writes
+node scripts/envelope-migrate-0xE1-to-0xE2.js --apply        # actual migration
+docker compose up -d                                         # boot — auto-migrate detects 0xE2, no-ops
+```
+
+Crash safety: marker file at `data/envelope-migration.marker` tracks completed steps. A killed migration resumes from the last completed step on next boot. The migration refuses to re-run on already-migrated data (which would otherwise trip `lib/db`'s auto-regenerate fallback). Restore from backup before re-running if needed.
+
+Container orchestrators with aggressive startup health-check timeouts: raise the startup probe timeout to 5 minutes for the v1.9.17 → v1.9.18 jump. Worst-case migration time is ~3 minutes for ~100k sealed cells; typical small deployments measure in seconds.
 
 ### Auto-update (opt-in)
 
