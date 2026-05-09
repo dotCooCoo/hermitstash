@@ -6,9 +6,8 @@ var path = require("path");
 var filesRepo = require("../../data/repositories/files.repo");
 var storage = require("../../../lib/storage");
 var { sha3Hash, generateShareId } = require("../../../lib/crypto");
-var { safeFilename } = require("../../../lib/sanitize");
 var { sanitizeSvg } = require("../../../lib/sanitize-svg");
-var { sanitizeFilename } = require("../../shared/sanitize-filename");
+var { sanitizeFilename, safeContentDisposition } = require("../../shared/sanitize-filename");
 var { NotFoundError, ValidationError, ForbiddenError } = require("../../shared/errors");
 
 // MIME types safe for inline preview
@@ -58,7 +57,7 @@ function getDirectDownloadUrl(doc) {
 async function getDownloadStream(doc) {
   var stream = await storage.getFileStream(doc.storagePath, doc.encryptionKey);
   var headers = {
-    "Content-Disposition": "attachment; filename=\"" + safeFilename(doc.originalName) + "\"",
+    "Content-Disposition": safeContentDisposition(doc.originalName),
     "Content-Type": doc.mimeType || "application/octet-stream",
   };
   return { stream: stream, headers: headers };
@@ -134,7 +133,7 @@ async function getSanitizedSvg(doc) {
 async function getForceDownloadStream(doc) {
   var stream = await storage.getFileStream(doc.storagePath, doc.encryptionKey);
   var headers = {
-    "Content-Disposition": "attachment; filename=\"" + safeFilename(doc.originalName) + "\"",
+    "Content-Disposition": safeContentDisposition(doc.originalName),
     "Content-Type": "application/octet-stream",
   };
   return { stream: stream, headers: headers };

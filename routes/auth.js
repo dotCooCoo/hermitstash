@@ -24,7 +24,8 @@ module.exports = function (app) {
     var state = generateState();
     req.session.oauthState = state;
     var url = getAuthUrl(state, req);
-    res.redirect(url);
+    res.writeHead(302, { Location: url });
+    res.end();
   });
 
   app.get("/auth/google/callback", rateLimit.middleware("google-callback", 10, C.TIME.ONE_MIN), async (req, res) => {

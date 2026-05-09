@@ -8,7 +8,6 @@ var { verifyPassword, sha3Hash } = require("../lib/crypto");
 var { parseJson } = require("../lib/multipart");
 var storage = require("../lib/storage");
 var { ZipWriter } = require("../lib/zip");
-var { safeFilename } = require("../lib/sanitize");
 var { safeContentDisposition } = require("../app/shared/sanitize-filename");
 var { send, host } = require("../middleware/send");
 var audit = require("../lib/audit");
@@ -340,7 +339,7 @@ module.exports = function (app) {
     });
     if (folderFiles.length === 0) { res.writeHead(404); return res.end("Folder not found"); }
 
-    var folderName = safeFilename(prefix.replace(/\/+$/, "").split("/").pop() || "folder");
+    var folderName = (prefix.replace(/\/+$/, "").split("/").pop() || "folder");
     audit.log(audit.ACTIONS.BUNDLE_ZIP_DOWNLOADED, { targetId: bundle._id, details: "folder: " + prefix + ", files: " + folderFiles.length, req: req });
 
     res.writeHead(200, {

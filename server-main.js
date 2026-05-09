@@ -6,7 +6,7 @@ var url = require("node:url");
 // -- lib/ modules --
 var config = require("./lib/config");
 var C = require("./lib/constants");
-var { Router, serveStatic } = require("./lib/router");
+var { Router, serveStatic } = require("./lib/vendor/blamejs").router;
 var { sessionMiddleware } = require("./lib/session");
 var db = require("./lib/db");
 var { users } = db;
