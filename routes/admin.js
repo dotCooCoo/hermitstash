@@ -848,7 +848,9 @@ module.exports = function (app) {
 
   app.get("/admin/tasks/api", (req, res) => {
     if (!requireAdmin(req, res)) return;
-    res.json({ tasks: scheduler.getStatus() });
+    // b.scheduler.getStatus() returns { started, isLeader, tasks: [...], aggregate: {...} };
+    // the admin API has historically returned just the task array, so keep that shape.
+    res.json({ tasks: scheduler.getStatus().tasks });
   });
 
   // Proxy detection — check request headers for proxy indicators

@@ -19,13 +19,18 @@ var { parseJson } = require("./lib/multipart");
 var certUtils = require("./lib/cert-utils");
 var mtlsCa = require("./lib/mtls-ca");
 var { createPQCGate } = require("./lib/pqc-gate");
-var scheduler = require("./lib/scheduler");
+
 var { acceptUpgrade, rejectUpgrade } = require("./lib/ws");
 var syncEmitter = require("./lib/sync-emitter");
 
 // -- vendored framework --
 var b = require("./lib/vendor/blamejs");
 var apiEncryptKeypair = require("./lib/api-encrypt-keypair");
+
+// Shared scheduler instance (b.scheduler.create() returns fresh per call,
+// so register-here-getStatus-from-routes/admin needs a shared module-
+// scoped instance). Created once at boot.
+var scheduler = require("./lib/scheduler");
 
 // -- middleware/ --
 var { send } = require("./middleware/send");
