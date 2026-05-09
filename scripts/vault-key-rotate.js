@@ -49,9 +49,9 @@ var http = require("http");
 var { DatabaseSync } = require("node:sqlite");
 
 var C = require("../lib/constants");
+var b = require("../lib/vendor/blamejs");
 var cryptoLib = require("../lib/crypto");
 var passphraseSource = require("../lib/passphrase-source");
-var vaultWrap = require("../lib/vault-wrap");
 var vaultRotate = require("../lib/vault-rotate");
 
 var DATA_DIR = C.DATA_DIR;
@@ -317,7 +317,7 @@ async function loadOldKeys(mode, oldPw) {
   var sealedBytes = fs.readFileSync(SEALED_PATH);
   var plainBuf;
   try {
-    plainBuf = await vaultWrap.unwrap(sealedBytes, oldPw);
+    plainBuf = await b.vaultWrap.unwrap(sealedBytes, oldPw);
   } catch (e) {
     console.error("ERROR: current passphrase rejected — " + e.message);
     console.error("  The sealed vault.key is unchanged. No rotation was attempted.");

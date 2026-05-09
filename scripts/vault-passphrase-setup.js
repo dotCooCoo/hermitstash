@@ -39,7 +39,7 @@ var os = require("os");
 var http = require("http");
 
 var C = require("../lib/constants");
-var vaultWrap = require("../lib/vault-wrap");
+var b = require("../lib/vendor/blamejs");
 var passphraseSource = require("../lib/passphrase-source");
 var { sha3Hash } = require("../lib/crypto");
 
@@ -233,7 +233,7 @@ async function execute(passphrase, opts) {
   var plaintextBytes = fs.readFileSync(PLAINTEXT_PATH);
 
   console.log("[setup] Wrapping with Argon2id (this may take ~1 second)...");
-  var sealedBytes = await vaultWrap.wrap(plaintextBytes, passphrase);
+  var sealedBytes = await b.vaultWrap.wrap(plaintextBytes, passphrase);
   console.log("[setup] Wrapped " + plaintextBytes.length + " bytes → " + sealedBytes.length + " bytes.");
 
   // Step 4: write .tmp + fsync
@@ -246,7 +246,7 @@ async function execute(passphrase, opts) {
   var verifyBytes = fs.readFileSync(SEALED_TMP_PATH);
   var unwrapped;
   try {
-    unwrapped = await vaultWrap.unwrap(verifyBytes, passphrase);
+    unwrapped = await b.vaultWrap.unwrap(verifyBytes, passphrase);
   } catch (e) {
     fs.unlinkSync(SEALED_TMP_PATH);
     console.error("ERROR: round-trip verification failed — " + e.message);

@@ -43,7 +43,7 @@ var fs = require("fs");
 var http = require("http");
 
 var C = require("../lib/constants");
-var vaultWrap = require("../lib/vault-wrap");
+var b = require("../lib/vendor/blamejs");
 var passphraseSource = require("../lib/passphrase-source");
 
 var SEALED_PATH = C.PATHS.VAULT_KEY_SEALED;
@@ -224,7 +224,7 @@ async function execute(oldPw, newPw) {
   console.log("[rotate] Unwrapping with OLD passphrase...");
   var plaintextBytes;
   try {
-    plaintextBytes = await vaultWrap.unwrap(sealedBytes, oldPw);
+    plaintextBytes = await b.vaultWrap.unwrap(sealedBytes, oldPw);
   } catch (e) {
     console.error("ERROR: " + e.message);
     console.error("  OLD passphrase rejected. The sealed file is unchanged.");
@@ -234,7 +234,7 @@ async function execute(oldPw, newPw) {
   console.log("[rotate] Re-wrapping with NEW passphrase (fresh salt + nonce, Argon2id defaults)...");
   var newSealed;
   try {
-    newSealed = await vaultWrap.wrap(plaintextBytes, newPw);
+    newSealed = await b.vaultWrap.wrap(plaintextBytes, newPw);
   } catch (e) {
     console.error("ERROR: failed to wrap with new passphrase: " + e.message);
     console.error("  The sealed file is unchanged.");
@@ -245,7 +245,7 @@ async function execute(oldPw, newPw) {
   console.log("[rotate] Verifying round-trip with new passphrase...");
   var verifyBytes;
   try {
-    verifyBytes = await vaultWrap.unwrap(newSealed, newPw);
+    verifyBytes = await b.vaultWrap.unwrap(newSealed, newPw);
   } catch (e) {
     console.error("ERROR: round-trip verification failed — " + e.message);
     console.error("  The sealed file is unchanged.");

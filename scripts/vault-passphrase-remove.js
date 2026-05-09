@@ -26,7 +26,7 @@ var fs = require("fs");
 var http = require("http");
 
 var C = require("../lib/constants");
-var vaultWrap = require("../lib/vault-wrap");
+var b = require("../lib/vendor/blamejs");
 var passphraseSource = require("../lib/passphrase-source");
 var { sha3Hash } = require("../lib/crypto");
 
@@ -139,7 +139,7 @@ async function execute(passphrase) {
   console.log("[remove] Unwrapping (this may take ~1 second)...");
   var plaintextBytes;
   try {
-    plaintextBytes = await vaultWrap.unwrap(sealedBytes, passphrase);
+    plaintextBytes = await b.vaultWrap.unwrap(sealedBytes, passphrase);
   } catch (e) {
     console.error("ERROR: " + e.message);
     console.error("  The sealed file is unchanged. Verify you used the correct passphrase.");
