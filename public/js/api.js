@@ -42,6 +42,12 @@
   }
 
   // --- XChaCha20-Poly1305 encrypt/decrypt ---
+  //
+  // Wire format: [1-byte version=0x02] [24-byte nonce] [ct+tag]
+  // Matches lib/api-crypto.js (server) and blamejs's encryptPacked
+  // envelope so the framework primitive backs both ends. The JSON
+  // wrap ({_d, _t}) is HermitStash's replay-window concern.
+  var FORMAT_XCHACHA20 = 0x02;
 
   async function encryptPayload(data, keyB64) {
     var xchacha = await getXChacha();
@@ -49,10 +55,10 @@
     var nonce = crypto.getRandomValues(new Uint8Array(24));
     var plaintext = new TextEncoder().encode(JSON.stringify({ _d: data, _t: Date.now() }));
     var ct = xchacha(keyBytes, nonce).encrypt(plaintext);
-    // Pack: nonce(24) + ciphertext_with_tag
-    var packed = new Uint8Array(24 + ct.length);
-    packed.set(nonce, 0);
-    packed.set(ct, 24);
+    var packed = new Uint8Array(1 + 24 + ct.length);
+    packed[0] = FORMAT_XCHACHA20;
+    packed.set(nonce, 1);
+    packed.set(ct, 25);
     return bufferToBase64url(packed.buffer);
   }
 
@@ -60,8 +66,9 @@
     var xchacha = await getXChacha();
     var keyBytes = new Uint8Array(base64urlToBuffer(keyB64));
     var packed = new Uint8Array(base64urlToBuffer(sealed));
-    var nonce = packed.slice(0, 24);
-    var ct = packed.slice(24);
+    if (packed[0] !== FORMAT_XCHACHA20) throw new Error("Unsupported payload version");
+    var nonce = packed.slice(1, 25);
+    var ct = packed.slice(25);
     var decrypted = xchacha(keyBytes, nonce).decrypt(ct);
     var parsed = JSON.parse(new TextDecoder().decode(decrypted));
     return (parsed && parsed._d !== undefined) ? parsed._d : parsed;
