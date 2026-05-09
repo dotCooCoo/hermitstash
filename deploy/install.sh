@@ -53,20 +53,34 @@ HERMITSTASH_AUTO_UPDATE="${HERMITSTASH_AUTO_UPDATE:-no}"
 log "Installing HermitStash to ${INSTALL_DIR}"
 echo ""
 
-# ---- Step 1: Node.js 24 ----
+# ---- Step 1: Node.js 24.8+ ----
+#
+# HermitStash needs OpenSSL 3.5 PQC bindings (ML-KEM-1024,
+# SLH-DSA-SHAKE-256f, ML-DSA-87) which landed in Node 24.8. The
+# vendored blamejs framework requires 24.4+; the 24.8 floor covers
+# both. NodeSource setup_24.x ships current 24.x (well past 24.8).
 
+NODE_MIN_MAJOR=24
+NODE_MIN_MINOR=8
+
+needs_install=false
 if command -v node &>/dev/null; then
-  NODE_VER=$(node -v | sed 's/v//' | cut -d. -f1)
-  if [ "$NODE_VER" -ge 24 ]; then
-    log "Node.js $(node -v) already installed"
+  NODE_VER=$(node -v | sed 's/v//')
+  NODE_MAJOR=$(echo "$NODE_VER" | cut -d. -f1)
+  NODE_MINOR=$(echo "$NODE_VER" | cut -d. -f2)
+  if [ "$NODE_MAJOR" -gt "$NODE_MIN_MAJOR" ] || \
+     { [ "$NODE_MAJOR" -eq "$NODE_MIN_MAJOR" ] && [ "$NODE_MINOR" -ge "$NODE_MIN_MINOR" ]; }; then
+    log "Node.js v$NODE_VER already installed (>= v${NODE_MIN_MAJOR}.${NODE_MIN_MINOR}.0)"
   else
-    warn "Node.js $(node -v) found but v24+ required for PQC support"
-    log "Installing Node.js 24..."
-    curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
-    apt-get install -y nodejs
+    warn "Node.js v$NODE_VER found but v${NODE_MIN_MAJOR}.${NODE_MIN_MINOR}+ required for OpenSSL 3.5 PQC support"
+    needs_install=true
   fi
 else
-  log "Installing Node.js 24..."
+  needs_install=true
+fi
+
+if [ "$needs_install" = true ]; then
+  log "Installing Node.js 24.x..."
   curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
   apt-get install -y nodejs
 fi

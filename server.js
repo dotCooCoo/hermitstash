@@ -17,6 +17,29 @@
  */
 "use strict";
 
+// Node version guard — fail fast with a clear message on <24.8.
+// HermitStash needs Node 24.8+ for OpenSSL 3.5 PQC bindings (ML-KEM-1024,
+// SLH-DSA-SHAKE-256f, ML-DSA-87) and Node 24.4+ for the vendored
+// blamejs framework (which also uses crypto.argon2 and other 24.x
+// additions). The 24.8 floor covers both. Operators bypassing
+// deploy/install.sh + Dockerfile (e.g. running directly under a
+// system Node) get this error instead of cryptic blamejs / OpenSSL
+// failures deep in the require chain.
+(function checkNodeVersion() {
+  var parts = process.versions.node.split(".").map(Number);
+  var major = parts[0], minor = parts[1];
+  if (major < 24 || (major === 24 && minor < 8)) {
+    console.error(
+      "FATAL: HermitStash requires Node.js 24.8 or newer (found v" + process.versions.node + ").\n" +
+      "  HermitStash uses OpenSSL 3.5 post-quantum bindings (ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87)\n" +
+      "  that landed in Node 24.x. The vendored blamejs framework requires 24.4+; HermitStash's own\n" +
+      "  PQC + crypto.argon2 usage requires 24.8+. Upgrade Node and re-run.\n" +
+      "  Install: https://nodejs.org/  |  Linux/systemd: deploy/install.sh"
+    );
+    process.exit(1);
+  }
+})();
+
 (async function boot() {
   var vault;
   try {
