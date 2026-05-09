@@ -26,7 +26,10 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          # Match the runtime floor enforced by server.js + package.json.
+          # 24.14.1 pins the latest active 24.x patch series — covers OpenSSL
+          # 3.5 PQC bindings + cumulative security patches.
+          node-version: 24.14.1
 
       - name: Install ESLint
         run: npm install --no-save eslint@^10 eslint-plugin-security@^4

@@ -18,9 +18,10 @@ FROM cgr.dev/chainguard/node:latest-dev
 # argon2 prebuilds under lib/vendor/argon2/prebuilds/linux-{x64,arm64}
 # (glibc-linked) work unmodified — the Alpine musl trap doesn't apply here.
 #
-# Requires Node 24.8+ for PQC: ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87
-# (OpenSSL 3.5). `:latest-dev` tracks the current Node major and includes
-# apk-tools + shell needed by docker-entrypoint.sh.
+# Requires Node 24.14.1+ for PQC: ML-KEM-1024, SLH-DSA-SHAKE-256f,
+# ML-DSA-87 (OpenSSL 3.5) plus cumulative 24.x security patches.
+# `:latest-dev` tracks the current Node major and includes apk-tools
+# + shell needed by docker-entrypoint.sh.
 
 # Chainguard images default to a non-root USER; override for the build so
 # we can install packages and create the hermit user. Runtime privilege drop

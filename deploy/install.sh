@@ -53,26 +53,30 @@ HERMITSTASH_AUTO_UPDATE="${HERMITSTASH_AUTO_UPDATE:-no}"
 log "Installing HermitStash to ${INSTALL_DIR}"
 echo ""
 
-# ---- Step 1: Node.js 24.8+ ----
+# ---- Step 1: Node.js 24.14.1+ ----
 #
 # HermitStash needs OpenSSL 3.5 PQC bindings (ML-KEM-1024,
-# SLH-DSA-SHAKE-256f, ML-DSA-87) which landed in Node 24.8. The
-# vendored blamejs framework requires 24.4+; the 24.8 floor covers
-# both. NodeSource setup_24.x ships current 24.x (well past 24.8).
+# SLH-DSA-SHAKE-256f, ML-DSA-87) plus the cumulative 24.x security
+# patches that have shipped since 24.8. The 24.14.1 floor pins the
+# latest active 24.x patch series. NodeSource setup_24.x ships
+# current 24.x (well past 24.14.1).
 
 NODE_MIN_MAJOR=24
-NODE_MIN_MINOR=8
+NODE_MIN_MINOR=14
+NODE_MIN_PATCH=1
 
 needs_install=false
 if command -v node &>/dev/null; then
   NODE_VER=$(node -v | sed 's/v//')
   NODE_MAJOR=$(echo "$NODE_VER" | cut -d. -f1)
   NODE_MINOR=$(echo "$NODE_VER" | cut -d. -f2)
+  NODE_PATCH=$(echo "$NODE_VER" | cut -d. -f3)
   if [ "$NODE_MAJOR" -gt "$NODE_MIN_MAJOR" ] || \
-     { [ "$NODE_MAJOR" -eq "$NODE_MIN_MAJOR" ] && [ "$NODE_MINOR" -ge "$NODE_MIN_MINOR" ]; }; then
-    log "Node.js v$NODE_VER already installed (>= v${NODE_MIN_MAJOR}.${NODE_MIN_MINOR}.0)"
+     { [ "$NODE_MAJOR" -eq "$NODE_MIN_MAJOR" ] && [ "$NODE_MINOR" -gt "$NODE_MIN_MINOR" ]; } || \
+     { [ "$NODE_MAJOR" -eq "$NODE_MIN_MAJOR" ] && [ "$NODE_MINOR" -eq "$NODE_MIN_MINOR" ] && [ "$NODE_PATCH" -ge "$NODE_MIN_PATCH" ]; }; then
+    log "Node.js v$NODE_VER already installed (>= v${NODE_MIN_MAJOR}.${NODE_MIN_MINOR}.${NODE_MIN_PATCH})"
   else
-    warn "Node.js v$NODE_VER found but v${NODE_MIN_MAJOR}.${NODE_MIN_MINOR}+ required for OpenSSL 3.5 PQC support"
+    warn "Node.js v$NODE_VER found but v${NODE_MIN_MAJOR}.${NODE_MIN_MINOR}.${NODE_MIN_PATCH}+ required for OpenSSL 3.5 PQC support"
     needs_install=true
   fi
 else

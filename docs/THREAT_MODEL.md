@@ -433,7 +433,7 @@ Code: `lib/mtls-ca.js` (406 lines).
 
 | Component | Algorithm | Rationale |
 |-----------|-----------|-----------|
-| CA signature | ECDSA P-384 with SHA-384 | Best available today on all browsers/OS cert stores. SLH-DSA-SHAKE-256f and ML-DSA-87 are supported in Node 24.8+ but no browser verifies PQ signatures on client certs; issuing PQ-signed certs today would break every mTLS handshake |
+| CA signature | ECDSA P-384 with SHA-384 | Best available today on all browsers/OS cert stores. SLH-DSA-SHAKE-256f and ML-DSA-87 are supported in Node 24.14.1+ but no browser verifies PQ signatures on client certs; issuing PQ-signed certs today would break every mTLS handshake |
 | Client cert signature | Same as CA | Chain consistency |
 | PKCS#12 key bag | PBES2 + AES-256-CBC + PBKDF2-HMAC-SHA-512 | SHA-512 PRF for consistency with MAC. AES-CBC chosen over AES-GCM because Windows / macOS importers still reject PBES2-AES-GCM key bags on some OS versions (confirmed 2026-04) |
 | PKCS#12 outer MAC | HMAC-SHA-512 | Matches key bag KDF |
@@ -715,7 +715,7 @@ This is unavoidable for any at-rest encryption scheme on a service that boots wi
 
 These are properties HermitStash assumes but does not verify:
 
-- **Node.js 24.8+ OpenSSL 3.5+** correctly implements ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87, ECDH P-384, SHAKE256, and HKDF-SHA3-512. Tested through the Node / OpenSSL test suites; HermitStash adds no independent validation
+- **Node.js 24.14.1+ OpenSSL 3.5+** correctly implements ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87, ECDH P-384, SHAKE256, and HKDF-SHA3-512. Tested through the Node / OpenSSL test suites; HermitStash adds no independent validation
 - **@noble libraries** correctly implement XChaCha20-Poly1305 (server + browser), SHAKE256 (browser), and ML-KEM-1024 (browser). noble-post-quantum was audited by Cure53 in 2024; noble-ciphers and noble-hashes are heavily used across the ecosystem
 - **argon2 native binding** correctly implements Argon2id per RFC 9106 with our chosen parameters (64 MiB memory, 3 time, 4 parallelism)
 - **Host filesystem permissions are enforced**. `data/vault.key` is created with mode 0o600 and relies on the OS to honor it
