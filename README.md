@@ -4,12 +4,12 @@
 <p align="center"><a href="https://github.com/dotCooCoo/hermitstash-sync">HermitStash Sync</a> — companion desktop sync client</p>
 
 <p align="center">
-  <a href="https://blamejs.app">
+  <a href="https://blamejs.com">
     <img src="https://raw.githubusercontent.com/blamejs/blamejs/main/assets/BlameJS_Logo.png" width="96" alt="blamejs">
   </a>
 </p>
 <p align="center">
-  Built on <a href="https://blamejs.app"><strong>blamejs</strong></a> — the vendored Node framework that owns its stack.<br>
+  Built on <a href="https://blamejs.com"><strong>blamejs</strong></a> — the vendored Node framework that owns its stack.<br>
   Crypto envelopes, session storage, mTLS CA management, vault sealing, body parsers, rate limiting, and the WebSocket layer all come from <a href="https://github.com/blamejs/blamejs">blamejs</a>; HermitStash composes them into a product.
 </p>
 
@@ -55,9 +55,9 @@ No config files. No build step. No `npm install` — all dependencies are vendor
 
 ## Built on blamejs
 
-[<img align="right" src="https://raw.githubusercontent.com/blamejs/blamejs/main/assets/BlameJS_Logo.png" width="120" alt="blamejs">](https://blamejs.app)
+[<img align="right" src="https://raw.githubusercontent.com/blamejs/blamejs/main/assets/BlameJS_Logo.png" width="120" alt="blamejs">](https://blamejs.com)
 
-HermitStash is composed on top of [**blamejs**](https://blamejs.app) — a Node framework that vendors its standard library instead of pulling it from npm at runtime, with security defaults wired in from line zero. Every primitive HermitStash uses for crypto, transport, storage, and identity flows through the framework:
+HermitStash is composed on top of [**blamejs**](https://blamejs.com) — a Node framework that vendors its standard library instead of pulling it from npm at runtime, with security defaults wired in from line zero. Every primitive HermitStash uses for crypto, transport, storage, and identity flows through the framework:
 
 - `b.crypto` — envelope versioning, ML-KEM-1024 + P-384 hybrid encrypt/decrypt, XChaCha20-Poly1305 packed format, SHA3-512, namespaced hashes
 - `b.vault` + `b.vaultWrap` + `b.cryptoField` — vault key load/seal/unseal, passphrase-wrapped at-rest sealing, sealed-column registry for the data layer
