@@ -3,6 +3,16 @@
 <p align="center"><strong>Stash it quietly. Share it instantly.</strong><br>Post-quantum encrypted, self-hosted file upload server.</p>
 <p align="center"><a href="https://github.com/dotCooCoo/hermitstash-sync">HermitStash Sync</a> — companion desktop sync client</p>
 
+<p align="center">
+  <a href="https://blamejs.app">
+    <img src="https://raw.githubusercontent.com/blamejs/blamejs/main/assets/BlameJS_Logo.png" width="96" alt="blamejs">
+  </a>
+</p>
+<p align="center">
+  Built on <a href="https://blamejs.app"><strong>blamejs</strong></a> — the vendored Node framework that owns its stack.<br>
+  Crypto envelopes, session storage, mTLS CA management, vault sealing, body parsers, rate limiting, and the WebSocket layer all come from <a href="https://github.com/blamejs/blamejs">blamejs</a>; HermitStash composes them into a product.
+</p>
+
 ---
 
 > **A note before you dive in.**
@@ -42,6 +52,23 @@ No config files. No build step. No `npm install` — all dependencies are vendor
 - **Self-hosted** — your server, your keys, your data. No third-party cloud
 - **Zero dependencies at runtime** — `node server.js` is the entire setup. All crypto libraries are vendored and committed
 - **One-command deploy** — Docker or bare metal, no build step, no config files needed
+
+## Built on blamejs
+
+[<img align="right" src="https://raw.githubusercontent.com/blamejs/blamejs/main/assets/BlameJS_Logo.png" width="120" alt="blamejs">](https://blamejs.app)
+
+HermitStash is composed on top of [**blamejs**](https://blamejs.app) — a Node framework that vendors its standard library instead of pulling it from npm at runtime, with security defaults wired in from line zero. Every primitive HermitStash uses for crypto, transport, storage, and identity flows through the framework:
+
+- `b.crypto` — envelope versioning, ML-KEM-1024 + P-384 hybrid encrypt/decrypt, XChaCha20-Poly1305 packed format, SHA3-512, namespaced hashes
+- `b.vault` + `b.vaultWrap` + `b.cryptoField` — vault key load/seal/unseal, passphrase-wrapped at-rest sealing, sealed-column registry for the data layer
+- `b.session` — sessions with PQC sealed cookies, /24 IPv4 + /64 IPv6 fingerprint binding, tmpfs-backed `localDbThin` storage, sid-rotation on login
+- `b.mtlsCa` + `b.mtlsEngine` — mTLS CA generation, client cert issuance, sealed-PEM at-rest, generation tracking
+- `b.middleware.{apiEncrypt, rateLimit, bodyParser, cors, csrfProtect, securityHeaders, botGuard}` — the request pipeline
+- `b.parsers.{json, multipart}` — RFC 7578 / RFC 5987 / POISONED_KEYS / HPE_* hardened body parsing
+- `b.objectStore` — SigV4 S3-compatible backend (AWS, DigitalOcean Spaces, MinIO, Backblaze)
+- `b.scheduler`, `b.backup`, `b.router`, `b.websocket`, `b.auth.password` (Argon2id), `b.auth.totp` (SHA-512), `b.safeUrl`, `b.sanitize`, `b.atomicFile`, `b.requestHelpers`, `b.constants`
+
+The framework's source tree lives at [`lib/vendor/blamejs/`](lib/vendor/blamejs/) — committed at a pinned tag (see [`lib/vendor/MANIFEST.json`](lib/vendor/MANIFEST.json)), refreshed via [`scripts/vendor-update.sh blamejs <tag>`](scripts/vendor-update.sh) which shallow-clones the release tag from [github.com/blamejs/blamejs](https://github.com/blamejs/blamejs). Zero npm runtime packages — `package.json` has no `dependencies` block at all.
 
 ## Crypto Suite
 
