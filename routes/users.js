@@ -361,7 +361,7 @@ module.exports = function (app) {
   });
 
   // Suspend user
-  app.post("/admin/users/:id/suspend", (req, res) => {
+  app.post("/admin/users/:id/suspend", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     var check = validateSuspendInput(req.params.id);
     if (check.error) return res.status(400).json({ error: check.error });
@@ -376,7 +376,7 @@ module.exports = function (app) {
     }
 
     usersRepo.update(target._id, { $set: { status: "suspended" } });
-    clearSessionsForUser(target._id);
+    await clearSessionsForUser(target._id);
 
     audit.log(audit.ACTIONS.USER_SUSPENDED, { targetId: target._id, targetEmail: target.email, req: req });
 
@@ -397,7 +397,7 @@ module.exports = function (app) {
   });
 
   // Delete user and reassign files
-  app.post("/admin/users/:id/delete", (req, res) => {
+  app.post("/admin/users/:id/delete", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     var check = validateDeleteUserInput(req.params.id);
     if (check.error) return res.status(400).json({ error: check.error });
@@ -412,7 +412,7 @@ module.exports = function (app) {
     }
 
     var result = usersRepo.deleteUser(target._id, "deleted");
-    clearSessionsForUser(target._id);
+    await clearSessionsForUser(target._id);
 
     var reassigned = result ? result.filesReassigned : 0;
     audit.log(audit.ACTIONS.USER_DELETED, { targetId: target._id, targetEmail: target.email, details: "filesReassigned: " + reassigned, req: req });

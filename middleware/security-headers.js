@@ -1,33 +1,60 @@
 /**
- * Security response headers — applied to every response.
+ * Security response headers — wraps `b.middleware.securityHeaders` with
+ * HermitStash-specific CSP composition (analytics + Google OAuth) and a
+ * dynamic-page Cache-Control bolt-on.
  *
- * Generates a per-response CSP nonce so templates can allowlist specific
- * inline <script>/<style> blocks via `nonce="{{nonce}}"`. When a nonce is
- * present, CSP3 browsers ignore 'unsafe-inline'; we still emit it in the
- * header as a strict no-op fallback for CSP2-era clients.
+ * The framework primitive owns:
+ *   Strict-Transport-Security (HSTS), X-Content-Type-Options,
+ *   X-Frame-Options, Referrer-Policy, Permissions-Policy (RFC 9651
+ *   validated), Cross-Origin-Opener-Policy, Cross-Origin-Resource-Policy,
+ *   Origin-Agent-Cluster, X-DNS-Prefetch-Control, Document-Policy,
+ *   Content-Security-Policy (with Trusted Types).
+ *
+ * HS supplies the CSP string per-request because the allowlist depends
+ * on operator-configured analytics domains (admin → Branding) plus the
+ * Google OAuth hosts when Google login is enabled. Those domains can't
+ * be baked into a static `csp:` opt at boot since they hot-reload via
+ * config.onReset. Compute on every request, hand to the framework.
+ *
+ * The CSP nonce primitive (`b.middleware.cspNonce`) is the better
+ * long-term path for inline-script handling, but the templates still
+ * carry ~169 inline event-handler attributes (onclick=, onchange=, ...).
+ * Until those move to addEventListener, the CSP keeps `'unsafe-inline'`
+ * on script-src + style-src; switching to nonces today would break
+ * every page that fires an inline handler. The nonce stays attached to
+ * res._cspNonce so views adopting `nonce="{{nonce}}"` find it.
  */
 var b = require("../lib/vendor/blamejs");
 var config = require("../lib/config");
-;
 
-// Extract analytics domains (for script-src / connect-src / img-src) from the
-// admin-configured analytics script snippet.
+// Extract analytics domains (for script-src / connect-src / img-src)
+// from the admin-configured analytics script snippet. Operators may
+// also set `analyticsCspDomains` explicitly (comma-separated) when the
+// auto-extract regex misses a host (e.g. dynamically loaded pixels).
 function resolveAnalyticsDomains() {
   if (config.analyticsCspDomains) {
-    return config.analyticsCspDomains.split(",").map(function (d) { return d.trim(); }).filter(Boolean);
+    var raw = config.analyticsCspDomains;
+    // settings-schema declares this as `type: "list"`, which the admin
+    // settings store may persist as an array. Both shapes flow through.
+    if (Array.isArray(raw)) return raw.map(function (d) { return String(d).trim(); }).filter(Boolean);
+    return String(raw).split(",").map(function (d) { return d.trim(); }).filter(Boolean);
   }
   if (!config.analyticsScript) return [];
-  var srcMatches = config.analyticsScript.match(/(?:src|href)=["']https?:\/\/([^"'\s\/]+)/gi) || [];
-  var urlMatches = config.analyticsScript.match(/https?:\/\/([^"'\s\/\)]+)/gi) || [];
+  var srcMatches = config.analyticsScript.match(/(?:src|href)=["']https?:\/\/([^"'\s/]+)/gi) || [];
+  var urlMatches = config.analyticsScript.match(/https?:\/\/([^"'\s/)]+)/gi) || [];
   var domains = new Set();
   srcMatches.concat(urlMatches).forEach(function (m) {
-    try { var host = m.replace(/^.*?https?:\/\//i, "").split(/[/"'\s]/)[0]; if (host && host.includes(".")) domains.add("https://" + host); } catch (_e) { /* URL parse failure — skip this match */ }
+    try {
+      var host = m.replace(/^.*?https?:\/\//i, "").split(/[/"'\s]/)[0];
+      if (host && host.includes(".")) domains.add("https://" + host);
+    } catch (_e) { /* URL parse failure — skip this match */ }
   });
   return Array.from(domains);
 }
 
-// When Google OAuth is enabled, allow avatar + SDK hosts in img-src / connect-src.
-// Intentionally DOES NOT include play.google.com telemetry (blocked = privacy win).
+// When Google OAuth is enabled, allow avatar + SDK hosts in img-src /
+// connect-src. Intentionally DOES NOT include play.google.com telemetry
+// (blocked = privacy win).
 function googleImgDomains() {
   if (!config.google || !config.google.clientID) return [];
   return ["https://lh3.googleusercontent.com", "https://*.googleusercontent.com"];
@@ -37,59 +64,81 @@ function googleConnectDomains() {
   return ["https://accounts.google.com", "https://oauth2.googleapis.com"];
 }
 
+function buildCsp() {
+  var analytics = resolveAnalyticsDomains();
+  var analyticsExtra = analytics.length > 0 ? " " + analytics.join(" ") : "";
+  var googleImg = googleImgDomains();
+  var googleImgExtra = googleImg.length > 0 ? " " + googleImg.join(" ") : "";
+  var googleConnect = googleConnectDomains();
+  var googleConnectExtra = googleConnect.length > 0 ? " " + googleConnect.join(" ") : "";
+
+  return "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline'" + analyticsExtra + "; " +
+    "style-src 'self' 'unsafe-inline'; " +
+    "font-src 'self'; " +
+    "img-src 'self' data:" + analyticsExtra + googleImgExtra + "; " +
+    "connect-src 'self'" + analyticsExtra + googleConnectExtra + "; " +
+    "object-src 'none'; " +
+    "base-uri 'none'; " +
+    "frame-ancestors 'none'";
+}
+
+// Stable framework middleware — created once at module load. Two
+// opts diverge from the framework default:
+//
+//   csp: false — HS computes the CSP string per request (operator
+//     hot-reloads analytics + Google OAuth config; framework's static
+//     `csp:` opt can't represent that). The wrapper below sets the
+//     header before delegating, so the framework primitive sees a
+//     pre-set Content-Security-Policy and skips its own.
+//
+//   hsts: false — HS gates HSTS on `config.rpOrigin.startsWith("https")`
+//     so HTTP deployments don't ship a useless-and-harmful header. The
+//     framework default would emit on every response regardless of
+//     scheme. The wrapper below adds HSTS only when the gate matches.
+//
+// Every other header the primitive owns stays at the framework default
+// (Referrer-Policy: no-referrer, Permissions-Policy: 27-feature deny,
+// COOP/CORP: same-origin, Origin-Agent-Cluster: ?1, X-DNS-Prefetch-
+// Control: off, Document-Policy: document-write=?0 / unsized-media=?0
+// / oversized-images=?0). Accepting these matches OWASP-strict.
+var bSecurityHeaders = b.middleware.securityHeaders({
+  csp:  false,
+  hsts: false,
+});
+
 module.exports = function securityHeaders(req, res, next) {
-  // Per-response nonce. 16 random bytes → 22 base64url chars = ~128 bits entropy.
-  // Expose on res so send.js can forward it into the template context.
+  // Per-response nonce. 16 random bytes → 22 base64url chars = ~128 bits
+  // entropy. Exposed on res so send.js can forward into template
+  // context. The CSP doesn't currently emit `nonce-...` (would break
+  // inline handlers — see header comment), but views adopting
+  // `nonce="{{nonce}}"` find it ready.
   res._cspNonce = b.crypto.generateBytes(16).toString("base64url");
 
+  // Compute CSP per request (hot-reloads with admin config changes).
+  res.setHeader("Content-Security-Policy", buildCsp());
+
+  // HSTS gate on rpOrigin scheme — only emit for HTTPS deployments.
+  // 2-year max-age + includeSubDomains + preload matches the
+  // framework's recommended posture and the hstspreload.org policy
+  // (1-year was the older minimum; preload submission requires 2-year).
+  // Sent only over HTTPS — emitting HSTS on a plain-HTTP origin is
+  // useless (browsers ignore) and harmful (locks browsers into HTTPS
+  // for an origin the operator hasn't yet TLS-enabled).
+  if (config.rpOrigin && config.rpOrigin.startsWith("https")) {
+    res.setHeader("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
+  }
+
+  // Dynamic-page Cache-Control. Static assets (CSS/JS/images/fonts)
+  // skip these because the static handler already manages cache headers
+  // and adding no-store breaks browser disk-cache for the asset bundle.
+  // Wrapped in writeHead so the headers land on the response right
+  // before flush, after any middleware that might want to set its own
+  // Cache-Control (e.g. /admin/backup/db's Content-Disposition).
   var origWriteHead = res.writeHead.bind(res);
-  res.writeHead = function (_code) {
-    res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("X-Frame-Options", "DENY");
-    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-    res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-    res.setHeader("X-XSS-Protection", "0");
-    res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
-    res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
-    // HSTS for HTTPS deployments (with preload)
-    if (config.rpOrigin && config.rpOrigin.startsWith("https")) {
-      res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
-    }
-    if (!res.getHeader("Content-Security-Policy")) {
-      var domains = resolveAnalyticsDomains();
-      var analyticsExtra = domains.length > 0 ? " " + domains.join(" ") : "";
-
-      // NOTE ON CSP + NONCES:
-      // A per-response nonce is generated (res._cspNonce) and threaded into the
-      // template context so views can start adopting `nonce="{{nonce}}"` on inline
-      // <script>/<style> tags. We intentionally DO NOT emit `'nonce-...'` in the
-      // CSP header yet. Under CSP3, browsers that see a nonce source ignore
-      // `'unsafe-inline'` entirely — which would break the ~169 inline event
-      // handler attributes (onclick=, onchange=, etc.) still present in templates.
-      // The infrastructure is ready; a future phase rewrites those handlers to
-      // addEventListener in external JS, then this comment block is replaced with
-      //     var nonceExpr = "'nonce-" + res._cspNonce + "'";
-      //     var scriptSrc = "script-src 'self' " + nonceExpr + analyticsExtra;
-      // and `'unsafe-inline'` is dropped.
-      var googleImg = googleImgDomains();
-      var googleConnect = googleConnectDomains();
-      var googleImgExtra = googleImg.length > 0 ? " " + googleImg.join(" ") : "";
-      var googleConnectExtra = googleConnect.length > 0 ? " " + googleConnect.join(" ") : "";
-
-      var scriptSrc = "script-src 'self' 'unsafe-inline'" + analyticsExtra;
-      var styleSrc  = "style-src 'self' 'unsafe-inline'";
-      var connectSrc = "connect-src 'self'" + analyticsExtra + googleConnectExtra;
-      // Tightened img-src: no longer accepts arbitrary https: images. data: is
-      // still allowed for inline icons/previews. Analytics hosts included so
-      // tracking pixels from the admin-configured script work. Google
-      // googleusercontent hosts allowed when Google OAuth is configured (for
-      // user avatars).
-      var imgSrc = "img-src 'self' data:" + analyticsExtra + googleImgExtra;
-      res.setHeader("Content-Security-Policy", "default-src 'self'; " + scriptSrc + "; " + styleSrc + "; font-src 'self'; " + imgSrc + "; " + connectSrc + "; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
-    }
-    // Prevent caching of authenticated/dynamic pages
+  res.writeHead = function () {
     var isStatic = req.pathname && /\.(css|js|png|jpg|jpeg|gif|svg|ico|woff2?|webp)$/.test(req.pathname);
-    if (!isStatic) {
+    if (!isStatic && !res.getHeader("Cache-Control")) {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
@@ -100,5 +149,6 @@ module.exports = function securityHeaders(req, res, next) {
     }
     return origWriteHead.apply(res, arguments);
   };
-  next();
+
+  return bSecurityHeaders(req, res, next);
 };

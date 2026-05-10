@@ -1,31 +1,40 @@
-var b = require("../../lib/vendor/blamejs");
 /**
- * CSRF Policy — dual protection for cookie-authenticated requests.
+ * CSRF Policy — thin composition over `b.middleware.csrfProtect`.
  *
- * Strategy:
- *   - JSON requests: CSRF-safe via per-session XChaCha20-Poly1305 encryption
- *     (cross-site attacker cannot forge encrypted payloads without session key)
- *   - Form POSTs: CSRF token validated via validateToken() in the route handler
- *     (token embedded as hidden field, constant-time comparison)
- *   - Non-JSON, non-exempt POSTs: rejected with 403
+ * The framework primitive enforces CSRF on POST/PUT/DELETE/PATCH by
+ * comparing a header / body token against either a double-submit
+ * cookie OR an operator-supplied lookup. HermitStash uses the
+ * lookup mode — the expected token lives in `req.session._csrf`,
+ * generated lazily on first request and persisted via `b.session.
+ * updateData` (lib/session.js's res.end wrap).
  *
- * Exempt paths:
- *   - API key-authenticated requests (Bearer token = no cookie auth)
- *   - Public upload endpoints (no session-based auth)
- *   - OAuth callbacks (Google redirect)
- *   - Routes that validate CSRF tokens in their own handler (e.g. /auth/logout)
+ * Strategy (unchanged from pre-blamejs HS):
+ *   - JSON requests: CSRF-safe via per-session XChaCha20-Poly1305
+ *     encryption — the api-encrypt middleware validates the
+ *     session-bound key, which serves as an implicit CSRF token (a
+ *     cross-site attacker can't produce a valid encrypted body).
+ *   - Form POSTs (multipart and url-encoded): validated via
+ *     `b.middleware.csrfProtect` with our session-stored token.
+ *   - Bearer-authed API key calls: skipped (no cookie session).
+ *   - Operator-exempt paths: public uploads, OAuth callbacks, the
+ *     login form's logout (validates in-handler).
+ *
+ * The `validateToken(session, req, body)` helper is preserved so
+ * `routes/auth.js`'s POST /auth/logout can do its own check (it
+ * runs inside the manual `req.on("end")` body parser, which is
+ * outside the request-pipeline middleware chain).
  */
-;
+"use strict";
+var b = require("../../lib/vendor/blamejs");
 
 var EXEMPT_PREFIXES = [
   "/drop/",           // public uploads (init, file, chunk, finalize)
   "/auth/google",     // OAuth redirect/callback
   "/passkey/login",   // WebAuthn challenge-response (has its own CSRF via challenge)
 ];
-
 var EXEMPT_EXACT = [
   "/drop/init",
-  "/auth/logout",   // form POST — validates CSRF token in route handler
+  "/auth/logout",     // form POST — validates CSRF token in route handler
 ];
 
 function isExempt(pathname) {
@@ -39,73 +48,73 @@ function isExempt(pathname) {
   return false;
 }
 
-/**
- * Generate a CSRF token and store in session.
- */
+// Lazy-init the CSRF token in session.data. Read by templates +
+// `b.middleware.csrfProtect`'s tokenLookup. session.js's res.end
+// wrapper persists the mutation back to _blamejs_sessions on flush.
 function generateToken(session) {
+  if (!session) return null;
   if (!session._csrf) {
     session._csrf = b.crypto.generateBytes(32).toString("base64url");
   }
   return session._csrf;
 }
 
-/**
- * Validate a CSRF token from the request.
- * Checks body._csrf, query._csrf, and X-CSRF-Token header.
- */
+// Manual validate for routes that handle their own body parsing
+// (POST /auth/logout reads via req.on("end")). Token-source priority
+// matches `b.middleware.csrfProtect`: header first, then body, then
+// query — same constant-time compare via timingSafeEqual on equal-
+// length string buffers.
 function validateToken(session, req, body) {
-  var expected = session._csrf;
+  var expected = session && session._csrf;
   if (!expected) return false;
-  var token = (body && body._csrf) || (req.query && req.query._csrf) || (req.headers && req.headers["x-csrf-token"]);
+  var token = (req.headers && req.headers["x-csrf-token"])
+           || (body && body._csrf)
+           || (req.query && req.query._csrf);
   if (!token || typeof token !== "string") return false;
-  // Constant-time comparison
   if (token.length !== expected.length) return false;
-  return b.crypto.timingSafeEqual(token, expected);
+  return b.crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected));
 }
 
-/**
- * CSRF middleware — generates token for GET, validates for POST/PUT/DELETE.
- */
+// `b.middleware.csrfProtect` instance — created once at module load
+// with `tokenLookup` pointing at the session-stored token.
+var bCsrf = b.middleware.csrfProtect({
+  tokenLookup: function (req) { return req.session && req.session._csrf; },
+  fieldName:   "_csrf",
+  headerName:  "X-CSRF-Token",
+  audit:        true,
+});
+
 function csrfMiddleware(req, res, next) {
-  // Skip if API key auth (no cookie session to protect)
+  // Skip Bearer-authed clients — no cookie session, no double-submit
+  // protection needed; mTLS + API-key transport security covers them.
   if (req.apiKey) return next();
 
-  // Generate token on every request (available for templates)
-  if (req.session) {
-    req.csrfToken = generateToken(req.session);
-  }
+  // Generate / surface the token on every request so views and AJAX
+  // callers can read req.csrfToken regardless of method.
+  if (req.session) req.csrfToken = generateToken(req.session);
 
-  // Only validate on state-changing methods
-  if (req.method !== "POST" && req.method !== "PUT" && req.method !== "DELETE") {
+  // Only state-changing methods need validation. The framework also
+  // checks method, but bailing here saves the lookup + audit emit on
+  // every GET.
+  if (req.method !== "POST" && req.method !== "PUT" &&
+      req.method !== "DELETE" && req.method !== "PATCH") {
     return next();
   }
 
-  // Skip exempt paths
   if (isExempt(req.pathname)) return next();
 
-  // API-encrypted requests are inherently CSRF-safe (encrypted body includes session key)
-  // The api-encrypt middleware validates the per-session XChaCha20 key,
-  // which serves as an implicit CSRF token — cross-site requests can't produce valid payloads.
-  if (req.headers && req.headers["content-type"] && req.headers["content-type"].includes("application/json")) {
-    return next();
-  }
+  // JSON requests are CSRF-safe via the session-bound api-encrypt key
+  // (cross-site attacker can't produce a valid encrypted envelope).
+  // Skip the framework check rather than expecting an X-CSRF-Token
+  // on every fetch() call.
+  var contentType = (req.headers && req.headers["content-type"]) || "";
+  if (contentType.includes("application/json")) return next();
 
-  // For non-JSON POST (form submissions), validate CSRF token
-  if (req.session) {
-    // Try to parse body for _csrf token (multipart handled separately by their routes)
-    var contentType = (req.headers && req.headers["content-type"]) || "";
-    if (contentType.includes("multipart/")) {
-      // Multipart uploads are exempt — they use bundle tokens (finalizeToken) for auth
-      return next();
-    }
-    // Form-encoded or unknown content type: require CSRF token
-    // All legitimate app requests use JSON, so rejecting non-JSON state-changing requests
-    // is defense-in-depth against cross-site form POSTs
-    return res.writeHead(403, { "Content-Type": "application/json" }),
-      res.end(JSON.stringify({ error: "CSRF validation failed." }));
-  }
+  // Multipart uploads use bundle/finalize tokens for auth, not CSRF.
+  if (contentType.includes("multipart/")) return next();
 
-  return next();
+  // Form-encoded or unknown content type → framework validates.
+  return bCsrf(req, res, next);
 }
 
-module.exports = { csrfMiddleware, generateToken, validateToken, isExempt };
+module.exports = { csrfMiddleware: csrfMiddleware, generateToken: generateToken, validateToken: validateToken, isExempt: isExempt };
