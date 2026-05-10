@@ -374,9 +374,25 @@ var blamejsBodyParser = b.middleware.bodyParser({
   multipart:  false,
 });
 
+// blamejs apiEncrypt scope is gated on TWO things: (1) the route is in
+// the carve-out list below, AND (2) the request is Bearer-authenticated
+// (`req.apiKey` set by api-auth). Cookie-authenticated browser clients
+// fall through to legacy api-encrypt — public/js/api.js wraps fetch with
+// the legacy `{_e, _t}` envelope and does not speak the blamejs `_ek/
+// _ct/_ts/_nonce` shape. Mixing the two layers on the same request is
+// what produced "encrypted-payload-required" rejections on browser
+// uploads to /drop/init when the gate matched only on path. Bearer-
+// authenticated sync clients speak the blamejs envelope; cookie-
+// authenticated browsers continue on legacy until a future browser-side
+// migration to the blamejs envelope.
+//
+// /.well-known/blamejs-pubkey stays open to all callers — it's the
+// pubkey advertisement that bootstraps blamejs sessions for Bearer
+// clients in the first place.
 function isBlamejsApiEncryptPath(req) {
   var p = req.pathname || "";
   if (p === "/.well-known/blamejs-pubkey") return true;
+  if (!req.apiKey) return false;
   if (p === "/drop/init") return req.method === "POST";
   if (p.indexOf("/drop/finalize/") === 0) return req.method === "POST";
   if (p === "/sync/rename") return req.method === "POST";
