@@ -27,7 +27,7 @@ var { sanitizeSvg } = require("../lib/sanitize-svg");
 var apiKeysRepo = require("../app/data/repositories/apiKeys.repo");
 var db = require("../lib/db");
 var mtlsCa = require("../lib/mtls-ca");
-var { generateEnrollmentCode } = require("../lib/cert-utils");
+var { generateEnrollmentCode, certFingerprintSha3 } = require("../lib/cert-utils");
 
 var { isStashLocked } = require("../middleware/require-access");
 var accessCodeService = require("../app/domain/access-code.service");
@@ -739,13 +739,12 @@ module.exports = function (app) {
         await mtlsCa.initCA();
         clientCert = await mtlsCa.generateClientCert({ cn: prefix });
         if (clientCert) {
-          var certSha3 = b.crypto.sha3Hash;
           var createdKey = apiKeysRepo.findOne({ keyHash: keyHash });
           if (createdKey) {
             apiKeysRepo.update(createdKey._id, { $set: {
               certIssuedAt: clientCert.issuedAt,
               certExpiresAt: clientCert.expiresAt,
-              certFingerprint: certSha3(clientCert.cert),
+              certFingerprint: certFingerprintSha3(clientCert.cert),
             }});
           }
         }
@@ -830,7 +829,6 @@ module.exports = function (app) {
       if (!newCert) return res.status(500).json({ error: "Failed to generate certificate — OpenSSL may not be available." });
 
       // Store enrollment code FIRST — if this fails, the API key cert fields stay unchanged
-      var sha3 = b.crypto.sha3Hash;
       var enrollment = generateEnrollmentCode();
 
       db.enrollmentCodes.insert({
@@ -853,7 +851,7 @@ module.exports = function (app) {
       apiKeysRepo.update(apiKeyId, { $set: {
         certIssuedAt: newCert.issuedAt,
         certExpiresAt: newCert.expiresAt,
-        certFingerprint: sha3(newCert.cert),
+        certFingerprint: certFingerprintSha3(newCert.cert),
       }});
 
       audit.log(audit.ACTIONS.CERT_REISSUED, {

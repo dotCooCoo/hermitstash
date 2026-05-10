@@ -13,6 +13,11 @@ function send(res, view, data, status) {
       logo: config.customLogo || C.paths.logo,
       logoDark: config.customLogo || C.paths.logoDark,
       logoColor: config.customLogo || C.paths.logoColor,
+      // Surfaced for navbar version badge under showMaintainerSupport.
+      // Templates render `v{{brand.version}}` linking to the matching
+      // GitHub release page so visitors can see + audit which version
+      // they're talking to.
+      version:  C.version,
     },
     assets: {
       css: C.paths.css + "?v=" + C.cssVersion,

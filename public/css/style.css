@@ -1106,6 +1106,23 @@ select.text-input option{background:var(--bg,#0f0f0f);color:var(--text,#e8e8e8)}
 .nav-shop{display:inline-flex !important;align-items:center;gap:5px}.nav-shop .rolling-text,.nav-shop .rolling-text::after{background-image:linear-gradient(90deg,#8B5CF6 0%,#c084fc 25%,#e879f9 50%,#c084fc 75%,#8B5CF6 100%);background-size:200% auto;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;animation:support-shimmer 4s linear infinite}.nav-shop svg{fill:#c084fc;flex-shrink:0}
 .nav-support{display:inline-flex !important;align-items:center;gap:5px}.nav-support .rolling-text,.nav-support .rolling-text::after{background-image:linear-gradient(90deg,#8B5CF6 0%,#c084fc 25%,#e879f9 50%,#c084fc 75%,#8B5CF6 100%);background-size:200% auto;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;animation:support-shimmer 4s linear infinite}.nav-support svg{fill:#c084fc;flex-shrink:0}
 
+/* Maintainer-support badge cluster — GitHub icon, version pill,
+   blamejs logo. Rendered alongside Shop / Support (Ko-fi) under the
+   showMaintainerSupport toggle. Each is an icon-or-pill anchor with
+   a subtle hover state, no shimmer (the shop/support shimmer is
+   load-bearing branding for those CTAs; the badges are
+   informational and shouldn't compete). */
+.nav-github{display:inline-flex !important;align-items:center;color:var(--text-color);opacity:.72;transition:opacity .15s ease,transform .15s ease}
+.nav-github:hover{opacity:1;transform:translateY(-1px)}
+.nav-github svg{flex-shrink:0}
+.nav-version{display:inline-flex !important;align-items:center;padding:3px 9px;font-size:.7rem;font-weight:600;letter-spacing:.02em;border:1px solid rgba(139,92,246,.35);border-radius:999px;background:rgba(139,92,246,.10);color:#c084fc;text-decoration:none;transition:background .15s ease,border-color .15s ease,transform .15s ease;line-height:1.2}
+.nav-version:hover{background:rgba(139,92,246,.18);border-color:rgba(139,92,246,.55);transform:translateY(-1px)}
+[data-theme="light"] .nav-version{background:rgba(139,92,246,.08);color:#7C3AED}
+[data-theme="light"] .nav-version:hover{background:rgba(139,92,246,.16)}
+.nav-blamejs{display:inline-flex !important;align-items:center;opacity:.78;transition:opacity .15s ease,transform .15s ease}
+.nav-blamejs:hover{opacity:1;transform:translateY(-1px)}
+.nav-blamejs img{display:block;flex-shrink:0;border-radius:3px}
+
 /* Legacy footer class */
 .footer{text-align:center;padding:28px;font-size:.75rem;color:var(--text-muted);border-top:1px solid var(--border-thin);letter-spacing:.04em;opacity:.7}
 

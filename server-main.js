@@ -323,7 +323,7 @@ app.post("/sync/renew-cert",
       apiKeysRepo.update(req.apiKey._id, { $set: {
         certIssuedAt: newCert.issuedAt,
         certExpiresAt: newCert.expiresAt,
-        certFingerprint: b.crypto.sha3Hash(newCert.cert),
+        certFingerprint: certUtils.certFingerprintSha3(newCert.cert),
       }});
 
       res.writeHead(200, { "Content-Type": "application/json" });

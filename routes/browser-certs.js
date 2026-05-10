@@ -18,6 +18,7 @@
  */
 var b = require("../lib/vendor/blamejs");
 var apiKeysRepo = require("../app/data/repositories/apiKeys.repo");
+var { certFingerprintSha3 } = require("../lib/cert-utils");
 ;
 var requireAdmin = require("../middleware/require-admin");
 var audit = require("../lib/audit");
@@ -93,7 +94,7 @@ module.exports = function (app) {
         boundBundleId: null,
         certIssuedAt: result.issuedAt,
         certExpiresAt: result.expiresAt,
-        certFingerprint: b.crypto.sha3Hash(result.certPem),
+        certFingerprint: certFingerprintSha3(result.certPem),
         createdAt: new Date().toISOString(),
       });
 

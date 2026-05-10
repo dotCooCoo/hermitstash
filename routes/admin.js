@@ -23,6 +23,7 @@
 var b = require("../lib/vendor/blamejs");
 var fs = require("fs");
 var path = require("path");
+var { certFingerprintSha3 } = require("../lib/cert-utils");
 var audit = require("../lib/audit");
 var C = require("../lib/constants");
 var { PATHS } = C;
@@ -1126,7 +1127,7 @@ module.exports = function (app) {
         // In skipRestart mode, leave the DB unchanged so the shared server
         // remains usable by subsequent tests (old cert still validates).
         if (!skipRestart) {
-          var newFp = b.crypto.sha3Hash(newCert.cert);
+          var newFp = certFingerprintSha3(newCert.cert);
           apiKeysRepo.update(apiKey._id, { $set: {
             certFingerprint: newFp,
             certIssuedAt: newCert.issuedAt,

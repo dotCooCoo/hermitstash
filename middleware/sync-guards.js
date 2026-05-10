@@ -26,16 +26,17 @@ var b = require("../lib/vendor/blamejs");
 ;
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
 var { hasScope } = require("../app/security/scope-policy");
+var { certFingerprintSha3 } = require("../lib/cert-utils");
 
 /**
- * Reconstruct PEM from a peerCert.raw buffer and hash with SHA3-512 —
- * matches how apiKey.certFingerprint is stored at enrollment time.
+ * Compute the canonical SHA3-512 fingerprint for a TLS peer certificate.
+ * Wraps the DER bytes in a PEM envelope and routes through
+ * certFingerprintSha3 so issuance and verification hash identical bytes.
  */
 function peerCertFingerprintSha3(peerCert) {
   if (!peerCert || !peerCert.raw) return "";
   var derB64 = peerCert.raw.toString("base64");
-  var pem = "-----BEGIN CERTIFICATE-----\n" + derB64.match(/.{1,64}/g).join("\n") + "\n-----END CERTIFICATE-----\n";
-  return b.crypto.sha3Hash(pem);
+  return certFingerprintSha3("-----BEGIN CERTIFICATE-----\n" + derB64 + "\n-----END CERTIFICATE-----");
 }
 
 /**
