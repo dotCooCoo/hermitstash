@@ -1,12 +1,12 @@
+var b = require("../lib/vendor/blamejs");
 var config = require("../lib/config");
 var C = require("../lib/constants");
 var usersRepo = require("../app/data/repositories/users.repo");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
-var { parseMultipart, parseJson } = require("../lib/multipart");
+var { parseMultipart } = require("../lib/multipart");
 var { send } = require("../middleware/send");
 var audit = require("../lib/audit");
 var logger = require("../app/shared/logger");
-var rateLimit = require("../lib/rate-limit");
 var bundleService = require("../app/domain/uploads/bundle.service");
 var { requireScope } = require("../app/security/scope-policy");
 var { resolveUploadConfig, handleFileUpload, handleChunkUpload, handleFinalize } = require("../app/domain/uploads/upload.handler");
@@ -37,12 +37,12 @@ module.exports = function (app) {
   });
 
   // Init bundle
-  app.post("/drop/init", rateLimit.middleware("drop-init", 20, C.TIME.ONE_MIN), requireScope("upload"), async (req, res) => {
+  app.post("/drop/init", b.middleware.rateLimit({ scope: "drop-init", max: 20, windowMs: C.TIME.ONE_MIN, algorithm: "fixed-window" }), requireScope("upload"), async (req, res) => {
     if (!config.publicUpload) return res.status(403).json({ error: "Disabled." });
     // blamejs apiEncrypt populates req.body with the decrypted plaintext;
     // fall through to parseJson(req) only when no upstream middleware has
     // pre-parsed the request (e.g. legacy callers, tests).
-    var body = req.body || await parseJson(req);
+    var body = req.body || (await b.parsers.json(req)) || {};
     var rawEmail = body.uploaderEmail ? String(body.uploaderEmail).slice(0, 254) : null;
     var rawName = String(body.uploaderName || "Anonymous").slice(0, 200);
     var ownerId = req.user ? req.user._id : null;
@@ -64,7 +64,7 @@ module.exports = function (app) {
   });
 
   // Upload single file
-  app.post("/drop/file/:bundleId", rateLimit.middleware("upload", 200, C.TIME.ONE_MIN), requireScope("upload"), async (req, res) => {
+  app.post("/drop/file/:bundleId", b.middleware.rateLimit({ scope: "upload", max: 200, windowMs: C.TIME.ONE_MIN, algorithm: "fixed-window" }), requireScope("upload"), async (req, res) => {
     if (!config.publicUpload) return res.status(403).json({ error: "Disabled." });
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
@@ -93,7 +93,7 @@ module.exports = function (app) {
   });
 
   // Chunked upload
-  app.post("/drop/chunk/:bundleId", rateLimit.middleware("chunk", 500, C.TIME.ONE_MIN), requireScope("upload"), async (req, res) => {
+  app.post("/drop/chunk/:bundleId", b.middleware.rateLimit({ scope: "chunk", max: 500, windowMs: C.TIME.ONE_MIN, algorithm: "fixed-window" }), requireScope("upload"), async (req, res) => {
     if (!config.publicUpload) return res.status(403).json({ error: "Disabled." });
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
@@ -119,13 +119,13 @@ module.exports = function (app) {
   });
 
   // Finalize bundle
-  app.post("/drop/finalize/:bundleId", rateLimit.middleware("finalize", 20, C.TIME.ONE_MIN), requireScope("upload"), async (req, res) => {
+  app.post("/drop/finalize/:bundleId", b.middleware.rateLimit({ scope: "finalize", max: 20, windowMs: C.TIME.ONE_MIN, algorithm: "fixed-window" }), requireScope("upload"), async (req, res) => {
     var existing = bundlesRepo.findById(req.params.bundleId);
     if (!existing) return res.status(404).json({ error: "Bundle not found." });
     if (existing.stashId) return res.status(403).json({ error: "This bundle must be finalized via its stash endpoint." });
     if (existing.ownerId && (!req.user || existing.ownerId !== req.user._id)) return res.status(403).json({ error: "Forbidden." });
 
-    var body = req.body || await parseJson(req);
+    var body = req.body || (await b.parsers.json(req)) || {};
     var token = String(body.finalizeToken || req.query.finalizeToken || "");
     var result = handleFinalize({
       bundleId: req.params.bundleId, token: token, sendUploaderEmail: true, req: req,

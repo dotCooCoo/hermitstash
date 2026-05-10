@@ -1,0 +1,2 @@
+blamejs http-client streaming primitives — fixture body for downloadStream + uploadMultipartStream tests.
+This file is intentionally small and ASCII so the hash is stable across line-ending normalisation. End.

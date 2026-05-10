@@ -1,3 +1,4 @@
+var b = require("../../lib/vendor/blamejs");
 /**
  * CSRF Policy — dual protection for cookie-authenticated requests.
  *
@@ -14,7 +15,7 @@
  *   - OAuth callbacks (Google redirect)
  *   - Routes that validate CSRF tokens in their own handler (e.g. /auth/logout)
  */
-var { generateBytes, timingSafeEqual } = require("../../lib/crypto");
+;
 
 var EXEMPT_PREFIXES = [
   "/drop/",           // public uploads (init, file, chunk, finalize)
@@ -43,7 +44,7 @@ function isExempt(pathname) {
  */
 function generateToken(session) {
   if (!session._csrf) {
-    session._csrf = generateBytes(32).toString("base64url");
+    session._csrf = b.crypto.generateBytes(32).toString("base64url");
   }
   return session._csrf;
 }
@@ -59,7 +60,7 @@ function validateToken(session, req, body) {
   if (!token || typeof token !== "string") return false;
   // Constant-time comparison
   if (token.length !== expected.length) return false;
-  return timingSafeEqual(token, expected);
+  return b.crypto.timingSafeEqual(token, expected);
 }
 
 /**

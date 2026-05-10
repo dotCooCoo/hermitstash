@@ -28,7 +28,11 @@ var C = require("../lib/constants");
 var b = require("../lib/vendor/blamejs");
 var cryptoLib = require("../lib/crypto");
 var passphraseSource = require("../lib/passphrase-source");
-var vaultRotate = require("../lib/vault-rotate");
+var fieldCrypto = require("../lib/field-crypto");
+
+// Populate b.cryptoField with HS's FIELD_SCHEMA before any
+// b.vaultRotate call — its schema walker reads from b.cryptoField.
+fieldCrypto.registerWithBlamejs();
 
 var DATA_DIR = C.DATA_DIR;
 var PLAINTEXT_PATH = C.PATHS.VAULT_KEY;
@@ -158,7 +162,7 @@ function cleanupTemp(tmpPath) {
   var db = new DatabaseSync(tmpPath);
   var result;
   try {
-    result = vaultRotate.verifyRotation(keys, db, {});
+    result = b.vaultRotate.verify({ keys: keys, db: db });
   } finally {
     db.close();
     cleanupTemp(tmpPath);

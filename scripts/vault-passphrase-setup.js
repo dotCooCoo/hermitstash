@@ -41,7 +41,7 @@ var http = require("http");
 var C = require("../lib/constants");
 var b = require("../lib/vendor/blamejs");
 var passphraseSource = require("../lib/passphrase-source");
-var { sha3Hash } = require("../lib/crypto");
+;
 
 var PLAINTEXT_PATH = C.PATHS.VAULT_KEY;
 var SEALED_PATH = C.PATHS.VAULT_KEY_SEALED;
@@ -267,7 +267,7 @@ async function execute(passphrase, opts) {
     format: 1,
     hashAlg: "sha3-512",
     startedAt: new Date().toISOString(),
-    sealedSha3: sha3Hash(sealedBytes),
+    sealedSha3: b.crypto.sha3Hash(sealedBytes),
     keepPlaintext: !!opts.keepPlaintext,
   };
   fs.writeFileSync(MARKER_TMP_PATH, JSON.stringify(marker), { mode: 0o600 });

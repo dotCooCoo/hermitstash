@@ -10,17 +10,26 @@ var { Router, serveStatic } = require("./lib/vendor/blamejs").router;
 var { sessionMiddleware } = require("./lib/session");
 var db = require("./lib/db");
 var { users } = db;
-var { hashPassword, sha3Hash, generateBytes } = require("./lib/crypto");
+;
 var storage = require("./lib/storage");
 var audit = require("./lib/audit");
 var logger = require("./app/shared/logger");
 var { sendHtml } = require("./lib/template");
-var { parseJson } = require("./lib/multipart");
 var certUtils = require("./lib/cert-utils");
 var mtlsCa = require("./lib/mtls-ca");
 var { createPQCGate } = require("./lib/pqc-gate");
 
-var { acceptUpgrade, rejectUpgrade } = require("./lib/ws");
+// WebSocket upgrade — handshake handled by b.websocket.handleUpgrade,
+// which writes the 101 and returns a WebSocketConnection (or null on
+// handshake failure with the response already sent). rejectUpgrade is
+// for HS-side auth/scope failures that need to refuse BEFORE the
+// handshake completes; it writes a plain HTTP/1.1 response and closes.
+function rejectUpgrade(socket, statusCode, message) {
+  try {
+    socket.write("HTTP/1.1 " + statusCode + " " + message + "\r\n\r\n");
+    socket.destroy();
+  } catch (_e) { /* socket may have already closed — rejection complete either way */ }
+}
 var syncEmitter = require("./lib/sync-emitter");
 
 // -- vendored framework --
@@ -52,7 +61,12 @@ var orphanCleanupJob = require("./app/jobs/orphan-cleanup.job");
 var certExpiryJob = require("./app/jobs/cert-expiry.job");
 var backupJob = require("./app/jobs/backup.job");
 
-var app = new Router();
+// Allow res.redirect() to send users to Google's OAuth endpoint. Listed
+// explicitly per origin — wildcards aren't accepted, and HTTP origins
+// are refused at construction. Add other OAuth providers here when wired.
+var app = new Router({
+  allowedRedirectOrigins: ["https://accounts.google.com"],
+});
 
 // Ensure dirs
 var dataDir = C.DATA_DIR;
@@ -70,8 +84,8 @@ startupChecks.run();
 // writes it to <dataDir>/initial-admin-password.txt (0600) so it survives
 // restart. The file is deleted on setup-wizard completion.
 if (users.count({}) === 0 && config.localAuth) {
-  var initialPassword = generateBytes(12).toString("base64").replace(/[+/=]/g, "").slice(0, 16);
-  hashPassword(initialPassword).then(function (hash) {
+  var initialPassword = b.crypto.generateBytes(12).toString("base64").replace(/[+/=]/g, "").slice(0, 16);
+  b.auth.password.hash(initialPassword).then(function (hash) {
     users.insert({
       email: "admin@hermitstash.com", displayName: "Admin",
       passwordHash: hash, authType: "local", role: "admin", status: "active",
@@ -209,9 +223,9 @@ app.get("/sitemap.xml", function (req, res) {
   res.end('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n<url><loc>' + origin + '/</loc><lastmod>' + today + '</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>\n<url><loc>' + origin + '/drop</loc><lastmod>' + today + '</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>\n<url><loc>' + origin + '/privacy</loc><changefreq>monthly</changefreq><priority>0.3</priority></url>\n<url><loc>' + origin + '/terms</loc><changefreq>monthly</changefreq><priority>0.3</priority></url>\n</urlset>');
 });
 // Sync enrollment — before auth so unauthenticated clients can redeem codes
-app.post("/sync/enroll", require("./lib/rate-limit").middleware("sync-enroll", 5, C.TIME.FIVE_MIN), async function (req, res) {
+app.post("/sync/enroll", b.middleware.rateLimit({ scope: "sync-enroll", max: 5, windowMs: C.TIME.FIVE_MIN, algorithm: "fixed-window" }), async function (req, res) {
   try {
-    var body = await parseJson(req);
+    var body = (await b.parsers.json(req)) || {};
     var code = String(body.code || "").trim().toUpperCase();
     if (!code) {
       res.writeHead(400, { "Content-Type": "application/json" });
@@ -219,7 +233,7 @@ app.post("/sync/enroll", require("./lib/rate-limit").middleware("sync-enroll", 5
     }
 
     // Look up by hash
-    var codeHash = sha3Hash(C.HASH_PREFIX.ENROLLMENT + code);
+    var codeHash = b.crypto.namespaceHash(C.HASH_PREFIX.ENROLLMENT, code);
     var records = db.enrollmentCodes.find({ status: "pending" })
       .filter(function (r) { return r.codeHash === codeHash && r.expiresAt > new Date().toISOString(); });
 
@@ -263,7 +277,7 @@ app.post("/sync/enroll", require("./lib/rate-limit").middleware("sync-enroll", 5
 // no certFingerprint — the cert proof-of-possession IS the second factor),
 // revocation check, and actual cert generation.
 app.post("/sync/renew-cert",
-  require("./lib/rate-limit").middleware("sync-renew", 5, C.TIME.FIVE_MIN),
+  b.middleware.rateLimit({ scope: "sync-renew", max: 5, windowMs: C.TIME.FIVE_MIN, algorithm: "fixed-window" }),
   require("./middleware/sync-guards").requireSyncAuth({ requireBundle: false }),
   async function (req, res) {
     try {
@@ -284,7 +298,7 @@ app.post("/sync/renew-cert",
 
       // Generate new client certificate
       await mtlsCa.initCA();
-      var newCert = await mtlsCa.generateClientCert(req.apiKey.prefix);
+      var newCert = await mtlsCa.generateClientCert({ cn: req.apiKey.prefix });
       if (!newCert) {
         res.writeHead(500, { "Content-Type": "application/json" });
         return res.end(JSON.stringify({ error: "Certificate generation failed." }));
@@ -294,7 +308,7 @@ app.post("/sync/renew-cert",
       apiKeysRepo.update(req.apiKey._id, { $set: {
         certIssuedAt: newCert.issuedAt,
         certExpiresAt: newCert.expiresAt,
-        certFingerprint: sha3Hash(newCert.cert),
+        certFingerprint: b.crypto.sha3Hash(newCert.cert),
       }});
 
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -496,7 +510,7 @@ require("./routes/stash")(app);
 // All pre-checks (scope / ownership / boundBundleId / certFingerprint) run in
 // middleware/sync-guards.js so every /sync/* endpoint inherits the same gate chain.
 app.post("/sync/rename",
-  require("./lib/rate-limit").middleware("sync-file-rename", 100, C.TIME.ONE_MIN),
+  b.middleware.rateLimit({ scope: "sync-file-rename", max: 100, windowMs: C.TIME.ONE_MIN, algorithm: "fixed-window" }),
   require("./middleware/sync-guards").requireSyncAuth({ requireBundle: true }),
   async function (req, res) {
     try {
@@ -629,7 +643,9 @@ function tlsKeyAvailable() {
 
 if (fs.existsSync(TLS_CERT) && tlsKeyAvailable()) {
   try {
-    var mtlsCaCert = mtlsCa.caExists() ? fs.readFileSync(mtlsCa.CA_CERT_PATH) : null;
+    // Read from the singleton's resolved cert path — operators may have
+    // overridden it via MTLS_CA_CERT to an absolute path outside DATA_DIR.
+    var mtlsCaCert = mtlsCa.exists() ? fs.readFileSync(mtlsCa.paths.caCert) : null;
     // Hard mTLS enforcement at the TLS layer — boot-time only.
     //   unset:  follow DB config.enforceMtls for app-layer soft enforcement
     //   "true": rejectUnauthorized: true — TLS handshake rejects non-mTLS
@@ -642,7 +658,7 @@ if (fs.existsSync(TLS_CERT) && tlsKeyAvailable()) {
     tlsOptions = {
       cert: fs.readFileSync(TLS_CERT),
       key: pemSeal.loadPemDispatch(TLS_KEY, TLS_KEY_SEALED, "TLS_KEY_SEALED"),
-      groups: C.TLS_GROUP_PREFERENCE,
+      groups: b.constants.TLS_GROUP_PREFERENCE,
       minVersion: "TLSv1.3",
       requestCert: !!mtlsCaCert,
       // Hard mode rejects non-mTLS at the TLS layer — no HTTP processing at all.
@@ -654,7 +670,7 @@ if (fs.existsSync(TLS_CERT) && tlsKeyAvailable()) {
     };
     tlsEnabled = true;
     logger.info("[TLS] PQC TLS enabled", {
-      groups: C.TLS_GROUP_PREFERENCE.join(" + "),
+      groups: b.constants.TLS_GROUP_PREFERENCE.join(" + "),
       keySealed: fs.existsSync(TLS_KEY_SEALED),
     });
   } catch (e) {
@@ -679,7 +695,7 @@ if (tlsEnabled && PQC_ENFORCE) {
   gateServer.listen(config.port, function () {
     logger.info("HermitStash is running", {
       url: protocol + "://localhost:" + config.port,
-      tls: "PQC enforced (" + C.TLS_GROUP_PREFERENCE[0] + ")",
+      tls: "PQC enforced (" + b.constants.TLS_GROUP_PREFERENCE[0] + ")",
       pqcGate: "active on port " + config.port + " → 127.0.0.1:" + INTERNAL_TLS_PORT,
       storage: config.storage.backend + " -> " + storage.uploadDir,
       email: config.email.host || "disabled",
@@ -749,7 +765,7 @@ function reloadTlsContext() {
     var newContext = {
       cert: fs.readFileSync(TLS_CERT),
       key: pemSeal.loadPemDispatch(TLS_KEY, TLS_KEY_SEALED, "TLS_KEY_SEALED"),
-      groups: C.TLS_GROUP_PREFERENCE,
+      groups: b.constants.TLS_GROUP_PREFERENCE,
       minVersion: "TLSv1.3",
     };
     server.setSecureContext(newContext);
@@ -831,15 +847,15 @@ server.on("upgrade", function (req, socket, head) {
 
   // Auth: Bearer token from Authorization header only.
   // Query string tokens are not accepted — they leak via proxy logs, Referer
-  // headers, and browser history. lib/http-utils.extractBearerToken handles
-  // whitespace normalization consistently with api-auth middleware.
-  var token = require("./lib/http-utils").extractBearerToken(req);
+  // headers, and browser history. b.requestHelpers.extractBearer also refuses
+  // requests with multiple Authorization headers (CWE-345).
+  var token = b.requestHelpers.extractBearer(req);
   if (!token) {
     return rejectUpgrade(socket, 401, "Unauthorized");
   }
 
   // Validate API key using the same mechanism as api-auth middleware
-  var keyHash = sha3Hash(token);
+  var keyHash = b.crypto.sha3Hash(token);
   var apiKey = db.apiKeys.findOne({ keyHash: keyHash });
   if (!apiKey) {
     return rejectUpgrade(socket, 401, "Unauthorized");
@@ -898,10 +914,19 @@ server.on("upgrade", function (req, socket, head) {
   var since = parseInt(parsed.query.since, 10);
   if (isNaN(since) || since < 0) since = 0;
 
-  // Complete WebSocket handshake
-  var ws = acceptUpgrade(req, socket, head);
-  if (!ws) {
-    return rejectUpgrade(socket, 400, "Bad Request");
+  // Complete WebSocket handshake (b.websocket.handleUpgrade writes the
+  // 101 and returns null on a malformed request with the response
+  // already sent — no further rejectUpgrade needed in that case).
+  var ws = b.websocket.handleUpgrade(req, socket, head, {
+    maxMessageBytes: SYNC_MAX_MESSAGE_SIZE,
+  });
+  if (!ws) return;
+  // b.websocket.WebSocketConnection.send() throws on a closed connection
+  // (HS's previous impl was silent). Wrap every send so the delivery path
+  // is fire-and-forget — close cleanup handles the EE unwiring on the
+  // next tick. Local closure so the helper captures `ws` cleanly.
+  function safeSend(data) {
+    try { ws.send(data); } catch (_e) { /* connection closed mid-write */ }
   }
 
   // Register connection
@@ -925,28 +950,28 @@ server.on("upgrade", function (req, socket, head) {
       var evType = f.deletedAt ? "file_removed" : "file_added";
       var ev = { type: evType, fileId: f._id, relativePath: f.relativePath, seq: f.seq || 0 };
       if (!f.deletedAt) { ev.checksum = f.checksum; ev.size = f.size; }
-      ws.send(JSON.stringify(ev));
+      safeSend(JSON.stringify(ev));
     }
   }
   // Signal catch-up complete
-  ws.send(JSON.stringify({ type: "heartbeat", seq: bundle.seq || 0, timestamp: new Date().toISOString() }));
+  safeSend(JSON.stringify({ type: "heartbeat", seq: bundle.seq || 0, timestamp: new Date().toISOString() }));
 
   // Real-time event listener
   var syncListener = function (event) {
-    try { ws.send(JSON.stringify(event)); } catch (_e) {}
+    try { safeSend(JSON.stringify(event)); } catch (_e) {}
   };
   syncEmitter.on("sync:" + bundleId, syncListener);
 
   // Send immediate heartbeat on connect so clients know the connection is live
   try {
-    ws.send(JSON.stringify({ type: "heartbeat", seq: bundle.seq || 0, timestamp: new Date().toISOString() }));
+    safeSend(JSON.stringify({ type: "heartbeat", seq: bundle.seq || 0, timestamp: new Date().toISOString() }));
   } catch (_e) { /* socket may have closed between upgrade and first write */ }
 
   // Heartbeat interval
   var heartbeatTimer = setInterval(function () {
     try {
       var freshBundle = bundlesRepo.findById(bundleId);
-      ws.send(JSON.stringify({ type: "heartbeat", seq: freshBundle ? freshBundle.seq || 0 : 0, timestamp: new Date().toISOString() }));
+      safeSend(JSON.stringify({ type: "heartbeat", seq: freshBundle ? freshBundle.seq || 0 : 0, timestamp: new Date().toISOString() }));
       ws.ping();
     } catch (_e) { /* client disconnected between heartbeats — close handler runs next tick */ }
   }, SYNC_HEARTBEAT_INTERVAL);
@@ -968,18 +993,18 @@ server.on("upgrade", function (req, socket, head) {
     msgCount++;
     if (msgCount > SYNC_MAX_MESSAGES_PER_MIN) {
       violations++;
-      ws.send(JSON.stringify({ type: "error", code: "rate_limited", message: "Too many messages", retryAfter: 60 }));
+      safeSend(JSON.stringify({ type: "error", code: "rate_limited", message: "Too many messages", retryAfter: 60 }));
       if (violations >= 3) { ws.close(1008, "Rate limit exceeded"); }
       return;
     }
     if (data.length > SYNC_MAX_MESSAGE_SIZE) {
-      ws.send(JSON.stringify({ type: "error", code: "message_too_large", message: "Max 64KB per message" }));
+      safeSend(JSON.stringify({ type: "error", code: "message_too_large", message: "Max 64KB per message" }));
       return;
     }
     try {
       var msg = JSON.parse(data);
       if (!msg || !msg.type) {
-        ws.send(JSON.stringify({ type: "error", code: "invalid_json", message: "Missing type field" }));
+        safeSend(JSON.stringify({ type: "error", code: "invalid_json", message: "Missing type field" }));
         return;
       }
       if (msg.type === "ack") {
@@ -1001,18 +1026,18 @@ server.on("upgrade", function (req, socket, head) {
           var t = cf.deletedAt ? "file_removed" : "file_added";
           var e = { type: t, fileId: cf._id, relativePath: cf.relativePath, seq: cf.seq || 0 };
           if (!cf.deletedAt) { e.checksum = cf.checksum; e.size = cf.size; }
-          ws.send(JSON.stringify(e));
+          safeSend(JSON.stringify(e));
         }
         var fb = bundlesRepo.findById(bundleId);
-        ws.send(JSON.stringify({ type: "heartbeat", seq: fb ? fb.seq || 0 : 0, timestamp: new Date().toISOString() }));
+        safeSend(JSON.stringify({ type: "heartbeat", seq: fb ? fb.seq || 0 : 0, timestamp: new Date().toISOString() }));
       } else if (msg.type === "ping") {
         var pb = bundlesRepo.findById(bundleId);
-        ws.send(JSON.stringify({ type: "heartbeat", seq: pb ? pb.seq || 0 : 0, timestamp: new Date().toISOString() }));
+        safeSend(JSON.stringify({ type: "heartbeat", seq: pb ? pb.seq || 0 : 0, timestamp: new Date().toISOString() }));
       } else {
-        ws.send(JSON.stringify({ type: "error", code: "unknown_type", message: "Unrecognized message type: " + msg.type }));
+        safeSend(JSON.stringify({ type: "error", code: "unknown_type", message: "Unrecognized message type: " + msg.type }));
       }
     } catch (_e) {
-      ws.send(JSON.stringify({ type: "error", code: "invalid_json", message: "Invalid JSON" }));
+      safeSend(JSON.stringify({ type: "error", code: "invalid_json", message: "Invalid JSON" }));
     }
   });
 
@@ -1046,7 +1071,7 @@ function gracefulShutdown(signal) {
   // Close all WebSocket connections so server.close() can drain
   syncConnections.forEach(function (conns) {
     conns.forEach(function (entry) {
-      try { if (entry.ws && entry.ws.readyState === 1) entry.ws.close(1001, "Server shutting down"); } catch (_e) { /* socket may already be closed */ }
+      try { if (entry.ws && entry.ws.readyState === "open") entry.ws.close(1001, "Server shutting down"); } catch (_e) { /* socket may already be closed */ }
     });
   });
 

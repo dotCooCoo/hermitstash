@@ -22,7 +22,8 @@
  *   - requireSyncAuth({ requireBundle, requireOwner }) → 3-arg middleware
  *     for app.post() routes. Composes the helpers and handles the response.
  */
-var { sha3Hash, timingSafeEqual } = require("../lib/crypto");
+var b = require("../lib/vendor/blamejs");
+;
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
 var { hasScope } = require("../app/security/scope-policy");
 
@@ -34,7 +35,7 @@ function peerCertFingerprintSha3(peerCert) {
   if (!peerCert || !peerCert.raw) return "";
   var derB64 = peerCert.raw.toString("base64");
   var pem = "-----BEGIN CERTIFICATE-----\n" + derB64.match(/.{1,64}/g).join("\n") + "\n-----END CERTIFICATE-----\n";
-  return sha3Hash(pem);
+  return b.crypto.sha3Hash(pem);
 }
 
 /**
@@ -81,7 +82,7 @@ function enforceCertBinding(apiKey, socket) {
   var presentedFp = peerCertFingerprintSha3(peerCert);
   if (!presentedFp ||
       presentedFp.length !== apiKey.certFingerprint.length ||
-      !timingSafeEqual(presentedFp, apiKey.certFingerprint)) {
+      !b.crypto.timingSafeEqual(presentedFp, apiKey.certFingerprint)) {
     return { status: 403, error: "Certificate does not match API key." };
   }
   return null;
@@ -141,8 +142,7 @@ function requireSyncAuth(opts) {
       // Prefer parsed body, then route params, then query string
       if (!req.body) {
         try {
-          var { parseJson } = require("../lib/multipart");
-          req.body = await parseJson(req);
+          req.body = (await b.parsers.json(req)) || {};
         } catch (_e) { req.body = {}; /* malformed — treated as missing bundleId */ }
       }
       bundleId = (req.body && req.body.bundleId) || (req.params && req.params.bundleId) || null;

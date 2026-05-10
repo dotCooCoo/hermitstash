@@ -1,17 +1,16 @@
+var clientIp = require("../lib/client-ip");
 var C = require("../lib/constants");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
 var filesRepo = require("../app/data/repositories/files.repo");
 var accessLogRepo = require("../app/data/repositories/bundleAccessLog.repo");
 var logger = require("../app/shared/logger");
 var config = require("../lib/config");
-var { verifyPassword, sha3Hash } = require("../lib/crypto");
-var { parseJson } = require("../lib/multipart");
+var b = require("../lib/vendor/blamejs");
+;
 var storage = require("../lib/storage");
-var { ZipWriter } = require("../lib/zip");
 var { safeContentDisposition } = require("../app/shared/sanitize-filename");
 var { send, host } = require("../middleware/send");
 var audit = require("../lib/audit");
-var rateLimit = require("../lib/rate-limit");
 var requireAuth = require("../middleware/require-auth");
 var { canEditOwned } = require("../app/shared/authz");
 
@@ -30,7 +29,13 @@ var accessCodeService = require("../app/domain/access-code.service");
 var BUNDLE_LOCKOUT_THRESHOLD = 5;
 
 function _shareIdHash(shareId) {
-  return sha3Hash(C.HASH_PREFIX.SHARE_ID + shareId);
+  return b.crypto.namespaceHash(C.HASH_PREFIX.SHARE_ID, shareId);
+}
+
+async function _streamToBuffer(stream) {
+  var chunks = [];
+  for await (var chunk of stream) chunks.push(chunk);
+  return Buffer.concat(chunks);
 }
 
 function getBundleLockout(shareId) {
@@ -56,7 +61,7 @@ function clearBundleLockout(shareId) {
 
 module.exports = function (app) {
   // Bundle password verification (rate limited to prevent brute force)
-  app.post("/b/:shareId/unlock", rateLimit.middleware("bundle-unlock", 10, C.TIME.FIFTEEN_MIN), async (req, res) => {
+  app.post("/b/:shareId/unlock", b.middleware.rateLimit({ scope: "bundle-unlock", max: 10, windowMs: C.TIME.FIFTEEN_MIN, algorithm: "fixed-window" }), async (req, res) => {
     var shareId = req.params.shareId;
     var bundle = bundlesRepo.findByShareId(shareId);
     if (!bundle || bundle.status !== "complete") return res.status(404).json({ error: "Bundle not found." });
@@ -74,13 +79,13 @@ module.exports = function (app) {
       }
     }
 
-    var body = await parseJson(req);
+    var body = (await b.parsers.json(req)) || {};
     var password = String(body.password || "");
     if (!bundle.passwordHash) {
       req.session["bundle_" + shareId] = true;
       return res.json({ success: true });
     }
-    var valid = await verifyPassword(password, bundle.passwordHash);
+    var valid = await b.auth.password.verify(bundle.passwordHash, password);
     if (valid) {
       // For "both" mode: require prior email verification before accepting password
       var mode = bundle.accessMode || "password";
@@ -111,11 +116,11 @@ module.exports = function (app) {
   });
 
   // Request email access code (rate limited)
-  app.post("/b/:shareId/request-code", rateLimit.middleware("bundle-email-code", 5, C.TIME.FIVE_MIN), async (req, res) => {
+  app.post("/b/:shareId/request-code", b.middleware.rateLimit({ scope: "bundle-email-code", max: 5, windowMs: C.TIME.FIVE_MIN, algorithm: "fixed-window" }), async (req, res) => {
     var bundle = bundlesRepo.findCompleteByShareId(req.params.shareId);
     if (!bundle) return res.status(404).json({ error: "Bundle not found." });
 
-    var body = await parseJson(req);
+    var body = (await b.parsers.json(req)) || {};
     var email = String(body.email || "").trim().toLowerCase();
     var emailCheck = validateEmail(email);
     if (!emailCheck.valid) {
@@ -152,11 +157,11 @@ module.exports = function (app) {
   });
 
   // Verify email access code (rate limited)
-  app.post("/b/:shareId/verify-code", rateLimit.middleware("bundle-verify-code", 10, C.TIME.FIFTEEN_MIN), async (req, res) => {
+  app.post("/b/:shareId/verify-code", b.middleware.rateLimit({ scope: "bundle-verify-code", max: 10, windowMs: C.TIME.FIFTEEN_MIN, algorithm: "fixed-window" }), async (req, res) => {
     var bundle = bundlesRepo.findCompleteByShareId(req.params.shareId);
     if (!bundle) return res.status(404).json({ error: "Bundle not found." });
 
-    var body = await parseJson(req);
+    var body = (await b.parsers.json(req)) || {};
     var email = String(body.email || "").trim().toLowerCase();
     var code = String(body.code || "").trim();
     if (!email || !code) return res.status(400).json({ error: "Email and code required." });
@@ -182,7 +187,7 @@ module.exports = function (app) {
       bundleShareId: bundle.shareId,
       email: email,
       accessedAt: new Date().toISOString(),
-      ip: rateLimit.getIp(req),
+      ip: clientIp.getIp(req),
     });
 
     audit.log(audit.ACTIONS.BUNDLE_ACCESS_CODE_VERIFIED, { targetId: bundle._id, details: "shareId: " + bundle.shareId + ", email verified", req: req });
@@ -301,12 +306,17 @@ module.exports = function (app) {
       "Content-Disposition": safeContentDisposition((bundle.bundleName || "hermitstash-" + bundle.shareId) + ".zip", "attachment"),
     });
 
-    var zip = new ZipWriter(res);
+    var zip = b.archive.zip();
     var skippedFiles = [];
+    // Buffer each file before queuing — keeps the per-file skip-on-error
+    // semantic (b.archive.zip aborts the whole stream if a queued source
+    // throws mid-pipe; pre-buffering surfaces source errors here so we
+    // can log + skip without poisoning the archive).
     for (var f of bundleFiles) {
       try {
         var stream = await storage.getFileStream(f.storagePath, f.encryptionKey);
-        await zip.addFile(f.relativePath || f.originalName, stream);
+        var buf = await _streamToBuffer(stream);
+        zip.addFile(f.relativePath || f.originalName, buf);
       } catch (e) {
         logger.error("Zip skip", { error: e.message || String(e), file: f.originalName, bundle: bundle.shareId });
         skippedFiles.push(f.relativePath || f.originalName);
@@ -314,9 +324,9 @@ module.exports = function (app) {
     }
     if (skippedFiles.length > 0) {
       var manifest = "The following files could not be included in this download:\n\n" + skippedFiles.join("\n") + "\n";
-      await zip.addFile("_MISSING_FILES.txt", Buffer.from(manifest, "utf8"));
+      zip.addFile("_MISSING_FILES.txt", Buffer.from(manifest, "utf8"));
     }
-    zip.finalize();
+    await zip.toStream(res);
   });
 
   // Download a subfolder from a bundle as ZIP
@@ -347,18 +357,19 @@ module.exports = function (app) {
       "Content-Disposition": safeContentDisposition(folderName + ".zip", "attachment"),
     });
 
-    var zip = new ZipWriter(res);
+    var zip = b.archive.zip();
     for (var i = 0; i < folderFiles.length; i++) {
       try {
         var stream = await storage.getFileStream(folderFiles[i].storagePath, folderFiles[i].encryptionKey);
+        var buf = await _streamToBuffer(stream);
         // Strip the prefix so the ZIP contains relative paths within the folder
         var relPath = (folderFiles[i].relativePath || folderFiles[i].originalName).slice(prefix.length) || folderFiles[i].originalName;
-        await zip.addFile(relPath, stream);
+        zip.addFile(relPath, buf);
       } catch (e) {
         logger.error("Zip skip", { error: e.message || String(e), file: folderFiles[i].originalName });
       }
     }
-    zip.finalize();
+    await zip.toStream(res);
   });
 
   // Delete bundle + all its files (owner or admin)
@@ -372,7 +383,7 @@ module.exports = function (app) {
     }
     // parseJson already imported at top
     // sanitizeRename already imported at top
-    var body = await parseJson(req);
+    var body = (await b.parsers.json(req)) || {};
     var result = sanitizeRename(body.name, { maxLength: 200 });
     if (!result.valid) return res.status(400).json({ error: result.error || "Invalid name." });
     bundlesRepo.update(bundle._id, { $set: { bundleName: result.name } });
@@ -380,14 +391,14 @@ module.exports = function (app) {
   });
 
   // Rename/move a file within a sync bundle (metadata-only, no re-upload)
-  app.post("/bundles/:shareId/file/rename", rateLimit.middleware("sync-file-rename", 100, C.TIME.ONE_MIN), async (req, res) => {
+  app.post("/bundles/:shareId/file/rename", b.middleware.rateLimit({ scope: "sync-file-rename", max: 100, windowMs: C.TIME.ONE_MIN, algorithm: "fixed-window" }), async (req, res) => {
     if (!requireAuth(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle) return res.status(404).json({ error: "Not found." });
     if (!canEditOwned(bundle, req.user)) {
       return res.status(403).json({ error: "Not authorized." });
     }
-    var body = await parseJson(req);
+    var body = (await b.parsers.json(req)) || {};
     var { handleSyncFileRename } = uploadHandler;
     var result = await handleSyncFileRename({
       bundleId: bundle._id,
@@ -400,7 +411,7 @@ module.exports = function (app) {
   });
 
   // Delete a single file from a sync bundle (soft delete with tombstone)
-  app.post("/bundles/:shareId/file/:fileId/delete", rateLimit.middleware("sync-file-delete", 100, C.TIME.ONE_MIN), async (req, res) => {
+  app.post("/bundles/:shareId/file/:fileId/delete", b.middleware.rateLimit({ scope: "sync-file-delete", max: 100, windowMs: C.TIME.ONE_MIN, algorithm: "fixed-window" }), async (req, res) => {
     if (!requireAuth(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle) return res.status(404).json({ error: "Not found." });

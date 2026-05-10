@@ -1,13 +1,13 @@
+var clientIp = require("../lib/client-ip");
+var b = require("../lib/vendor/blamejs");
 var config = require("../lib/config");
 var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
 var usersRepo = require("../app/data/repositories/users.repo");
-var { parseJson } = require("../lib/multipart");
 var { getAuthUrl, exchangeCode, generateState } = require("../lib/google-auth");
 var emailService = require("../app/domain/integrations/email.service");
 var { send, host } = require("../middleware/send");
 var audit = require("../lib/audit");
-var rateLimit = require("../lib/rate-limit");
 var authService = require("../app/domain/auth/auth.service");
 var sessionService = require("../app/domain/auth/session.service");
 var { validateLoginInput, validateRegisterInput } = require("../app/http/validators/auth.validator");
@@ -24,11 +24,10 @@ module.exports = function (app) {
     var state = generateState();
     req.session.oauthState = state;
     var url = getAuthUrl(state, req);
-    res.writeHead(302, { Location: url });
-    res.end();
+    res.redirect(url);
   });
 
-  app.get("/auth/google/callback", rateLimit.middleware("google-callback", 10, C.TIME.ONE_MIN), async (req, res) => {
+  app.get("/auth/google/callback", b.middleware.rateLimit({ scope: "google-callback", max: 10, windowMs: C.TIME.ONE_MIN, algorithm: "fixed-window" }), async (req, res) => {
     try {
       var code = req.query.code;
       if (!code) {
@@ -72,10 +71,11 @@ module.exports = function (app) {
     send(res, "login", { user: null, error: null, localAuth: config.localAuth, googleAuth: !!config.google.clientID, registrationOpen: config.registrationOpen && config.localAuth, passkeyEnabled: config.passkeyEnabled });
   });
 
-  app.post("/auth/login", rateLimit.middleware("login", 15, C.TIME.FIVE_MIN), async (req, res) => {
+  var loginLimiter = b.middleware.rateLimit({ scope: "login", max: 15, windowMs: C.TIME.FIVE_MIN, algorithm: "fixed-window" });
+  app.post("/auth/login", loginLimiter, async (req, res) => {
     if (!config.localAuth) return res.status(403).json({ error: "Disabled." });
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var input = validateLoginInput(body);
       if (input.error) return res.status(400).json({ error: input.error });
 
@@ -117,7 +117,7 @@ module.exports = function (app) {
 
       // Successful login — reset lockout counters
       usersRepo.update(user._id, { $set: { failedLoginAttempts: 0, lockedUntil: null } });
-      rateLimit.reset("login", rateLimit.getIp(req));
+      loginLimiter.reset(clientIp.getIp(req));
 
       // Check if 2FA is required
       if (authService.requires2fa(user._id)) {
@@ -143,10 +143,10 @@ module.exports = function (app) {
     send(res, "register", { user: null, error: null, googleAuth: !!config.google.clientID });
   });
 
-  app.post("/auth/register", rateLimit.middleware("register", 10, C.TIME.FIFTEEN_MIN), async (req, res) => {
+  app.post("/auth/register", b.middleware.rateLimit({ scope: "register", max: 10, windowMs: C.TIME.FIFTEEN_MIN, algorithm: "fixed-window" }), async (req, res) => {
     if (!config.localAuth || !config.registrationOpen) return res.status(403).json({ error: "Registration is closed." });
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var input = validateRegisterInput(body);
       if (input.error) return res.status(400).json({ error: input.error });
 

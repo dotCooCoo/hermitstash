@@ -1,0 +1,4 @@
+# Auto-routes review requests when PRs touch matching paths.
+# Order matters: later patterns override earlier ones.
+
+*   @dotCooCoo

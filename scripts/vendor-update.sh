@@ -132,8 +132,9 @@ VER="${2:-latest}"
 echo "=== Vendoring $PKG@$VER ==="
 
 # Install temporarily (skipped for meta-bundles like peculiar-pki that
-# install multiple packages inside the case block).
-if [ "$PKG" != "peculiar-pki" ]; then
+# install multiple packages inside the case block, and for blamejs
+# which is sourced from the sibling working tree, not npm).
+if [ "$PKG" != "peculiar-pki" ] && [ "$PKG" != "blamejs" ]; then
   npm install "${PKG}@${VER}" --no-save --ignore-scripts 2>/dev/null
   INSTALLED_VER=$(node -e "console.log(require('./node_modules/${PKG}/package.json').version)")
   echo "Installed: $PKG@$INSTALLED_VER"
@@ -241,6 +242,92 @@ ENTRY
     # Copy fresh prebuilds
     rm -rf lib/vendor/argon2/prebuilds
     cp -r node_modules/argon2/prebuilds lib/vendor/argon2/prebuilds
+    ;;
+
+  "blamejs")
+    # Sourced from GitHub at github.com/blamejs/blamejs (npm name is
+    # taken by an unrelated package — vendor from source). Mirrors the
+    # hermitstash-sync pattern: shallow clone of the release tag,
+    # then drop .git so the vendored tree is a plain snapshot.
+    #
+    # VER may be "latest" (resolves to the latest GitHub Release tag)
+    # or a specific tag like "v0.8.52" / "0.8.52".
+    REPO_URL="https://github.com/blamejs/blamejs"
+    if [ "$VER" = "latest" ]; then
+      # Match check-blamejs-version.js: GitHub Releases API. GITHUB_TOKEN
+      # used opportunistically for higher rate limits in CI.
+      AUTH_HEADER=""
+      if [ -n "${GITHUB_TOKEN:-}" ]; then
+        AUTH_HEADER="-H \"Authorization: Bearer $GITHUB_TOKEN\""
+      fi
+      TAG=$(node -e "
+        var https = require('node:https');
+        var opts = {
+          headers: {
+            'User-Agent': 'hermitstash-vendor-update',
+            'Accept':     'application/vnd.github+json',
+          },
+        };
+        if (process.env.GITHUB_TOKEN) opts.headers.Authorization = 'Bearer ' + process.env.GITHUB_TOKEN;
+        https.get('https://api.github.com/repos/blamejs/blamejs/releases/latest', opts, function(res) {
+          var c = [];
+          res.on('data', function(b){ c.push(b); });
+          res.on('end', function() {
+            if (res.statusCode !== 200) { process.stderr.write('GitHub API HTTP ' + res.statusCode + '\n'); process.exit(2); }
+            var p; try { p = JSON.parse(Buffer.concat(c).toString('utf8')); } catch (e) { process.stderr.write('bad JSON\n'); process.exit(2); }
+            if (typeof p.tag_name !== 'string') { process.stderr.write('no tag_name\n'); process.exit(2); }
+            process.stdout.write(p.tag_name);
+          });
+        }).on('error', function(e) { process.stderr.write(String(e) + '\n'); process.exit(2); });
+      ")
+    else
+      # Allow user to pass either "0.8.52" or "v0.8.52".
+      case "$VER" in v*) TAG="$VER" ;; *) TAG="v$VER" ;; esac
+    fi
+    INSTALLED_VER="${TAG#v}"
+    echo "Resolved tag: $TAG (v$INSTALLED_VER)"
+
+    DEST="lib/vendor/blamejs"
+    # Cross-platform wipe via Node — tolerant of Windows-mangled paths
+    # like "C\357\200\272" (U+F03A) that have escaped from upstream tests.
+    node -e "var fs=require('fs');fs.rmSync('$DEST',{recursive:true,force:true});fs.mkdirSync('$DEST',{recursive:true});"
+
+    # Shallow clone of the tag, then snapshot the working tree into
+    # $DEST while filtering paths we never want vendored:
+    #   - CLAUDE.md / .claude/   (project instructions / session settings)
+    #   - examples/wiki/C\357\200\272/...   (Windows-mangled `C:` test artifact paths)
+    TMPCLONE=".vendor-blamejs.tmp"
+    rm -rf "$TMPCLONE"
+    git clone --depth 1 --branch "$TAG" "$REPO_URL" "$TMPCLONE"
+    git -C "$TMPCLONE" archive HEAD | tar -x -C "$DEST" \
+      --exclude='CLAUDE.md' \
+      --exclude='.claude' \
+      --exclude='.claude/*' \
+      --exclude='examples/wiki/C*'
+    rm -rf "$TMPCLONE"
+
+    if [ ! -f "$DEST/package.json" ]; then
+      echo "ERROR: extract failed — $DEST/package.json missing."
+      exit 1
+    fi
+
+    # Surface guard + leaked-path guard.
+    node -e "var b=require('./$DEST');console.log('blamejs surface OK:',Object.keys(b).length,'primitives');"
+    if find "$DEST" -iname 'CLAUDE.md' -o -iname '.claude' -o -name 'C[\\:]*' 2>/dev/null | grep -q .; then
+      echo "ERROR: filtered paths leaked through — investigate the exclude list."
+      find "$DEST" -iname 'CLAUDE.md' -o -iname '.claude' -o -name 'C[\\:]*' 2>/dev/null | head -20
+      exit 1
+    fi
+
+    # Record the tag alongside the version so a later --check (or
+    # CI freshness gate) has a stable handle into the GitHub Releases
+    # API — same shape hermitstash-sync's MANIFEST uses.
+    node -e "
+      var fs = require('fs');
+      var m = JSON.parse(fs.readFileSync('$MANIFEST', 'utf8'));
+      if (m.packages.blamejs) m.packages.blamejs.tag = '$TAG';
+      fs.writeFileSync('$MANIFEST', JSON.stringify(m, null, 2) + '\n');
+    "
     ;;
 
   *)

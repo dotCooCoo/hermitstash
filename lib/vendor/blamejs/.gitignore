@@ -51,6 +51,14 @@ credentials.json
 id_rsa*
 id_ed25519*
 
+# Vendored cert bundles MUST track — operator-managed assets pinned
+# by SHA-256 in lib/vendor/MANIFEST.json. The blanket *.pem / *.crt
+# rules above guard against accidental commit of OPERATOR-PRIVATE
+# keys; the framework's own published trust roots (BIMI, future CA
+# bundles) are public and ship with the package.
+!lib/vendor/*.pem
+!lib/vendor/*.crt
+
 # Backup / patch artifacts
 *.bak
 *.orig

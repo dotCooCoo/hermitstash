@@ -1,70 +1,214 @@
-/* blamejs wiki — fresh CSS, no third-party theme assets.
-   Two-column docs layout with sticky left rail, scroll-spy hooks,
-   callout cards, code blocks (Prism-themed), property tables,
-   fragment-anchor permalinks. Single file; mobile collapses to
-   single column at 768px. */
+/* blamejs wiki — modernized within the original palette.
+   Three-column layout (sidebar + main + on-this-page) collapses
+   to two columns at <1280px and one column at <768px. Single
+   stylesheet; no external theme assets beyond Prism's tomorrow
+   colors for code tokens. */
 
 /* -------------------- design tokens -------------------- */
 
 :root {
+  /* Colors — preserved from the prior theme. */
   --fg:           #1a1a1a;
   --fg-muted:     #5a5a5a;
+  --fg-subtle:    #8a8e96;
   --bg:           #ffffff;
   --bg-rail:      #f7f8fa;
+  --bg-soft:      #fafbfc;
   --bg-code:      #f5f6f8;
   --bg-code-pre:  #2d2d2d;
+  --bg-code-chrome: #1f1f1f;
   --link:         #0c5cd0;
   --link-hover:   #0a4ba8;
   --border:       #e3e6eb;
   --border-soft:  #eef0f4;
+  --border-code:  #2a2a2a;
   --note-bg:      #eef6ff;
-  --note-border:  #b8d6f5;
+  --note-rail:    #4f8fd6;
   --warn-bg:      #fff7e8;
-  --warn-border:  #f0c270;
+  --warn-rail:    #d18e1f;
   --tip-bg:       #ecfaf2;
-  --tip-border:   #97d8b6;
-  --shadow-card:  0 1px 2px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.04);
-  --rail-w:       260px;
-  --max-content:  1080px;
-  --max-hero:     1200px;
-  --font-body:    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "Helvetica Neue", Arial, sans-serif;
-  --font-mono:    ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --tip-rail:     #2faa6f;
+  --sec-bg:       #fdecec;
+  --sec-rail:     #b22a2a;
+  --comp-bg:      #f1eefe;
+  --comp-rail:    #6a4ce0;
+  --since-bg:     #f1f3f5;
+  --since-rail:   #6b7280;
+  --dep-bg:       #fff4e0;
+  --dep-rail:     #b9701a;
 
-  /* Brand tokens — magenta/fuchsia accent matching the logo's neon paint mark.
-     Used on: hero, primary CTA, h2 accent bar, card hover glow, rail-active state. */
+  /* Brand — neon magenta accent. */
   --brand:          #d946ef;
   --brand-strong:   #c026d3;
   --brand-soft:     #fae8ff;
   --brand-glow:     rgba(217, 70, 239, 0.35);
   --hero-bg:        #0b0b12;
   --hero-bg-soft:   #15131f;
+
+  /* Compliance posture pills (Phase 2 markup uses these). */
+  --posture-hipaa:  #0f766e;
+  --posture-hipaa-bg: #ccfbf1;
+  --posture-pci:    #b45309;
+  --posture-pci-bg: #fef3c7;
+  --posture-gdpr:   #1e40af;
+  --posture-gdpr-bg: #dbeafe;
+  --posture-soc2:   #6d28d9;
+  --posture-soc2-bg: #ede9fe;
+  --posture-dora:   #b91c1c;
+  --posture-dora-bg: #fee2e2;
+
+  /* Spacing scale (4px base). */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 48px;
+  --space-9: 64px;
+
+  /* Radius scale. */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-pill: 999px;
+
+  /* Elevation. */
+  --shadow-1: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-2: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 12px rgba(15, 23, 42, 0.05);
+  --shadow-3: 0 2px 4px rgba(15, 23, 42, 0.06), 0 12px 28px rgba(15, 23, 42, 0.08);
+  --shadow-rail-sticky: 0 1px 0 rgba(15, 23, 42, 0.04);
+
+  /* Typography (clamp scales for fluid sizing on wide screens). */
+  --text-xs:    0.78rem;
+  --text-sm:    0.88rem;
+  --text-base:  1rem;
+  --text-lg:    1.125rem;
+  --text-xl:    clamp(1.2rem, 1.05rem + 0.4vw, 1.35rem);
+  --text-2xl:   clamp(1.4rem, 1.2rem + 0.7vw, 1.65rem);
+  --text-3xl:   clamp(1.75rem, 1.4rem + 1.2vw, 2.15rem);
+  --text-display: clamp(2.5rem, 2rem + 2.4vw, 3.5rem);
+
+  --leading-tight: 1.2;
+  --leading-snug:  1.4;
+  --leading-body:  1.65;
+  --leading-loose: 1.75;
+
+  /* Layout columns. */
+  --rail-w:        260px;
+  --toc-w:         220px;
+  --content-prose: 92ch;
+  --content-wide:  1100px;
+  --max-hero:      1200px;
+
+  /* Fonts. */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter var", "Inter", system-ui, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* Motion. */
+  --ease-out:    cubic-bezier(0.2, 0.8, 0.4, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast:    120ms;
+  --dur-base:    180ms;
+  --dur-slow:    240ms;
 }
 
 * { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
 html, body { margin: 0; padding: 0; }
+
 body {
   font-family: var(--font-body);
-  font-size: 16px;
-  line-height: 1.55;
+  font-size: var(--text-base);
+  line-height: var(--leading-body);
   color: var(--fg);
   background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "kern", "liga", "calt", "ss01", "cv11";
 }
 
+/* Reduced motion — disable transitions, smooth scrolls, and decorative
+   animations across the board. The wiki keeps every functional behavior
+   intact (the IntersectionObserver still highlights the active TOC
+   item; Prism still tokenizes); only motion stops. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+}
+
+/* -------------------- skip link -------------------- */
+.skip-link {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: var(--brand-strong);
+  color: #fff;
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: var(--text-sm);
+  z-index: 1000;
+  transform: translateY(-200%);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.skip-link:focus {
+  transform: translateY(0);
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* -------------------- links -------------------- */
 a {
   color: var(--link);
-  text-decoration: none;
-  transition: color 120ms ease;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: rgba(12, 92, 208, 0.32);
+  transition: color var(--dur-fast) var(--ease-out),
+              text-decoration-color var(--dur-fast) var(--ease-out);
 }
-a:hover, a:focus { color: var(--link-hover); text-decoration: underline; }
+a:hover, a:focus-visible {
+  color: var(--link-hover);
+  text-decoration-color: currentColor;
+}
+
+/* Focus ring — global default. Components override where needed. */
+*:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
 
 /* -------------------- shell layout -------------------- */
-
 .shell {
   display: grid;
-  grid-template-columns: var(--rail-w) 1fr;
+  grid-template-columns: var(--rail-w) minmax(0, 1fr);
   min-height: 100vh;
 }
 
+@media (min-width: 1280px) {
+  /* Three-column on wide screens: sidebar | main | on-this-page. */
+  .shell {
+    grid-template-columns: var(--rail-w) minmax(0, 1fr) var(--toc-w);
+  }
+}
+
+/* -------------------- left rail (sidebar nav) -------------------- */
 .rail {
   background: var(--bg-rail);
   border-right: 1px solid var(--border);
@@ -72,199 +216,272 @@ a:hover, a:focus { color: var(--link-hover); text-decoration: underline; }
   top: 0;
   height: 100vh;
   overflow-y: auto;
-  padding: 1.25rem 1rem;
+  padding: var(--space-5) var(--space-4);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
+.rail::-webkit-scrollbar { width: 8px; }
+.rail::-webkit-scrollbar-track { background: transparent; }
+.rail::-webkit-scrollbar-thumb { background: var(--border); border-radius: var(--radius-pill); }
 
 .rail-brand {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  padding-bottom: 1rem;
-  margin-bottom: 1rem;
+  gap: var(--space-3);
+  padding-bottom: var(--space-4);
+  margin-bottom: var(--space-4);
   border-bottom: 1px solid var(--border-soft);
 }
 .rail-brand a {
   color: var(--fg);
   font-weight: 700;
-  font-size: 1.1rem;
+  font-size: var(--text-lg);
   text-decoration: none;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--space-2);
+  letter-spacing: -0.01em;
 }
+.rail-brand a:hover { color: var(--brand-strong); }
 .rail-brand img {
-  width: 32px; height: 32px;
-  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
 }
 
-.rail-search {
-  margin-bottom: 1rem;
-}
+.rail-search { margin-bottom: var(--space-4); }
 .rail-search input[type="search"] {
   width: 100%;
-  padding: 0.45rem 0.6rem;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--bg);
   font: inherit;
   color: inherit;
+  transition: border-color var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out);
 }
+.rail-search input[type="search"]:hover { border-color: var(--fg-subtle); }
 .rail-search input[type="search"]:focus {
-  outline: 2px solid var(--link);
-  outline-offset: -1px;
-  border-color: transparent;
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-soft);
+}
+.rail-search input[type="search"]::placeholder { color: var(--fg-subtle); }
+
+/* -------------------- symbol search (sidebar) ----------------------
+   Sibling to .rail-search; offers fuzzy autocomplete over the wiki's
+   primitive index (b.X.Y signatures harvested from every page at
+   boot). Results render in a popdown list inside the rail. */
+.symbol-search {
+  position: relative;
+  margin-bottom: var(--space-4);
+}
+.symbol-search input[type="search"] {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: inherit;
+  transition: border-color var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out);
+}
+.symbol-search input[type="search"]:hover { border-color: var(--fg-subtle); }
+.symbol-search input[type="search"]:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-soft);
+}
+.symbol-results {
+  list-style: none;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-1);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-2);
+  max-height: 320px;
+  overflow-y: auto;
+  z-index: 10;
+}
+.symbol-results li { margin: 0; }
+.symbol-results a {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+}
+.symbol-results a:hover,
+.symbol-results a.is-active {
+  background: var(--brand-soft);
+  color: var(--brand-strong);
+}
+.symbol-results a .sym-page {
+  float: right;
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  color: var(--fg-subtle);
+}
+.symbol-results .sym-empty {
+  padding: var(--space-3);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
 }
 
 .rail-nav-title {
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--fg-muted);
-  margin: 1rem 0 0.5rem;
-  padding: 0 0.25rem;
+  letter-spacing: 0.08em;
+  color: var(--fg-subtle);
+  margin: var(--space-5) 0 var(--space-2);
+  padding: 0 var(--space-2);
 }
-.rail-nav {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 0.75rem;
-}
+.rail-nav { list-style: none; padding: 0; margin: 0 0 var(--space-3); }
 .rail-nav li { margin: 0; }
 .rail-nav a {
   display: block;
-  padding: 0.4rem 0.6rem;
+  padding: var(--space-2) var(--space-3);
   color: var(--fg);
-  border-radius: 5px;
-  font-size: 0.92rem;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  text-decoration: none;
+  transition: background var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out);
 }
 .rail-nav a:hover {
-  background: rgba(12, 92, 208, 0.06);
-  text-decoration: none;
+  background: rgba(217, 70, 239, 0.06);
+  color: var(--fg);
 }
 .rail-nav a.is-active,
 .rail-nav a[aria-current="page"] {
   background: var(--brand-soft);
   color: var(--brand-strong);
-  font-weight: 500;
+  font-weight: 600;
   box-shadow: inset 2px 0 0 var(--brand);
 }
 
-/* ---- Collapsible nav groups ----------------------------------------
-   The sidebar nav groups every wiki page under a concern bucket
-   (Data / Identity / HTTP / etc.) inside a <details> element. Default
-   state is COLLAPSED so the rail isn't a wall of links the operator
-   has to scroll past — only the section containing the current page
-   gets the {open} attribute server-side. The disclosure marker is a
-   custom rotating glyph so the rail doesn't render the browser's
-   default ▶ triangle, which doesn't match the neon theme.
-*/
-.rail-nav .nav-group-li { margin: 0.1rem 0; }
-.rail-nav details.nav-group {
-  margin: 0;
-}
-/* Strip the default disclosure triangle (Chrome / Safari / Firefox). */
-.rail-nav details.nav-group > summary {
-  list-style: none;
-}
-.rail-nav details.nav-group > summary::-webkit-details-marker {
-  display: none;
-}
+/* Collapsible nav groups inside the rail. The <details> element handles
+   open/close natively; the chevron rotates on [open] without JS. */
+.rail-nav .nav-group-li { margin: var(--space-1) 0; }
+.rail-nav details.nav-group { margin: 0; }
+.rail-nav details.nav-group > summary { list-style: none; }
+.rail-nav details.nav-group > summary::-webkit-details-marker { display: none; }
+
 .rail-nav summary.nav-section {
   cursor: pointer;
   user-select: none;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   color: var(--fg-muted);
-  padding: 0.45rem 0.6rem;
-  border-radius: 5px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--space-2);
+  transition: background var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out);
 }
 .rail-nav summary.nav-section:hover {
-  background: rgba(12, 92, 208, 0.04);
+  background: rgba(15, 23, 42, 0.04);
   color: var(--fg);
 }
-/* Custom disclosure glyph: ▸ collapsed → ▾ open. Drawn as a CSS
-   pseudo-element so the open/closed state is purely a CSS rotation —
-   no JS needed (the wiki's strict CSP blocks inline script). */
 .rail-nav summary.nav-section::before {
-  content: "▸";
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
   display: inline-block;
-  width: 0.7em;
-  font-size: 0.85em;
-  color: var(--fg-muted);
-  transition: transform 120ms ease-in-out;
+  margin-right: var(--space-1);
+  transition: transform var(--dur-base) var(--ease-out);
 }
 .rail-nav details[open] > summary.nav-section::before {
-  transform: rotate(90deg);
+  transform: rotate(45deg);
 }
+
 .rail-nav .nav-group-items {
   list-style: none;
-  margin: 0.15rem 0 0.4rem 0.85rem;
+  margin: var(--space-1) 0 var(--space-3) var(--space-4);
   padding: 0;
   border-left: 1px solid var(--border-soft);
 }
 .rail-nav .nav-group-items li { margin: 0; }
-.rail-nav .nav-group-items a {
-  padding-left: 0.85rem;
-}
+.rail-nav .nav-group-items a { padding-left: var(--space-3); }
 
 .rail-foot {
-  margin-top: 2rem;
-  padding-top: 1rem;
+  margin-top: var(--space-7);
+  padding-top: var(--space-4);
   border-top: 1px solid var(--border-soft);
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: var(--fg-muted);
 }
 .rail-foot a { color: var(--link); }
-.rail-foot p { margin: 0.5rem 0; }
+.rail-foot p { margin: var(--space-2) 0; }
 
 /* -------------------- main column -------------------- */
-
 main {
-  padding: 2rem 2.5rem;
+  padding: var(--space-7) clamp(var(--space-5), 4vw, var(--space-9));
   max-width: 100%;
   overflow-x: hidden;
 }
-main > * {
-  max-width: var(--max-content);
-}
+
+/* Body content sits in a constrained reading column on wide screens
+   (~72ch) so prose lines stay readable while pages with heavy code
+   blocks can still flex up to the wide cap via .wide. */
+main > * { max-width: var(--content-wide); }
+
 main h1, main h2, main h3, main h4 {
   position: relative;
-  scroll-margin-top: 1rem;
+  scroll-margin-top: var(--space-6);
   font-weight: 600;
-  line-height: 1.25;
+  line-height: var(--leading-tight);
+  letter-spacing: -0.011em;
 }
+
 main h1 {
-  font-size: 2rem;
-  margin: 0.25rem 0 1.5rem;
-  padding-bottom: 0.6rem;
+  font-size: var(--text-3xl);
+  margin: var(--space-2) 0 var(--space-5);
+  padding-bottom: var(--space-3);
   border-bottom: 2px solid var(--brand-soft);
 }
 main h2 {
-  font-size: 1.5rem;
-  margin: 2.25rem 0 0.75rem;
-  padding-top: 0.5rem;
+  font-size: var(--text-2xl);
+  margin: var(--space-8) 0 var(--space-3);
+  padding-top: var(--space-3);
   border-top: 1px solid var(--border-soft);
 }
 main h3 {
-  font-size: 1.2rem;
-  margin: 1.5rem 0 0.5rem;
+  font-size: var(--text-xl);
+  margin: var(--space-6) 0 var(--space-2);
   color: var(--brand-strong);
 }
-/* Brand-tick before every body H2 (the home hero scopes this to its own
-   block via .hero ~ h2 below; this rule covers every other page). */
+main h4 {
+  font-size: var(--text-lg);
+  margin: var(--space-5) 0 var(--space-2);
+}
+
+/* Brand-tick before every body H2 — small magenta block flush with
+   the heading, replacing the prior text-flush bar. */
 main h2:not(.hero-title)::before {
   content: "";
   display: inline-block;
-  width: 6px;
+  width: 4px;
   height: 1.05em;
   background: var(--brand);
-  border-radius: 2px;
-  margin-right: 0.6rem;
+  border-radius: var(--radius-sm);
+  margin-right: var(--space-3);
   vertical-align: -0.12em;
 }
 main h1:not(.hero-title)::before {
@@ -273,154 +490,333 @@ main h1:not(.hero-title)::before {
   width: 4px;
   height: 1.6rem;
   background: linear-gradient(180deg, var(--brand) 0%, var(--brand-strong) 100%);
-  border-radius: 2px;
-  margin-right: 0.7rem;
+  border-radius: var(--radius-sm);
+  margin-right: var(--space-3);
   vertical-align: -0.32em;
 }
-/* Tiny eyebrow some pages opt into above their H1 — small mono caps in
-   brand color, like the hero's eyebrow but on a light background. */
+
 .page-eyebrow {
   font-family: var(--font-mono);
-  font-size: 0.78rem;
-  letter-spacing: 0.08em;
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--brand-strong);
-  margin: 0 0 0.3rem;
+  margin: 0 0 var(--space-1);
   font-weight: 600;
 }
-main p { margin: 0.75rem 0; }
-main ul, main ol { padding-left: 1.5rem; }
-main li { margin: 0.25rem 0; }
+
+main p {
+  margin: var(--space-3) 0;
+  max-width: var(--content-prose);
+}
+main ul, main ol { padding-left: var(--space-6); max-width: var(--content-prose); }
+main li { margin: var(--space-1) 0; }
+main li > p { margin: var(--space-1) 0; }
 main strong { font-weight: 600; }
 main em { font-style: italic; }
+main hr {
+  border: 0;
+  border-top: 1px solid var(--border-soft);
+  margin: var(--space-7) 0;
+}
 
-/* fragment-anchor (permalink icon next to each heading) */
+/* Permalink anchor next to each heading. */
 .anchor {
-  margin-left: 0.4rem;
-  color: var(--fg-muted);
+  margin-left: var(--space-2);
+  color: var(--fg-subtle);
   opacity: 0;
   font-size: 0.85em;
   text-decoration: none;
-  transition: opacity 120ms ease;
+  transition: opacity var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out);
 }
 main h1:hover .anchor,
 main h2:hover .anchor,
 main h3:hover .anchor,
 main h4:hover .anchor,
-.anchor:focus { opacity: 1; }
-.anchor:hover { color: var(--link); text-decoration: none; }
+.anchor:focus-visible { opacity: 1; }
+.anchor:hover { color: var(--brand); text-decoration: none; }
 
-/* -------------------- code blocks (Prism-themed) -------------------- */
+/* Page meta line under the body (last-updated stamp). */
+main .muted {
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  margin-top: var(--space-8);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-soft);
+}
 
+/* -------------------- inline + block code -------------------- */
 main code {
   font-family: var(--font-mono);
   font-size: 0.92em;
   background: var(--bg-code);
-  padding: 0.1rem 0.35rem;
-  border-radius: 4px;
+  padding: 0.1em 0.4em;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
 }
 
 main pre {
   font-family: var(--font-mono);
-  font-size: 0.88rem;
-  line-height: 1.55;
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
   background: var(--bg-code-pre);
   color: #f8f8f2;
-  border-radius: 8px;
-  padding: 1rem 1.1rem;
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
   overflow-x: auto;
-  margin: 1rem 0;
+  margin: var(--space-5) 0;
   position: relative;
-  border: 1px solid #333;
+  border: 1px solid var(--border-code);
+  max-width: var(--content-wide);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.18) transparent;
 }
+main pre::-webkit-scrollbar { height: 8px; }
+main pre::-webkit-scrollbar-track { background: transparent; }
+main pre::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: var(--radius-pill); }
 main pre code {
   background: transparent;
   padding: 0;
+  border: 0;
   border-radius: 0;
   color: inherit;
   font-size: inherit;
 }
 
-/* Token colors come from public/vendor/prism.css (prism-tomorrow theme). */
+/* Code block chrome — when a <pre> opts into the chrome wrapper
+   (Phase 2 emits this via the section() helper for primitive
+   examples), the filename + language label sit on a darker strip.
+   Plain <pre> blocks without chrome render the bare panel as before. */
+.code-chrome {
+  margin: var(--space-5) 0;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-code);
+  background: var(--bg-code-pre);
+}
+.code-chrome > pre {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+.code-chrome-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  background: var(--bg-code-chrome);
+  border-bottom: 1px solid var(--border-code);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: #c8c8d0;
+}
+.code-chrome-filename {
+  color: #e0e0e8;
+  font-weight: 500;
+}
+.code-chrome-lang {
+  margin-left: auto;
+  padding: 2px var(--space-2);
+  background: rgba(217, 70, 239, 0.16);
+  color: #f0abfc;
+  border-radius: var(--radius-sm);
+  text-transform: lowercase;
+  letter-spacing: 0.04em;
+  font-size: 0.72rem;
+}
 
-/* copy-to-clipboard button */
+/* Copy-to-clipboard button. Visible on hover; permanent on focus
+   for keyboard users. */
 .copy-btn {
   position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 5px;
+  top: var(--space-2);
+  right: var(--space-2);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-sm);
   color: #f8f8f2;
-  font-size: 0.78rem;
-  padding: 0.25rem 0.5rem;
+  font-size: var(--text-xs);
+  padding: var(--space-1) var(--space-2);
   cursor: pointer;
   font-family: var(--font-body);
+  font-weight: 500;
   opacity: 0;
-  transition: opacity 120ms ease, background 120ms ease;
+  transition: opacity var(--dur-fast) var(--ease-out),
+              background var(--dur-fast) var(--ease-out);
 }
 main pre:hover .copy-btn,
-.copy-btn:focus { opacity: 1; }
-.copy-btn:hover { background: rgba(255,255,255,0.18); }
-.copy-btn.copied { background: rgba(165,227,110,0.35); }
+.copy-btn:focus-visible {
+  opacity: 1;
+}
+.copy-btn:hover { background: rgba(255, 255, 255, 0.18); }
+.copy-btn.copied { background: rgba(165, 227, 110, 0.32); }
+.code-chrome .copy-btn {
+  /* In chrome mode the button sits inside the chrome bar at top-right. */
+  top: var(--space-2);
+  right: var(--space-2);
+  opacity: 1;
+}
 
 /* -------------------- callouts -------------------- */
-
 .callout {
-  border-left: 4px solid var(--note-border);
+  position: relative;
+  border-left: 4px solid var(--note-rail);
   background: var(--note-bg);
-  padding: 0.85rem 1.1rem;
-  margin: 1.25rem 0;
-  border-radius: 0 6px 6px 0;
+  padding: var(--space-3) var(--space-5);
+  margin: var(--space-5) 0;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  max-width: var(--content-wide);
 }
 .callout-title {
   font-weight: 600;
-  font-size: 0.92rem;
+  font-size: var(--text-xs);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin: 0 0 0.35rem;
+  letter-spacing: 0.08em;
+  margin: 0 0 var(--space-1);
   color: var(--fg);
 }
-.callout p { margin: 0.4rem 0; }
+.callout p { margin: var(--space-2) 0; max-width: none; }
 .callout p:last-child { margin-bottom: 0; }
+.callout > ul, .callout > ol { max-width: none; }
 
-.callout-warning { border-left-color: var(--warn-border); background: var(--warn-bg); }
-.callout-tip     { border-left-color: var(--tip-border);  background: var(--tip-bg); }
+.callout-warning,
+.callout-warn {
+  border-left-color: var(--warn-rail);
+  background: var(--warn-bg);
+}
+.callout-tip {
+  border-left-color: var(--tip-rail);
+  background: var(--tip-bg);
+}
+.callout-security {
+  border-left-color: var(--sec-rail);
+  background: var(--sec-bg);
+}
+.callout-compliance {
+  border-left-color: var(--comp-rail);
+  background: var(--comp-bg);
+}
+.callout-since {
+  border-left-color: var(--since-rail);
+  background: var(--since-bg);
+}
+.callout-deprecated {
+  border-left-color: var(--dep-rail);
+  background: var(--dep-bg);
+}
+.callout-deprecated .callout-title::after {
+  content: " · do not use";
+  color: var(--dep-rail);
+  font-weight: 500;
+}
+
+/* -------------------- pills (status / since / compliance) ----------
+   Phase 2 markup ships sections wrapped in <header class="prim-meta">
+   that emits these pills. The CSS is here in Phase 1 so the visual
+   library is ready when the helper lands. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border-radius: var(--radius-pill);
+  background: var(--bg-rail);
+  color: var(--fg-muted);
+  border: 1px solid var(--border);
+  text-transform: lowercase;
+  white-space: nowrap;
+  vertical-align: 0.05em;
+}
+.pill-stable {
+  color: #166534;
+  background: #dcfce7;
+  border-color: #bbf7d0;
+}
+.pill-experimental {
+  color: var(--warn-rail);
+  background: var(--warn-bg);
+  border-color: #f0c270;
+}
+.pill-deprecated {
+  color: var(--dep-rail);
+  background: var(--dep-bg);
+  border-color: #f5cd9a;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.pill-since {
+  color: var(--fg-muted);
+  background: var(--since-bg);
+  border-color: var(--border);
+}
+.pill-since::before {
+  content: "since ";
+  opacity: 0.7;
+}
+
+.pill-compliance { text-transform: uppercase; letter-spacing: 0.06em; }
+.pill-hipaa  { color: var(--posture-hipaa);  background: var(--posture-hipaa-bg);  border-color: #99f6e4; }
+.pill-pci    { color: var(--posture-pci);    background: var(--posture-pci-bg);    border-color: #fde68a; }
+.pill-pci-dss { color: var(--posture-pci);   background: var(--posture-pci-bg);    border-color: #fde68a; }
+.pill-gdpr   { color: var(--posture-gdpr);   background: var(--posture-gdpr-bg);   border-color: #bfdbfe; }
+.pill-soc2   { color: var(--posture-soc2);   background: var(--posture-soc2-bg);   border-color: #ddd6fe; }
+.pill-dora   { color: var(--posture-dora);   background: var(--posture-dora-bg);   border-color: #fecaca; }
+
+.prim-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+}
 
 /* -------------------- card grid (landing pages) -------------------- */
-
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 1rem;
-  margin: 1.25rem 0;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--space-4);
+  margin: var(--space-5) 0;
+  max-width: var(--content-wide);
 }
 .card {
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1rem 1.1rem;
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
   background: var(--bg);
-  box-shadow: var(--shadow-card);
-  transition: transform 150ms ease, box-shadow 150ms ease;
+  box-shadow: var(--shadow-1);
+  transition: transform var(--dur-base) var(--ease-out),
+              box-shadow var(--dur-base) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out);
   display: flex;
   flex-direction: column;
 }
 .card:hover {
-  transform: translateY(-1px);
+  transform: translateY(-2px);
   border-color: var(--brand);
-  box-shadow: 0 2px 4px rgba(0,0,0,0.06), 0 8px 22px var(--brand-glow);
+  box-shadow: var(--shadow-3), 0 8px 24px var(--brand-glow);
 }
 .card h3 {
-  margin: 0 0 0.35rem !important;
+  margin: 0 0 var(--space-2) !important;
   border: none !important;
   padding: 0 !important;
-  font-size: 1.05rem;
+  font-size: var(--text-lg);
+  color: var(--brand-strong);
+  letter-spacing: -0.01em;
+  font-weight: 600;
 }
+.card h3::before { display: none !important; }
+.card:hover h3 { color: var(--brand); }
 .card p {
   margin: 0;
   color: var(--fg-muted);
-  font-size: 0.92rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
   flex: 1;
+  max-width: none;
 }
 .card a {
   text-decoration: none;
@@ -429,62 +825,66 @@ main pre:hover .copy-btn,
   height: 100%;
 }
 
-/* -------------------- property tables -------------------- */
-
+/* -------------------- tables -------------------- */
 main table {
   border-collapse: collapse;
   width: 100%;
-  margin: 1rem 0;
-  font-size: 0.94rem;
+  margin: var(--space-5) 0;
+  font-size: var(--text-sm);
+  max-width: var(--content-wide);
 }
 main thead th {
   text-align: left;
-  background: var(--bg-rail);
-  border-bottom: 2px solid var(--border);
-  padding: 0.6rem 0.75rem;
+  background: var(--bg-soft);
+  border-bottom: 1px solid var(--border);
+  padding: var(--space-3) var(--space-4);
   font-weight: 600;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
 }
 main tbody td, main tbody th {
   border-bottom: 1px solid var(--border-soft);
-  padding: 0.55rem 0.75rem;
+  padding: var(--space-3) var(--space-4);
   text-align: left;
   font-weight: normal;
   vertical-align: top;
 }
-main tbody tr:nth-child(odd) td,
-main tbody tr:nth-child(odd) th {
-  background: rgba(247, 248, 250, 0.5);
+main tbody tr:hover td,
+main tbody tr:hover th {
+  background: var(--bg-soft);
 }
 main tbody code { font-size: 0.88em; }
 
 /* -------------------- search results -------------------- */
-
-.hits {
-  list-style: none;
-  padding: 0;
-  margin: 1rem 0;
-}
+.hits { list-style: none; padding: 0; margin: var(--space-4) 0; }
 .hits li {
-  padding: 0.85rem 0;
+  padding: var(--space-3) 0;
   border-bottom: 1px solid var(--border-soft);
 }
-.hits li strong { font-size: 1.05rem; }
+.hits li strong { font-size: var(--text-lg); }
 .hits .snippet {
   color: var(--fg-muted);
-  font-size: 0.92rem;
-  margin: 0.3rem 0 0;
+  font-size: var(--text-sm);
+  margin: var(--space-1) 0 0;
 }
-.hits mark { background: rgba(255, 220, 100, 0.5); padding: 0 2px; border-radius: 2px; }
+.hits mark {
+  background: var(--brand-soft);
+  color: var(--brand-strong);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+}
 
-/* -------------------- forms (login + admin/edit) -------------------- */
-
-main form { margin: 1rem 0; max-width: 520px; }
-main form.editor { max-width: var(--max-content); }
+/* -------------------- forms (login + admin) -------------------- */
+main form { margin: var(--space-4) 0; max-width: 520px; }
+main form.editor { max-width: var(--content-wide); }
 main form label {
   display: block;
   font-weight: 500;
-  font-size: 0.92rem;
-  margin: 0.75rem 0 0.25rem;
+  font-size: var(--text-sm);
+  margin: var(--space-3) 0 var(--space-1);
+  color: var(--fg);
 }
 main form input[type="text"],
 main form input[type="email"],
@@ -492,50 +892,134 @@ main form input[type="password"],
 main form input[type="search"],
 main form textarea {
   width: 100%;
-  padding: 0.5rem 0.65rem;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   background: var(--bg);
   font: inherit;
   color: inherit;
+  transition: border-color var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out);
 }
-main form textarea { font-family: var(--font-mono); font-size: 0.9rem; }
-main form input:focus, main form textarea:focus {
-  outline: 2px solid var(--link);
-  outline-offset: -1px;
-  border-color: transparent;
+main form textarea { font-family: var(--font-mono); font-size: var(--text-sm); }
+main form input:focus,
+main form textarea:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-soft);
 }
 main form button,
 main button.btn,
 main a.btn {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   background: var(--link);
   color: #fff;
   border: 1px solid transparent;
-  padding: 0.5rem 1rem;
-  border-radius: 5px;
+  padding: var(--space-2) var(--space-5);
+  border-radius: var(--radius-md);
   cursor: pointer;
   font: inherit;
-  font-weight: 500;
+  font-weight: 600;
   text-decoration: none;
-  transition: background 120ms ease;
+  box-shadow: var(--shadow-1);
+  transition: background var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out),
+              transform var(--dur-fast) var(--ease-out);
 }
-main form button:hover, main button.btn:hover, main a.btn:hover {
+main form button:hover,
+main button.btn:hover,
+main a.btn:hover {
   background: var(--link-hover);
   text-decoration: none;
   color: #fff;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-2);
 }
+main form button:active,
+main button.btn:active,
+main a.btn:active { transform: translateY(0); }
+
 main .form-error {
   color: #b22a2a;
-  background: #fdecec;
-  border-left: 3px solid #b22a2a;
-  padding: 0.5rem 0.75rem;
+  background: var(--sec-bg);
+  border-left: 4px solid var(--sec-rail);
+  padding: var(--space-3) var(--space-4);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
   font-weight: 500;
-  margin: 0.75rem 0;
+  margin: var(--space-3) 0;
+}
+
+/* -------------------- on-this-page TOC (right rail) ------------------
+   Built client-side from the page's <h2>/<h3> elements. Sticky on the
+   right at >=1280px; below that breakpoint the TOC is hidden (the
+   sidebar nav still works, and pages remain readable in the central
+   column without dual rails). */
+.onthispage {
+  display: none;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  padding: var(--space-7) var(--space-4);
+  border-left: 1px solid var(--border-soft);
+  background: var(--bg);
+  font-size: var(--text-sm);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.onthispage::-webkit-scrollbar { width: 8px; }
+.onthispage::-webkit-scrollbar-thumb { background: var(--border); border-radius: var(--radius-pill); }
+
+@media (min-width: 1280px) {
+  .onthispage { display: block; }
+}
+
+.onthispage-title {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-subtle);
+  margin: 0 0 var(--space-3);
+  padding: 0 var(--space-2);
+}
+.onthispage ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-left: 1px solid var(--border-soft);
+}
+.onthispage li { margin: 0; }
+.onthispage a {
+  display: block;
+  padding: var(--space-1) var(--space-3);
+  color: var(--fg-muted);
+  text-decoration: none;
+  border-left: 2px solid transparent;
+  margin-left: -1px;
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  transition: color var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out),
+              background var(--dur-fast) var(--ease-out);
+}
+.onthispage a:hover {
+  color: var(--fg);
+  background: var(--bg-soft);
+}
+.onthispage a.is-active {
+  color: var(--brand-strong);
+  border-left-color: var(--brand);
+  font-weight: 600;
+}
+.onthispage .toc-h3 a {
+  padding-left: var(--space-6);
+  font-size: 0.84rem;
 }
 
 /* -------------------- mobile -------------------- */
-
 @media (max-width: 768px) {
   .shell {
     grid-template-columns: 1fr;
@@ -546,16 +1030,12 @@ main .form-error {
     border-right: none;
     border-bottom: 1px solid var(--border);
   }
-  main { padding: 1.25rem 1rem; }
-  main h1 { font-size: 1.6rem; }
-  main h2 { font-size: 1.3rem; }
-}
-
-/* -------------------- focus visibility -------------------- */
-*:focus-visible {
-  outline: 2px solid var(--link);
-  outline-offset: 2px;
-  border-radius: 3px;
+  main {
+    padding: var(--space-5) var(--space-4);
+  }
+  main h1 { font-size: var(--text-2xl); }
+  main h2 { font-size: var(--text-xl); }
+  .onthispage { display: none; }
 }
 
 /* -------------------- a11y / utility -------------------- */
@@ -570,32 +1050,31 @@ main .form-error {
   white-space: nowrap;
   border: 0;
 }
-
 .logout-form { margin: 0; }
 
-/* -------------------- home hero -------------------- */
-/* Dark-themed hero block scoped to the landing page. The rest of the
-   docs stays light/readable; the hero pulls the logo's neon-magenta
-   palette forward as the brand surface. Uses pure CSS — no inline
-   styles (the framework's default CSP blocks 'unsafe-inline'). */
+/* -------------------- home hero --------------------
+   Dark-themed hero scoped to the landing page. The rest of the docs
+   stays light and readable; the hero pulls the logo's neon-magenta
+   palette forward as the brand surface. CSS-only — no inline styles
+   (the framework's default CSP blocks 'unsafe-inline'). */
 
 .hero {
   position: relative;
   max-width: var(--max-hero);
-  margin: 0 0 1.5rem;
-  padding: 2.25rem 2.25rem 1.75rem;
+  margin: 0 0 var(--space-6);
+  padding: var(--space-8) var(--space-7) var(--space-7);
   background:
-    radial-gradient(circle at 88% 18%, rgba(217,70,239,0.18), transparent 55%),
-    radial-gradient(circle at 8% 92%, rgba(192,38,211,0.12), transparent 60%),
+    radial-gradient(circle at 88% 18%, rgba(217, 70, 239, 0.18), transparent 55%),
+    radial-gradient(circle at 8% 92%, rgba(192, 38, 211, 0.12), transparent 60%),
     linear-gradient(180deg, var(--hero-bg) 0%, var(--hero-bg-soft) 100%);
   color: #f4f3ff;
   border: 1px solid #2a2438;
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   overflow: hidden;
   isolation: isolate;
+  box-shadow: var(--shadow-3);
 }
 .hero::before {
-  /* Faint scan-line texture echoing the logo's glitch aesthetic. */
   content: "";
   position: absolute;
   inset: 0;
@@ -608,10 +1087,11 @@ main .form-error {
   z-index: 0;
 }
 .hero::after {
-  /* Top accent line — neon edge. */
   content: "";
   position: absolute;
-  top: 0; left: 0; right: 0;
+  top: 0;
+  left: 0;
+  right: 0;
   height: 2px;
   background: linear-gradient(90deg, transparent, var(--brand) 30%, var(--brand-strong) 70%, transparent);
   opacity: 0.85;
@@ -621,38 +1101,39 @@ main .form-error {
   z-index: 1;
   display: grid;
   grid-template-columns: 128px 1fr;
-  gap: 1.75rem;
+  gap: var(--space-7);
   align-items: start;
 }
 .hero-mark img {
   width: 128px;
   height: 128px;
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   filter: drop-shadow(0 0 18px var(--brand-glow));
   display: block;
 }
 .hero-eyebrow {
   font-family: var(--font-mono);
-  font-size: 0.78rem;
-  letter-spacing: 0.08em;
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--brand);
-  margin: 0 0 0.4rem;
+  margin: 0 0 var(--space-2);
 }
 .hero-title {
-  font-size: 3rem;
+  font-size: var(--text-display);
   font-weight: 800;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.025em;
   line-height: 1;
-  margin: 0 0 0.6rem;
+  margin: 0 0 var(--space-3);
   color: #ffffff;
   text-shadow: 0 0 24px var(--brand-glow);
 }
 .hero-tagline {
-  font-size: 1.25rem;
+  font-size: var(--text-xl);
   font-weight: 500;
-  margin: 0 0 0.75rem;
+  margin: 0 0 var(--space-3);
   color: #e8e5f5;
+  line-height: var(--leading-snug);
 }
 .hero-em {
   background: linear-gradient(90deg, var(--brand) 0%, #f0abfc 100%);
@@ -662,26 +1143,32 @@ main .form-error {
   font-weight: 700;
 }
 .hero-sub {
-  margin: 0 0 1.25rem;
+  margin: 0 0 var(--space-5);
   color: #b9b4cc;
-  font-size: 0.98rem;
+  font-size: var(--text-base);
   max-width: 56ch;
+  line-height: var(--leading-body);
 }
 .hero-cta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.6rem;
+  gap: var(--space-3);
   margin: 0;
 }
 .btn-brand,
 .btn-ghost {
-  display: inline-block;
-  padding: 0.55rem 1.1rem;
-  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-md);
   font-weight: 600;
-  font-size: 0.95rem;
+  font-size: var(--text-sm);
   text-decoration: none;
-  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease, color 120ms ease;
+  transition: transform var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out),
+              background var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out);
 }
 .btn-brand {
   background: linear-gradient(135deg, var(--brand) 0%, var(--brand-strong) 100%);
@@ -690,9 +1177,9 @@ main .form-error {
   box-shadow: 0 6px 18px var(--brand-glow);
 }
 .btn-brand:hover,
-.btn-brand:focus {
-  transform: translateY(-1px);
-  box-shadow: 0 10px 24px var(--brand-glow);
+.btn-brand:focus-visible {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px var(--brand-glow);
   color: #fff;
   text-decoration: none;
 }
@@ -702,7 +1189,7 @@ main .form-error {
   background: transparent;
 }
 .btn-ghost:hover,
-.btn-ghost:focus {
+.btn-ghost:focus-visible {
   border-color: var(--brand);
   color: var(--brand);
   background: rgba(217, 70, 239, 0.08);
@@ -714,44 +1201,50 @@ main .form-error {
   list-style: none;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin: 1.75rem 0 0;
-  padding: 1rem 0 0;
+  gap: var(--space-2);
+  margin: var(--space-7) 0 0;
+  padding: var(--space-4) 0 0;
   border-top: 1px solid rgba(217, 70, 239, 0.18);
 }
 .hero-pills li {
   font-family: var(--font-mono);
-  font-size: 0.78rem;
+  font-size: var(--text-xs);
   letter-spacing: 0.04em;
   color: #d6d2e6;
   background: rgba(217, 70, 239, 0.08);
   border: 1px solid rgba(217, 70, 239, 0.28);
-  padding: 0.3rem 0.65rem;
-  border-radius: 999px;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
 }
 
 .hero-aside {
   color: var(--fg-muted);
-  font-size: 0.95rem;
-  margin: 0 0 1.5rem;
+  font-size: var(--text-base);
+  margin: 0 0 var(--space-6);
+  max-width: var(--content-prose);
 }
-
-/* The brand-tick on H2 is now defined globally near the top of the
-   stylesheet (main h2:not(.hero-title)::before), so it threads through
-   every page including the home page below the hero. */
 
 @media (max-width: 768px) {
   .hero {
-    padding: 1.5rem 1.25rem 1.25rem;
+    padding: var(--space-5) var(--space-4) var(--space-5);
   }
   .hero-inner {
     grid-template-columns: 1fr;
-    gap: 1rem;
+    gap: var(--space-3);
   }
   .hero-mark img {
     width: 88px;
     height: 88px;
   }
   .hero-title { font-size: 2.25rem; }
-  .hero-tagline { font-size: 1.05rem; }
+  .hero-tagline { font-size: var(--text-lg); }
+}
+
+/* -------------------- print -------------------- */
+@media print {
+  .rail, .onthispage, .copy-btn, .skip-link, .hero-cta { display: none !important; }
+  .shell { grid-template-columns: 1fr; }
+  main { padding: 0; }
+  main pre { border: 1px solid var(--border); background: #f5f5f5; color: #111; }
+  a { color: var(--fg); text-decoration: underline; }
 }

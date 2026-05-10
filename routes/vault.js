@@ -9,6 +9,7 @@
  *   "passkey" — keypair from random seed stored server-side (vault-sealed),
  *               released after passkey re-auth (works with all passkey providers)
  */
+var b = require("../lib/vendor/blamejs");
 var path = require("path");
 var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
@@ -18,12 +19,10 @@ var filesRepo = require("../app/data/repositories/files.repo");
 var credentialsRepo = require("../app/data/repositories/credentials.repo");
 var { sanitizeFilename, sanitizeRename } = require("../app/shared/sanitize-filename");
 var simplewebauthn = require("../lib/vendor/blamejs/lib/vendor/simplewebauthn-server.cjs");
-var { parseJson } = require("../lib/multipart");
-var { generateShareId, generateBytes } = require("../lib/crypto");
+;
 var config = require("../lib/config");
 var storage = require("../lib/storage");
 var audit = require("../lib/audit");
-var rateLimit = require("../lib/rate-limit");
 var requireAuth = require("../middleware/require-auth");
 var { send, host } = require("../middleware/send");
 
@@ -37,7 +36,7 @@ module.exports = function (app) {
   app.post("/vault/enable", async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var publicKey = body.publicKey; // base64-encoded ML-KEM public key
       var mode = body.mode === "prf" ? "prf" : "passkey";
       if (!publicKey || publicKey.length < 100) {
@@ -90,7 +89,7 @@ module.exports = function (app) {
   app.post("/vault/force-reset", async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       if (body.confirm !== "RESET") return res.status(400).json({ error: "Type RESET to confirm." });
 
       // Delete all vault files from storage and DB
@@ -119,7 +118,7 @@ module.exports = function (app) {
   app.post("/vault/stealth", async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var enable = body.enable === true;
       var user = usersRepo.findById(req.user._id);
       if (user.vaultEnabled !== "true") return res.status(400).json({ error: "Vault must be enabled first." });
@@ -136,7 +135,7 @@ module.exports = function (app) {
 
   // Unlock vault — passkey-gated mode only
   // Verifies passkey authentication, then releases the vault seed for client-side decryption
-  app.post("/vault/unlock", rateLimit.middleware("vault-unlock", 5, C.TIME.FIVE_MIN), async (req, res) => {
+  app.post("/vault/unlock", b.middleware.rateLimit({ scope: "vault-unlock", max: 5, windowMs: C.TIME.FIVE_MIN, algorithm: "fixed-window" }), async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {
       var user = usersRepo.findById(req.user._id);
@@ -144,7 +143,7 @@ module.exports = function (app) {
       if ((user.vaultMode || "prf") !== "passkey") return res.status(400).json({ error: "Vault uses PRF mode — unlock client-side." });
       if (!user.vaultSeed) return res.status(400).json({ error: "No vault seed stored." });
 
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       if (!body.assertion) return res.status(400).json({ error: "Passkey assertion required." });
 
       // Verify the passkey assertion
@@ -195,7 +194,7 @@ module.exports = function (app) {
   // Generate a challenge for vault unlock (passkey-gated mode)
   app.post("/vault/unlock/challenge", (req, res) => {
     if (!requireAuth(req, res)) return;
-    var challenge = generateBytes(32).toString("base64url");
+    var challenge = b.crypto.generateBytes(32).toString("base64url");
     req.session.vaultUnlockChallenge = challenge;
     res.json({ challenge: challenge });
   });
@@ -218,7 +217,7 @@ module.exports = function (app) {
   app.post("/vault/upload", async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {
-      var body = await parseJson(req, config.maxFileSize * 2); // base64 overhead
+      var body = (await b.parsers.json(req, { maxBytes: config.maxFileSize * 2 })) || {}; // base64 overhead
       if (!body.ciphertext || !body.encapsulatedKey || !body.iv || !body.filename) {
         return res.status(400).json({ error: "Missing encrypted file data." });
       }
@@ -248,7 +247,7 @@ module.exports = function (app) {
       var iv = body.iv; // keep as base64 string for DB
 
       // Store the encrypted blob using regular storage (no additional server encryption)
-      var fileShareId = generateShareId();
+      var fileShareId = b.crypto.generateToken(32);
       // Extension is incorporated into the storage path; restrict to a safe
       // charset (alnum, 1–10 chars) so a filename like "a.<odd>" can't create
       // surprising on-disk names for operators browsing the upload dir.
@@ -357,7 +356,7 @@ module.exports = function (app) {
   app.post("/vault/rotate", async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {
-      var body = await parseJson(req, config.maxFileSize * 2); // base64 overhead
+      var body = (await b.parsers.json(req, { maxBytes: config.maxFileSize * 2 })) || {}; // base64 overhead
       var user = usersRepo.findById(req.user._id);
       if (user.vaultEnabled !== "true") return res.status(400).json({ error: "Vault not enabled." });
 
@@ -450,7 +449,7 @@ module.exports = function (app) {
   // Rename vault batch
   app.post("/vault/batch/:batchId/rename", async (req, res) => {
     if (!requireAuth(req, res)) return;
-    var body = await parseJson(req);
+    var body = (await b.parsers.json(req)) || {};
     var result = sanitizeRename(body.name, { maxLength: 200 });
     if (!result.valid) return res.status(400).json({ error: result.error || "Invalid name." });
     var batchFiles = filesRepo.findAll({ uploadedBy: req.user._id, vaultEncrypted: "true" })
@@ -467,7 +466,7 @@ module.exports = function (app) {
     if (!requireAuth(req, res)) return;
     var doc = filesRepo.findAll({ shareId: req.params.shareId, uploadedBy: req.user._id, vaultEncrypted: "true", status: "complete" })[0];
     if (!doc) return res.status(404).json({ error: "Not found." });
-    var body = await parseJson(req);
+    var body = (await b.parsers.json(req)) || {};
     var result = sanitizeRename(body.name, { originalName: doc.originalName });
     if (!result.valid) return res.status(400).json({ error: result.error });
     filesRepo.update(doc._id, { $set: { originalName: result.name } });
@@ -478,7 +477,7 @@ module.exports = function (app) {
   app.post("/vault/batch/delete", async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       if (!body.batchId) return res.status(400).json({ error: "Batch ID required." });
       var vaultFiles = filesRepo.findAll({ uploadedBy: req.user._id, vaultEncrypted: "true" }).filter(function (f) { return f.vaultBatchId === body.batchId; });
       if (vaultFiles.length === 0) return res.status(404).json({ error: "No files in batch." });

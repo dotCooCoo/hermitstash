@@ -31,9 +31,12 @@ on:
         type: boolean
         default: true
 
+# Workflow-level is read-only; the publish job's permissions block
+# below elevates contents:write (gh release asset upload) and
+# id-token:write (npm provenance). No other job exists; an operator
+# adding one inherits read-only by default.
 permissions:
-  contents: write   # gh release upload needs write to attach assets to the release
-  id-token: write   # OIDC token for npm provenance attestation
+  contents: read
 
 concurrency:
   group: npm-publish-${{ github.ref }}
@@ -43,6 +46,9 @@ jobs:
   publish:
     name: Lint, smoke, publish
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # gh release upload (SBOM asset)
+      id-token: write   # OIDC token for npm provenance attestation
     # 30-min cap covers the now-larger smoke surface (~7200+ checks) +
     # wiki e2e + sbom + the cold npx eslint pull. v0.6.38 → v0.6.53
     # all timed out at the previous 15-min cap, leaving npm registry
@@ -50,12 +56,12 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.0
 
-      - name: Set up Node 24 LTS + npm registry auth
-        uses: actions/setup-node@v6
+      - name: Set up Node 24.14.1 LTS + npm registry auth
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.0.0
         with:
-          node-version: '24'
+          node-version: '24.14.1'
           registry-url: 'https://registry.npmjs.org'
 
       # Fail loud + early if the NPM_TOKEN secret isn't visible to this
@@ -123,7 +129,7 @@ jobs:
 
       - name: ShellCheck
         if: steps.sh.outputs.found != '0'
-        uses: ludeeus/action-shellcheck@master
+        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38  # v2.0.0
         with:
           severity: style
           format:   tty
@@ -208,28 +214,28 @@ jobs:
 
       - name: Build summary
         if: always()
+        env:
+          IS_TAG:  ${{ steps.version.outputs.is_tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
         run: |
-          IS_TAG="${{ steps.version.outputs.is_tag }}"
-          VERSION="${{ steps.version.outputs.version }}"
-          DRY_RUN="${{ inputs.dry_run || 'false' }}"
-
           {
             echo "### npm publish"
             echo ""
             echo "| | |"
             echo "|---|---|"
             echo "| **Package**   | \`@blamejs/core\` |"
-            echo "| **Version**   | \`$VERSION\` |"
-            echo "| **Tag push**  | $IS_TAG |"
-            echo "| **Dry run**   | $DRY_RUN |"
+            echo "| **Version**   | \`${VERSION}\` |"
+            echo "| **Tag push**  | ${IS_TAG} |"
+            echo "| **Dry run**   | ${DRY_RUN} |"
             echo "| **Registry**  | https://registry.npmjs.org |"
             if [ "$IS_TAG" = "true" ] && [ "$DRY_RUN" != "true" ]; then
-              echo "| **Provenance** | https://www.npmjs.com/package/@blamejs/core/v/$VERSION → Provenance tab |"
+              echo "| **Provenance** | https://www.npmjs.com/package/@blamejs/core/v/${VERSION} → Provenance tab |"
             fi
             echo ""
             echo "Operators can install with:"
             echo ""
             echo '```bash'
-            echo "npm install @blamejs/core@$VERSION"
+            echo "npm install @blamejs/core@${VERSION}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

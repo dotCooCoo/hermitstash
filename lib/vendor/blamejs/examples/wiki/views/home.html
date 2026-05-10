@@ -53,94 +53,12 @@ await app.listen({ port: 3000 });</code></pre>
 <p>Pick the area you're working on:</p>
 
 <div class="card-grid">
-  <a href="/database" class="card">
-    <h3>Database</h3>
-    <p>SQLite + sealed columns, migrations, seeders, atomic-file writes.</p>
-  </a>
-  <a href="/object-store" class="card">
-    <h3>Object Store</h3>
-    <p>S3 / R2 / B2 / GCS / Azure adapters, multipart upload, SSE, bucket ops.</p>
-  </a>
-  <a href="/queue-cache" class="card">
-    <h3>Queue &amp; Cache</h3>
-    <p>Durable jobs with priority + cron + flows, plus an LRU/TTL cache.</p>
-  </a>
-  <a href="/auth" class="card">
-    <h3>Authentication</h3>
-    <p>Passwords, passkeys, TOTP, JWT, OAuth, sessions, lockout.</p>
-  </a>
-  <a href="/access-control" class="card">
-    <h3>Access Control</h3>
-    <p>RBAC, API keys, break-glass column access, credential hash.</p>
-  </a>
-  <a href="/crypto-vault" class="card">
-    <h3>Crypto &amp; Vault</h3>
-    <p>PQC envelope, vault sealing, field-level crypto, signatures, ECIES.</p>
-  </a>
-  <a href="/network-crypto" class="card">
-    <h3>Network Crypto</h3>
-    <p>mTLS CA, PQC inbound gate, PQC outbound agent.</p>
-  </a>
-  <a href="/routing" class="card">
-    <h3>Routing</h3>
-    <p>Router, render, request helpers, static, error pages.</p>
-  </a>
-  <a href="/middleware" class="card">
-    <h3>Middleware</h3>
-    <p>CSRF, CORS, rate-limit, security headers, body-parser, SSE, request log.</p>
-  </a>
-  <a href="/outbound-http" class="card">
-    <h3>Outbound HTTP</h3>
-    <p>HTTP client, SSRF guard, safe URL, signed webhooks.</p>
-  </a>
-  <a href="/safe-parsers" class="card">
-    <h3>Safe Parsers</h3>
-    <p>safeJson, safeBuffer, safeSql, safeSchema, parsers (XML/TOML/YAML/env), config.</p>
-  </a>
-  <a href="/websockets" class="card">
-    <h3>WebSockets</h3>
-    <p>Per-connection lifecycle + channel/room fan-out.</p>
-  </a>
-  <a href="/mail" class="card">
-    <h3>Mail</h3>
-    <p>Multipart, attachments, DKIM, calendar invites, bounce intake.</p>
-  </a>
-  <a href="/notifications" class="card">
-    <h3>Notifications</h3>
-    <p>Generic dispatcher + framework events.</p>
-  </a>
-  <a href="/observability" class="card">
-    <h3>Observability</h3>
-    <p>Audit chain, metrics, tracing, redaction, OTel export.</p>
-  </a>
-  <a href="/testing" class="card">
-    <h3>Testing</h3>
-    <p>HTTP fixtures, fake clock, captures, middleware runner, supertest-style.</p>
-  </a>
-  <a href="/i18n-locale" class="card">
-    <h3>i18n &amp; Locale</h3>
-    <p>Translations, plural rules, formatters, RTL.</p>
-  </a>
-  <a href="/format-helpers" class="card">
-    <h3>Format Helpers</h3>
-    <p>CSV, UUID, slug, time, archive, pagination, forms.</p>
-  </a>
-  <a href="/compliance-patterns" class="card">
-    <h3>Compliance Patterns</h3>
-    <p>Sealed columns + break-glass + Postgres role-views, composed.</p>
-  </a>
-  <a href="/cluster" class="card">
-    <h3>Cluster Mode</h3>
-    <p>Leader election, scheduler, NTP check.</p>
-  </a>
-  <a href="/reliability" class="card">
-    <h3>Reliability</h3>
-    <p>Retry, circuit breaker, graceful shutdown, deprecation policy.</p>
-  </a>
-  <a href="/backup-restore" class="card">
-    <h3>Backup &amp; Restore</h3>
-    <p>Bundle format, restore tools, first-deploy checklist.</p>
-  </a>
+  {% for c in homeCards %}
+    <a href="/{{ c.slug }}" class="card">
+      <h3>{{ c.title }}</h3>
+      <p>{{ c.description }}</p>
+    </a>
+  {% endfor %}
 </div>
 
 <h2 id="design-tenets">Design tenets <a class="anchor" href="#design-tenets">#</a></h2>
@@ -155,7 +73,6 @@ await app.listen({ port: 3000 });</code></pre>
 <p>blamejs vendors a small set of exceptional third-party libraries. Their work is the foundation the framework is built on — every cryptographic operation, passkey handshake, and certificate the framework signs runs through their code. All MIT-licensed; full attribution lives in <a href="https://github.com/blamejs/blamejs/blob/main/NOTICE">NOTICE</a>.</p>
 <ul>
   <li><a href="https://github.com/paulmillr">Paul Miller</a> &mdash; <a href="https://github.com/paulmillr/noble-ciphers">@noble/ciphers</a> (XChaCha20-Poly1305 AEAD) and <a href="https://github.com/paulmillr/noble-post-quantum">@noble/post-quantum</a> (FIPS 203 ML-KEM, FIPS 204 ML-DSA, FIPS 205 SLH-DSA &mdash; the pure-JS PQC suite behind <code>b.pqcSoftware</code>)</li>
-  <li><a href="https://github.com/ranisalt">Ranieri Althoff</a> &mdash; <a href="https://github.com/ranisalt/node-argon2">argon2</a> (Argon2id passphrase hashing)</li>
   <li><a href="https://github.com/MasterKale">Matthew Miller</a> &mdash; <a href="https://github.com/MasterKale/SimpleWebAuthn">@simplewebauthn/server</a> (WebAuthn / passkey verification)</li>
   <li><a href="https://github.com/PeculiarVentures">Peculiar Ventures</a> &mdash; <a href="https://github.com/PeculiarVentures/x509">@peculiar/x509</a> + <a href="https://github.com/PeculiarVentures/PKI.js">pkijs</a> (pure-JS X.509 + PKCS#12 stack behind <code>b.mtlsCa</code>)</li>
   <li><a href="https://github.com/PrismJS/prism">Lea Verou + contributors</a> &mdash; <a href="https://prismjs.com/">Prism</a> (syntax highlighting in the wiki you're reading)</li>
@@ -163,6 +80,6 @@ await app.listen({ port: 3000 });</code></pre>
 
 <aside class="callout callout-tip">
   <p class="callout-title">Tip</p>
-  <p>Start with the <a href="/welcome">Welcome</a> page for the framework's overall posture, then jump to whichever concern group matches your current work.</p>
+  <p>The wiki is in active migration to a fully source-driven model. The Concepts pages explain the framework's posture; the Reference pages enumerate operator-facing surface auto-harvested from the codebase; the Generated section is the in-progress per-namespace migration of every <code>b.X.Y</code> primitive to source comment blocks.</p>
 </aside>
 {% endblock %}

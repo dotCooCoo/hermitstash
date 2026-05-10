@@ -37,7 +37,7 @@ node scripts/test-integration.js
 docker compose -f docker-compose.test.yml down -v
 ```
 
-**Requirements:** Node.js 24+ (current active LTS). The framework targets `node:sqlite`, `Intl.PluralRules`, modern `crypto` primitives, and other recent built-ins. Anything older is out of scope.
+**Requirements:** Node.js 24.14+ (current active LTS, fixes CVE-2026-21713 non-constant-time HMAC compare). The framework targets `node:sqlite`, `Intl.PluralRules`, modern `crypto` primitives, and other recent built-ins. Anything older is out of scope.
 
 ## House rules
 

@@ -1,6 +1,6 @@
+var b = require("../lib/vendor/blamejs");
 var apiKeysRepo = require("../app/data/repositories/apiKeys.repo");
-var { sha3Hash, generateToken } = require("../lib/crypto");
-var { parseJson } = require("../lib/multipart");
+;
 var requireAdmin = require("../middleware/require-admin");
 var audit = require("../lib/audit");
 var { VALID_SCOPES } = require("../app/security/scope-policy");
@@ -21,7 +21,7 @@ module.exports = function (app) {
   // Generate new API key
   app.post("/admin/apikeys/create", async function(req, res) {
     if (!requireAdmin(req, res)) return;
-    var body = await parseJson(req);
+    var body = (await b.parsers.json(req)) || {};
     var name = String(body.name || "").trim().slice(0, 100);
     var rawPerms = String(body.permissions || "upload").trim().toLowerCase();
     var permList = rawPerms.split(",").map(function(s) { return s.trim(); }).filter(Boolean);
@@ -32,9 +32,9 @@ module.exports = function (app) {
     if (!name) return res.status(400).json({ error: "Name required." });
 
     // Generate a random key with a recognizable prefix
-    var rawKey = "hs_" + generateToken(32);
+    var rawKey = "hs_" + b.crypto.generateToken(32);
     var prefix = rawKey.substring(0, 7); // "hs_xxxx" for identification
-    var keyHash = sha3Hash(rawKey);
+    var keyHash = b.crypto.sha3Hash(rawKey);
 
     // Optional resource scoping for sync tokens
     var boundStashId = body.boundStashId ? String(body.boundStashId).trim() : null;

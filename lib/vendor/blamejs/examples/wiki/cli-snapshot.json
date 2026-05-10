@@ -245,36 +245,6 @@
     "vault:status",
     "version:blamejs"
   ],
-  "wiki": [
-    "api-key",
-    "api-snapshot",
-    "audit",
-    "backup",
-    "mtls",
-    "restore",
-    "vault"
-  ],
-  "wikiPairs": [
-    "api-key:issue",
-    "api-key:list",
-    "api-key:revoke",
-    "api-key:rotate",
-    "api-key:verify",
-    "api-snapshot:capture",
-    "api-snapshot:compare",
-    "audit:verify-chain",
-    "backup:extract",
-    "backup:inspect",
-    "backup:verify",
-    "mtls:init",
-    "mtls:issue",
-    "mtls:issue-p12",
-    "mtls:show-cert",
-    "mtls:status",
-    "restore:apply",
-    "vault:rotate",
-    "vault:seal",
-    "vault:status",
-    "vault:unseal"
-  ]
+  "wiki": [],
+  "wikiPairs": []
 }

@@ -2,10 +2,11 @@
  * File Service — business logic for file operations.
  * Handles download, preview (with SVG sanitization), and deletion.
  */
+var b = require("../../../lib/vendor/blamejs");
 var path = require("path");
 var filesRepo = require("../../data/repositories/files.repo");
 var storage = require("../../../lib/storage");
-var { sha3Hash, generateShareId } = require("../../../lib/crypto");
+;
 var { sanitizeSvg } = require("../../../lib/sanitize-svg");
 var { sanitizeFilename, safeContentDisposition } = require("../../shared/sanitize-filename");
 var { NotFoundError, ValidationError, ForbiddenError } = require("../../shared/errors");
@@ -187,9 +188,9 @@ async function saveToStorage(buffer, storagePath) {
  */
 async function saveAndCreateFileRecord(buffer, opts) {
   var ext = path.extname(opts.filename).toLowerCase();
-  var fileShareId = generateShareId();
+  var fileShareId = b.crypto.generateToken(32);
   var storagePath = "bundles/" + opts.bundleShareId + "/" + Date.now() + "-" + fileShareId + ext;
-  var checksum = sha3Hash(buffer);
+  var checksum = b.crypto.sha3Hash(buffer);
   var saved = await storage.saveFile(buffer, storagePath);
   var now = new Date().toISOString();
 

@@ -92,7 +92,7 @@ function run() {
   // The admin Danger Zone exposes a one-click regeneration flow.
   try {
     var mtlsCa = require("../../lib/mtls-ca");
-    var caStatus = mtlsCa.getCaStatus();
+    var caStatus = mtlsCa.status();
     if (caStatus.exists && caStatus.isLegacy) {
       warnings.push("mTLS CA is a legacy generation (v" + caStatus.generation + " → current v" + caStatus.current + "). Regenerate via Admin → General → Danger Zone to pick up the upgraded algorithm envelope. All existing client certificates will be re-issued to active sync clients; offline clients will need to re-enroll.");
     }

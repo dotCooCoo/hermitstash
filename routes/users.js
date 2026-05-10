@@ -1,12 +1,11 @@
+var b = require("../lib/vendor/blamejs");
 var audit = require("../lib/audit");
 var logger = require("../app/shared/logger");
 var config = require("../lib/config");
 var C = require("../lib/constants");
-var rateLimit = require("../lib/rate-limit");
 var filesRepo = require("../app/data/repositories/files.repo");
 var invitesRepo = require("../app/data/repositories/invites.repo");
-var { parseJson } = require("../lib/multipart");
-var { hashPassword, sha3Hash, generateToken, timingSafeEqual } = require("../lib/crypto");
+;
 var { sendInviteEmail, sendVerificationEmail } = require("../lib/email");
 var verificationTokensRepo = require("../app/data/repositories/verificationTokens.repo");
 var { clearSessionsForUser } = require("../lib/session");
@@ -28,7 +27,7 @@ module.exports = function (app) {
   // Search ?q= is rate-limited separately because each request unseals up to
   // USER_SEARCH_SCAN_LIMIT user records — repeating it cheaply is a DoS lever
   // even against admin users.
-  app.get("/admin/users/api", rateLimit.middleware("admin-user-search", 60, C.TIME.ONE_MIN), (req, res) => {
+  app.get("/admin/users/api", b.middleware.rateLimit({ scope: "admin-user-search", max: 60, windowMs: C.TIME.ONE_MIN, algorithm: "fixed-window" }), (req, res) => {
     if (!requireAdmin(req, res)) return;
     var q = req.query.q || "";
     var role = req.query.role || "";
@@ -103,7 +102,7 @@ module.exports = function (app) {
   app.post("/admin/users/invite", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var check = validateInviteInput(body);
       if (check.error) return res.status(400).json({ error: check.error });
       var email = check.email;
@@ -114,11 +113,11 @@ module.exports = function (app) {
       var existing = invitesRepo.findAll({}).filter(function (i) { return i.email === email && i.status === "pending"; });
       if (existing.length > 0) return res.status(400).json({ error: "Invite already sent to this email." });
 
-      var token = generateToken(32);
+      var token = b.crypto.generateToken(32);
       invitesRepo.create({
         email: email,
         role: role === "admin" ? "admin" : "user",
-        tokenHash: sha3Hash(token),
+        tokenHash: b.crypto.sha3Hash(token),
         invitedBy: req.user._id,
         status: "pending",
         expiresAt: new Date(Date.now() + 2 * C.TIME.ONE_DAY).toISOString(),
@@ -149,7 +148,7 @@ module.exports = function (app) {
   app.post("/admin/users/invite/resend", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var email = String(body.email || "").trim().toLowerCase();
       if (!email) return res.status(400).json({ error: "Email is required." });
 
@@ -161,19 +160,19 @@ module.exports = function (app) {
 
       // If expired, generate a new token and extend expiry
       if (invite.expiresAt < new Date().toISOString()) {
-        token = generateToken(32);
+        token = b.crypto.generateToken(32);
         invitesRepo.update(invite._id, {
           $set: {
-            tokenHash: sha3Hash(token),
+            tokenHash: b.crypto.sha3Hash(token),
             expiresAt: new Date(Date.now() + 2 * C.TIME.ONE_DAY).toISOString(),
           },
         });
       } else {
         // Still valid — we cannot recover the original token from the hash,
         // so generate a fresh token and update the hash
-        token = generateToken(32);
+        token = b.crypto.generateToken(32);
         invitesRepo.update(invite._id, {
-          $set: { tokenHash: sha3Hash(token) },
+          $set: { tokenHash: b.crypto.sha3Hash(token) },
         });
       }
 
@@ -208,10 +207,10 @@ module.exports = function (app) {
       // invalidates prior links (symmetric to the self-serve forgot-password flow).
       verificationTokensRepo.remove({ userId: user._id, type: "password_reset" });
 
-      var rawToken = generateToken();
+      var rawToken = b.crypto.generateToken();
       verificationTokensRepo.create({
         userId: user._id,
-        token: sha3Hash(rawToken),
+        token: b.crypto.sha3Hash(rawToken),
         type: "password_reset",
         expiresAt: new Date(Date.now() + C.TIME.ONE_HOUR).toISOString(),
         createdAt: new Date().toISOString(),
@@ -239,10 +238,10 @@ module.exports = function (app) {
 
       // Remove any existing verification tokens, generate fresh one
       verificationTokensRepo.remove({ userId: user._id, type: "email" });
-      var rawToken = generateToken();
+      var rawToken = b.crypto.generateToken();
       verificationTokensRepo.create({
         userId: user._id,
-        token: sha3Hash(rawToken),
+        token: b.crypto.sha3Hash(rawToken),
         type: "email",
         expiresAt: new Date(Date.now() + C.TIME.ONE_DAY).toISOString(),
         createdAt: new Date().toISOString(),
@@ -283,17 +282,17 @@ module.exports = function (app) {
 
   // Accept invite — show setup form
   app.get("/auth/invite/:token", (req, res) => {
-    var tokenHash = sha3Hash(req.params.token);
-    var invite = invitesRepo.findAll({}).filter(function (i) { return i.tokenHash && i.tokenHash.length === tokenHash.length && timingSafeEqual(i.tokenHash, tokenHash) && i.status === "pending"; })[0];
+    var tokenHash = b.crypto.sha3Hash(req.params.token);
+    var invite = invitesRepo.findAll({}).filter(function (i) { return i.tokenHash && i.tokenHash.length === tokenHash.length && b.crypto.timingSafeEqual(i.tokenHash, tokenHash) && i.status === "pending"; })[0];
     if (!invite) return send(res, "error", { title: "Invalid Invite", message: "This invite link is invalid or has already been used.", user: null }, 404);
     if (invite.expiresAt < new Date().toISOString()) return send(res, "error", { title: "Invite Expired", message: "This invite has expired. Please ask your admin for a new one.", user: null }, 410);
     send(res, "invite-accept", { email: invite.email, token: req.params.token, user: null, localAuth: config.localAuth, passkeyEnabled: config.passkeyEnabled, googleAuth: !!config.google.clientID });
   });
 
   // Accept invite — process form
-  app.post("/auth/invite/accept", rateLimit.middleware("invite-accept", 10, C.TIME.FIFTEEN_MIN), async (req, res) => {
+  app.post("/auth/invite/accept", b.middleware.rateLimit({ scope: "invite-accept", max: 10, windowMs: C.TIME.FIFTEEN_MIN, algorithm: "fixed-window" }), async (req, res) => {
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var token = String(body.token || "");
       var displayName = String(body.displayName || "").slice(0, 100);
       var password = String(body.password || "");
@@ -308,13 +307,13 @@ module.exports = function (app) {
         if (!pwCheck.valid) return res.status(400).json({ error: pwCheck.reason });
       }
 
-      var tokenHash = sha3Hash(token);
-      var invite = invitesRepo.findAll({}).filter(function (i) { return i.tokenHash && i.tokenHash.length === tokenHash.length && timingSafeEqual(i.tokenHash, tokenHash) && i.status === "pending"; })[0];
+      var tokenHash = b.crypto.sha3Hash(token);
+      var invite = invitesRepo.findAll({}).filter(function (i) { return i.tokenHash && i.tokenHash.length === tokenHash.length && b.crypto.timingSafeEqual(i.tokenHash, tokenHash) && i.status === "pending"; })[0];
       if (!invite) return res.status(400).json({ error: "Invalid or expired invite." });
       if (invite.expiresAt < new Date().toISOString()) return res.status(400).json({ error: "Invite expired." });
       if (usersRepo.findByEmail(invite.email)) return res.status(400).json({ error: "Account already exists." });
 
-      var passwordHash = password ? await hashPassword(password) : null;
+      var passwordHash = password ? await b.auth.password.hash(password) : null;
       var newUser = usersRepo.create({
         email: invite.email,
         displayName: displayName,

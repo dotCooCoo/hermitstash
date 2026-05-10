@@ -1,9 +1,9 @@
+var b = require("../lib/vendor/blamejs");
 var logger = require("../app/shared/logger");
 var { isAdmin } = require("../app/shared/authz");
 var usersRepo = require("../app/data/repositories/users.repo");
 var filesRepo = require("../app/data/repositories/files.repo");
 var teamsRepo = require("../app/data/repositories/teams.repo");
-var { parseJson } = require("../lib/multipart");
 var requireAuth = require("../middleware/require-auth");
 var audit = require("../lib/audit");
 var teamsService = require("../app/domain/teams/teams.service");
@@ -31,7 +31,7 @@ module.exports = function (app) {
   app.post("/teams/create", async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var team = teamsService.createTeam(body.name, req.user._id);
       audit.log(audit.ACTIONS.TEAM_CREATED, { targetId: team._id, details: "name: " + team.name, req: req });
       res.json({ success: true, teamId: team._id });
@@ -49,7 +49,7 @@ module.exports = function (app) {
       return res.status(403).json({ error: "Only team admins can add members." });
     }
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var userId = String(body.userId || "");
       if (!userId) return res.status(400).json({ error: "User ID required." });
       var target = usersRepo.findById(userId);
@@ -71,7 +71,7 @@ module.exports = function (app) {
       return res.status(403).json({ error: "Only team admins can remove members." });
     }
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var userId = String(body.userId || "");
       teamsService.removeMember(req.params.teamId, userId);
       audit.log(audit.ACTIONS.TEAM_MEMBER_REMOVED, { targetId: req.params.teamId, details: "userId: " + userId, req: req });

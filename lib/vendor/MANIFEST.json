@@ -3,7 +3,7 @@
   "_about": "As of v1.9.12 HermitStash vendors a single framework — blamejs — which itself bundles every server-side crypto/identity dependency. The transitive packages blamejs ships are listed below for SBOM transparency (Trivy / Grype rely on the nested-package data to flag CVEs against any of them). Argon2id derivation runs through Node 24+'s built-in `crypto.argon2` via blamejs's `lib/argon2-builtin.js` wrapper — the @ranisalt/argon2 native binding (and its 8-platform prebuilds) are no longer vendored.",
   "packages": {
     "blamejs": {
-      "version": "0.8.43",
+      "version": "0.8.59",
       "license": "Apache-2.0",
       "author": "blamejs contributors",
       "source": "https://github.com/blamejs/blamejs",
@@ -12,14 +12,16 @@
         "server": "lib/vendor/blamejs/"
       },
       "bundler": "git -C ../blamejs archive HEAD | tar -x -C lib/vendor/blamejs (sibling repo source tree)",
-      "bundledAt": "2026-05-07",
+      "bundledAt": "2026-05-09",
       "components": {
         "@noble/ciphers": {
           "version": "2.2.0",
           "license": "MIT",
           "author": "Paul Miller",
           "source": "https://github.com/paulmillr/noble-ciphers",
-          "exports": ["xchacha20poly1305"],
+          "exports": [
+            "xchacha20poly1305"
+          ],
           "file": "lib/vendor/blamejs/lib/vendor/noble-ciphers.cjs"
         },
         "@noble/post-quantum": {
@@ -27,7 +29,12 @@
           "license": "MIT",
           "author": "Paul Miller",
           "source": "https://github.com/paulmillr/noble-post-quantum",
-          "exports": ["ml_kem1024", "ml_dsa87", "slh_dsa_shake_256f", "slh_dsa_sha2_256f"],
+          "exports": [
+            "ml_kem1024",
+            "ml_dsa87",
+            "slh_dsa_shake_256f",
+            "slh_dsa_sha2_256f"
+          ],
           "file": "lib/vendor/blamejs/lib/vendor/noble-post-quantum.cjs"
         },
         "@simplewebauthn/server": {
@@ -35,7 +42,13 @@
           "license": "MIT",
           "author": "Matthew Miller",
           "source": "https://github.com/MasterKale/SimpleWebAuthn",
-          "exports": ["generateRegistrationOptions", "verifyRegistrationResponse", "generateAuthenticationOptions", "verifyAuthenticationResponse", "MetadataService"],
+          "exports": [
+            "generateRegistrationOptions",
+            "verifyRegistrationResponse",
+            "generateAuthenticationOptions",
+            "verifyAuthenticationResponse",
+            "MetadataService"
+          ],
           "file": "lib/vendor/blamejs/lib/vendor/simplewebauthn-server.cjs"
         },
         "peculiar-pki": {
@@ -43,9 +56,24 @@
           "license": "MIT",
           "author": "Peculiar Ventures",
           "source": "https://github.com/PeculiarVentures",
-          "exports": ["x509", "pkijs", "crypto"],
+          "exports": [
+            "x509",
+            "pkijs",
+            "crypto"
+          ],
           "file": "lib/vendor/blamejs/lib/vendor/pki.cjs",
-          "includes": ["reflect-metadata", "pvutils", "pvtsutils", "asn1js", "@peculiar/asn1-schema", "@peculiar/asn1-x509", "@peculiar/asn1-ecc", "@peculiar/asn1-rsa", "@peculiar/asn1-cms", "@peculiar/asn1-pkcs9"]
+          "includes": [
+            "reflect-metadata",
+            "pvutils",
+            "pvtsutils",
+            "asn1js",
+            "@peculiar/asn1-schema",
+            "@peculiar/asn1-x509",
+            "@peculiar/asn1-ecc",
+            "@peculiar/asn1-rsa",
+            "@peculiar/asn1-cms",
+            "@peculiar/asn1-pkcs9"
+          ]
         },
         "SecLists-common-passwords-top-10000": {
           "version": "10k-most-common (master)",
@@ -54,7 +82,8 @@
           "source": "https://github.com/danielmiessler/SecLists",
           "file": "lib/vendor/blamejs/lib/vendor/common-passwords-top-10000.txt"
         }
-      }
+      },
+      "tag": "v0.8.59"
     }
   }
 }

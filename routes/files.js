@@ -1,7 +1,7 @@
+var b = require("../lib/vendor/blamejs");
 var config = require("../lib/config");
 var logger = require("../app/shared/logger");
 var { safeContentDisposition, sanitizeRename } = require("../app/shared/sanitize-filename");
-var { parseJson } = require("../lib/multipart");
 var requireAuth = require("../middleware/require-auth");
 var { send, host } = require("../middleware/send");
 var audit = require("../lib/audit");
@@ -9,7 +9,6 @@ var { canEditOwned } = require("../app/shared/authz");
 var fileService = require("../app/domain/uploads/file.service");
 var filesRepo = require("../app/data/repositories/files.repo");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
-var rateLimit = require("../lib/rate-limit");
 var C = require("../lib/constants");
 var syncGuards = require("../middleware/sync-guards");
 
@@ -115,7 +114,7 @@ module.exports = function (app) {
     if (!canEditOwned(doc, req.user, "uploadedBy")) {
       return res.status(403).json({ error: "Not authorized." });
     }
-    var body = await parseJson(req);
+    var body = (await b.parsers.json(req)) || {};
     var result = sanitizeRename(body.name, { originalName: doc.originalName });
     if (!result.valid) return res.status(400).json({ error: result.error });
     filesRepo.update(doc._id, { $set: { originalName: result.name } });
@@ -161,7 +160,7 @@ module.exports = function (app) {
   // ownership are checked inline because the sync client doesn't send a
   // bundleId in the request (it has only the fileId).
   app.delete("/files/:fileId",
-    rateLimit.middleware("sync-file-delete", 100, C.TIME.ONE_MIN),
+    b.middleware.rateLimit({ scope: "sync-file-delete", max: 100, windowMs: C.TIME.ONE_MIN, algorithm: "fixed-window" }),
     syncGuards.requireSyncAuth({ requireBundle: false }),
     async (req, res) => {
       try {

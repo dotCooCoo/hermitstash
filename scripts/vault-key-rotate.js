@@ -52,7 +52,11 @@ var C = require("../lib/constants");
 var b = require("../lib/vendor/blamejs");
 var cryptoLib = require("../lib/crypto");
 var passphraseSource = require("../lib/passphrase-source");
-var vaultRotate = require("../lib/vault-rotate");
+var fieldCrypto = require("../lib/field-crypto");
+
+// Populate b.cryptoField with HS's FIELD_SCHEMA before any
+// b.vaultRotate call — its schema walker reads from b.cryptoField.
+fieldCrypto.registerWithBlamejs();
 
 var DATA_DIR = C.DATA_DIR;
 var PLAINTEXT_PATH = C.PATHS.VAULT_KEY;
@@ -349,7 +353,10 @@ function runSchemaDriftCheck(oldKeys) {
   var db = new DatabaseSync(tmpPath);
   var result;
   try {
-    result = vaultRotate.validateSchemaMatch(db);
+    result = b.vaultRotate.validateSchemaMatch(db, {
+      infraColumns: C.ROTATION_INFRA_COLUMNS,
+      tables:       Object.keys(fieldCrypto.FIELD_SCHEMA),
+    });
   } finally {
     db.close();
     try { fs.unlinkSync(tmpPath); } catch { /* best-effort */ }
@@ -357,7 +364,7 @@ function runSchemaDriftCheck(oldKeys) {
     try { fs.unlinkSync(tmpPath + "-shm"); } catch { /* best-effort */ }
   }
   if (result.errors.length > 0 || result.warnings.length > 0) {
-    console.log(vaultRotate.formatValidationResult(result));
+    console.log(b.vaultRotate.formatValidationResult(result));
   } else {
     console.log("[rotate] schema match: OK");
   }
@@ -492,7 +499,7 @@ function printSuccess(dataOldDir, result) {
     var newKeys = cryptoLib.generateEncryptionKeyPair();
 
     console.log("[rotate] Building rotated copy at " + ROTATING_DIR);
-    var result = await vaultRotate.rotateDataDirectory({
+    var result = await b.vaultRotate.rotate({
       oldKeys: oldKeys,
       newKeys: newKeys,
       dataDir: DATA_DIR,
@@ -500,6 +507,15 @@ function printSuccess(dataOldDir, result) {
       mode: mode,
       newPassphrase: pws && pws.newPw,
       progressCallback: progressLine,
+      paths: {
+        encryptedDb:      "hermitstash.db.enc",
+        dbKeySealed:      "db.key.enc",
+        vaultKeyPlain:    "vault.key",
+        vaultKeySealed:   "vault.key.sealed",
+        additionalSealed: C.ROTATION_SEALED_FILES.filter(function (e) { return e.relativePath !== "db.key.enc"; }),
+        verbatimFiles:    C.ROTATION_VERBATIM_FILES,
+        verbatimDirs:     C.ROTATION_VERBATIM_DIRS,
+      },
     });
 
     if (result.warnings.length > 0) {

@@ -21,7 +21,7 @@
  *   - POST/PUT/DELETE (form submissions and API calls have their own auth)
  *   - Stash upload routes (public uploads from branded portals)
  */
-var rateLimit = require("../lib/rate-limit");
+var clientIp = require("../lib/client-ip");
 var audit = require("../lib/audit");
 
 // Paths that should be accessible without browser fingerprinting
@@ -110,7 +110,7 @@ module.exports = function botGuard(req, res, next) {
 
   // Fingerprint check
   if (!looksLikeBrowser(req)) {
-    var ip = rateLimit.getIp(req);
+    var ip = clientIp.getIp(req);
     audit.log(audit.ACTIONS.BLOCKED, {
       details: "Bot guard: request missing browser fingerprint headers",
       ip: ip,

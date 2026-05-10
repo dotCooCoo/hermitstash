@@ -3,30 +3,30 @@
  * Public routes for stash page rendering and uploads.
  * Admin routes for CRUD management.
  */
+var b = require("../lib/vendor/blamejs");
 var path = require("path");
 var config = require("../lib/config");
-var { hashPassword, verifyPassword } = require("../lib/crypto");
+;
 var stashRepo = require("../app/data/repositories/stash.repo");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
 var filesRepo = require("../app/data/repositories/files.repo");
-var { parseMultipart, parseJson } = require("../lib/multipart");
+var { parseMultipart } = require("../lib/multipart");
 var storage = require("../lib/storage");
 var { send } = require("../middleware/send");
 var audit = require("../lib/audit");
 var logger = require("../app/shared/logger");
-var rateLimit = require("../lib/rate-limit");
 var bundleService = require("../app/domain/uploads/bundle.service");
 var uploadValidator = require("../app/http/validators/upload.validator");
 var requireAdmin = require("../middleware/require-admin");
 var { resolveUploadConfig, handleFileUpload, handleChunkUpload, handleFinalize } = require("../app/domain/uploads/upload.handler");
-var { sha3Hash, generateToken } = require("../lib/crypto");
+;
 var { TIME, PATHS } = require("../lib/constants");
 var { validateEmail } = require("../app/shared/validate");
 var fs = require("fs");
 var { sanitizeSvg } = require("../lib/sanitize-svg");
 var apiKeysRepo = require("../app/data/repositories/apiKeys.repo");
 var db = require("../lib/db");
-var { generateClientCert, initCA } = require("../lib/mtls-ca");
+var mtlsCa = require("../lib/mtls-ca");
 var { generateEnrollmentCode } = require("../lib/cert-utils");
 
 var { isStashLocked } = require("../middleware/require-access");
@@ -103,12 +103,12 @@ module.exports = function (app) {
   });
 
   // Stash password unlock
-  app.post("/stash/:slug/unlock", rateLimit.middleware("stash-unlock", 10, TIME.FIFTEEN_MIN), async function (req, res) {
+  app.post("/stash/:slug/unlock", b.middleware.rateLimit({ scope: "stash-unlock", max: 10, windowMs: TIME.FIFTEEN_MIN, algorithm: "fixed-window" }), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
 
-    var body = await parseJson(req);
+    var body = (await b.parsers.json(req)) || {};
     var password = String(body.password || "");
 
     if (!stash.passwordHash) {
@@ -116,7 +116,7 @@ module.exports = function (app) {
       return res.json({ success: true });
     }
 
-    var valid = await verifyPassword(password, stash.passwordHash);
+    var valid = await b.auth.password.verify(stash.passwordHash, password);
     if (valid) {
       var mode = stash.accessMode || "password";
       if (mode === "both") {
@@ -135,11 +135,11 @@ module.exports = function (app) {
   });
 
   // Request email access code for stash page
-  app.post("/stash/:slug/request-code", rateLimit.middleware("stash-email-code", 5, TIME.FIVE_MIN), async function (req, res) {
+  app.post("/stash/:slug/request-code", b.middleware.rateLimit({ scope: "stash-email-code", max: 5, windowMs: TIME.FIVE_MIN, algorithm: "fixed-window" }), async function (req, res) {
     var stash = stashRepo.findBySlug(req.params.slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
 
-    var body = await parseJson(req);
+    var body = (await b.parsers.json(req)) || {};
     var email = String(body.email || "").trim().toLowerCase();
     if (!validateEmail(email).valid) return res.status(400).json({ error: "Valid email required." });
 
@@ -168,11 +168,11 @@ module.exports = function (app) {
   });
 
   // Verify email access code for stash page
-  app.post("/stash/:slug/verify-code", rateLimit.middleware("stash-verify-code", 10, TIME.FIFTEEN_MIN), async function (req, res) {
+  app.post("/stash/:slug/verify-code", b.middleware.rateLimit({ scope: "stash-verify-code", max: 10, windowMs: TIME.FIFTEEN_MIN, algorithm: "fixed-window" }), async function (req, res) {
     var stash = stashRepo.findBySlug(req.params.slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
 
-    var body = await parseJson(req);
+    var body = (await b.parsers.json(req)) || {};
     var email = String(body.email || "").trim().toLowerCase();
     var code = String(body.code || "").trim();
     if (!email || !code) return res.status(400).json({ error: "Email and code required." });
@@ -197,7 +197,7 @@ module.exports = function (app) {
   });
 
   // Init bundle from stash page
-  app.post("/stash/:slug/init", rateLimit.middleware("drop-init", 20, TIME.ONE_MIN), async function (req, res) {
+  app.post("/stash/:slug/init", b.middleware.rateLimit({ scope: "drop-init", max: 20, windowMs: TIME.ONE_MIN, algorithm: "fixed-window" }), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
@@ -213,7 +213,7 @@ module.exports = function (app) {
       }
     }
 
-    var body = await parseJson(req);
+    var body = (await b.parsers.json(req)) || {};
     var expiryDays = (stash.defaultExpiry && stash.defaultExpiry > 0) ? stash.defaultExpiry : config.fileExpiryDays;
     var isSyncStash = stash.syncEnabled === "true";
 
@@ -245,7 +245,7 @@ module.exports = function (app) {
   });
 
   // Upload single file to stash bundle
-  app.post("/stash/:slug/file/:bundleId", rateLimit.middleware("upload", 200, TIME.ONE_MIN), async function (req, res) {
+  app.post("/stash/:slug/file/:bundleId", b.middleware.rateLimit({ scope: "upload", max: 200, windowMs: TIME.ONE_MIN, algorithm: "fixed-window" }), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
@@ -276,7 +276,7 @@ module.exports = function (app) {
   });
 
   // Chunked upload for stash
-  app.post("/stash/:slug/chunk/:bundleId", rateLimit.middleware("chunk", 500, TIME.ONE_MIN), async function (req, res) {
+  app.post("/stash/:slug/chunk/:bundleId", b.middleware.rateLimit({ scope: "chunk", max: 500, windowMs: TIME.ONE_MIN, algorithm: "fixed-window" }), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
@@ -307,7 +307,7 @@ module.exports = function (app) {
   });
 
   // Finalize stash bundle
-  app.post("/stash/:slug/finalize/:bundleId", rateLimit.middleware("finalize", 20, TIME.ONE_MIN), async function (req, res) {
+  app.post("/stash/:slug/finalize/:bundleId", b.middleware.rateLimit({ scope: "finalize", max: 20, windowMs: TIME.ONE_MIN, algorithm: "fixed-window" }), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
@@ -317,7 +317,7 @@ module.exports = function (app) {
     if (!existingBundle) return res.status(404).json({ error: "Bundle not found." });
     if (existingBundle.stashId !== stash._id) return res.status(403).json({ error: "Bundle does not belong to this stash." });
 
-    var body = await parseJson(req);
+    var body = (await b.parsers.json(req)) || {};
     var token = String(body.finalizeToken || req.query.finalizeToken || "");
     var result = handleFinalize({
       bundleId: req.params.bundleId, token: token,
@@ -451,7 +451,7 @@ module.exports = function (app) {
   app.post("/admin/stash/create", async function (req, res) {
     if (!requireAdmin(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var name = String(body.name || "").trim().slice(0, 200);
       var slug = String(body.slug || "").trim().toLowerCase().slice(0, 50);
 
@@ -482,7 +482,7 @@ module.exports = function (app) {
       if (body.password && String(body.password).trim()) {
         var pw = String(body.password).trim();
         if (pw.length < 4) return res.status(400).json({ error: "Password must be at least 4 characters." });
-        passwordHash = await hashPassword(pw);
+        passwordHash = await b.auth.password.hash(pw);
       }
 
       // Email-gated access: clean allowed emails/domains
@@ -536,7 +536,7 @@ module.exports = function (app) {
       var stash = stashRepo.findById(req.params.id);
       if (!stash) return res.status(404).json({ error: "Stash page not found." });
 
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var updates = {};
 
       if (body.name !== undefined) updates.name = String(body.name).trim().slice(0, 200);
@@ -580,7 +580,7 @@ module.exports = function (app) {
           updates.passwordHash = null;
         } else if (pw !== "********") {
           if (pw.trim().length < 4) return res.status(400).json({ error: "Password must be at least 4 characters." });
-          updates.passwordHash = await hashPassword(pw.trim());
+          updates.passwordHash = await b.auth.password.hash(pw.trim());
         }
       }
 
@@ -716,9 +716,9 @@ module.exports = function (app) {
       var stash = stashRepo.findById(req.params.id);
       if (!stash) return res.status(404).json({ error: "Stash page not found." });
 
-      var sha3 = sha3Hash;
+      var sha3 = b.crypto.sha3Hash;
 
-      var rawKey = "hs_" + generateToken(32);
+      var rawKey = "hs_" + b.crypto.generateToken(32);
       var prefix = rawKey.substring(0, 7);
       var keyHash = sha3(rawKey);
 
@@ -736,10 +736,10 @@ module.exports = function (app) {
       // Generate client certificate if CA is available
       var clientCert = null;
       try {
-        await initCA();
-        clientCert = await generateClientCert(prefix);
+        await mtlsCa.initCA();
+        clientCert = await mtlsCa.generateClientCert({ cn: prefix });
         if (clientCert) {
-          var certSha3 = sha3Hash;
+          var certSha3 = b.crypto.sha3Hash;
           var createdKey = apiKeysRepo.findOne({ keyHash: keyHash });
           if (createdKey) {
             apiKeysRepo.update(createdKey._id, { $set: {
@@ -811,10 +811,10 @@ module.exports = function (app) {
   });
 
   // Re-issue client certificate for an existing API key (repairs broken mTLS without new enrollment)
-  app.post("/admin/stash/:id/reissue-cert", rateLimit.middleware("cert-reissue", 5, TIME.FIVE_MIN), async function (req, res) {
+  app.post("/admin/stash/:id/reissue-cert", b.middleware.rateLimit({ scope: "cert-reissue", max: 5, windowMs: TIME.FIVE_MIN, algorithm: "fixed-window" }), async function (req, res) {
     if (!requireAdmin(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var apiKeyId = body.apiKeyId;
       if (!apiKeyId) return res.status(400).json({ error: "apiKeyId required" });
 
@@ -825,12 +825,12 @@ module.exports = function (app) {
       if (!apiKey) return res.status(404).json({ error: "API key not found." });
       if (apiKey.boundStashId !== stash._id) return res.status(403).json({ error: "API key does not belong to this stash." });
 
-      await initCA();
-      var newCert = await generateClientCert(apiKey.prefix);
+      await mtlsCa.initCA();
+      var newCert = await mtlsCa.generateClientCert({ cn: apiKey.prefix });
       if (!newCert) return res.status(500).json({ error: "Failed to generate certificate — OpenSSL may not be available." });
 
       // Store enrollment code FIRST — if this fails, the API key cert fields stay unchanged
-      var sha3 = sha3Hash;
+      var sha3 = b.crypto.sha3Hash;
       var enrollment = generateEnrollmentCode();
 
       db.enrollmentCodes.insert({

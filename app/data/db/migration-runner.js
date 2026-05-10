@@ -10,6 +10,7 @@
  * Note: db.exec() below is SQLite DatabaseSync.exec(), NOT child_process.exec().
  */
 
+var b = require("../../../lib/vendor/blamejs");
 var fs = require("fs");
 var path = require("path");
 
@@ -64,7 +65,7 @@ function run(db) {
 
   if (pending.length === 0) return;
 
-  var { generateToken } = require("../../../lib/crypto");
+  ;
   var insertStmt = db.prepare(
     "INSERT INTO _migrations (_id, name, appliedAt) VALUES (?, ?, ?)"
   );
@@ -79,7 +80,7 @@ function run(db) {
         continue;
       }
       migration.up(db);
-      var id = generateToken(32);
+      var id = b.crypto.generateToken(32);
       insertStmt.run(id, filename, new Date().toISOString());
       console.log("  [migration] Applied: " + filename);
     } catch (e) {

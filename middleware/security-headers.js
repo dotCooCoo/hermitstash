@@ -6,8 +6,9 @@
  * present, CSP3 browsers ignore 'unsafe-inline'; we still emit it in the
  * header as a strict no-op fallback for CSP2-era clients.
  */
+var b = require("../lib/vendor/blamejs");
 var config = require("../lib/config");
-var { generateBytes } = require("../lib/crypto");
+;
 
 // Extract analytics domains (for script-src / connect-src / img-src) from the
 // admin-configured analytics script snippet.
@@ -39,7 +40,7 @@ function googleConnectDomains() {
 module.exports = function securityHeaders(req, res, next) {
   // Per-response nonce. 16 random bytes → 22 base64url chars = ~128 bits entropy.
   // Expose on res so send.js can forward it into the template context.
-  res._cspNonce = generateBytes(16).toString("base64url");
+  res._cspNonce = b.crypto.generateBytes(16).toString("base64url");
 
   var origWriteHead = res.writeHead.bind(res);
   res.writeHead = function (_code) {

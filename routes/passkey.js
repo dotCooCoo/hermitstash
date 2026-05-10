@@ -1,10 +1,9 @@
+var b = require("../lib/vendor/blamejs");
 var config = require("../lib/config");
 var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
-var rateLimit = require("../lib/rate-limit");
 var usersRepo = require("../app/data/repositories/users.repo");
 var credentialsRepo = require("../app/data/repositories/credentials.repo");
-var { parseJson } = require("../lib/multipart");
 var audit = require("../lib/audit");
 var requireAuth = require("../middleware/require-auth");
 var sessionService = require("../app/domain/auth/session.service");
@@ -69,7 +68,7 @@ module.exports = function (app) {
 
     try {
       var wa = await webauthn();
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var expectedChallenge = req.session.passkeyChallenge;
       delete req.session.passkeyChallenge;
 
@@ -133,12 +132,12 @@ module.exports = function (app) {
   });
 
   // Verify authentication response
-  app.post("/passkey/login/verify", rateLimit.middleware("passkey-login", 10, C.TIME.ONE_MIN), async (req, res) => {
+  app.post("/passkey/login/verify", b.middleware.rateLimit({ scope: "passkey-login", max: 10, windowMs: C.TIME.ONE_MIN, algorithm: "fixed-window" }), async (req, res) => {
     if (!config.passkeyEnabled) return res.status(403).json({ error: "Passkeys are disabled." });
 
     try {
       var wa = await webauthn();
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var expectedChallenge = req.session.passkeyChallenge;
       delete req.session.passkeyChallenge;
 
@@ -225,7 +224,7 @@ module.exports = function (app) {
   app.post("/passkey/remove", async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var credId = body.credentialId;
       if (!credId) return res.status(400).json({ error: "Credential ID required." });
 

@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#0b0b12">
 <link rel="canonical" href="{{ canonical }}">
 <link rel="icon" type="image/png" href="/img/blamejs-logo.png">
-<link rel="stylesheet" href="/wiki.css">
+<link rel="stylesheet" href="{{ assets.css }}">
 <link rel="stylesheet" href="/vendor/prism.css">
 
 <meta property="og:type" content="{{ ogType }}">
@@ -48,6 +48,7 @@
 </script>
 </head>
 <body>
+<a href="#main" class="skip-link">Skip to content</a>
 <div class="shell">
 
   <aside class="rail" aria-label="Site navigation">
@@ -62,6 +63,12 @@
       <label for="rail-q" class="visually-hidden">Search</label>
       <input id="rail-q" type="search" name="q" placeholder="Search the docs" value="{{ searchQuery }}">
     </form>
+
+    <div class="symbol-search" role="search">
+      <label for="symbol-q" class="visually-hidden">Find primitive by signature</label>
+      <input id="symbol-q" type="search" autocomplete="off" placeholder="Find b.X.Y…" data-symbol-search>
+      <ul class="symbol-results" data-symbol-results role="listbox" hidden></ul>
+    </div>
 
     <p class="rail-nav-title">Concern groups</p>
     <ul class="rail-nav">
@@ -88,9 +95,16 @@
     </div>
   </aside>
 
-  <main role="main">
+  <main id="main" role="main">
     {% block content %}{% endblock %}
   </main>
+
+  {% block onthispage %}
+    <aside class="onthispage" aria-labelledby="onthispage-title">
+      <p id="onthispage-title" class="onthispage-title">On this page</p>
+      <ul data-toc></ul>
+    </aside>
+  {% endblock %}
 
 </div>
 

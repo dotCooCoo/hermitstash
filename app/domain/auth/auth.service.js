@@ -2,9 +2,10 @@
  * Auth Service — business logic for authentication and user registration.
  * Routes handle HTTP; this handles identity resolution and account creation.
  */
+var b = require("../../../lib/vendor/blamejs");
 var usersRepo = require("../../data/repositories/users.repo");
 var filesRepo = require("../../data/repositories/files.repo");
-var { hashPassword, verifyPassword } = require("../../../lib/crypto");
+;
 var { validateEmail, validatePassword, validateDisplayName } = require("../../shared/validate");
 var { ValidationError, AuthenticationError, ForbiddenError, ConflictError } = require("../../shared/errors");
 
@@ -23,7 +24,7 @@ async function registerLocal(displayName, email, password, opts) {
   var existing = usersRepo.findByEmail(emailResult.email);
   if (existing) throw new ConflictError("Email already registered.");
 
-  var passwordHash = await hashPassword(password);
+  var passwordHash = await b.auth.password.hash(password);
   var isAdmin = usersRepo.count({}) === 0;
   var needsVerification = opts && opts.emailVerification && !isAdmin;
 
@@ -65,7 +66,7 @@ async function authenticateLocal(email, password) {
   }
   if (user.status === "suspended") throw new ForbiddenError("Account suspended.");
 
-  var valid = await verifyPassword(password, user.passwordHash);
+  var valid = await b.auth.password.verify(user.passwordHash, password);
   if (!valid) throw new AuthenticationError("Invalid email or password.");
 
   return user;

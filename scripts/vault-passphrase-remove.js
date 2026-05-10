@@ -28,7 +28,7 @@ var http = require("http");
 var C = require("../lib/constants");
 var b = require("../lib/vendor/blamejs");
 var passphraseSource = require("../lib/passphrase-source");
-var { sha3Hash } = require("../lib/crypto");
+;
 
 var PLAINTEXT_PATH = C.PATHS.VAULT_KEY;
 var PLAINTEXT_TMP_PATH = PLAINTEXT_PATH + ".tmp";
@@ -168,7 +168,7 @@ async function execute(passphrase) {
     // For the unseal path, the marker's sealedSha3 refers to the PLAINTEXT
     // target. The recoverFromMarker() call in vault.js is generic over
     // target/other; it hashes whatever targetFilePath points at.
-    sealedSha3: sha3Hash(plaintextBytes),
+    sealedSha3: b.crypto.sha3Hash(plaintextBytes),
   };
   fs.writeFileSync(MARKER_TMP_PATH, JSON.stringify(marker), { mode: 0o600 });
   fsyncPath(MARKER_TMP_PATH);

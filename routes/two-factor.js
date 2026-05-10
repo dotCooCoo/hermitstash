@@ -1,11 +1,10 @@
+var b = require("../lib/vendor/blamejs");
 var config = require("../lib/config");
 var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
 var vault = require("../lib/vault");
-var rateLimit = require("../lib/rate-limit");
-var { sha3Hash } = require("../lib/crypto");
+;
 var usersRepo = require("../app/data/repositories/users.repo");
-var { parseJson } = require("../lib/multipart");
 var totp = require("../lib/totp");
 var requireAuth = require("../middleware/require-auth");
 var audit = require("../lib/audit");
@@ -42,7 +41,7 @@ module.exports = function (app) {
   app.post("/2fa/confirm", async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var code = String(body.code || "");
       var secret = req.session.pendingTotpSecret;
       if (!secret) return res.status(400).json({ error: "No pending 2FA setup. Start again." });
@@ -54,7 +53,7 @@ module.exports = function (app) {
 
       // Generate backup codes
       var backupCodes = totp.generateBackupCodes();
-      var hashedCodes = backupCodes.map(function (c) { return sha3Hash(c); });
+      var hashedCodes = backupCodes.map(function (c) { return b.crypto.sha3Hash(c); });
 
       // Save to user (vault-sealed secret, hashed backup codes, explicit algorithm)
       usersRepo.update(req.user._id, {
@@ -81,7 +80,7 @@ module.exports = function (app) {
   app.post("/2fa/disable", async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var code = String(body.code || "");
 
       // Require a valid code to disable
@@ -106,9 +105,9 @@ module.exports = function (app) {
   });
 
   // Verify 2FA during login (called after password success)
-  app.post("/2fa/verify", rateLimit.middleware("2fa", 5, C.TIME.FIVE_MIN), async (req, res) => {
+  app.post("/2fa/verify", b.middleware.rateLimit({ scope: "2fa", max: 5, windowMs: C.TIME.FIVE_MIN, algorithm: "fixed-window" }), async (req, res) => {
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var code = String(body.code || "");
       var userId = req.session.pendingTotpUserId;
       var pendingExpires = req.session.pendingTotpExpires || 0;
@@ -147,7 +146,7 @@ module.exports = function (app) {
       // Try backup code
       var backupCodes = [];
       try { backupCodes = Array.isArray(user.totpBackupCodes) ? user.totpBackupCodes : JSON.parse(user.totpBackupCodes || "[]"); } catch (_e) {}
-      var codeHash = sha3Hash(code);
+      var codeHash = b.crypto.sha3Hash(code);
       var idx = backupCodes.indexOf(codeHash);
 
       if (idx !== -1) {
@@ -225,7 +224,7 @@ module.exports = function (app) {
     if (!requireAuth(req, res)) return;
     if (!eligibleForReEnroll(req)) return res.status(403).json({ error: "Re-enrollment not required for this account." });
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var code = String(body.code || "");
       var secret = req.session.pendingReEnrollSecret;
       if (!secret) return res.status(400).json({ error: "No pending re-enrollment. Start again." });
@@ -235,7 +234,7 @@ module.exports = function (app) {
       }
 
       var backupCodes = totp.generateBackupCodes();
-      var hashedCodes = backupCodes.map(function (c) { return sha3Hash(c); });
+      var hashedCodes = backupCodes.map(function (c) { return b.crypto.sha3Hash(c); });
 
       usersRepo.update(req.user._id, {
         $set: {

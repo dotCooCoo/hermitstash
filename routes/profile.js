@@ -1,14 +1,13 @@
+var b = require("../lib/vendor/blamejs");
 var audit = require("../lib/audit");
 var C = require("../lib/constants");
 var config = require("../lib/config");
 var logger = require("../app/shared/logger");
-var rateLimit = require("../lib/rate-limit");
 var usersRepo = require("../app/data/repositories/users.repo");
 var { isAdmin } = require("../app/shared/authz");
 var filesRepo = require("../app/data/repositories/files.repo");
 var credentialsRepo = require("../app/data/repositories/credentials.repo");
-var { parseJson } = require("../lib/multipart");
-var { hashPassword, verifyPassword } = require("../lib/crypto");
+;
 var { validateEmail, validatePassword } = require("../app/shared/validate");
 var requireAuth = require("../middleware/require-auth");
 var { send } = require("../middleware/send");
@@ -25,7 +24,7 @@ module.exports = function (app) {
   app.post("/profile/update", async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var displayName = String(body.displayName || "").slice(0, 100);
       if (!displayName) return res.status(400).json({ error: "Display name is required." });
       usersRepo.update(req.user._id, { $set: { displayName: displayName } });
@@ -38,11 +37,11 @@ module.exports = function (app) {
   });
 
   // Change password (local auth only)
-  app.post("/profile/password", rateLimit.middleware("password-change", 5, C.TIME.FIVE_MIN), async (req, res) => {
+  app.post("/profile/password", b.middleware.rateLimit({ scope: "password-change", max: 5, windowMs: C.TIME.FIVE_MIN, algorithm: "fixed-window" }), async (req, res) => {
     if (!requireAuth(req, res)) return;
     if (!config.localAuth) return res.status(400).json({ error: "Password authentication is disabled." });
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var currentPassword = String(body.currentPassword || "");
       var newPassword = String(body.newPassword || "");
       if (!currentPassword || !newPassword) return res.status(400).json({ error: "Current and new password are required." });
@@ -50,10 +49,10 @@ module.exports = function (app) {
       if (!pwCheck.valid) return res.status(400).json({ error: pwCheck.reason });
       if (req.user.authType !== "local") return res.status(400).json({ error: "Password change only available for local accounts." });
 
-      var valid = await verifyPassword(currentPassword, req.user.passwordHash);
+      var valid = await b.auth.password.verify(req.user.passwordHash, currentPassword);
       if (!valid) return res.status(401).json({ error: "Current password is incorrect." });
 
-      var passwordHash = await hashPassword(newPassword);
+      var passwordHash = await b.auth.password.hash(newPassword);
       usersRepo.update(req.user._id, { $set: { passwordHash: passwordHash } });
 
       // Invalidate all other sessions for this user, then re-establish current
@@ -70,10 +69,10 @@ module.exports = function (app) {
   });
 
   // Change email (requires password re-authentication)
-  app.post("/profile/email", rateLimit.middleware("email-change", 5, C.TIME.FIVE_MIN), async (req, res) => {
+  app.post("/profile/email", b.middleware.rateLimit({ scope: "email-change", max: 5, windowMs: C.TIME.FIVE_MIN, algorithm: "fixed-window" }), async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var password = String(body.password || "");
       var emailCheck = validateEmail(body.newEmail);
       if (!emailCheck.valid) return res.status(400).json({ error: emailCheck.reason });
@@ -81,7 +80,7 @@ module.exports = function (app) {
       if (!password) return res.status(400).json({ error: "Current password required." });
       if (req.user.authType !== "local") return res.status(400).json({ error: "Email change only available for local accounts." });
 
-      var valid = await verifyPassword(password, req.user.passwordHash);
+      var valid = await b.auth.password.verify(req.user.passwordHash, password);
       if (!valid) return res.status(401).json({ error: "Password is incorrect." });
 
       // Check for duplicate
@@ -103,7 +102,7 @@ module.exports = function (app) {
   app.post("/profile/delete", async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       if (body.confirm !== "DELETE") return res.status(400).json({ error: "Type DELETE to confirm." });
 
       if (isAdmin(req.user)) {

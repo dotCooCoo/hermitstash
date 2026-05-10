@@ -63,6 +63,20 @@ Every primitive is namespaced under `b.X`. `index.js` is the canonical export li
 | Logging / metrics / tracing | `lib/log.js` + `lib/metrics.js` + `lib/tracing.js` + `lib/observability.js` | `test/00-primitives.js` |
 | CLI | `lib/cli.js` (dispatch) + `lib/cli-helpers.js` (shared headless-app + reporter) | `test/layer-0-primitives/cli-*.test.js` |
 | Wiki example app | `examples/wiki/server.js` + `examples/wiki/lib/build-app.js` + `examples/wiki/routes/*.js` + `examples/wiki/views/*.html` | `examples/wiki/test/e2e.js` |
+| Outbound HTTP + SSRF gate | `lib/http-client.js` + `lib/ssrf-guard.js` + `lib/safe-url.js` | `test/layer-0-primitives/http-client-*.test.js` + `test/layer-0-primitives/ssrf-guard*.test.js` |
+| Outbound WebSocket client | `lib/ws-client.js` | `test/layer-0-primitives/ws-client*.test.js` |
+| Network configurability (NTP/NTS/DNS/proxy/CA) | `lib/network/*.js` | `test/layer-0-primitives/network-*.test.js` |
+| Object store + bucket-ops + Object Lock | `lib/object-store/*.js` | `test/layer-1-state/object-store*.test.js` |
+| Outbox / inbox (exactly-once) | `lib/outbox.js` + `lib/inbox.js` | `test/layer-1-state/outbox-inbox*.test.js` |
+| Content-safety guards (`b.guard*`) | `lib/guard-*.js` + `lib/gate-contract.js` + `lib/codepoint-class.js` | `test/layer-0-primitives/guard-*.test.js` + `test/layer-5-integration/guard-host-integration.test.js` |
+| Compliance regimes | `lib/compliance.js` + `lib/dora.js` + `lib/dsr.js` + `lib/cra-report.js` + `lib/nis2-report.js` + `lib/sec-cyber.js` + `lib/fapi2.js` + `lib/fdx.js` + `lib/tcpa-10dlc.js` + `lib/iab-tcf.js` + `lib/iab-mspa.js` + `lib/incident-report.js` | per-regime tests under `test/layer-0-primitives/` |
+| MCP / GraphQL Federation / A2A guards | `lib/mcp.js` + `lib/graphql-federation.js` + `lib/a2a.js` | `test/layer-0-primitives/mcp*.test.js` + similar |
+| Honeytoken / forensic snapshot / config drift | `lib/honeytoken.js` + `lib/audit-tools.js` (`forensicSnapshot`) + `lib/config-drift.js` (`verifyVendorIntegrity`) | `test/layer-0-primitives/honeytoken*.test.js` + `test/layer-0-primitives/config-drift*.test.js` |
+| Account-takeover kill-switch | `lib/auth/ato-kill-switch.js` | `test/layer-0-primitives/ato-kill-switch*.test.js` |
+| Content credentials (C2PA / SB-942) | `lib/content-credentials.js` | `test/layer-0-primitives/content-credentials*.test.js` |
+| Events bus + CloudEvents | `lib/events.js` + `lib/cloud-events.js` | `test/layer-0-primitives/events*.test.js` |
+| Feature flags (OpenFeature) | `lib/flag.js` + `lib/middleware/flag-context.js` | `test/layer-0-primitives/flag*.test.js` |
+| File-upload chunking + filename safety | `lib/file-upload.js` + `lib/guard-filename.js` | `test/layer-1-state/file-upload*.test.js` |
 
 ## Boot order
 
@@ -73,7 +87,7 @@ Every primitive is namespaced under `b.X`. `index.js` is the canonical export li
 3. **Cluster lease** — if `opts.cluster` is set, acquire the leader lease before touching any framework schema.
 4. **Framework schema** — `_blamejs_audit_log`, `_blamejs_audit_checkpoints`, `_blamejs_sessions`, `_blamejs_api_keys`, `_blamejs_consent_log`, etc. created if absent (idempotent).
 5. **Local DB** — open the sqlite file (or in-memory tmpfs handle in encrypted-at-rest mode).
-6. **Router + middleware stack** — request-id → securityHeaders → botGuard → cors → rateLimit → cspNonce → bodyParser → compression → attachUser → csrfProtect → health.
+6. **Router + middleware stack** — request-id → securityHeaders → botGuard → cors → fetchMetadata → networkAllowlist (when wired) → rateLimit → dailyByteQuota → cspNonce → cookies → bodyParser → compression → attachUser → dbRoleFor (when wired) → csrfProtect → traceLogCorrelation → spanHttpServer → cspReport (route-mounted) → health. Operator-mounted variants: `requireAuth` / `requireAal` / `requireMtls` / `requireStepUp` / `requireBoundKey` / `bearerAuth` / `dpop` / `hostAllowlist` / `requireMethods` / `requireContentType` / `gpc` / `errorHandler`.
 7. **Operator routes** — the `routes: function (router) {...}` callback runs. Operator wires their own routes on top of the middleware stack.
 8. **Error handler** — last so it catches everything from operator routes and middleware.
 
@@ -89,7 +103,7 @@ A new namespace must be registered before first emission:
 b.audit.registerNamespace("myapp"); // call once at app bootstrap
 ```
 
-The framework's own namespaces (`apikey`, `audit`, `auth`, `backup`, `cache`, `mail`, `notify`, `permissions`, `restore`, `scheduler`, `seeders`, `system`, `webhook`, `consent`, `subject`) are pre-registered. The smoke test `test/layer-0-primitives/audit-framework-namespaces.test.js` walks `lib/` for emission patterns and fails CI on any missing registration.
+The framework's own namespaces are pre-registered in `lib/audit.js` — read `FRAMEWORK_NAMESPACES` for the live set with per-name sub-event documentation. The smoke test `test/layer-0-primitives/audit-framework-namespaces.test.js` walks `lib/` for emission patterns and fails CI on any missing registration.
 
 ## Crypto envelope versioning
 
@@ -133,7 +147,7 @@ The wiki example app has its own e2e at `examples/wiki/test/e2e.js` — boots th
 
 If you're new to the codebase and want to understand how it fits together, read in this order:
 
-1. `index.js` — the single export surface (~250 lines)
+1. `index.js` — the single export surface
 2. `lib/app.js` `createApp()` — the boot orchestration
 3. `lib/audit.js` — the audit chain shape (most other primitives emit through this)
 4. `lib/crypto.js` — envelope versioning + active algorithms

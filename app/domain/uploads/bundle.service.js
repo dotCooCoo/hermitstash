@@ -2,9 +2,10 @@
  * Bundle Service — business logic for upload bundles.
  * Handles bundle initialization, finalization, and validation.
  */
+var b = require("../../../lib/vendor/blamejs");
 var bundlesRepo = require("../../data/repositories/bundles.repo");
 var { TIME } = require("../../../lib/constants");
-var { hashPassword, sha3Hash, generateShareId, generateToken, timingSafeEqual } = require("../../../lib/crypto");
+;
 var { getTotalStorageUsed } = require("../../../lib/db");
 var { ValidationError, NotFoundError, ForbiddenError } = require("../../shared/errors");
 var { sanitizeRename } = require("../../shared/sanitize-filename");
@@ -14,8 +15,8 @@ var { sanitizeRename } = require("../../shared/sanitize-filename");
  * Returns { bundleId, shareId, finalizeToken }.
  */
 async function initBundle(opts) {
-  var shareId = generateShareId();
-  var finalizeToken = generateToken(32);
+  var shareId = b.crypto.generateToken(32);
+  var finalizeToken = b.crypto.generateToken(32);
   var bundlePassword = opts.password ? String(opts.password) : null;
   if (bundlePassword && bundlePassword.length < 4) throw new ValidationError("Password must be at least 4 characters.");
   // Validate uploader email format if provided
@@ -56,8 +57,8 @@ async function initBundle(opts) {
     uploaderName: opts.uploaderName || "Anonymous",
     uploaderEmail: uploaderEmail,
     ownerId: opts.ownerId || null,
-    finalizeTokenHash: sha3Hash(finalizeToken),
-    passwordHash: bundlePassword ? await hashPassword(bundlePassword) : null,
+    finalizeTokenHash: b.crypto.sha3Hash(finalizeToken),
+    passwordHash: bundlePassword ? await b.auth.password.hash(bundlePassword) : null,
     message: message,
     expectedFiles: opts.fileCount || 0,
     receivedFiles: 0,
@@ -101,8 +102,8 @@ function finalizeBundle(bundleId, token) {
   if (bundle.status === "complete" && bundle.bundleType !== "sync") throw new ValidationError("Already finalized.");
 
   // Verify finalize token (timing-safe)
-  var tokenHash = sha3Hash(token);
-  if (!bundle.finalizeTokenHash || tokenHash.length !== bundle.finalizeTokenHash.length || !timingSafeEqual(tokenHash, bundle.finalizeTokenHash)) {
+  var tokenHash = b.crypto.sha3Hash(token);
+  if (!bundle.finalizeTokenHash || tokenHash.length !== bundle.finalizeTokenHash.length || !b.crypto.timingSafeEqual(tokenHash, bundle.finalizeTokenHash)) {
     throw new ForbiddenError("Invalid finalize token.");
   }
 

@@ -83,6 +83,39 @@
         "server": "sha256:4adb3f0afb4a10cf19ebe48d8c69a46f934bbc8d77c694c210564f9583e7f4ba"
       }
     },
+    "bimi-trust-anchors": {
+      "version": "operator-managed",
+      "license": "BIMI Group / per-issuer",
+      "author": "BIMI Group / DigiCert / Entrust",
+      "source": "https://bimigroup.org/",
+      "_about": "RFC 9091 BIMI Group Verified Mark trust-anchor bundle (PEM, concatenated). Loaded by lib/mail-bimi.js for VMC + CMC chain validation. Source-tree default is empty-of-PEM (operators populate via the documented refresh procedure in the file header); call-site overrides via b.mail.bimi.fetchAndVerifyMark({ trustAnchorsPem }) are supported. Refresh procedure pulls https://www.digicert.com/CACerts/DigiCertVerifiedMarkRootCA.pem + https://web.entrust.com/root-certificates/entrust_verified_mark_root_g3.cer and concatenates them into the file.",
+      "exports": [
+        "bimi-vmc-trust-anchors"
+      ],
+      "files": {
+        "server": "lib/vendor/bimi-trust-anchors.pem"
+      },
+      "bundler": "operator-managed (see file header for refresh procedure)",
+      "bundledAt": "2026-05-09",
+      "hashes": {
+        "server": "sha256:81ff9f5ab3c9774132c845684e783be95cf73146f8b670d964105f0a3765b4b4"
+      }
+    },
+    "publicsuffix-list": {
+      "version": "master",
+      "license": "MPL-2.0",
+      "author": "Mozilla Foundation",
+      "source": "https://publicsuffix.org/list/public_suffix_list.dat",
+      "_about": "Mozilla Public Suffix List — canonical catalog of effective top-level domains used by b.publicSuffix to derive organizational domains for DMARCbis (psd= / np=), BIMI, cookie-scope checks, and same-site policies. Loaded at module-init from lib/vendor/public-suffix-list.dat; the file is the data, not a code bundle.",
+      "files": {
+        "server": "lib/vendor/public-suffix-list.dat"
+      },
+      "bundler": "curl https://publicsuffix.org/list/public_suffix_list.dat",
+      "bundledAt": "2026-05-09",
+      "hashes": {
+        "server": "sha256:a00855bbf027ca86cead1cf0bafc0b9b1ae904dda97f3e24b0062aa2e6e289e2"
+      }
+    },
     "peculiar-pki": {
       "version": "2.0.0+pkijs-3.4.0",
       "license": "MIT",

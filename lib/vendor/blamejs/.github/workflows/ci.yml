@@ -25,9 +25,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Workflow-level permissions are least-privilege (read-only). Per-job
+# permissions blocks elevate only where the job genuinely needs write
+# (e.g. lint-summary posts a PR comment, so it gets pull-requests:
+# write — no other job in this workflow needs it).
 permissions:
   contents: read
-  pull-requests: write
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -43,12 +46,12 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.0
 
-      - name: Set up Node 24 LTS
-        uses: actions/setup-node@v6
+      - name: Set up Node 24.14.1 LTS
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.0.0
         with:
-          node-version: '24'
+          node-version: '24.14.1'
 
       - name: Show Node + npm version
         run: node --version && npm --version
@@ -72,12 +75,12 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.0
 
-      - name: Set up Node 24 LTS
-        uses: actions/setup-node@v6
+      - name: Set up Node 24.14.1 LTS
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.0.0
         with:
-          node-version: '24'
+          node-version: '24.14.1'
 
       - name: Resolve wiki framework dep (file:../..)
         working-directory: examples/wiki
@@ -92,12 +95,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.0
 
-      - name: Set up Node 24 LTS
-        uses: actions/setup-node@v6
+      - name: Set up Node 24.14.1 LTS
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.0.0
         with:
-          node-version: '24'
+          node-version: '24.14.1'
 
       - name: Compare against committed baseline
         # Fails on breaking changes (removed methods, type changes).
@@ -115,11 +118,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.0
       - name: Set up Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.0.0
         with:
-          node-version: 24
+          node-version: 24.14.1
       - name: Run vendor-currency check
         # Hits registry.npmjs.org/<pkg>/latest for each npm-mapped entry
         # (vendored bundles plus per-component versions on meta-bundles
@@ -133,7 +136,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.0
         with:
           # gitleaks scans full history on a non-shallow checkout, so an
           # accidentally-committed secret in any prior commit on the
@@ -178,24 +181,31 @@ jobs:
         run: |
           gitleaks git --config=.gitleaks.toml --redact --verbose --exit-code=1
 
-  wiki-section-convention:
-    name: Wiki primitive-section convention
+  wiki-source-comment-blocks:
+    name: Wiki @module / @primitive comment-block convention
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.0
 
-      - name: Set up Node 24 LTS
-        uses: actions/setup-node@v6
+      - name: Set up Node 24.14.1 LTS
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.0.0
         with:
-          node-version: '24'
+          node-version: '24.14.1'
 
-      - name: Validate every primitive section ships heading + opts + prose + example
-        # Fast signal — no app boot, just walks the page seeders. The
-        # wiki-e2e job runs the same validator before its boot, so a
-        # convention break fails this job immediately AND short-circuits
-        # the heavier e2e run.
-        run: node examples/wiki/test/validate-primitive-sections.js
+      - name: Install wiki deps (links @blamejs/core for the opts probe)
+        # opts-resolver.js requires @blamejs/core at top-of-file; the
+        # wiki workspace symlinks it via a file: dependency in
+        # examples/wiki/package.json. Run npm install before the
+        # validator so the symlink is present.
+        run: cd examples/wiki && npm install --silent
+
+      - name: Validate @module / @primitive comment blocks across lib/
+        # Fast signal — no app boot, just walks lib/ for the source-driven
+        # wiki annotations. The wiki-e2e job runs the same validator
+        # before its boot, so a convention break fails this job
+        # immediately AND short-circuits the heavier e2e run.
+        run: node examples/wiki/test/validate-source-comment-blocks.js
 
   lint-eslint:
     name: ESLint (lib + examples + tests)
@@ -205,12 +215,12 @@ jobs:
       output:  ${{ steps.eslint.outputs.output }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.0
 
-      - name: Set up Node 24 LTS
-        uses: actions/setup-node@v6
+      - name: Set up Node 24.14.1 LTS
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.0.0
         with:
-          node-version: '24'
+          node-version: '24.14.1'
 
       - name: Run ESLint (max-warnings 0)
         # Capture full output so the PR comment / step summary can show
@@ -245,7 +255,7 @@ jobs:
       output:  ${{ steps.hadolint_result.outputs.output }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.0
 
       - name: Run Hadolint (strict, all severities)
         # `--no-fail` is OFF; any error or warning fails the job.
@@ -253,7 +263,7 @@ jobs:
         # that conflict with our intentional patterns.
         if: always()
         id: hadolint
-        uses: hadolint/hadolint-action@master
+        uses: hadolint/hadolint-action@2332a7b74a6de0dda2e2221d575162eba76ba5e5  # v3.3.0
         with:
           dockerfile: examples/wiki/Dockerfile
           config:     .hadolint.yaml
@@ -287,7 +297,7 @@ jobs:
       output:  ${{ steps.shellcheck.outputs.output }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.0
 
       - name: Detect shell scripts
         id: sh
@@ -338,6 +348,9 @@ jobs:
     needs: [lint-eslint, lint-hadolint, lint-shellcheck]
     if: always()
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write   # sticky PR comment with lint outcomes
     steps:
       - name: Build summary
         id: summary
@@ -427,7 +440,7 @@ jobs:
 
       - name: Comment on PR
         if: always() && github.event_name == 'pull_request'
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
         env:
           PR_BODY: ${{ steps.summary.outputs.body }}
         with:

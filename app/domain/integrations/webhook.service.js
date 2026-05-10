@@ -2,8 +2,9 @@
  * Webhook Service — business logic for webhook CRUD and dispatch.
  * Routes call this; this calls repositories and security policies.
  */
+var b = require("../../../lib/vendor/blamejs");
 var https = require("https");
-var { generateToken, hmacSha3 } = require("../../../lib/crypto");
+;
 var webhooksRepo = require("../../data/repositories/webhooks.repo");
 var { isPrivateHost, validateOutboundUrl } = require("../../security/ssrf-policy");
 var { ValidationError, NotFoundError } = require("../../shared/errors");
@@ -31,7 +32,7 @@ async function create(url, events, createdBy) {
   var hostCheck = await isPrivateHost(check.url.hostname);
   if (hostCheck && hostCheck.blocked) throw new ValidationError("Cannot use private/internal URLs.");
 
-  var secret = generateToken(32);
+  var secret = b.crypto.generateToken(32);
   var webhook = webhooksRepo.create({
     url: url,
     events: events || "*",
@@ -113,7 +114,7 @@ function dispatchSingle(hookId, eventName, payload) {
     }
 
     var body = JSON.stringify({ event: eventName, data: payload, timestamp: new Date().toISOString() });
-    var signature = hook.secret ? hmacSha3(hook.secret, body) : "";
+    var signature = hook.secret ? b.crypto.hmacSha3(hook.secret, body) : "";
     // Pin DNS to the pre-validated IP to prevent TOCTOU rebinding
     var pinnedAddress = result.address;
     var pinnedFamily = result.family;

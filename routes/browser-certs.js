@@ -11,14 +11,14 @@
  * Storage note: api_keys is reused as the tracking table because its schema
  * already carries the certFingerprint column and hooks the revoke flow. To
  * prevent these rows from being usable as real API keys:
- *   - keyHash is set to "browser:" + sha3Hash(fingerprint). Colon is outside
+ *   - keyHash is set to "browser:" + b.crypto.sha3Hash(fingerprint). Colon is outside
  *     the Bearer token charset (validateBearerToken), so no incoming Bearer
  *     request could ever hash to this value.
  *   - permissions is empty. Even if a request somehow matched, scope checks fail.
  */
+var b = require("../lib/vendor/blamejs");
 var apiKeysRepo = require("../app/data/repositories/apiKeys.repo");
-var { sha3Hash } = require("../lib/crypto");
-var { parseJson } = require("../lib/multipart");
+;
 var requireAdmin = require("../middleware/require-admin");
 var audit = require("../lib/audit");
 var mtlsCa = require("../lib/mtls-ca");
@@ -52,7 +52,7 @@ module.exports = function (app) {
   app.post("/admin/browser-certs/generate", async function (req, res) {
     if (!requireAdmin(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var cnRaw = String(body.cn || "").trim();
       var password = String(body.password || "");
       var validityDays = parseInt(body.validityDays, 10);
@@ -70,13 +70,13 @@ module.exports = function (app) {
         return res.status(400).json({ error: "Password must be at least 12 characters." });
       }
 
-      if (!mtlsCa.caExists()) {
+      if (!mtlsCa.exists()) {
         // Ensure the CA exists before proceeding — first browser cert on a
         // fresh install boots the CA, which is fine but worth logging.
         await mtlsCa.initCA();
       }
 
-      var result = await mtlsCa.generateClientP12(cnRaw, password, validityDays);
+      var result = await mtlsCa.generateClientP12({ cn: cnRaw, password: password, validityDays: validityDays });
       if (!result || !result.p12 || !result.fingerprint256) {
         return res.status(500).json({ error: "Certificate generation failed. Is OpenSSL installed?" });
       }
@@ -85,7 +85,7 @@ module.exports = function (app) {
       // produced by any valid Bearer token (colon outside token charset).
       apiKeysRepo.create({
         name: BROWSER_CERT_PREFIX + cnRaw,
-        keyHash: "browser:" + sha3Hash(result.fingerprint256),
+        keyHash: "browser:" + b.crypto.sha3Hash(result.fingerprint256),
         prefix: "browser",
         permissions: "", // no scopes — the row is tracking-only
         userId: req.user._id,
@@ -93,7 +93,7 @@ module.exports = function (app) {
         boundBundleId: null,
         certIssuedAt: result.issuedAt,
         certExpiresAt: result.expiresAt,
-        certFingerprint: sha3Hash(result.certPem),
+        certFingerprint: b.crypto.sha3Hash(result.certPem),
         createdAt: new Date().toISOString(),
       });
 

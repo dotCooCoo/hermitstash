@@ -20,10 +20,12 @@
  * When a sub-domain outgrows that shape, extract a service; don't fatten
  * the route handler.
  */
+var b = require("../lib/vendor/blamejs");
 var fs = require("fs");
 var path = require("path");
 var audit = require("../lib/audit");
-var { PATHS } = require("../lib/constants");
+var C = require("../lib/constants");
+var { PATHS } = C;
 var logger = require("../app/shared/logger");
 var config = require("../lib/config");
 var usersRepo = require("../app/data/repositories/users.repo");
@@ -35,8 +37,8 @@ var credentialsRepo = require("../app/data/repositories/credentials.repo");
 var apiKeysRepo = require("../app/data/repositories/apiKeys.repo");
 var webhooksRepo = require("../app/data/repositories/webhooks.repo");
 var teamsRepo = require("../app/data/repositories/teams.repo");
-var { parseJson, parseMultipart } = require("../lib/multipart");
-var { hashPassword, generateToken, sha3Hash } = require("../lib/crypto");
+var { parseMultipart } = require("../lib/multipart");
+;
 var mtlsCa = require("../lib/mtls-ca");
 var syncRegistry = require("../lib/sync-registry");
 var storage = require("../lib/storage");
@@ -315,7 +317,7 @@ module.exports = function (app) {
   app.post("/admin/storage/test", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var s = function(v) { return (v || "").trim(); };
       var masked = function(v) { return /^\u2022+$/.test(v || ""); };
       var client = new S3Client({
@@ -337,7 +339,7 @@ module.exports = function (app) {
   app.post("/admin/backup/run", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var passphrase = String(body.passphrase || "").trim();
       if (!passphrase) return res.json({ error: "Backup passphrase is required." });
 
@@ -357,7 +359,7 @@ module.exports = function (app) {
   app.post("/admin/backup/test", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var s = function(v) { return (v || "").trim(); };
       var masked = function(v) { return /^\u2022+$/.test(v || ""); };
       await backup.testConnection({
@@ -422,7 +424,7 @@ module.exports = function (app) {
       var caKeyMode = (process.env.CA_KEY_SEALED || "auto").toLowerCase();
       var caSealedExists = fs.existsSync(C.PATHS.CA_KEY_SEALED);
       var caPlainExists = fs.existsSync(C.PATHS.CA_KEY);
-      var caExists = mtlsCa.caExists();
+      var caExists = mtlsCa.exists();
 
       var tlsKeyMode = (process.env.TLS_KEY_SEALED || "auto").toLowerCase();
       var tlsSealedExists = fs.existsSync(C.PATHS.TLS_KEY_SEALED);
@@ -543,7 +545,7 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     return _withSecurityLock(res, async function () {
       try {
-        var body = await parseJson(req);
+        var body = (await b.parsers.json(req)) || {};
         var passphrase = body && body.passphrase;
         var confirm = body && body.confirmPassphrase;
         if (typeof passphrase !== "string" || passphrase.length === 0) {
@@ -580,7 +582,7 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     return _withSecurityLock(res, async function () {
       try {
-        var body = await parseJson(req);
+        var body = (await b.parsers.json(req)) || {};
         var passphrase = body && body.passphrase;
         if (typeof passphrase !== "string" || passphrase.length === 0) {
           return res.status(400).json({ error: "Passphrase is required to unseal." });
@@ -724,7 +726,7 @@ module.exports = function (app) {
 
   app.post("/admin/backup/delete", async (req, res) => {
     if (!requireAdmin(req, res)) return;
-    var body = await parseJson(req);
+    var body = (await b.parsers.json(req)) || {};
     var timestamp = String(body.timestamp || "");
     if (!timestamp) return res.status(400).json({ error: "timestamp required" });
     try {
@@ -753,7 +755,7 @@ module.exports = function (app) {
 
   app.post("/admin/restore/run", async (req, res) => {
     if (!requireAdmin(req, res)) return;
-    var body = await parseJson(req);
+    var body = (await b.parsers.json(req)) || {};
     var passphrase = String(body.passphrase || "");
     var timestamp = String(body.timestamp || "");
     if (!passphrase || !timestamp) return res.status(400).json({ error: "passphrase and timestamp required" });
@@ -815,7 +817,7 @@ module.exports = function (app) {
 
   app.post("/admin/blocklist/add", async (req, res) => {
     if (!requireAdmin(req, res)) return;
-    var body = await parseJson(req);
+    var body = (await b.parsers.json(req)) || {};
     var check = adminValidator.validateBlocklistInput(body);
     if (check.error) return res.status(400).json({ error: check.error });
     if (blockedIpsRepo.findOne({ ip: check.ip })) return res.status(400).json({ error: "Already blocked." });
@@ -826,7 +828,7 @@ module.exports = function (app) {
 
   app.post("/admin/blocklist/remove", async (req, res) => {
     if (!requireAdmin(req, res)) return;
-    var body = await parseJson(req);
+    var body = (await b.parsers.json(req)) || {};
     blockedIpsRepo.remove({ ip: body.ip });
     audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "IP unblocked", req: req });
     res.json({ success: true });
@@ -885,7 +887,7 @@ module.exports = function (app) {
   app.post("/admin/settings", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var check = adminValidator.validateSettingsInput(body);
       if (check.error) return res.status(400).json({ error: check.error });
       var result = settingsService.updateSettings(check.settings);
@@ -972,7 +974,7 @@ module.exports = function (app) {
   app.post("/admin/api/enforce-mtls", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var enabled = body && body.enabled === true;
       config.updateSettings({ enforceMtls: enabled ? "true" : "false" });
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "enforceMtls " + (enabled ? "enabled" : "disabled"), req: req });
@@ -988,7 +990,7 @@ module.exports = function (app) {
   // "regeneration recommended" banner.
   app.get("/admin/api/mtls-ca/status", (req, res) => {
     if (!requireAdmin(req, res)) return;
-    res.json(mtlsCa.getCaStatus());
+    res.json(mtlsCa.status());
   });
 
   // Regenerate the mTLS CA. Used when the algorithm envelope in lib/mtls-ca.js
@@ -1010,11 +1012,11 @@ module.exports = function (app) {
   app.post("/admin/api/mtls-ca/regenerate", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       if (!body || body.confirm !== "REGEN") {
         return res.status(400).json({ error: "Confirmation required: POST { confirm: 'REGEN' }" });
       }
-      if (!mtlsCa.caExists()) {
+      if (!mtlsCa.exists()) {
         return res.status(400).json({ error: "No CA exists yet. Nothing to regenerate." });
       }
       // skipRestart: run the full orchestration (version check → in-memory CA
@@ -1030,8 +1032,10 @@ module.exports = function (app) {
       var ACK_TIMEOUT_MS = 15000;
       var RESTART_DELAY_MS = 1000; // gap between ack-window close and process.exit
 
-      // Generate the new CA in memory — not yet written to disk
-      var fresh = await mtlsCa.generateNewCaInMemory();
+      // Generate the new CA in memory — not yet written to disk.
+      // Bypass the singleton so the staging PEMs are isolated from the
+      // live instance's loaded state until commit lands.
+      var fresh = await b.mtlsEngine.generateCa({ generation: C.CA_GENERATION });
 
       // Categorize existing cert-bound api_keys
       var allCertKeys = apiKeysRepo.findAll().filter(function (k) { return !!k.certFingerprint; });
@@ -1049,8 +1053,8 @@ module.exports = function (app) {
       }
 
       var summary = {
-        caGenerationBefore: mtlsCa.getCaStatus().generation,
-        caGenerationAfter: mtlsCa.CA_GENERATION,
+        caGenerationBefore: mtlsCa.status().generation,
+        caGenerationAfter: C.CA_GENERATION,
         syncCertsTotal: syncCerts.length,
         syncClientsConnected: liveByKeyId.size,
         syncClientsAcked: 0,
@@ -1079,7 +1083,7 @@ module.exports = function (app) {
           }));
         } catch (_e) { /* regen flag file is best-effort — startup banner only */ }
         // Commit CA files atomically
-        mtlsCa.commitNewCa(fresh.caCertPem, fresh.caKeyPem);
+        mtlsCa.commit({ caCertPem: fresh.caCertPem, caKeyPem: fresh.caKeyPem });
         // Delete browser cert api_keys — their cert was issued by the old CA
         for (var bc = 0; bc < browserCerts.length; bc++) {
           try { apiKeysRepo.remove(browserCerts[bc]._id); } catch (_e) {}
@@ -1109,7 +1113,11 @@ module.exports = function (app) {
         var apiKey = apiKeysRepo.findOne({ _id: keyId });
         if (!apiKey) continue;
         var cn = apiKey.prefix || "client";
-        var newCert = await mtlsCa.generateClientCertWithCa(cn, fresh.caCertPem, fresh.caKeyPem);
+        var newCert = await b.mtlsEngine.signClientCert({
+          cn: cn,
+          caCertPem: fresh.caCertPem,
+          caKeyPem: fresh.caKeyPem,
+        });
         if (!newCert) continue;
         // Update fingerprint binding — any subsequent request with the old
         // cert will fail per-key binding check, but the existing WS stays
@@ -1118,7 +1126,7 @@ module.exports = function (app) {
         // In skipRestart mode, leave the DB unchanged so the shared server
         // remains usable by subsequent tests (old cert still validates).
         if (!skipRestart) {
-          var newFp = sha3Hash(newCert.cert);
+          var newFp = b.crypto.sha3Hash(newCert.cert);
           apiKeysRepo.update(apiKey._id, { $set: {
             certFingerprint: newFp,
             certIssuedAt: newCert.issuedAt,
@@ -1242,7 +1250,7 @@ module.exports = function (app) {
   app.post("/admin/purge/database", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var check = adminValidator.validatePurgeConfirmation(body);
       if (check.error) return res.status(400).json({ error: check.error });
 
@@ -1307,7 +1315,7 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     if (config.setupComplete) return res.status(400).json({ error: "Setup already completed." });
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var errors = [];
 
       // 1. Require admin email change from default
@@ -1331,14 +1339,14 @@ module.exports = function (app) {
       if (!pwCheck.valid) {
         errors.push(pwCheck.reason);
       } else {
-        var hash = await hashPassword(body.adminPassword);
+        var hash = await b.auth.password.hash(body.adminPassword);
         usersRepo.update(req.user._id, { $set: { passwordHash: hash } });
       }
 
       // 3. Update settings
       var settings = {};
       if (body.siteName) settings.siteName = body.siteName;
-      settings.sessionSecret = body.sessionSecret || generateToken(32);
+      settings.sessionSecret = body.sessionSecret || b.crypto.generateToken(32);
       if (body.rpName) settings.rpName = body.rpName;
       if (body.rpId) settings.rpId = body.rpId;
       if (body.rpOrigin) settings.rpOrigin = body.rpOrigin;
@@ -1395,7 +1403,7 @@ module.exports = function (app) {
       return res.status(409).json({ error: "Migration already in progress." });
     }
 
-    var body = await parseJson(req);
+    var body = (await b.parsers.json(req)) || {};
     var direction = body.direction;
     if (direction !== "local-to-s3" && direction !== "s3-to-local") {
       return res.status(400).json({ error: "direction must be 'local-to-s3' or 's3-to-local'" });
@@ -1461,7 +1469,7 @@ module.exports = function (app) {
   app.post("/admin/storage/orphans/clean", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var result = { local: 0, s3: 0, dangling: 0, emptyBundles: 0 };
 
       if (body.local !== false) {

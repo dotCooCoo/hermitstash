@@ -33,6 +33,10 @@ paths = [
   '''test/50-integration\.js''',
   '''test/smoke\.js''',
   '''test/helpers/.*''',
+  # Exploit corpora are deliberately-crafted hostile inputs (JWT
+  # algorithm-confusion, kid-traversal, etc.) used by the guard test
+  # suite. The strings are public-domain attack samples, not secrets.
+  '''test/fixtures/.*''',
   # Wiki seeders embed example tokens / secrets in code blocks for
   # documentation purposes (e.g. "WIKI_WEBHOOK_SECRET=hunter2-pad-pad").
   # Each example is operator-readable and obviously fake.
@@ -64,12 +68,12 @@ regexes = [
   # Match a single `eyJ`-prefixed segment of substantive length to
   # cover that split-literal shape too.
   '''eyJ[A-Za-z0-9_-]{20,}''',
-  # KEM-envelope object-literal shapes (`{ privateKey, cipherText }`)
-  # appear in error messages and CHANGELOG entries documenting the
-  # ML_KEM_768X25519 / ML_KEM_1024 surfaces. The string `cipherText`
-  # has high enough adjacent-token entropy to trip the generic-api-
-  # key rule; the literal is a parameter name, not a credential.
-  '''\{\s*privateKey\s*,\s*cipherText\s*\}''',
+  # KEM-envelope object-literal shapes (`{ privateKey, cipherText }`,
+  # `{ privateKey, x25519PrivateKey }`, etc.) appear in error messages,
+  # CHANGELOG entries, and JSDoc @example blocks documenting the
+  # ML_KEM_768X25519 / ML_KEM_1024 surfaces. The literals are
+  # parameter names, not credentials.
+  '''\{\s*privateKey\s*,\s*[A-Za-z][A-Za-z0-9_]*\s*\}''',
 ]
 
 [[allowlists]]
@@ -99,6 +103,16 @@ commits = [
   # messages. Parameter-name literal, no credential. The regex
   # allowlist above catches future occurrences.
   "1a7fef088f29b531d5d4391af6ea611d17f8c644",
+  # v0.8.49 wiki source-driven migration commit — JSDoc @example
+  # placeholders re-tripped the generic-api-key + stripe-access-token
+  # rules. The text was rewritten the next commit; suppress in history.
+  "a270ae987b83e1497b76aee41480fbc021f6bf9a",
+  # v0.8.50 CI green-up commit — the CHANGELOG entry quoted the
+  # KEM-recipient destructure shape (`{ privateKey, x25519PrivateKey }`)
+  # while explaining the v0.8.49 fix; gitleaks re-flagged the same
+  # token in the documentation prose. The next commit rewrote the
+  # CHANGELOG entry to avoid the literal shape.
+  "959b44bb322e7559ec106a19bb21784a4ba9dc25",
 ]
 fingerprints = [
   "74e627ea0fea39f06e01fe424a19724bea37aee8:test/smoke.js:jwt:2415",
@@ -106,4 +120,15 @@ fingerprints = [
   "1a7fef088f29b531d5d4391af6ea611d17f8c644:CHANGELOG.md:generic-api-key:11",
   "1a7fef088f29b531d5d4391af6ea611d17f8c644:lib/crypto.js:generic-api-key:375",
   "1a7fef088f29b531d5d4391af6ea611d17f8c644:lib/crypto.js:generic-api-key:380",
+  # v0.8.49 wiki source-driven migration. JSDoc @example blocks in
+  # lib/api-key.js (fake hex token shape), lib/log-stream.js (Stripe
+  # `sk_live_...` redaction example), and lib/crypto.js (KEM
+  # envelope `{ privateKey, x25519PrivateKey }` shape) tripped the
+  # generic-api-key + stripe-access-token rules. The text was
+  # rewritten in the next commit to use placeholder shapes; the
+  # fingerprints suppress the old shape in the historical commit.
+  "a270ae987b83e1497b76aee41480fbc021f6bf9a:lib/api-key.js:generic-api-key:182",
+  "a270ae987b83e1497b76aee41480fbc021f6bf9a:lib/log-stream.js:stripe-access-token:178",
+  "a270ae987b83e1497b76aee41480fbc021f6bf9a:lib/crypto.js:generic-api-key:1044",
+  "959b44bb322e7559ec106a19bb21784a4ba9dc25:CHANGELOG.md:generic-api-key:11",
 ]

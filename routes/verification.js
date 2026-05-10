@@ -1,23 +1,22 @@
+var b = require("../lib/vendor/blamejs");
 var config = require("../lib/config");
 var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
 var usersRepo = require("../app/data/repositories/users.repo");
 var verificationTokensRepo = require("../app/data/repositories/verificationTokens.repo");
-var { sha3Hash, generateToken } = require("../lib/crypto");
+;
 var { sendVerificationEmail } = require("../lib/email");
 var audit = require("../lib/audit");
 var { send, host } = require("../middleware/send");
 var sessionService = require("../app/domain/auth/session.service");
 var { validateEmail } = require("../app/shared/validate");
-var rateLimit = require("../lib/rate-limit");
-var { parseJson } = require("../lib/multipart");
 
 function createVerificationToken(userId) {
   // Clean up any existing tokens for this user
   verificationTokensRepo.remove({ userId: userId });
 
-  var rawToken = generateToken();
-  var tokenHash = sha3Hash(rawToken);
+  var rawToken = b.crypto.generateToken();
+  var tokenHash = b.crypto.sha3Hash(rawToken);
   var expiresAt = new Date(Date.now() + C.TIME.ONE_DAY).toISOString(); // 24 hours
 
   verificationTokensRepo.create({
@@ -35,7 +34,7 @@ function createVerificationToken(userId) {
 // log if invalid or expired, and return the record (or null if unusable).
 // Callers just check for `null` and bail — they don't need to re-send a response.
 function findAndValidateToken(rawToken, req, res) {
-  var tokenHash = sha3Hash(rawToken);
+  var tokenHash = b.crypto.sha3Hash(rawToken);
   var record = verificationTokensRepo.findOne({ token: tokenHash, type: "email" });
 
   if (!record) {
@@ -108,9 +107,9 @@ module.exports = function (app) {
   });
 
   // Resend verification email (rate limited to prevent email quota abuse)
-  app.post("/auth/resend-verification", rateLimit.middleware("resend-verify", 3, C.TIME.FIVE_MIN), async (req, res) => {
+  app.post("/auth/resend-verification", b.middleware.rateLimit({ scope: "resend-verify", max: 3, windowMs: C.TIME.FIVE_MIN, algorithm: "fixed-window" }), async (req, res) => {
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var emailCheck = validateEmail(body.email);
       if (!emailCheck.valid) return res.status(400).json({ error: emailCheck.reason });
       var email = emailCheck.email;

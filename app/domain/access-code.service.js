@@ -1,8 +1,9 @@
 /**
  * Shared email access-code request / verify logic for bundles and stash pages.
  */
+var b = require("../../lib/vendor/blamejs");
 var crypto = require("crypto");
-var { sha3Hash, timingSafeEqual } = require("../../lib/crypto");
+;
 var { HASH_PREFIX, TIME } = require("../../lib/constants");
 var accessCodesRepo = require("../data/repositories/bundleAccessCodes.repo");
 var emailService = require("../../lib/email");
@@ -20,7 +21,7 @@ async function requestCode(opts) {
   var shareId = opts.shareId;
   var email = opts.email;
 
-  var emailHash = sha3Hash(HASH_PREFIX.EMAIL + email);
+  var emailHash = b.crypto.namespaceHash(HASH_PREFIX.EMAIL, email);
   var tenMinAgo = new Date(Date.now() - TIME.TEN_MIN).toISOString();
   var recentCount = accessCodesRepo.countRecentCodes(shareId, emailHash, tenMinAgo);
   if (recentCount >= 3) {
@@ -66,7 +67,7 @@ function verifyCode(opts) {
   var email = opts.email;
   var code = opts.code;
 
-  var emailHash = sha3Hash(HASH_PREFIX.EMAIL + email);
+  var emailHash = b.crypto.namespaceHash(HASH_PREFIX.EMAIL, email);
   var codeRecord = accessCodesRepo.findPendingCode(shareId, emailHash);
   if (!codeRecord) {
     return { success: false, error: "Invalid or expired code.", status: 401 };
@@ -76,8 +77,8 @@ function verifyCode(opts) {
     return { success: false, error: "Too many attempts. Request a new code.", status: 429 };
   }
 
-  var submittedHash = sha3Hash(HASH_PREFIX.ACCESS_CODE + code);
-  if (!timingSafeEqual(submittedHash, codeRecord.codeHash)) {
+  var submittedHash = b.crypto.namespaceHash(HASH_PREFIX.ACCESS_CODE, code);
+  if (!b.crypto.timingSafeEqual(submittedHash, codeRecord.codeHash)) {
     accessCodesRepo.update(codeRecord._id, { $set: { attempts: codeRecord.attempts + 1 } });
     return { success: false, error: "Incorrect code.", status: 401, attempts: codeRecord.attempts + 1 };
   }

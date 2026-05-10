@@ -21,25 +21,81 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
 
       - name: Run Scorecard
-        uses: ossf/scorecard-action@v2.4.0
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a  # v2.4.3
         with:
           results_file: results.sarif
           results_format: sarif
           publish_results: true
 
       - name: Upload SARIF artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: SARIF file
           path: results.sarif
           retention-days: 5
 
       - name: Upload SARIF to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e  # v4.35.4
         with:
           sarif_file: results.sarif
+
+  # Threshold gate runs in a SEPARATE job because the scorecard-action
+  # workflow-restriction policy requires the `analysis` job to contain
+  # only `uses:` steps (the verifier rejects any `run:` step on the
+  # signing path). The gate downloads the SARIF artifact uploaded by
+  # the analysis job and asserts the aggregate score meets
+  # SCORECARD_MIN. The minimum defaults to 6.0 — a structural floor
+  # for a < 90-day single-maintainer pre-1.0 repo where Maintained /
+  # Contributors / CII-Badge / Code-Review / CI-Tests scores are
+  # constrained by repo age + ownership shape rather than security
+  # posture. Operators on a mature multi-maintainer fork should set
+  # SCORECARD_MIN to 7.5+ via repo variable. Fails-open on SARIF
+  # parse failure (warning, not error) so a Scorecard output-shape
+  # change doesn't break CI silently.
+  threshold:
+    name: Threshold gate
+    needs: analysis
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download SARIF artifact
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53  # v7.0.1
+        with:
+          name: SARIF file
+
+      - name: Threshold gate (fail when aggregate score < SCORECARD_MIN)
+        env:
+          SCORECARD_MIN: ${{ vars.SCORECARD_MIN || '6.0' }}
+        run: |
+          set -euo pipefail
+          if ! command -v jq >/dev/null 2>&1; then
+            echo "::warning::jq not on runner — skipping threshold gate"
+            exit 0
+          fi
+          SCORE=$(jq -r '
+            (.runs[0].properties.aggregateScore
+             // .runs[0].properties["openssf-scorecard-aggregate-score"]
+             // empty)
+          ' results.sarif | head -1)
+          if [ -z "$SCORE" ] || [ "$SCORE" = "null" ]; then
+            echo "::warning::Could not extract aggregate score from results.sarif — skipping threshold gate (Scorecard SARIF output shape may have changed)."
+            exit 0
+          fi
+          echo "[scorecard] aggregate score: ${SCORE} (min: ${SCORECARD_MIN})"
+          BELOW=$(awk -v s="$SCORE" -v t="$SCORECARD_MIN" 'BEGIN{print (s+0 < t+0)}')
+          if [ "$BELOW" = "1" ]; then
+            echo "::error::Scorecard aggregate score ${SCORE} is below the minimum ${SCORECARD_MIN}."
+            echo "::error::See the SARIF artifact and the GitHub Security tab for which checks regressed."
+            exit 1
+          fi
+          {
+            echo "### OpenSSF Scorecard"
+            echo ""
+            echo "Aggregate score: \`${SCORE}\` (min: \`${SCORECARD_MIN}\`) ✅"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -3,16 +3,15 @@
  * Checks Authorization: Bearer <key> header.
  * If valid, sets req.apiKey and req.user from the key's userId.
  */
+var b = require("../lib/vendor/blamejs");
 var { apiKeys, users } = require("../lib/db");
-var { sha3Hash } = require("../lib/crypto");
 var { validateBearerToken } = require("../app/shared/validate");
-var { extractBearerToken } = require("../lib/http-utils");
 
 module.exports = function apiAuth(req, res, next) {
-  var token = extractBearerToken(req);
+  var token = b.requestHelpers.extractBearer(req);
   if (!token) return next();
   if (!validateBearerToken(token)) return next(); // malformed token — skip auth, don't waste cycles hashing
-  var hash = sha3Hash(token);
+  var hash = b.crypto.sha3Hash(token);
   var key = apiKeys.findOne({ keyHash: hash });
   if (!key) return next();
 

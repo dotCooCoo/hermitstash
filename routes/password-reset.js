@@ -1,15 +1,14 @@
+var b = require("../lib/vendor/blamejs");
 var config = require("../lib/config");
 var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
 var usersRepo = require("../app/data/repositories/users.repo");
 var verificationTokensRepo = require("../app/data/repositories/verificationTokens.repo");
-var { sha3Hash, generateToken, hashPassword } = require("../lib/crypto");
+;
 var { sendPasswordResetEmail } = require("../lib/email");
 var { validateEmail, validatePassword } = require("../app/shared/validate");
 var audit = require("../lib/audit");
-var rateLimit = require("../lib/rate-limit");
 var { send, host } = require("../middleware/send");
-var { parseJson } = require("../lib/multipart");
 var sessionService = require("../app/domain/auth/session.service");
 
 module.exports = function (app) {
@@ -23,11 +22,11 @@ module.exports = function (app) {
   });
 
   // POST /auth/forgot-password — rate limited, generate reset token, send email
-  app.post("/auth/forgot-password", rateLimit.middleware("password-reset", 5, C.TIME.FIFTEEN_MIN), async function (req, res) {
+  app.post("/auth/forgot-password", b.middleware.rateLimit({ scope: "password-reset", max: 5, windowMs: C.TIME.FIFTEEN_MIN, algorithm: "fixed-window" }), async function (req, res) {
     if (!config.localAuth) return res.status(403).json({ error: "Disabled." });
 
     try {
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var emailCheck = validateEmail(body.email);
       if (!emailCheck.valid) {
         // Always return success to avoid email enumeration
@@ -52,8 +51,8 @@ module.exports = function (app) {
       verificationTokensRepo.remove({ userId: user._id, type: "password_reset" });
 
       // Generate and store hashed token
-      var rawToken = generateToken();
-      var tokenHash = sha3Hash(rawToken);
+      var rawToken = b.crypto.generateToken();
+      var tokenHash = b.crypto.sha3Hash(rawToken);
       var expiresAt = new Date(Date.now() + C.TIME.ONE_HOUR).toISOString(); // 1 hour
 
       verificationTokensRepo.create({
@@ -87,7 +86,7 @@ module.exports = function (app) {
       return send(res, "error", { user: null, title: "Invalid Link", message: "This password reset link is invalid." }, 400);
     }
 
-    var tokenHash = sha3Hash(rawToken);
+    var tokenHash = b.crypto.sha3Hash(rawToken);
     var record = verificationTokensRepo.findOne({ token: tokenHash, type: "password_reset" });
 
     if (!record) {
@@ -105,7 +104,7 @@ module.exports = function (app) {
   });
 
   // POST /auth/reset-password/:token — validate token, update password, clear sessions
-  app.post("/auth/reset-password/:token", rateLimit.middleware("password-reset-submit", 10, C.TIME.FIFTEEN_MIN), async function (req, res) {
+  app.post("/auth/reset-password/:token", b.middleware.rateLimit({ scope: "password-reset-submit", max: 10, windowMs: C.TIME.FIFTEEN_MIN, algorithm: "fixed-window" }), async function (req, res) {
     if (!config.localAuth) return res.status(403).json({ error: "Disabled." });
 
     try {
@@ -114,7 +113,7 @@ module.exports = function (app) {
         return res.status(400).json({ error: "Invalid reset link." });
       }
 
-      var body = await parseJson(req);
+      var body = (await b.parsers.json(req)) || {};
       var password = String(body.password || "");
 
       // Password confirmation is a client-side UX check (catch typos before
@@ -126,7 +125,7 @@ module.exports = function (app) {
         return res.status(400).json({ error: pwCheck.reason });
       }
 
-      var tokenHash = sha3Hash(rawToken);
+      var tokenHash = b.crypto.sha3Hash(rawToken);
       var record = verificationTokensRepo.findOne({ token: tokenHash, type: "password_reset" });
 
       if (!record) {
@@ -147,7 +146,7 @@ module.exports = function (app) {
       }
 
       // Hash new password and update user
-      var newHash = await hashPassword(password);
+      var newHash = await b.auth.password.hash(password);
       usersRepo.update(user._id, { $set: {
         passwordHash: newHash,
         failedLoginAttempts: 0,

@@ -3,9 +3,11 @@
  * Each function takes a context object with resolved config and identity.
  * Routes remain thin wrappers that resolve auth/config then delegate here.
  */
+var clientIp = require("../../../lib/client-ip");
+var b = require("../../../lib/vendor/blamejs");
 var path = require("path");
 var config = require("../../../lib/config");
-var { sha3Hash, generateShareId } = require("../../../lib/crypto");
+;
 var filesRepo = require("../../data/repositories/files.repo");
 var bundlesRepo = require("../../data/repositories/bundles.repo");
 var storage = require("../../../lib/storage");
@@ -14,8 +16,19 @@ var logger = require("../../shared/logger");
 var bundleService = require("./bundle.service");
 var fileService = require("./file.service");
 var uploadValidator = require("../../http/validators/upload.validator");
-var ipQuota = require("../../../lib/ip-quota");
-var rateLimit = require("../../../lib/rate-limit");
+// Per-IP daily byte quota — lazy-built so the bytesPerDay limit
+// follows config hot-reload. b.network.byteQuota.create requires a
+// positive bytesPerDay, so the call is gated on publicIpQuotaBytes > 0
+// at every call site (matching the prior in-house quota's "0 disables".
+var _ipQuota = null;
+var _ipQuotaBytes = 0;
+function _getIpQuota() {
+  if (!_ipQuota || _ipQuotaBytes !== config.publicIpQuotaBytes) {
+    _ipQuota = b.network.byteQuota.create({ bytesPerDay: config.publicIpQuotaBytes });
+    _ipQuotaBytes = config.publicIpQuotaBytes;
+  }
+  return _ipQuota;
+}
 var { sanitizeFilename } = require("../../shared/sanitize-filename");
 var syncEmitter = require("../../../lib/sync-emitter");
 var usersRepo = require("../../data/repositories/users.repo");
@@ -55,7 +68,7 @@ function resolveUploadConfig(stash) {
  * Check all quotas (storage, per-user, per-IP) for a file upload.
  * Returns { allowed: true } or { allowed: false, error: string }.
  */
-function checkAllQuotas(fileSize, bundle, req) {
+async function checkAllQuotas(fileSize, bundle, req) {
   // Storage quota
   try {
     bundleService.checkStorageQuota(fileSize, config.storageQuotaBytes);
@@ -75,7 +88,7 @@ function checkAllQuotas(fileSize, bundle, req) {
 
   // Per-IP quota (anonymous only)
   if (config.publicIpQuotaBytes > 0 && !bundle.ownerId) {
-    var ipCheck = ipQuota.check(rateLimit.getIp(req), fileSize, config.publicIpQuotaBytes);
+    var ipCheck = await _getIpQuota().check(clientIp.getIp(req), fileSize);
     if (!ipCheck.allowed) {
       return { allowed: false, error: "Upload quota exceeded. Try again later.", reason: "per-IP quota exceeded" };
     }
@@ -119,7 +132,7 @@ async function handleFileUpload(ctx) {
   }
 
   // Quotas
-  var quota = checkAllQuotas(file.size, bundle, ctx.req);
+  var quota = await checkAllQuotas(file.size, bundle, ctx.req);
   if (!quota.allowed) {
     audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + quota.reason + suffix, req: ctx.req });
     return { error: quota.error };
@@ -139,9 +152,9 @@ async function handleFileUpload(ctx) {
       oldSize = old.size || 0;
       // Save new file, delete old blob, update existing record
       var ext = path.extname(file.filename).toLowerCase();
-      fileShareId = generateShareId();
+      fileShareId = b.crypto.generateToken(32);
       var storagePath = "bundles/" + bundle.shareId + "/" + Date.now() + "-" + fileShareId + ext;
-      checksum = sha3Hash(file.data);
+      checksum = b.crypto.sha3Hash(file.data);
       saved = await storage.saveFile(file.data, storagePath);
       try { await storage.deleteFile(old.storagePath); } catch (_e) { /* cleanup — old replaced-file may already be gone on S3 */ }
       replaced = true;
@@ -179,7 +192,7 @@ async function handleFileUpload(ctx) {
 
   // Track IP after save
   if (config.publicIpQuotaBytes > 0 && !bundle.ownerId) {
-    ipQuota.record(rateLimit.getIp(ctx.req), file.size);
+    await _getIpQuota().record(clientIp.getIp(ctx.req), file.size);
   }
 
   var action = replaced ? "file_replaced" : "file_added";
@@ -260,7 +273,7 @@ async function handleChunkUpload(ctx) {
     var cs = storage.statChunk(bundle.shareId, fileId, ce);
     if (cs) estimatedSize += cs.size;
   }
-  var quota = checkAllQuotas(estimatedSize, bundle, ctx.req);
+  var quota = await checkAllQuotas(estimatedSize, bundle, ctx.req);
   if (!quota.allowed) {
     audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + quota.reason + " (chunked)" + suffix, req: ctx.req });
     return { error: quota.error };
@@ -300,7 +313,7 @@ async function handleChunkUpload(ctx) {
   var checksum = chunkResult.checksum;
 
   if (config.publicIpQuotaBytes > 0 && !bundle.ownerId) {
-    ipQuota.record(rateLimit.getIp(ctx.req), fullData.length);
+    await _getIpQuota().record(clientIp.getIp(ctx.req), fullData.length);
   }
 
   bundlesRepo.update(bundle._id, {

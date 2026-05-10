@@ -11,6 +11,7 @@
  * The client must still redeem the renewal code via "hermitstash-sync repair".
  */
 
+var b = require("../../lib/vendor/blamejs");
 var logger = require("../shared/logger");
 var { TIME } = require("../../lib/constants");
 
@@ -55,12 +56,11 @@ async function run() {
       if (existingCodes.length > 0) continue; // already has a pending renewal
 
       try {
-        var { generateClientCert, initCA } = require("../../lib/mtls-ca");
-        var { sha3Hash } = require("../../lib/crypto");
+        var mtlsCa = require("../../lib/mtls-ca");
         var { generateEnrollmentCode } = require("../../lib/cert-utils");
 
-        await initCA();
-        var newCert = await generateClientCert(key.prefix);
+        await mtlsCa.initCA();
+        var newCert = await mtlsCa.generateClientCert({ cn: key.prefix });
         if (!newCert) {
           logger.warn("[cert-expiry] generateClientCert returned no cert — skipping renewal", { prefix: key.prefix, stashId: key.boundStashId });
           continue;
@@ -88,7 +88,7 @@ async function run() {
         apiKeysRepo.update(key._id, { $set: {
           certIssuedAt: newCert.issuedAt,
           certExpiresAt: newCert.expiresAt,
-          certFingerprint: sha3Hash(newCert.cert),
+          certFingerprint: b.crypto.sha3Hash(newCert.cert),
         }});
 
         renewed++;

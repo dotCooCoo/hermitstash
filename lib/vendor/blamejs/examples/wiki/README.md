@@ -21,7 +21,7 @@ docker compose up --build
 
 The compose file mounts a named volume (`wiki-data`) at `/data` so the vault key, sqlite database, and audit chain persist across container restarts. Set `WIKI_ADMIN_PASSWORD` (and any other `WIKI_*` envs from `server.js`) in a `.env` file alongside `docker-compose.yml`, or in the host environment, to pin a stable admin credential. Healthcheck hits `/healthz` every 30 seconds.
 
-The `Dockerfile` is multi-stage (deps build + slim runtime), runs as the unprivileged `node` user, and uses a `node:24-slim` base because the vendored Argon2id native module ships glibc prebuilds rather than musl.
+The `Dockerfile` is multi-stage (deps build + slim runtime), runs as the unprivileged `node` user, and uses a `node:24-slim` base (24.14+ — the engine pin in `package.json` requires `>=24.14.1` for CVE-2026-21713 fix). Argon2id routes through Node's built-in `crypto.argon2*` API, so the image carries no native-module prebuild.
 
 For production deploys with TLS terminator + auto Let's Encrypt, see [DEPLOY.md](./DEPLOY.md) — it documents the `docker-compose.prod.yml` overlay that fronts the wiki with Caddy and pulls the published `ghcr.io/blamejs/blamejs-wiki` image instead of building from source.
 
