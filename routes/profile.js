@@ -56,8 +56,8 @@ module.exports = function (app) {
       usersRepo.update(req.user._id, { $set: { passwordHash: passwordHash } });
 
       // Invalidate all other sessions for this user, then re-establish current
-      sessionService.revokeUser(req.user._id);
-      sessionService.loginUser(req, req.user._id);
+      await sessionService.revokeUser(req.user._id);
+      await sessionService.loginUser(req, req.user._id);
 
       audit.log(audit.ACTIONS.PASSWORD_CHANGED, { targetId: req.user._id, targetEmail: req.user.email, req: req });
 
@@ -118,8 +118,8 @@ module.exports = function (app) {
 
       usersRepo.remove(req.user._id);
       credentialsRepo.removeByUser(req.user._id);
-      sessionService.revokeUser(req.user._id);
-      sessionService.logoutUser(req);
+      await sessionService.revokeUser(req.user._id);
+      await sessionService.logoutUser(req);
 
       audit.log(audit.ACTIONS.ACCOUNT_SELF_DELETED, { targetId: req.user._id, targetEmail: req.user.email, details: "filesReassigned: " + count, req: req });
 

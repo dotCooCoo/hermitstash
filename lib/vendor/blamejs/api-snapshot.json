@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.8.62",
-  "createdAt": "2026-05-10T05:30:05.718Z",
+  "frameworkVersion": "0.8.68",
+  "createdAt": "2026-05-10T14:43:53.038Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -30578,6 +30578,10 @@
         "touch": {
           "type": "function",
           "arity": 2
+        },
+        "updateData": {
+          "type": "function",
+          "arity": 3
         },
         "useStore": {
           "type": "function",

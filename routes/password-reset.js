@@ -157,7 +157,7 @@ module.exports = function (app) {
       verificationTokensRepo.remove({ userId: user._id, type: "password_reset" });
 
       // Clear all sessions for this user (force re-login everywhere)
-      sessionService.revokeUser(user._id);
+      await sessionService.revokeUser(user._id);
 
       audit.log(audit.ACTIONS.PASSWORD_RESET_SUCCESS, { targetId: user._id, targetEmail: user.email, req: req });
       res.json({ success: true, redirect: "/auth/login" });

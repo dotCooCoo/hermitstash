@@ -328,7 +328,7 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.USER_REGISTERED, { targetId: newUser._id, targetEmail: invite.email, details: "via invite, role: " + invite.role });
 
       // Auto-login
-      sessionService.loginUser(req, newUser._id);
+      await sessionService.loginUser(req, newUser._id);
       res.json({ success: true, redirect: "/dashboard" });
     } catch (e) {
       logger.error("Accept invite error", { error: e.message || String(e) });

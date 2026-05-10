@@ -1,61 +1,72 @@
 /**
  * Session Service — business logic for session lifecycle.
- * Wraps the low-level session store with higher-level operations.
+ *
+ * `req.regenerateSession`, `clearSessionsForUser`, `clearSessionById`,
+ * and `clearAllSessions` all became async when lib/session.js migrated
+ * to `b.session` in v1.9.29. Every helper here is async; callers
+ * (route handlers) await accordingly.
  */
 var { clearSessionsForUser, clearAllSessions, clearSessionById } = require("../../../lib/session");
 var { TIME } = require("../../../lib/constants");
 
 /**
- * Login: regenerate session and set userId.
+ * Login: rotate the session sid (defeats fixation) and bind the new
+ * row to `userId` at the storage layer (so destroyAllForUser keys on
+ * it). Caller-side req.session.userId is also set so existing HS code
+ * that reads it without dereferencing the b.session row keeps working.
  */
-function loginUser(req, userId) {
-  req.regenerateSession();
+async function loginUser(req, userId) {
+  await req.regenerateSession({ userId: userId });
   req.session.userId = userId;
 }
 
 /**
- * Start 2FA pending state: regenerate session, store pending userId with expiry.
+ * Start 2FA pending state: rotate to a fresh anonymous sid (the user
+ * is NOT logged in yet — full login happens in complete2fa). Stash the
+ * pending userId + 5-minute deadline so the verify route can pick up
+ * where this left off.
  */
-function start2faPending(req, userId) {
-  req.regenerateSession();
+async function start2faPending(req, userId) {
+  await req.regenerateSession();
   req.session.pendingTotpUserId = userId;
   req.session.pendingTotpExpires = Date.now() + TIME.FIVE_MIN;
 }
 
 /**
- * Complete 2FA: clear pending state and login.
+ * Complete 2FA: pull pending userId out of session.data, rotate the
+ * sid to bind it to the now-confirmed user, and finalize login.
  */
-function complete2fa(req) {
+async function complete2fa(req) {
   var userId = req.session.pendingTotpUserId;
   delete req.session.pendingTotpUserId;
   delete req.session.pendingTotpExpires;
-  req.regenerateSession();
+  await req.regenerateSession({ userId: userId });
   req.session.userId = userId;
   return userId;
 }
 
 /**
- * Logout: clear all session data and delete from store.
+ * Logout: clear app-side data + delete the storage row. The next
+ * request gets a fresh anonymous session.
  */
-function logoutUser(req) {
+async function logoutUser(req) {
   Object.keys(req.session).forEach(function (k) { delete req.session[k]; });
-  clearSessionById(req.sessionId);
+  await clearSessionById(req.sessionId);
 }
 
 /**
- * Revoke all sessions globally.
+ * Revoke every session globally. Used by admin "force-logout-all".
  */
-function revokeAll(req) {
-  clearAllSessions();
-  // Clear current session data so writeHead doesn't re-persist
+async function revokeAll(req) {
+  await clearAllSessions();
   Object.keys(req.session).forEach(function (k) { delete req.session[k]; });
 }
 
 /**
- * Revoke all sessions for a specific user.
+ * Revoke every session belonging to a single user.
  */
-function revokeUser(userId) {
-  clearSessionsForUser(userId);
+async function revokeUser(userId) {
+  return clearSessionsForUser(userId);
 }
 
 module.exports = { loginUser, start2faPending, complete2fa, logoutUser, revokeAll, revokeUser };

@@ -247,6 +247,21 @@ app.post("/sync/enroll", b.middleware.rateLimit({ scope: "sync-enroll", max: 5, 
     // Mark as redeemed (one-time use)
     db.enrollmentCodes.update({ _id: record._id }, { $set: { status: "redeemed" } });
 
+    // Stash-bound enrollments (the default flow from routes/stash.js's
+    // sync-token issuer) record stashId but leave bundleId null because
+    // the bundle binding lives on the stash row. Resolve it here so the
+    // client gets a populated bundleId without having to re-query the
+    // server — saveSyncConfig in hermitstash-sync requires either
+    // bundleId or shareId, and a missing value means the daemon can
+    // never establish the sync target.
+    var resolvedBundleId = record.bundleId || null;
+    if (!resolvedBundleId && record.stashId) {
+      try {
+        var stash = db.customerStash.findOne({ _id: record.stashId });
+        if (stash && stash.syncBundleId) resolvedBundleId = stash.syncBundleId;
+      } catch (_e) { /* stash lookup best-effort — fall through with null */ }
+    }
+
     // Return the provisioning bundle
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
@@ -256,7 +271,7 @@ app.post("/sync/enroll", b.middleware.rateLimit({ scope: "sync-enroll", max: 5, 
       clientKey: record.clientKey,
       caCert: record.caCert,
       stashId: record.stashId || null,
-      bundleId: record.bundleId || null,
+      bundleId: resolvedBundleId,
       reissue: record.reissue || false,
     }));
 

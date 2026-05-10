@@ -199,7 +199,7 @@ module.exports = function (app) {
 
       // Login
       usersRepo.update(user._id, { $set: { lastLogin: new Date().toISOString() } });
-      sessionService.loginUser(req, user._id);
+      await sessionService.loginUser(req, user._id);
       audit.log(audit.ACTIONS.PASSKEY_LOGIN_SUCCESS, { targetId: user._id, targetEmail: user.email, details: "authType: passkey", req: req });
       res.json({ verified: true, redirect: "/dashboard" });
     } catch (e) {

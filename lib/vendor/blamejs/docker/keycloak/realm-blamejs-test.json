@@ -1,0 +1,87 @@
+{
+  "realm": "blamejs-test",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": false,
+  "accessTokenLifespan": 600,
+  "refreshTokenMaxReuse": 0,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+
+  "users": [
+    {
+      "username": "alice",
+      "email": "alice@example.com",
+      "firstName": "Alice",
+      "lastName": "Tester",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        { "type": "password", "value": "blamejs-test-password", "temporary": false }
+      ],
+      "realmRoles": ["default-roles-blamejs-test"]
+    }
+  ],
+
+  "clients": [
+    {
+      "clientId": "blamejs-rp-oidc",
+      "name": "blamejs OIDC RP (integration test)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "blamejs-test-rp-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://127.0.0.1:18099/callback",
+        "http://[::1]:18099/callback",
+        "https://127.0.0.1:18099/callback"
+      ],
+      "webOrigins": ["+"],
+      "frontchannelLogout": true,
+      "attributes": {
+        "frontchannel.logout.url":              "http://127.0.0.1:18099/oidc/frontchannel-logout",
+        "backchannel.logout.url":               "http://127.0.0.1:18099/oidc/backchannel-logout",
+        "backchannel.logout.session.required":  "true",
+        "backchannel.logout.revoke.offline.tokens": "false",
+        "post.logout.redirect.uris":            "http://127.0.0.1:18099/post-logout##http://[::1]:18099/post-logout",
+        "pkce.code.challenge.method":           "S256",
+        "use.refresh.tokens":                   "true",
+        "tls.client.certificate.bound.access.tokens": "false"
+      },
+      "defaultClientScopes": ["web-origins", "profile", "roles", "email"],
+      "optionalClientScopes": ["address", "phone", "offline_access"]
+    },
+    {
+      "clientId": "https://sp.blamejs-test.example",
+      "name": "blamejs SAML SP (integration test)",
+      "description": "SP entityID for the integration test. Keycloak's SAML response signs the assertion using the realm's RSA-SHA256 key.",
+      "enabled": true,
+      "protocol": "saml",
+      "publicClient": true,
+      "redirectUris": [
+        "http://127.0.0.1:18099/saml/acs"
+      ],
+      "frontchannelLogout": false,
+      "attributes": {
+        "saml.assertion.signature":            "true",
+        "saml.server.signature":               "false",
+        "saml.signature.algorithm":            "RSA_SHA256",
+        "saml.client.signature":               "false",
+        "saml.encrypt":                        "false",
+        "saml.force.post.binding":             "true",
+        "saml_assertion_consumer_url_post":    "http://127.0.0.1:18099/saml/acs",
+        "saml_name_id_format":                 "username",
+        "saml.authnstatement":                 "true"
+      },
+      "defaultClientScopes": ["role_list"]
+    }
+  ]
+}

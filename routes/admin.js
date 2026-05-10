@@ -1181,15 +1181,15 @@ module.exports = function (app) {
   });
 
   // Revoke all sessions (emergency: force all users to re-login)
-  app.post("/admin/sessions/revoke-all", (req, res) => {
+  app.post("/admin/sessions/revoke-all", async (req, res) => {
     if (!requireAdmin(req, res)) return;
-    sessionService.revokeAll(req);
+    await sessionService.revokeAll(req);
     audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "All sessions revoked", req: req });
     res.json({ success: true, message: "All sessions revoked. Everyone must re-login." });
   });
 
   // Purge all users except the current admin
-  app.post("/admin/purge/users", (req, res) => {
+  app.post("/admin/purge/users", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
       var allUsers = usersRepo.findAll({ _id: { $ne: req.user._id } });
@@ -1205,7 +1205,7 @@ module.exports = function (app) {
           filesRepo.update(orphaned[j]._id, { $set: { uploadedBy: "deleted" } });
         }
       }
-      sessionService.revokeAll(req);
+      await sessionService.revokeAll(req);
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Purged " + count + " users", req: req });
       res.json({ success: true, deleted: count });
     } catch (e) {
@@ -1290,7 +1290,7 @@ module.exports = function (app) {
         for (var st = 0; st < allStash.length; st++) stashRepo.remove(allStash[st]._id);
       } catch (_e) { /* stash purge is best-effort — database reset still completes */ }
 
-      sessionService.revokeAll(req);
+      await sessionService.revokeAll(req);
       // Log after purge so at least one audit entry exists
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Full database purge (factory reset)", req: req });
       res.json({ success: true });

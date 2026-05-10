@@ -136,7 +136,7 @@ module.exports = function (app) {
       var lastStep = user.totpLastStep ? parseInt(user.totpLastStep, 10) : 0;
       var matchedStep = totp.verify(secret, code, lastStep, alg);
       if (matchedStep) {
-        sessionService.complete2fa(req);
+        await sessionService.complete2fa(req);
         if (isLegacyAlgorithm(alg)) req.session.requiresTotpReEnroll = "true";
         usersRepo.update(user._id, { $set: { lastLogin: new Date().toISOString(), totpLastStep: String(matchedStep) } });
         audit.log(audit.ACTIONS.LOGIN_SUCCESS, { targetId: user._id, details: "2FA verified via TOTP (" + alg + ")", req: req });
@@ -154,7 +154,7 @@ module.exports = function (app) {
         backupCodes.splice(idx, 1);
         usersRepo.update(user._id, { $set: { totpBackupCodes: JSON.stringify(backupCodes) } });
 
-        sessionService.complete2fa(req);
+        await sessionService.complete2fa(req);
         if (isLegacyAlgorithm(alg)) req.session.requiresTotpReEnroll = "true";
         usersRepo.update(user._id, { $set: { lastLogin: new Date().toISOString() } });
         audit.log(audit.ACTIONS.LOGIN_SUCCESS, { targetId: user._id, details: "2FA verified via backup code (" + backupCodes.length + " remaining, alg=" + alg + ")", req: req });

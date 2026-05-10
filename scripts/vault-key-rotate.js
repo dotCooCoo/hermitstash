@@ -342,12 +342,17 @@ function runSchemaDriftCheck(oldKeys) {
     return;
   }
   var sealedDbKey = fs.readFileSync(dbKeyEnc, "utf8").trim();
+  // The envelope written by lib/db.js since v1.9.16 is 0xE2 (FixedInfo
+  // KDF binding). lib/crypto.js's HS-side decrypt only handles the
+  // legacy 0xE1 magic; b.crypto.decrypt handles current 0xE2 envelopes
+  // and the boot-time legacy-envelope-migrate converts any 0xE1 backlog
+  // before the rotator runs against a live deployment.
   var dbKey = Buffer.from(
-    cryptoLib.decrypt(sealedDbKey.substring(VAULT_PREFIX.length), oldKeys),
+    b.crypto.decrypt(sealedDbKey.substring(VAULT_PREFIX.length), oldKeys),
     "base64"
   );
   var packed = fs.readFileSync(dbEnc);
-  var plain = cryptoLib.decryptPacked(packed, dbKey);
+  var plain = b.crypto.decryptPacked(packed, dbKey);
   var tmpPath = path.join(path.dirname(DATA_DIR), ".schema-check-" + Date.now() + ".db");
   fs.writeFileSync(tmpPath, plain);
   var db = new DatabaseSync(tmpPath);

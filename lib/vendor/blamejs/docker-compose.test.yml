@@ -482,6 +482,58 @@ services:
       start_period: 15s
     restart: unless-stopped
 
+  # Federated authentication backend — Keycloak runs OIDC OP + SAML IdP
+  # in one process so the federation/VC integration test can exercise:
+  #   - b.auth.oauth (authorization_code + PKCE + ID-token verify +
+  #     UserInfo + RP-initiated logout URL build)
+  #   - b.auth.oauth.parseFrontchannelLogoutRequest +
+  #     verifyBackchannelLogoutToken (Keycloak emits both with realm-
+  #     signed JWS)
+  #   - b.auth.saml.sp.create + verifyResponse (Keycloak signs
+  #     assertions with RSA-SHA256; SP receives + verifies via
+  #     b.xmlC14n's single-match-by-ID invariant)
+  #
+  # CIBA / OID4VCI / OID4VP / OpenID Federation are deferred — Keycloak
+  # 26 has preview/extension support for those but not in the base
+  # image's default config; test/integration/federation-auth.test.js
+  # documents the open-conditions for re-enablement.
+  #
+  # Realm import boots the `blamejs-test` realm with one OIDC client
+  # (`blamejs-rp-oidc`, secret `blamejs-test-rp-secret`) + one SAML
+  # client (entityID `https://sp.blamejs-test.example`) + a test user
+  # (alice / blamejs-test-password). Cold-start budget is ~25-40s so
+  # the healthcheck has a generous start_period.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: blamejs-test-keycloak
+    command:
+      - "start-dev"
+      - "--import-realm"
+      - "--http-port=8080"
+      - "--hostname=127.0.0.1"
+      - "--hostname-strict=false"
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: blamejs-test-admin
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "127.0.0.1:18080:8080"
+      - "[::1]:18080:8080"
+      - "127.0.0.1:18081:9000"
+      - "[::1]:18081:9000"
+    volumes:
+      - ./docker/keycloak/realm-blamejs-test.json:/opt/keycloak/data/import/realm-blamejs-test.json:ro
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 60s
+    restart: unless-stopped
+
 volumes:
   certs:
   blamejs_test_pgdata:

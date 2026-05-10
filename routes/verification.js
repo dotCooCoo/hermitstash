@@ -97,7 +97,7 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.EMAIL_VERIFIED, { targetId: user._id, targetEmail: user.email, req: req });
 
       // Auto-login after verification
-      sessionService.loginUser(req, user._id);
+      await sessionService.loginUser(req, user._id);
 
       send(res, "error", { user: user, title: "Email Verified", message: "Your email has been verified. Welcome to " + config.siteName + "!" }, 200);
     } catch (e) {

@@ -52,7 +52,7 @@ module.exports = function (app) {
         audit.log(audit.ACTIONS.USER_REGISTERED, { targetId: user._id, targetEmail: user.email, details: "authType: google, role: " + user.role, req: req });
       }
 
-      sessionService.loginUser(req, user._id);
+      await sessionService.loginUser(req, user._id);
       audit.log(audit.ACTIONS.LOGIN_SUCCESS, { targetId: user._id, targetEmail: user.email, details: "authType: google", req: req });
       res.redirect("/dashboard");
     } catch (err) {
@@ -121,12 +121,12 @@ module.exports = function (app) {
 
       // Check if 2FA is required
       if (authService.requires2fa(user._id)) {
-        sessionService.start2faPending(req, user._id);
+        await sessionService.start2faPending(req, user._id);
         return res.json({ requires2fa: true });
       }
 
       authService.touchLogin(user._id);
-      sessionService.loginUser(req, user._id);
+      await sessionService.loginUser(req, user._id);
       audit.log(audit.ACTIONS.LOGIN_SUCCESS, { targetId: user._id, targetEmail: user.email, details: "authType: local", req: req });
       var redirect = (!config.setupComplete && user.role === "admin") ? "/admin/setup" : "/dashboard";
       res.json({ success: true, redirect: redirect });
@@ -169,7 +169,7 @@ module.exports = function (app) {
         return res.json({ success: true, redirect: "/auth/pending?email=" + encodeURIComponent(user.email), pending: true });
       }
 
-      sessionService.loginUser(req, user._id);
+      await sessionService.loginUser(req, user._id);
       res.json({ success: true, redirect: "/dashboard", claimed: result.claimed });
     } catch (e) {
       logger.error("Register error", { error: e.message || String(e) });
@@ -211,7 +211,7 @@ module.exports = function (app) {
       }
       chunks.push(c);
     });
-    req.on("end", function () {
+    req.on("end", async function () {
       if (aborted) return;
       var body = Buffer.concat(chunks).toString("utf8");
       var params = Object.fromEntries(new URLSearchParams(body));
@@ -220,7 +220,7 @@ module.exports = function (app) {
         return res.end(JSON.stringify({ error: "CSRF validation failed." }));
       }
       audit.log(audit.ACTIONS.LOGOUT, { req: req });
-      sessionService.logoutUser(req);
+      await sessionService.logoutUser(req);
       res.redirect("/");
     });
   });
