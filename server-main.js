@@ -223,7 +223,13 @@ app.get("/sitemap.xml", function (req, res) {
   res.end('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n<url><loc>' + origin + '/</loc><lastmod>' + today + '</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>\n<url><loc>' + origin + '/drop</loc><lastmod>' + today + '</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>\n<url><loc>' + origin + '/privacy</loc><changefreq>monthly</changefreq><priority>0.3</priority></url>\n<url><loc>' + origin + '/terms</loc><changefreq>monthly</changefreq><priority>0.3</priority></url>\n</urlset>');
 });
 // Sync enrollment — before auth so unauthenticated clients can redeem codes
-app.post("/sync/enroll", b.middleware.rateLimit({ scope: "sync-enroll", max: 5, windowMs: C.TIME.FIVE_MIN, algorithm: "fixed-window" }), async function (req, res) {
+// Operator-tunable: sites with multi-device fleets may legitimately need
+// more than 5 enrollments / 5 min from the same source IP (e.g. a kiosk
+// rollout from one provisioning workstation). Codes are 64-bit-entropy
+// one-time-use one-hour-expiry, so the lower bound on attacker brute-force
+// stays cosmically out of reach at any reasonable cap. Default stays 5.
+var SYNC_ENROLL_MAX = parseInt(process.env.SYNC_ENROLL_MAX, 10) || 5;
+app.post("/sync/enroll", b.middleware.rateLimit({ scope: "sync-enroll", max: SYNC_ENROLL_MAX, windowMs: C.TIME.FIVE_MIN, algorithm: "fixed-window" }), async function (req, res) {
   try {
     var body = (await b.parsers.json(req)) || {};
     var code = String(body.code || "").trim().toUpperCase();

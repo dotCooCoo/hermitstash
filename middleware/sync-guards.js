@@ -95,10 +95,18 @@ function enforceCertBinding(apiKey, socket) {
  * not admin UIs, so even an admin-scoped API key can't rename/alter
  * another user's bundle through this path. (Admin routes that legitimately
  * need cross-user access live under /admin/*, not /sync/*.)
+ *
+ * Stash-bound keys (boundStashId set) authenticate against the stash, not
+ * a user — they're allowed any bundle whose stashId matches their binding.
+ * Stash-issued bundles often have ownerId=null because they're created via
+ * the public stash endpoint where there's no logged-in owner; without this
+ * branch, every sync client of a stash would 403 on its own bundle.
+ *
  * Returns null on pass, { status, error } on fail.
  */
 function enforceBundleOwnership(apiKey, bundle) {
   if (!bundle) return { status: 404, error: "Bundle not found." };
+  if (apiKey.boundStashId && bundle.stashId === apiKey.boundStashId) return null;
   if (!bundle.ownerId || bundle.ownerId !== apiKey.userId) {
     return { status: 403, error: "Forbidden." };
   }

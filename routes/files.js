@@ -153,6 +153,49 @@ module.exports = function (app) {
     res.json({ success: true });
   });
 
+  // Sync file download — Bearer + mTLS authed via sync-guards. Path takes
+  // the file's _id (sync clients track by id from the change feed). Mirrors
+  // /s/:shareId/download semantics (decrypted stream out) but the auth
+  // surface is the sync-key pair and bundle binding rather than a bearer
+  // shareId. No download counter increment — sync clients pull as part of
+  // catch-up, not human downloads.
+  app.get("/files/:fileId/download",
+    b.middleware.rateLimit({ scope: "sync-file-download", max: 200, windowMs: C.TIME.ONE_MIN, algorithm: "fixed-window" }),
+    syncGuards.requireSyncAuth({ requireBundle: false }),
+    async (req, res) => {
+      try {
+        // Sync WS events broadcast fileShareId on initial upload but _id on
+        // catch-up replies (long-standing inconsistency in upload.handler.js
+        // vs server-main.js — see line 214 vs 988). Look up by either so the
+        // sync client doesn't have to care which event shape it's responding to.
+        var doc = filesRepo.findById(req.params.fileId)
+                  || filesRepo.findByShareId(req.params.fileId);
+        if (!doc) return res.status(404).json({ error: "File not found." });
+
+        var bundle = doc.bundleShareId ? bundlesRepo.findByShareId(doc.bundleShareId) : null;
+        if (!bundle) return res.status(404).json({ error: "Bundle not found." });
+
+        var bindErr = syncGuards.enforceBundleBinding(req.apiKey, bundle._id);
+        if (bindErr) return res.status(bindErr.status).json({ error: bindErr.error });
+
+        var ownerErr = syncGuards.enforceBundleOwnership(req.apiKey, bundle);
+        if (ownerErr) return res.status(ownerErr.status).json({ error: ownerErr.error });
+
+        var result = await fileService.getDownloadStream(doc);
+        res.writeHead(200, {
+          "Content-Disposition": safeContentDisposition(doc.originalName, "attachment"),
+          "Content-Type": result.headers["Content-Type"],
+        });
+        var stream = result.stream;
+        req.on("close", function () { if (stream.destroy) stream.destroy(); });
+        stream.pipe(res);
+      } catch (err) {
+        logger.error("[files/sync-download] Error", { error: err.message });
+        if (!res.writableEnded) { res.writeHead(500); res.end("File unavailable"); }
+      }
+    }
+  );
+
   // Sync file delete — Bearer + mTLS authed via sync-guards. Path takes
   // the file's _id (sync clients track by id), distinct from the cookie-
   // authed POST /files/:shareId/delete which takes the file's shareId.
