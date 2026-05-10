@@ -255,11 +255,8 @@ ENTRY
     REPO_URL="https://github.com/blamejs/blamejs"
     if [ "$VER" = "latest" ]; then
       # Match check-blamejs-version.js: GitHub Releases API. GITHUB_TOKEN
-      # used opportunistically for higher rate limits in CI.
-      AUTH_HEADER=""
-      if [ -n "${GITHUB_TOKEN:-}" ]; then
-        AUTH_HEADER="-H \"Authorization: Bearer $GITHUB_TOKEN\""
-      fi
+      # used opportunistically for higher rate limits in CI (consumed
+      # inside the inline node script below via process.env).
       TAG=$(node -e "
         var https = require('node:https');
         var opts = {
