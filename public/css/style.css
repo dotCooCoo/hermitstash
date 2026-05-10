@@ -1112,16 +1112,36 @@ select.text-input option{background:var(--bg,#0f0f0f);color:var(--text,#e8e8e8)}
    a subtle hover state, no shimmer (the shop/support shimmer is
    load-bearing branding for those CTAs; the badges are
    informational and shouldn't compete). */
-.nav-github{display:inline-flex !important;align-items:center;color:var(--text-color);opacity:.72;transition:opacity .15s ease,transform .15s ease}
-.nav-github:hover{opacity:1;transform:translateY(-1px)}
-.nav-github svg{flex-shrink:0}
-.nav-version{display:inline-flex !important;align-items:center;padding:3px 9px;font-size:.7rem;font-weight:600;letter-spacing:.02em;border:1px solid rgba(139,92,246,.35);border-radius:999px;background:rgba(139,92,246,.10);color:#c084fc;text-decoration:none;transition:background .15s ease,border-color .15s ease,transform .15s ease;line-height:1.2}
-.nav-version:hover{background:rgba(139,92,246,.18);border-color:rgba(139,92,246,.55);transform:translateY(-1px)}
-[data-theme="light"] .nav-version{background:rgba(139,92,246,.08);color:#7C3AED}
-[data-theme="light"] .nav-version:hover{background:rgba(139,92,246,.16)}
-.nav-blamejs{display:inline-flex !important;align-items:center;opacity:.78;transition:opacity .15s ease,transform .15s ease}
-.nav-blamejs:hover{opacity:1;transform:translateY(-1px)}
-.nav-blamejs img{display:block;flex-shrink:0;border-radius:3px}
+/* Shield-style two-tone pills (shields.io shape). Each badge has a neutral
+   slate label half and an accent value half, separated by a subtle inner
+   border. Static decoration; no shimmer (the shop/support shimmer is the
+   active CTA in this row, badges are informational). */
+.nav-shield{display:inline-flex !important;align-items:stretch;border-radius:6px;overflow:hidden;font-size:.68rem;font-weight:600;letter-spacing:.02em;line-height:1;text-decoration:none;border:1px solid rgba(255,255,255,.06);transition:transform .15s ease,box-shadow .15s ease,border-color .15s ease}
+.nav-shield:hover{transform:translateY(-1px);border-color:rgba(255,255,255,.15);box-shadow:0 2px 8px rgba(0,0,0,.25)}
+.nav-shield-label,.nav-shield-value{display:inline-flex;align-items:center;gap:4px;padding:4px 8px}
+.nav-shield-label{background:#2d3035;color:#e6e7ea;text-transform:lowercase}
+.nav-shield-value{background:#3a3d44;color:#fff}
+.nav-shield-label svg{opacity:.95;flex-shrink:0}
+.nav-shield-value svg{flex-shrink:0}
+.nav-shield-value img{display:block;flex-shrink:0;border-radius:2px}
+[data-theme="light"] .nav-shield{border-color:rgba(0,0,0,.06)}
+[data-theme="light"] .nav-shield-label{background:#4a4e57;color:#f5f6f8}
+[data-theme="light"] .nav-shield-value{background:#6b6f7a;color:#fff}
+
+/* Per-badge accent overrides applied to the value half. */
+.nav-shield-github .nav-shield-value{background:#1f6feb;color:#fff}
+.nav-shield-github .nav-shield-value svg{fill:#ffd33d}
+.nav-shield-release .nav-shield-value{background:#8B5CF6;color:#fff}
+.nav-shield-release.nav-shield-stale .nav-shield-value{background:#f59e0b;color:#1a1a1a}
+.nav-shield-release.nav-shield-stale .nav-shield-value{animation:nav-shield-pulse 2.4s ease-in-out infinite}
+.nav-shield-blamejs .nav-shield-value{background:#0f172a;color:#e2e8f0}
+[data-theme="light"] .nav-shield-blamejs .nav-shield-value{background:#1e293b}
+
+/* Subtle pulsing dot when running version is behind latest GH release. */
+.nav-shield-dot{display:inline-block;width:5px;height:5px;border-radius:50%;background:currentColor;margin-left:1px;opacity:.8}
+@keyframes nav-shield-pulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.15)}}
+
+@media (max-width:640px){.nav-shield-label{display:none}.nav-shield{border-radius:999px}.nav-shield-value{padding:4px 9px}}
 
 /* Legacy footer class */
 .footer{text-align:center;padding:28px;font-size:.75rem;color:var(--text-muted);border-top:1px solid var(--border-thin);letter-spacing:.04em;opacity:.7}

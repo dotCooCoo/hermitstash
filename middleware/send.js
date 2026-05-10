@@ -2,6 +2,7 @@ var config = require("../lib/config");
 var C = require("../lib/constants");
 var { sendHtml } = require("../lib/template");
 var { getOrigin } = require("../app/security/origin-policy");
+var githubBadges = require("../lib/github-badges");
 
 /**
  * Renders a view with brand + assets + site state auto-injected.
@@ -18,6 +19,10 @@ function send(res, view, data, status) {
       // GitHub release page so visitors can see + audit which version
       // they're talking to.
       version:  C.version,
+      // Cached GH stargazer count + latest release for the navbar
+      // shield pills. Synchronous read; refresh is fired-and-forgotten
+      // in the background and never blocks a render.
+      github:   githubBadges.read(),
     },
     assets: {
       css: C.paths.css + "?v=" + C.cssVersion,
