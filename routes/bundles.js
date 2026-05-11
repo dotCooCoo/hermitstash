@@ -61,7 +61,7 @@ function clearBundleLockout(shareId) {
 
 module.exports = function (app) {
   // Bundle password verification (rate limited to prevent brute force)
-  app.post("/b/:shareId/unlock", b.middleware.rateLimit({ scope: "bundle-unlock", max: 10, windowMs: C.TIME.FIFTEEN_MIN, algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/b/:shareId/unlock", b.middleware.rateLimit({ scope: "bundle-unlock", max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async (req, res) => {
     var shareId = req.params.shareId;
     var bundle = bundlesRepo.findByShareId(shareId);
     if (!bundle || bundle.status !== "complete") return res.status(404).json({ error: "Bundle not found." });
@@ -116,7 +116,7 @@ module.exports = function (app) {
   });
 
   // Request email access code (rate limited)
-  app.post("/b/:shareId/request-code", b.middleware.rateLimit({ scope: "bundle-email-code", max: 5, windowMs: C.TIME.FIVE_MIN, algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/b/:shareId/request-code", b.middleware.rateLimit({ scope: "bundle-email-code", max: 5, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async (req, res) => {
     var bundle = bundlesRepo.findCompleteByShareId(req.params.shareId);
     if (!bundle) return res.status(404).json({ error: "Bundle not found." });
 
@@ -157,7 +157,7 @@ module.exports = function (app) {
   });
 
   // Verify email access code (rate limited)
-  app.post("/b/:shareId/verify-code", b.middleware.rateLimit({ scope: "bundle-verify-code", max: 10, windowMs: C.TIME.FIFTEEN_MIN, algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/b/:shareId/verify-code", b.middleware.rateLimit({ scope: "bundle-verify-code", max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async (req, res) => {
     var bundle = bundlesRepo.findCompleteByShareId(req.params.shareId);
     if (!bundle) return res.status(404).json({ error: "Bundle not found." });
 
@@ -391,7 +391,7 @@ module.exports = function (app) {
   });
 
   // Rename/move a file within a sync bundle (metadata-only, no re-upload)
-  app.post("/bundles/:shareId/file/rename", b.middleware.rateLimit({ scope: "sync-file-rename", max: 100, windowMs: C.TIME.ONE_MIN, algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/bundles/:shareId/file/rename", b.middleware.rateLimit({ scope: "sync-file-rename", max: 100, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
     if (!requireAuth(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle) return res.status(404).json({ error: "Not found." });
@@ -411,7 +411,7 @@ module.exports = function (app) {
   });
 
   // Delete a single file from a sync bundle (soft delete with tombstone)
-  app.post("/bundles/:shareId/file/:fileId/delete", b.middleware.rateLimit({ scope: "sync-file-delete", max: 100, windowMs: C.TIME.ONE_MIN, algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/bundles/:shareId/file/:fileId/delete", b.middleware.rateLimit({ scope: "sync-file-delete", max: 100, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
     if (!requireAuth(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle) return res.status(404).json({ error: "Not found." });

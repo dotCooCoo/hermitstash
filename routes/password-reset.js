@@ -22,7 +22,7 @@ module.exports = function (app) {
   });
 
   // POST /auth/forgot-password — rate limited, generate reset token, send email
-  app.post("/auth/forgot-password", b.middleware.rateLimit({ scope: "password-reset", max: 5, windowMs: C.TIME.FIFTEEN_MIN, algorithm: "fixed-window" }), async function (req, res) {
+  app.post("/auth/forgot-password", b.middleware.rateLimit({ scope: "password-reset", max: 5, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async function (req, res) {
     if (!config.localAuth) return res.status(403).json({ error: "Disabled." });
 
     try {
@@ -53,7 +53,7 @@ module.exports = function (app) {
       // Generate and store hashed token
       var rawToken = b.crypto.generateToken();
       var tokenHash = b.crypto.sha3Hash(rawToken);
-      var expiresAt = new Date(Date.now() + C.TIME.ONE_HOUR).toISOString(); // 1 hour
+      var expiresAt = new Date(Date.now() + C.TIME.hours(1)).toISOString(); // 1 hour
 
       verificationTokensRepo.create({
         userId: user._id,
@@ -104,7 +104,7 @@ module.exports = function (app) {
   });
 
   // POST /auth/reset-password/:token — validate token, update password, clear sessions
-  app.post("/auth/reset-password/:token", b.middleware.rateLimit({ scope: "password-reset-submit", max: 10, windowMs: C.TIME.FIFTEEN_MIN, algorithm: "fixed-window" }), async function (req, res) {
+  app.post("/auth/reset-password/:token", b.middleware.rateLimit({ scope: "password-reset-submit", max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async function (req, res) {
     if (!config.localAuth) return res.status(403).json({ error: "Disabled." });
 
     try {

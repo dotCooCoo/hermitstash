@@ -82,7 +82,7 @@ function walkDiskUsage(dir) {
 // seeds the cache, subsequent requests read the cached number and kick off a
 // fresh walk in the background when the TTL expires.
 var _diskUsageCache = { bytes: 0, computedAt: 0, computing: false };
-var DISK_USAGE_TTL_MS = C.TIME.FIVE_MIN;
+var DISK_USAGE_TTL_MS = C.TIME.minutes(5);
 
 function refreshDiskUsageAsync(dir) {
   if (_diskUsageCache.computing) return;

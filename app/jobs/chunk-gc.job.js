@@ -8,7 +8,7 @@ var storage = require("../../lib/storage");
 var logger = require("../shared/logger");
 var { TIME } = require("../../lib/constants");
 
-var CHUNK_MAX_AGE = TIME.ONE_DAY;
+var CHUNK_MAX_AGE = TIME.days(1);
 
 /**
  * Remove stale bundle-level chunk directories.

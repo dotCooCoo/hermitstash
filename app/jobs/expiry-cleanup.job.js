@@ -38,7 +38,7 @@ async function cleanupExpiredFiles() {
  * and cleans up orphaned chunk directories.
  */
 async function cleanupStaleBundles() {
-  var cutoff = new Date(Date.now() - TIME.ONE_DAY).toISOString();
+  var cutoff = new Date(Date.now() - TIME.days(1)).toISOString();
   var stale = bundles.find({ status: "uploading" }).filter(function (b) { return b.createdAt && b.createdAt < cutoff; });
   var removed = 0;
   for (var i = 0; i < stale.length; i++) {
@@ -75,7 +75,7 @@ async function cleanupStaleBundles() {
  * Clean up tombstoned files (soft-deleted sync bundle files older than 30 days).
  */
 function cleanupTombstones() {
-  var cutoff = new Date(Date.now() - TIME.THIRTY_DAYS).toISOString();
+  var cutoff = new Date(Date.now() - TIME.days(30)).toISOString();
   var tombstones = files.find({}).filter(function (f) { return f.deletedAt && f.deletedAt < cutoff; });
   var removed = 0;
   for (var i = 0; i < tombstones.length; i++) {
@@ -91,7 +91,7 @@ function cleanupTombstones() {
 function cleanupExpiredEnrollmentCodes() {
   try {
     var db = require("../../lib/db");
-    var cutoff = new Date(Date.now() - TIME.TWO_HOURS).toISOString();
+    var cutoff = new Date(Date.now() - TIME.hours(2)).toISOString();
     var expired = db.enrollmentCodes.find({}).filter(function (c) { return c.expiresAt < cutoff || c.status === "redeemed"; });
     for (var i = 0; i < expired.length; i++) db.enrollmentCodes.remove({ _id: expired[i]._id });
     return expired.length;

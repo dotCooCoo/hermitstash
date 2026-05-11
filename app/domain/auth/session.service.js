@@ -29,7 +29,7 @@ async function loginUser(req, userId) {
 async function start2faPending(req, userId) {
   await req.regenerateSession();
   req.session.pendingTotpUserId = userId;
-  req.session.pendingTotpExpires = Date.now() + TIME.FIVE_MIN;
+  req.session.pendingTotpExpires = Date.now() + TIME.minutes(5);
 }
 
 /**

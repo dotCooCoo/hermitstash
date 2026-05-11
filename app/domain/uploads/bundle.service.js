@@ -32,8 +32,8 @@ async function initBundle(opts) {
   var message = opts.message ? String(opts.message).slice(0, 2000) : null;
   var expiryDays = parseInt(opts.expiryDays, 10) || 0;
   var defaultExpiry = opts.defaultExpiryDays || 0;
-  var expiresAt = (expiryDays > 0) ? new Date(Date.now() + expiryDays * TIME.ONE_DAY).toISOString()
-    : (defaultExpiry > 0 ? new Date(Date.now() + defaultExpiry * TIME.ONE_DAY).toISOString() : null);
+  var expiresAt = (expiryDays > 0) ? new Date(Date.now() + expiryDays * TIME.days(1)).toISOString()
+    : (defaultExpiry > 0 ? new Date(Date.now() + defaultExpiry * TIME.days(1)).toISOString() : null);
 
   // Email-gated access: clean and validate allowed emails
   var allowedEmails = null;

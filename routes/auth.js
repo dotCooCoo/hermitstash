@@ -27,7 +27,7 @@ module.exports = function (app) {
     res.redirect(url);
   });
 
-  app.get("/auth/google/callback", b.middleware.rateLimit({ scope: "google-callback", max: 10, windowMs: C.TIME.ONE_MIN, algorithm: "fixed-window" }), async (req, res) => {
+  app.get("/auth/google/callback", b.middleware.rateLimit({ scope: "google-callback", max: 10, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
     try {
       var code = req.query.code;
       if (!code) {
@@ -71,7 +71,7 @@ module.exports = function (app) {
     send(res, "login", { user: null, error: null, localAuth: config.localAuth, googleAuth: !!config.google.clientID, registrationOpen: config.registrationOpen && config.localAuth, passkeyEnabled: config.passkeyEnabled });
   });
 
-  var loginLimiter = b.middleware.rateLimit({ scope: "login", max: 15, windowMs: C.TIME.FIVE_MIN, algorithm: "fixed-window" });
+  var loginLimiter = b.middleware.rateLimit({ scope: "login", max: 15, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" });
   app.post("/auth/login", loginLimiter, async (req, res) => {
     if (!config.localAuth) return res.status(403).json({ error: "Disabled." });
     try {
@@ -82,7 +82,7 @@ module.exports = function (app) {
       // Account lockout check (pre-service, needs DB lookup for timing)
       var existing = usersRepo.findByEmail(input.email);
       if (existing && existing.lockedUntil && new Date(existing.lockedUntil).getTime() > Date.now()) {
-        var lockMinutes = Math.ceil((new Date(existing.lockedUntil).getTime() - Date.now()) / C.TIME.ONE_MIN);
+        var lockMinutes = Math.ceil((new Date(existing.lockedUntil).getTime() - Date.now()) / C.TIME.minutes(1));
         audit.log(audit.ACTIONS.LOGIN_FAILED_BAD_PASSWORD, { targetId: existing._id, targetEmail: input.email, details: "Account locked (" + lockMinutes + " min remaining)", req: req });
         return res.status(403).json({ error: "Account temporarily locked. Try again in " + lockMinutes + " minutes." });
       }
@@ -97,7 +97,7 @@ module.exports = function (app) {
             var attempts = (parseInt(existing.failedLoginAttempts, 10) || 0) + 1;
             var lockUpdate = { failedLoginAttempts: attempts };
             if (attempts >= 10) {
-              lockUpdate.lockedUntil = new Date(Date.now() + C.TIME.THIRTY_MIN).toISOString();
+              lockUpdate.lockedUntil = new Date(Date.now() + C.TIME.minutes(30)).toISOString();
               audit.log(audit.ACTIONS.LOGIN_FAILED_BAD_PASSWORD, { targetId: existing._id, targetEmail: input.email, details: "Account locked after " + attempts + " failed attempts (30 min)", req: req });
             } else {
               audit.log(audit.ACTIONS.LOGIN_FAILED_BAD_PASSWORD, { targetId: existing._id, targetEmail: input.email, details: "Invalid password (attempt " + attempts + "/10)", req: req });
@@ -143,7 +143,7 @@ module.exports = function (app) {
     send(res, "register", { user: null, error: null, googleAuth: !!config.google.clientID });
   });
 
-  app.post("/auth/register", b.middleware.rateLimit({ scope: "register", max: 10, windowMs: C.TIME.FIFTEEN_MIN, algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/auth/register", b.middleware.rateLimit({ scope: "register", max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async (req, res) => {
     if (!config.localAuth || !config.registrationOpen) return res.status(403).json({ error: "Registration is closed." });
     try {
       var body = (await b.parsers.json(req)) || {};

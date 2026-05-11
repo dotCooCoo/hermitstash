@@ -28,7 +28,7 @@ function invalidatePending(bundleShareId, emailHash) {
 }
 
 function cleanupExpired() {
-  var cutoff = new Date(Date.now() - TIME.ONE_HOUR).toISOString();
+  var cutoff = new Date(Date.now() - TIME.hours(1)).toISOString();
   var old = bundleAccessCodes.find({}).filter(function (c) { return c.expiresAt < cutoff; });
   for (var i = 0; i < old.length; i++) bundleAccessCodes.remove({ _id: old[i]._id });
   return old.length;

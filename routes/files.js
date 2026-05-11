@@ -160,7 +160,7 @@ module.exports = function (app) {
   // shareId. No download counter increment — sync clients pull as part of
   // catch-up, not human downloads.
   app.get("/files/:fileId/download",
-    b.middleware.rateLimit({ scope: "sync-file-download", max: 200, windowMs: C.TIME.ONE_MIN, algorithm: "fixed-window" }),
+    b.middleware.rateLimit({ scope: "sync-file-download", max: 200, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }),
     syncGuards.requireSyncAuth({ requireBundle: false }),
     async (req, res) => {
       try {
@@ -203,7 +203,7 @@ module.exports = function (app) {
   // ownership are checked inline because the sync client doesn't send a
   // bundleId in the request (it has only the fileId).
   app.delete("/files/:fileId",
-    b.middleware.rateLimit({ scope: "sync-file-delete", max: 100, windowMs: C.TIME.ONE_MIN, algorithm: "fixed-window" }),
+    b.middleware.rateLimit({ scope: "sync-file-delete", max: 100, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }),
     syncGuards.requireSyncAuth({ requireBundle: false }),
     async (req, res) => {
       try {

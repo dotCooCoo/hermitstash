@@ -229,7 +229,7 @@ app.get("/sitemap.xml", function (req, res) {
 // one-time-use one-hour-expiry, so the lower bound on attacker brute-force
 // stays cosmically out of reach at any reasonable cap. Default stays 5.
 var SYNC_ENROLL_MAX = parseInt(process.env.SYNC_ENROLL_MAX, 10) || 5;
-app.post("/sync/enroll", b.middleware.rateLimit({ scope: "sync-enroll", max: SYNC_ENROLL_MAX, windowMs: C.TIME.FIVE_MIN, algorithm: "fixed-window" }), async function (req, res) {
+app.post("/sync/enroll", b.middleware.rateLimit({ scope: "sync-enroll", max: SYNC_ENROLL_MAX, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async function (req, res) {
   try {
     var body = (await b.parsers.json(req)) || {};
     var code = String(body.code || "").trim().toUpperCase();
@@ -298,7 +298,7 @@ app.post("/sync/enroll", b.middleware.rateLimit({ scope: "sync-enroll", max: SYN
 // no certFingerprint — the cert proof-of-possession IS the second factor),
 // revocation check, and actual cert generation.
 app.post("/sync/renew-cert",
-  b.middleware.rateLimit({ scope: "sync-renew", max: 5, windowMs: C.TIME.FIVE_MIN, algorithm: "fixed-window" }),
+  b.middleware.rateLimit({ scope: "sync-renew", max: 5, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }),
   require("./middleware/sync-guards").requireSyncAuth({ requireBundle: false }),
   async function (req, res) {
     try {
@@ -547,7 +547,7 @@ require("./routes/stash")(app);
 // All pre-checks (scope / ownership / boundBundleId / certFingerprint) run in
 // middleware/sync-guards.js so every /sync/* endpoint inherits the same gate chain.
 app.post("/sync/rename",
-  b.middleware.rateLimit({ scope: "sync-file-rename", max: 100, windowMs: C.TIME.ONE_MIN, algorithm: "fixed-window" }),
+  b.middleware.rateLimit({ scope: "sync-file-rename", max: 100, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }),
   require("./middleware/sync-guards").requireSyncAuth({ requireBundle: true }),
   async function (req, res) {
     try {
@@ -576,67 +576,67 @@ app.onNotFound(function (req, res) {
 app.onError(errorHandler);
 
 // Scheduled tasks
-scheduler.register("file_expiry_cleanup", C.TIME.ONE_HOUR, function () { // hourly
+scheduler.register("file_expiry_cleanup", C.TIME.hours(1), function () { // hourly
   return expiryCleanupJob.cleanupExpiredFiles().catch(function (e) { logger.error("file_expiry_cleanup failed", { error: e.message }); });
 });
-scheduler.register("email_sends_cleanup", C.TIME.ONE_DAY, function () { // daily
+scheduler.register("email_sends_cleanup", C.TIME.days(1), function () { // daily
   try {
-    var cutoff = new Date(Date.now() - C.TIME.NINETY_DAYS).toISOString(); // 90 days
+    var cutoff = new Date(Date.now() - C.TIME.days(90)).toISOString(); // 90 days
     db.rawExec("DELETE FROM email_sends WHERE createdAt < ?", cutoff);
   } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
-scheduler.register("expired_tokens_cleanup", C.TIME.ONE_DAY, function () { // daily
+scheduler.register("expired_tokens_cleanup", C.TIME.days(1), function () { // daily
   try {
     var now = new Date().toISOString();
     db.rawExec("DELETE FROM verification_tokens WHERE expiresAt < ?", now);
   } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
-scheduler.register("expired_bundles_cleanup", C.TIME.ONE_HOUR, function () { // hourly
+scheduler.register("expired_bundles_cleanup", C.TIME.hours(1), function () { // hourly
   try {
     db.rawExec("DELETE FROM bundles WHERE status = 'uploading' AND createdAt < ?",
-      new Date(Date.now() - C.TIME.ONE_DAY).toISOString()); // stale uploads > 24h
+      new Date(Date.now() - C.TIME.days(1)).toISOString()); // stale uploads > 24h
   } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
-scheduler.register("chunk_gc", C.TIME.ONE_HOUR, function () { // hourly
+scheduler.register("chunk_gc", C.TIME.hours(1), function () { // hourly
   try { chunkGcJob.cleanupStaleChunks(); } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
-scheduler.register("expired_invites_cleanup", C.TIME.ONE_DAY, function () { // daily
+scheduler.register("expired_invites_cleanup", C.TIME.days(1), function () { // daily
   try {
     var now = new Date().toISOString();
     db.rawExec("DELETE FROM invites WHERE status = 'pending' AND expiresAt < ?", now);
   } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
-scheduler.register("tombstone_cleanup", C.TIME.ONE_DAY, function () { // daily
+scheduler.register("tombstone_cleanup", C.TIME.days(1), function () { // daily
   try { expiryCleanupJob.cleanupTombstones(); } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
-scheduler.register("expired_enrollment_codes_cleanup", C.TIME.ONE_HOUR, function () { // hourly
+scheduler.register("expired_enrollment_codes_cleanup", C.TIME.hours(1), function () { // hourly
   try { expiryCleanupJob.cleanupExpiredEnrollmentCodes(); } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
-scheduler.register("expired_access_codes_cleanup", C.TIME.ONE_HOUR, function () { // hourly
+scheduler.register("expired_access_codes_cleanup", C.TIME.hours(1), function () { // hourly
   try { expiryCleanupJob.cleanupExpiredAccessCodes(); } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
-scheduler.register("bundle_lockout_cleanup", C.TIME.ONE_HOUR, function () { // hourly
+scheduler.register("bundle_lockout_cleanup", C.TIME.hours(1), function () { // hourly
   // Remove lockout rows that haven't seen an attempt in 24h.
   // lastAttempt is a raw ISO8601 string, safe to compare in SQL.
   try {
-    var cutoff = new Date(Date.now() - C.TIME.ONE_DAY).toISOString();
+    var cutoff = new Date(Date.now() - C.TIME.days(1)).toISOString();
     db.rawExec("DELETE FROM bundle_access_lockouts WHERE lastAttempt < ?", cutoff);
   } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
-scheduler.register("orphan_storage_cleanup", C.TIME.ONE_DAY, async function () { // daily
+scheduler.register("orphan_storage_cleanup", C.TIME.days(1), async function () { // daily
   try {
     var local = orphanCleanupJob.scanLocalOrphans();
     var deleted = orphanCleanupJob.deleteLocalOrphans(local.orphans);
     if (deleted > 0) logger.info("[orphan-cleanup] Removed " + deleted + " orphaned local files");
   } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
-scheduler.register("cert_expiry_check", C.TIME.ONE_DAY, function () { // daily
+scheduler.register("cert_expiry_check", C.TIME.days(1), function () { // daily
   return certExpiryJob.run().catch(function (e) { logger.error("cert_expiry_check failed", { error: e.message }); });
 });
-scheduler.register("incremental_vacuum", C.TIME.ONE_DAY, function () { // daily
+scheduler.register("incremental_vacuum", C.TIME.days(1), function () { // daily
   try { db.rawExec("PRAGMA incremental_vacuum(100)"); } catch (_e) { /* reclaim ~100 pages — best-effort */ }
 });
-scheduler.register("shm_usage_monitor", C.TIME.FIVE_MIN, function () { // every 5 minutes
+scheduler.register("shm_usage_monitor", C.TIME.minutes(5), function () { // every 5 minutes
   if (process.platform === "win32") return; // statfsSync not available on Windows
   var tmpdir = process.env.HERMITSTASH_TMPDIR || (fs.existsSync("/dev/shm") ? "/dev/shm" : null);
   if (!tmpdir) return;
@@ -653,7 +653,7 @@ scheduler.register("shm_usage_monitor", C.TIME.FIVE_MIN, function () { // every 
   } catch (_e) {} // statfsSync not available on all platforms
 });
 if (config.backup && config.backup.enabled) {
-  scheduler.register("backup", config.backup.schedule || C.TIME.ONE_DAY, function () {
+  scheduler.register("backup", config.backup.schedule || C.TIME.days(1), function () {
     return backupJob.run();
   }, { skipInitial: true, baseline: config.backup.timeOfDay, timezone: config.backup.timezone });
 }
@@ -815,7 +815,7 @@ function reloadTlsContext() {
 if (tlsEnabled) {
   // Poll cadence: 1 minute (was 1 hour pre-v1.9.4). Spec §12.Q2 — cheap
   // polling is fine and shortens the ACME-renewal-to-active-key window.
-  fs.watchFile(TLS_CERT, { interval: C.TIME.ONE_MIN }, reloadTlsContext);
+  fs.watchFile(TLS_CERT, { interval: C.TIME.minutes(1) }, reloadTlsContext);
   // SIGHUP triggers an immediate reload — used by scripts/tls-key-seal.js
   // --reload after manually sealing a freshly-rotated key.
   process.on("SIGHUP", function () {
@@ -974,7 +974,7 @@ server.on("upgrade", function (req, socket, head) {
 
   // Inbound message rate limiting
   var msgCount = 0;
-  var msgResetTimer = setInterval(function () { msgCount = 0; }, C.TIME.ONE_MIN);
+  var msgResetTimer = setInterval(function () { msgCount = 0; }, C.TIME.minutes(1));
   var violations = 0;
 
   // Catch-up: send events since the given seq

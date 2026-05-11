@@ -17,7 +17,7 @@ function createVerificationToken(userId) {
 
   var rawToken = b.crypto.generateToken();
   var tokenHash = b.crypto.sha3Hash(rawToken);
-  var expiresAt = new Date(Date.now() + C.TIME.ONE_DAY).toISOString(); // 24 hours
+  var expiresAt = new Date(Date.now() + C.TIME.days(1)).toISOString(); // 24 hours
 
   verificationTokensRepo.create({
     userId: userId,
@@ -107,7 +107,7 @@ module.exports = function (app) {
   });
 
   // Resend verification email (rate limited to prevent email quota abuse)
-  app.post("/auth/resend-verification", b.middleware.rateLimit({ scope: "resend-verify", max: 3, windowMs: C.TIME.FIVE_MIN, algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/auth/resend-verification", b.middleware.rateLimit({ scope: "resend-verify", max: 3, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async (req, res) => {
     try {
       var body = (await b.parsers.json(req)) || {};
       var emailCheck = validateEmail(body.email);

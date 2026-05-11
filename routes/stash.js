@@ -103,7 +103,7 @@ module.exports = function (app) {
   });
 
   // Stash password unlock
-  app.post("/stash/:slug/unlock", b.middleware.rateLimit({ scope: "stash-unlock", max: 10, windowMs: TIME.FIFTEEN_MIN, algorithm: "fixed-window" }), async function (req, res) {
+  app.post("/stash/:slug/unlock", b.middleware.rateLimit({ scope: "stash-unlock", max: 10, windowMs: TIME.minutes(15), algorithm: "fixed-window" }), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
@@ -135,7 +135,7 @@ module.exports = function (app) {
   });
 
   // Request email access code for stash page
-  app.post("/stash/:slug/request-code", b.middleware.rateLimit({ scope: "stash-email-code", max: 5, windowMs: TIME.FIVE_MIN, algorithm: "fixed-window" }), async function (req, res) {
+  app.post("/stash/:slug/request-code", b.middleware.rateLimit({ scope: "stash-email-code", max: 5, windowMs: TIME.minutes(5), algorithm: "fixed-window" }), async function (req, res) {
     var stash = stashRepo.findBySlug(req.params.slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
 
@@ -168,7 +168,7 @@ module.exports = function (app) {
   });
 
   // Verify email access code for stash page
-  app.post("/stash/:slug/verify-code", b.middleware.rateLimit({ scope: "stash-verify-code", max: 10, windowMs: TIME.FIFTEEN_MIN, algorithm: "fixed-window" }), async function (req, res) {
+  app.post("/stash/:slug/verify-code", b.middleware.rateLimit({ scope: "stash-verify-code", max: 10, windowMs: TIME.minutes(15), algorithm: "fixed-window" }), async function (req, res) {
     var stash = stashRepo.findBySlug(req.params.slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
 
@@ -197,7 +197,7 @@ module.exports = function (app) {
   });
 
   // Init bundle from stash page
-  app.post("/stash/:slug/init", b.middleware.rateLimit({ scope: "drop-init", max: 20, windowMs: TIME.ONE_MIN, algorithm: "fixed-window" }), async function (req, res) {
+  app.post("/stash/:slug/init", b.middleware.rateLimit({ scope: "drop-init", max: 20, windowMs: TIME.minutes(1), algorithm: "fixed-window" }), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
@@ -245,7 +245,7 @@ module.exports = function (app) {
   });
 
   // Upload single file to stash bundle
-  app.post("/stash/:slug/file/:bundleId", b.middleware.rateLimit({ scope: "upload", max: 200, windowMs: TIME.ONE_MIN, algorithm: "fixed-window" }), async function (req, res) {
+  app.post("/stash/:slug/file/:bundleId", b.middleware.rateLimit({ scope: "upload", max: 200, windowMs: TIME.minutes(1), algorithm: "fixed-window" }), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
@@ -276,7 +276,7 @@ module.exports = function (app) {
   });
 
   // Chunked upload for stash
-  app.post("/stash/:slug/chunk/:bundleId", b.middleware.rateLimit({ scope: "chunk", max: 500, windowMs: TIME.ONE_MIN, algorithm: "fixed-window" }), async function (req, res) {
+  app.post("/stash/:slug/chunk/:bundleId", b.middleware.rateLimit({ scope: "chunk", max: 500, windowMs: TIME.minutes(1), algorithm: "fixed-window" }), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
@@ -307,7 +307,7 @@ module.exports = function (app) {
   });
 
   // Finalize stash bundle
-  app.post("/stash/:slug/finalize/:bundleId", b.middleware.rateLimit({ scope: "finalize", max: 20, windowMs: TIME.ONE_MIN, algorithm: "fixed-window" }), async function (req, res) {
+  app.post("/stash/:slug/finalize/:bundleId", b.middleware.rateLimit({ scope: "finalize", max: 20, windowMs: TIME.minutes(1), algorithm: "fixed-window" }), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
@@ -762,7 +762,7 @@ module.exports = function (app) {
         bundleId: null,
         createdBy: req.user._id,
         status: "pending",
-        expiresAt: new Date(Date.now() + TIME.ONE_HOUR).toISOString(), // 1 hour
+        expiresAt: new Date(Date.now() + TIME.hours(1)).toISOString(), // 1 hour
         createdAt: new Date().toISOString(),
       });
 
@@ -785,7 +785,7 @@ module.exports = function (app) {
     });
 
     var now = new Date();
-    var day30 = new Date(now.getTime() + TIME.THIRTY_DAYS);
+    var day30 = new Date(now.getTime() + TIME.days(30));
     var result = keys.map(function (k) {
       var status = "no-cert";
       if (k.certExpiresAt) {
@@ -808,7 +808,7 @@ module.exports = function (app) {
   });
 
   // Re-issue client certificate for an existing API key (repairs broken mTLS without new enrollment)
-  app.post("/admin/stash/:id/reissue-cert", b.middleware.rateLimit({ scope: "cert-reissue", max: 5, windowMs: TIME.FIVE_MIN, algorithm: "fixed-window" }), async function (req, res) {
+  app.post("/admin/stash/:id/reissue-cert", b.middleware.rateLimit({ scope: "cert-reissue", max: 5, windowMs: TIME.minutes(5), algorithm: "fixed-window" }), async function (req, res) {
     if (!requireAdmin(req, res)) return;
     try {
       var body = (await b.parsers.json(req)) || {};
@@ -841,7 +841,7 @@ module.exports = function (app) {
         status: "pending",
         reissue: true,
         originalKeyId: apiKeyId,
-        expiresAt: new Date(Date.now() + TIME.ONE_HOUR).toISOString(),
+        expiresAt: new Date(Date.now() + TIME.hours(1)).toISOString(),
         createdAt: new Date().toISOString(),
       });
 

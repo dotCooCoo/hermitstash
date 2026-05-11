@@ -23,8 +23,8 @@ async function run() {
   if (allKeys.length === 0) return { checked: 0 };
 
   var now = new Date();
-  var day30 = new Date(now.getTime() + TIME.THIRTY_DAYS);
-  var day7 = new Date(now.getTime() + TIME.SEVEN_DAYS);
+  var day30 = new Date(now.getTime() + TIME.days(30));
+  var day7 = new Date(now.getTime() + TIME.days(7));
 
   var expired = 0, expiringSoon = 0, renewed = 0;
 
@@ -45,7 +45,7 @@ async function run() {
       logger.error("[cert-expiry] Client certificate expires in less than 7 days", { prefix: key.prefix, expiresAt: key.certExpiresAt });
       try {
         var webhook = require("../domain/integrations/webhook.service");
-        webhook.fire("cert_expiring", { prefix: key.prefix, expiresAt: key.certExpiresAt, daysLeft: Math.ceil((expiresAt - now) / TIME.ONE_DAY) });
+        webhook.fire("cert_expiring", { prefix: key.prefix, expiresAt: key.certExpiresAt, daysLeft: Math.ceil((expiresAt - now) / TIME.days(1)) });
       } catch (_e) { /* webhook dispatch is best-effort — core alert already logged above */ }
     }
 
@@ -80,7 +80,7 @@ async function run() {
           status: "pending",
           reissue: true,
           originalKeyId: key._id,
-          expiresAt: new Date(Date.now() + TIME.SEVEN_DAYS).toISOString(), // 7-day code validity for renewals
+          expiresAt: new Date(Date.now() + TIME.days(7)).toISOString(), // 7-day code validity for renewals
           createdAt: new Date().toISOString(),
         });
 

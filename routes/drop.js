@@ -37,7 +37,7 @@ module.exports = function (app) {
   });
 
   // Init bundle
-  app.post("/drop/init", b.middleware.rateLimit({ scope: "drop-init", max: 20, windowMs: C.TIME.ONE_MIN, algorithm: "fixed-window" }), requireScope("upload"), async (req, res) => {
+  app.post("/drop/init", b.middleware.rateLimit({ scope: "drop-init", max: 20, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), requireScope("upload"), async (req, res) => {
     if (!config.publicUpload) return res.status(403).json({ error: "Disabled." });
     // blamejs apiEncrypt populates req.body with the decrypted plaintext;
     // fall through to parseJson(req) only when no upstream middleware has
@@ -64,7 +64,7 @@ module.exports = function (app) {
   });
 
   // Upload single file
-  app.post("/drop/file/:bundleId", b.middleware.rateLimit({ scope: "upload", max: 200, windowMs: C.TIME.ONE_MIN, algorithm: "fixed-window" }), requireScope("upload"), async (req, res) => {
+  app.post("/drop/file/:bundleId", b.middleware.rateLimit({ scope: "upload", max: 200, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), requireScope("upload"), async (req, res) => {
     if (!config.publicUpload) return res.status(403).json({ error: "Disabled." });
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
@@ -86,7 +86,7 @@ module.exports = function (app) {
       var result = await handleFileUpload({
         bundle: bundle, file: file, fields: fields, limits: limits,
         uploadedBy: bundle.ownerId || "public", uploaderEmail: bundle.uploaderEmail,
-        expiresAt: config.fileExpiryDays > 0 ? new Date(Date.now() + config.fileExpiryDays * C.TIME.ONE_DAY).toISOString() : null,
+        expiresAt: config.fileExpiryDays > 0 ? new Date(Date.now() + config.fileExpiryDays * C.TIME.days(1)).toISOString() : null,
         req: req,
       });
       if (result.error) return res.status(400).json({ error: result.error });
@@ -98,7 +98,7 @@ module.exports = function (app) {
   });
 
   // Chunked upload
-  app.post("/drop/chunk/:bundleId", b.middleware.rateLimit({ scope: "chunk", max: 500, windowMs: C.TIME.ONE_MIN, algorithm: "fixed-window" }), requireScope("upload"), async (req, res) => {
+  app.post("/drop/chunk/:bundleId", b.middleware.rateLimit({ scope: "chunk", max: 500, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), requireScope("upload"), async (req, res) => {
     if (!config.publicUpload) return res.status(403).json({ error: "Disabled." });
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
@@ -126,7 +126,7 @@ module.exports = function (app) {
   });
 
   // Finalize bundle
-  app.post("/drop/finalize/:bundleId", b.middleware.rateLimit({ scope: "finalize", max: 20, windowMs: C.TIME.ONE_MIN, algorithm: "fixed-window" }), requireScope("upload"), async (req, res) => {
+  app.post("/drop/finalize/:bundleId", b.middleware.rateLimit({ scope: "finalize", max: 20, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), requireScope("upload"), async (req, res) => {
     var existing = bundlesRepo.findById(req.params.bundleId);
     if (!existing) return res.status(404).json({ error: "Bundle not found." });
     if (existing.stashId && !(req.apiKey && req.apiKey.boundStashId === existing.stashId)) {

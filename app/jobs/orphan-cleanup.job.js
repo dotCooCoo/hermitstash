@@ -59,7 +59,7 @@ function scanLocalOrphans() {
         var rel = path.relative(uploadDir, full).replace(/\\/g, "/");
         // Grace period: skip files modified in the last 5 minutes to avoid
         // racing with in-flight uploads that haven't inserted a DB record yet
-        if (!knownPaths.has(rel) && (Date.now() - stat.mtimeMs > TIME.FIVE_MIN)) {
+        if (!knownPaths.has(rel) && (Date.now() - stat.mtimeMs > TIME.minutes(5))) {
           orphans.push({ path: full, relativePath: rel, size: stat.size });
         }
       }
