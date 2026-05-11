@@ -172,6 +172,14 @@ jobs:
             fs.writeFileSync('sbom.cdx.json', JSON.stringify(s, null, 2));
           "
           echo "[sbom] wrote sbom.cdx.json ($(wc -c < sbom.cdx.json) bytes, specVersion=1.6)"
+          # v0.8.77 — emit the vendored-deps CycloneDX alongside. This is
+          # the SBOM downstream scanners actually need: the primary
+          # sbom.cdx.json describes the npm package's (empty) runtime-dep
+          # set; sbom.vendored.cdx.json describes the actual code shipping
+          # inside the tarball (lib/vendor/*). OSV-Scanner runs against
+          # this in the next step.
+          node scripts/build-vendored-sbom.js > sbom.vendored.cdx.json
+          echo "[sbom] wrote sbom.vendored.cdx.json ($(wc -c < sbom.vendored.cdx.json) bytes; $(grep -c '"bom-ref"' sbom.vendored.cdx.json) components)"
           # Refuse the publish if any runtime dep snuck in. The framework's
           # zero-dep contract says lib/vendor/ holds everything; runtime
           # deps in package.json would silently break that.
@@ -202,6 +210,7 @@ jobs:
         with:
           scan-args: |-
             --sbom=sbom.cdx.json
+            --sbom=sbom.vendored.cdx.json
             -r lib/vendor/
 
       - name: Sign SBOM with cosign (sigstore keyless)

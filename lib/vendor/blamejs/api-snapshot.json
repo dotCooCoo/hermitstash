@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.8.76",
-  "createdAt": "2026-05-11T00:17:59.094Z",
+  "frameworkVersion": "0.8.77",
+  "createdAt": "2026-05-11T02:56:55.280Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -4615,6 +4615,27 @@
                 }
               }
             },
+            "ca-aadc": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "ccpa": {
               "type": "object",
               "members": {
@@ -4636,7 +4657,91 @@
                 }
               }
             },
+            "co-cpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "cra": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ct-sb3": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ctdpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "de-dpdpa": {
               "type": "object",
               "members": {
                 "citation": {
@@ -4762,7 +4867,91 @@
                 }
               }
             },
+            "ia-icdpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "in-indpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ky-kcdpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "lgpd-br": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "mn-mncdpa": {
               "type": "object",
               "members": {
                 "citation": {
@@ -4804,6 +4993,69 @@
                 }
               }
             },
+            "mt-cdpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ne-dpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nh-nhpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "nis2": {
               "type": "object",
               "members": {
@@ -4825,7 +5077,70 @@
                 }
               }
             },
+            "nj-njdpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nv-sb370": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "nydfs-500": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "or-cpa": {
               "type": "object",
               "members": {
                 "citation": {
@@ -4951,6 +5266,27 @@
                 }
               }
             },
+            "ri-ricpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "soc2": {
               "type": "object",
               "members": {
@@ -4993,7 +5329,112 @@
                 }
               }
             },
+            "tdpsa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "tn-tipa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "tx-cubi": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ucpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "uk-gdpr": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "vcdpa": {
               "type": "object",
               "members": {
                 "citation": {
@@ -5237,6 +5678,10 @@
               "type": "function",
               "arity": 2
             },
+            "fundamentalRightsImpactAssessment": {
+              "type": "function",
+              "arity": 1
+            },
             "gpai": {
               "type": "object",
               "members": {
@@ -5249,6 +5694,10 @@
                   "arity": 1
                 },
                 "listObligations": {
+                  "type": "function",
+                  "arity": 1
+                },
+                "trainingDataSummary": {
                   "type": "function",
                   "arity": 1
                 }
@@ -5863,6 +6312,47 @@
     "contentCredentials": {
       "type": "object",
       "members": {
+        "COSE_ALGS": {
+          "type": "object",
+          "members": {
+            "ed25519": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "es256": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "es384": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "es512": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "ml-dsa-44": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "ml-dsa-65": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "ml-dsa-87": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "slh-dsa-sha2-128s": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "slh-dsa-shake-256f": {
+              "type": "primitive",
+              "valueType": "number"
+            }
+          }
+        },
         "ContentCredentialsError": {
           "type": "function",
           "arity": 4
@@ -5880,6 +6370,10 @@
           "arity": 1
         },
         "sign": {
+          "type": "function",
+          "arity": 2
+        },
+        "signCose": {
           "type": "function",
           "arity": 2
         },
@@ -5923,6 +6417,10 @@
             "CraReportError": {
               "type": "function",
               "arity": 4
+            },
+            "conformityAssessment": {
+              "type": "function",
+              "arity": 1
             },
             "create": {
               "type": "function",
@@ -6230,7 +6728,15 @@
           "type": "function",
           "arity": 2
         },
+        "sealDoc": {
+          "type": "function",
+          "arity": 2
+        },
         "sealRow": {
+          "type": "function",
+          "arity": 2
+        },
+        "unsealDoc": {
           "type": "function",
           "arity": 2
         },
@@ -6985,9 +7491,17 @@
           "type": "function",
           "arity": 1
         },
+        "listStateRules": {
+          "type": "function",
+          "arity": 0
+        },
         "memoryTicketStore": {
           "type": "function",
           "arity": 0
+        },
+        "stateRules": {
+          "type": "function",
+          "arity": 1
         }
       }
     },
@@ -25657,10 +26171,27 @@
     "mcp": {
       "type": "object",
       "members": {
+        "MCP_PROTOCOL_VERSIONS_ACCEPTED": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "assertProtocolVersion": {
+          "type": "function",
+          "arity": 2
+        },
         "capability": {
           "type": "object",
           "members": {
             "create": {
+              "type": "function",
+              "arity": 1
+            }
+          }
+        },
+        "elicitation": {
+          "type": "object",
+          "members": {
+            "guard": {
               "type": "function",
               "arity": 1
             }
@@ -25673,6 +26204,15 @@
         "refuse": {
           "type": "function",
           "arity": 4
+        },
+        "sampling": {
+          "type": "object",
+          "members": {
+            "guard": {
+              "type": "function",
+              "arity": 1
+            }
+          }
         },
         "serverGuard": {
           "type": "function",
@@ -25841,6 +26381,10 @@
           "type": "function",
           "arity": 1
         },
+        "protectedResourceMetadata": {
+          "type": "function",
+          "arity": 1
+        },
         "rateLimit": {
           "type": "function",
           "arity": 1
@@ -25874,6 +26418,10 @@
           "arity": 1
         },
         "requireStepUp": {
+          "type": "function",
+          "arity": 1
+        },
+        "scimServer": {
           "type": "function",
           "arity": 1
         },
@@ -26648,6 +27196,27 @@
               "arity": 1
             }
           }
+        }
+      }
+    },
+    "nistCrosswalk": {
+      "type": "object",
+      "members": {
+        "NistCrosswalkError": {
+          "type": "function",
+          "arity": 4
+        },
+        "controls": {
+          "type": "function",
+          "arity": 1
+        },
+        "coverage": {
+          "type": "function",
+          "arity": 1
+        },
+        "listCatalogs": {
+          "type": "function",
+          "arity": 0
         }
       }
     },
