@@ -1,0 +1,90 @@
+name: ClusterFuzzLite batch fuzzing
+
+# Deep continuous fuzzing on a daily schedule. Each target runs for
+# 30 minutes — long enough to explore paths the PR-time 60-second
+# budget can't reach. Findings get uploaded as crash artifacts; the
+# regression corpus persists across runs via the same artifact path.
+#
+# See `cflite_pr.yml` for why we invoke jazzer.js directly instead
+# of routing through the broken-for-JS CFLite v1 action wrapper.
+
+on:
+  schedule:
+    - cron: '17 5 * * *'   # daily 05:17 UTC
+  workflow_dispatch:
+    inputs:
+      fuzz_seconds:
+        description: 'Per-target fuzz budget (seconds)'
+        required: false
+        default: '1800'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cflite-batch-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fuzz:
+    name: ClusterFuzzLite batch ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - safe-json
+          - safe-url
+          - safe-jsonpath
+          - guard-csv
+          - guard-html
+          - guard-json
+          - guard-yaml
+          - guard-xml
+          - guard-svg
+          - guard-markdown
+          - guard-email
+          - parsers__safe-toml
+          - parsers__safe-yaml
+          - parsers__safe-xml
+          - parsers__safe-ini
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.0.0
+        with:
+          node-version: '24'
+
+      - name: Install jazzer.js
+        run: npm install --no-save @jazzer.js/core@^2
+
+      - name: Fuzz ${{ matrix.target }}
+        env:
+          FUZZ_TIME: ${{ inputs.fuzz_seconds || '1800' }}
+        run: |
+          set -e
+          harness="fuzz/${{ matrix.target }}.fuzz.js"
+          corpus="fuzz/${{ matrix.target }}_seed_corpus"
+          echo "::group::jazzer fuzz $harness ($FUZZ_TIME s)"
+          if [ -d "$corpus" ]; then
+            npx --yes jazzer "$harness" "$corpus" -- \
+              -max_total_time="$FUZZ_TIME" -error_exitcode=1 -timeout=30
+          else
+            npx --yes jazzer "$harness" -- \
+              -max_total_time="$FUZZ_TIME" -error_exitcode=1 -timeout=30
+          fi
+          echo "::endgroup::"
+
+      - name: Upload crash artifact
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: fuzz-batch-crash-${{ matrix.target }}
+          path: |
+            crash-*
+            leak-*
+            timeout-*
+          if-no-files-found: ignore

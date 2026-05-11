@@ -156,9 +156,17 @@ jobs:
         # patterns, and pinning would silently miss improvements to
         # the detection set. Aligns with the framework's forward-
         # looking-defaults policy.
+        # Pass GITHUB_TOKEN to the GH API curl — unauthenticated rate
+        # limit is 60/hour per runner IP (shared across the whole
+        # actions fleet), and busy days hit 403 mid-install. The
+        # token-authenticated rate limit is 5000/hour per repo, which
+        # we don't realistically approach.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          GITLEAKS_VERSION=$(curl -fsSL https://api.github.com/repos/gitleaks/gitleaks/releases/latest \
+          GITLEAKS_VERSION=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            https://api.github.com/repos/gitleaks/gitleaks/releases/latest \
             | grep -oP '"tag_name":\s*"v\K[^"]+' | head -1)
           if [ -z "$GITLEAKS_VERSION" ]; then
             echo "::error::Could not resolve latest gitleaks release tag from GitHub API"

@@ -1,6 +1,6 @@
 {
   "name": "@blamejs/core",
-  "version": "0.8.68",
+  "version": "0.8.76",
   "description": "The Node framework that owns its stack.",
   "license": "Apache-2.0",
   "author": "blamejs contributors",
@@ -66,10 +66,11 @@
     "MIGRATING.md",
     "NOTICE",
     "README.md",
-    "sbom.cyclonedx.json"
+    "sbom.cdx.json"
   ],
   "scripts": {
     "test": "node test/smoke.js",
+    "fuzz": "npx --yes @jazzer.js/core fuzz/safe-json.fuzz.js -- -max_total_time=60",
     "prepack": "node scripts/check-pack-against-gitignore.js",
     "check:vendor-currency": "node scripts/check-vendor-currency.js"
   },

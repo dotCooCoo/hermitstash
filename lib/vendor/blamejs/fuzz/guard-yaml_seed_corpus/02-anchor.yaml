@@ -1,0 +1,2 @@
+a: &anchor [1, 2]
+b: *anchor

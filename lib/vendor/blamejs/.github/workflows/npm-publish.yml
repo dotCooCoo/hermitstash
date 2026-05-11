@@ -145,21 +145,38 @@ jobs:
           npm install --no-package-lock --omit=dev --install-links
           node test/e2e.js
 
-      - name: Generate CycloneDX SBOM
+      - name: Generate CycloneDX SBOM (1.6)
         # `npm sbom` ships with npm 10+ (Node 24 LTS). Generates a
-        # CycloneDX 1.5 JSON file from package.json + the lockfile.
+        # CycloneDX JSON file from package.json + the lockfile.
         # blamejs has zero npm runtime deps so the SBOM is small —
         # the value is the discoverability signal (operators / supply-
         # chain scanners can verify there's nothing hidden) plus the
         # CI gate that catches a leaked dep being added.
+        #
+        # npm 10's `npm sbom --sbom-format cyclonedx` emits CycloneDX
+        # 1.5 by default; we post-process the specVersion to 1.6 so
+        # the SBOM tracks the latest CycloneDX-supported metadata
+        # surface (lifecycle phases, license expressions, evidence
+        # blocks). The schema migration from 1.5 → 1.6 is additive;
+        # no field renames break consumers.
         run: |
-          npm sbom --sbom-format cyclonedx --omit dev > sbom.cyclonedx.json
-          echo "[sbom] wrote sbom.cyclonedx.json ($(wc -c < sbom.cyclonedx.json) bytes)"
+          npm sbom --sbom-format cyclonedx --omit dev > sbom.cdx.json
+          node -e "
+            var fs = require('fs');
+            var s = JSON.parse(fs.readFileSync('sbom.cdx.json', 'utf8'));
+            s.specVersion = '1.6';
+            // CycloneDX 1.6 introduces \`metadata.lifecycles\` —
+            // mark this artifact as the post-build BOM.
+            s.metadata = s.metadata || {};
+            s.metadata.lifecycles = [{ phase: 'build' }];
+            fs.writeFileSync('sbom.cdx.json', JSON.stringify(s, null, 2));
+          "
+          echo "[sbom] wrote sbom.cdx.json ($(wc -c < sbom.cdx.json) bytes, specVersion=1.6)"
           # Refuse the publish if any runtime dep snuck in. The framework's
           # zero-dep contract says lib/vendor/ holds everything; runtime
           # deps in package.json would silently break that.
           RUNTIME_DEPS=$(node -e "
-            var s = JSON.parse(require('fs').readFileSync('sbom.cyclonedx.json', 'utf8'));
+            var s = JSON.parse(require('fs').readFileSync('sbom.cdx.json', 'utf8'));
             var comps = (s.components || []).filter(function (c) {
               return c.scope !== 'optional' && c.scope !== 'excluded' &&
                      c['bom-ref'] !== s.metadata.component['bom-ref'];
@@ -171,6 +188,44 @@ jobs:
             echo "::error::blamejs ships zero npm runtime deps — vendor any new dep into lib/vendor/."
             exit 1
           fi
+
+      - name: Vulnerability scan (OSV-Scanner)
+        # Scans the SBOM (which covers the published surface) plus
+        # lib/vendor/ (which covers the bundled-but-not-in-SBOM
+        # surface — the framework's vendored deps don't appear in
+        # `npm sbom` because they're CommonJS bundles, not npm deps).
+        # Default v2 behavior: exit 1 on ANY OSV / CISA-KEV finding.
+        # Stricter than v1's `--fail-on-vuln=HIGH` (which v2 dropped),
+        # appropriate for a zero-npm-runtime-dep framework where any
+        # surfaced vuln means a vendor refresh is overdue.
+        uses: google/osv-scanner-action/osv-scanner-action@c51854704019a247608d928f370c98740469d4b5 # v2.3.5
+        with:
+          scan-args: |-
+            --sbom=sbom.cdx.json
+            -r lib/vendor/
+
+      - name: Sign SBOM with cosign (sigstore keyless)
+        if: ${{ !inputs.dry_run && steps.version.outputs.is_tag == 'true' }}
+        # Sigstore keyless signing — the workflow's OIDC token (line
+        # 51 — `id-token: write`) is exchanged with Sigstore's Fulcio
+        # for a short-lived cert bound to the workflow identity, then
+        # cosign signs the SBOM. Verifiers reach for the Rekor
+        # transparency log entry (cosign emits a .sig + the
+        # transparency-log inclusion proof in the .sigstore bundle).
+        # Operators verify the signed SBOM via:
+        #   cosign verify-blob \
+        #     --certificate-identity-regexp "https://github.com/blamejs/blamejs/.github/workflows/npm-publish.yml@.*" \
+        #     --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+        #     --bundle sbom.cdx.json.sigstore \
+        #     sbom.cdx.json
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Cosign sign-blob SBOM
+        if: ${{ !inputs.dry_run && steps.version.outputs.is_tag == 'true' }}
+        run: |
+          cosign sign-blob --yes \
+            --bundle sbom.cdx.json.sigstore \
+            sbom.cdx.json
+          echo "[cosign-sbom] signed; bundle at sbom.cdx.json.sigstore"
 
       - name: Attach SBOM as release asset
         if: ${{ !inputs.dry_run && steps.version.outputs.is_tag == 'true' }}
@@ -191,7 +246,7 @@ jobs:
           # Any other failure is logged but does not fail the publish —
           # the npm package is the canonical artifact.
           set +e
-          OUT=$(gh release upload "$TAG" sbom.cyclonedx.json --repo "$GITHUB_REPOSITORY" --clobber 2>&1)
+          OUT=$(gh release upload "$TAG" sbom.cdx.json sbom.cdx.json.sigstore --repo "$GITHUB_REPOSITORY" --clobber 2>&1)
           STATUS=$?
           set -e
           if [ "$STATUS" -eq 0 ]; then
@@ -200,7 +255,7 @@ jobs:
             echo "[sbom-attach] upload failed (status=$STATUS):"
             echo "$OUT"
             if echo "$OUT" | grep -qi "immutable release"; then
-              echo "::warning::GitHub repo has immutable releases enabled — SBOM not attached to GH release. The SBOM is still bundled in the npm tarball at sbom.cyclonedx.json (npm install @blamejs/core && cat node_modules/@blamejs/core/sbom.cyclonedx.json)."
+              echo "::warning::GitHub repo has immutable releases enabled — SBOM not attached to GH release. The SBOM is still bundled in the npm tarball at sbom.cdx.json (npm install @blamejs/core && cat node_modules/@blamejs/core/sbom.cdx.json)."
             else
               echo "::warning::SBOM attach to GH release failed for $TAG — the npm tarball is the canonical SBOM source."
             fi

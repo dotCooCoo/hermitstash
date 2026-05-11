@@ -1,0 +1,104 @@
+name: ClusterFuzzLite PR fuzzing
+
+# Coverage-guided fuzzing via jazzer.js + libFuzzer against every
+# `fuzz/*.fuzz.js` harness on every PR touching `lib/` or `fuzz/`.
+#
+# We invoke jazzer.js directly instead of going through the
+# `google/clusterfuzzlite/actions/build_fuzzers` wrapper — the
+# wrapper's v1 Docker image (gcr.io/oss-fuzz-base/clusterfuzzlite-
+# build-fuzzers:v1) refuses to fuzz JavaScript projects with any
+# sanitizer + refuses to pass empty/`none` sanitizer through, so the
+# wrapper is structurally broken for JS as of 2026. The
+# `.clusterfuzzlite/` directory remains as the canonical integration
+# spec — it's what OSS-Fuzz upstream's `oss-fuzz/projects/blamejs/`
+# build.sh mirrors, and what would re-engage if CFLite ships a JS
+# fix later.
+#
+# Findings: jazzer's `-error_exitcode=1` makes the step fail with
+# the reproducer printed inline; libFuzzer's crash artifact lands at
+# `crash-*` in the workspace.
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'lib/**'
+      - 'fuzz/**'
+      - '.clusterfuzzlite/**'
+      - '.github/workflows/cflite_pr.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cflite-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    name: ClusterFuzzLite ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - safe-json
+          - safe-url
+          - safe-jsonpath
+          - guard-csv
+          - guard-html
+          - guard-json
+          - guard-yaml
+          - guard-xml
+          - guard-svg
+          - guard-markdown
+          - guard-email
+          - parsers__safe-toml
+          - parsers__safe-yaml
+          - parsers__safe-xml
+          - parsers__safe-ini
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.0.0
+        with:
+          node-version: '24'
+
+      - name: Install jazzer.js
+        run: npm install --no-save @jazzer.js/core@^2
+
+      - name: Fuzz ${{ matrix.target }}
+        env:
+          # 60s on PR (per-target). cflite_batch.yml runs the deeper
+          # 1800s schedule that surfaces paths this budget can't reach.
+          FUZZ_TIME: '60'
+        run: |
+          set -e
+          harness="fuzz/${{ matrix.target }}.fuzz.js"
+          corpus="fuzz/${{ matrix.target }}_seed_corpus"
+          echo "::group::jazzer fuzz $harness ($FUZZ_TIME s)"
+          # Pass seed corpus as first positional arg when present;
+          # libFuzzer treats directory args as corpus inputs.
+          if [ -d "$corpus" ]; then
+            npx --yes jazzer "$harness" "$corpus" -- \
+              -max_total_time="$FUZZ_TIME" -error_exitcode=1 -timeout=30
+          else
+            npx --yes jazzer "$harness" -- \
+              -max_total_time="$FUZZ_TIME" -error_exitcode=1 -timeout=30
+          fi
+          echo "::endgroup::"
+
+      - name: Upload crash artifact
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: fuzz-crash-${{ matrix.target }}
+          path: |
+            crash-*
+            leak-*
+            timeout-*
+          if-no-files-found: ignore

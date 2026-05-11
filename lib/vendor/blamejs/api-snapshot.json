@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.8.68",
-  "createdAt": "2026-05-10T14:43:53.038Z",
+  "frameworkVersion": "0.8.76",
+  "createdAt": "2026-05-11T00:17:59.094Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -4379,7 +4379,70 @@
                 }
               }
             },
+            "hipaa-2026": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "lgpd-br": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "modpa": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nydfs-500": {
               "type": "object",
               "members": {
                 "auditChainSignedRequired": {
@@ -4422,6 +4485,27 @@
               }
             },
             "pipl-cn": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "quebec-25": {
               "type": "object",
               "members": {
                 "auditChainSignedRequired": {
@@ -4594,6 +4678,27 @@
                 }
               }
             },
+            "fapi-2.0-message-signing": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "gdpr": {
               "type": "object",
               "members": {
@@ -4636,6 +4741,27 @@
                 }
               }
             },
+            "hipaa-2026": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "lgpd-br": {
               "type": "object",
               "members": {
@@ -4657,7 +4783,49 @@
                 }
               }
             },
+            "modpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "nis2": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nydfs-500": {
               "type": "object",
               "members": {
                 "citation": {
@@ -4742,6 +4910,27 @@
               }
             },
             "pipl-cn": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "quebec-25": {
               "type": "object",
               "members": {
                 "citation": {
@@ -6196,6 +6385,35 @@
         }
       }
     },
+    "dataAct": {
+      "type": "object",
+      "members": {
+        "DESIGNATED_GATEKEEPERS": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "DataActError": {
+          "type": "function",
+          "arity": 4
+        },
+        "declareProduct": {
+          "type": "function",
+          "arity": 1
+        },
+        "recordSwitchRequest": {
+          "type": "function",
+          "arity": 1
+        },
+        "recordUserAccess": {
+          "type": "function",
+          "arity": 1
+        },
+        "shareWithThirdParty": {
+          "type": "function",
+          "arity": 1
+        }
+      }
+    },
     "db": {
       "type": "object",
       "members": {
@@ -7021,6 +7239,14 @@
         "SENDER_CONSTRAINTS": {
           "type": "instance",
           "ctorName": "Array"
+        },
+        "assertAuthzRequest": {
+          "type": "function",
+          "arity": 1
+        },
+        "assertCallback": {
+          "type": "function",
+          "arity": 2
         },
         "assertConformance": {
           "type": "function",
@@ -25431,6 +25657,15 @@
     "mcp": {
       "type": "object",
       "members": {
+        "capability": {
+          "type": "object",
+          "members": {
+            "create": {
+              "type": "function",
+              "arity": 1
+            }
+          }
+        },
         "parseRequest": {
           "type": "function",
           "arity": 2
@@ -25442,6 +25677,19 @@
         "serverGuard": {
           "type": "function",
           "arity": 1
+        },
+        "toolResult": {
+          "type": "object",
+          "members": {
+            "sanitize": {
+              "type": "function",
+              "arity": 2
+            }
+          }
+        },
+        "validateToolInput": {
+          "type": "function",
+          "arity": 3
         }
       }
     },

@@ -26,3 +26,12 @@ updates:
     labels:
       - "deps"
       - "devdeps"
+
+  - package-ecosystem: "docker"
+    directory: "/examples/wiki"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    labels:
+      - "deps"
+      - "docker"
