@@ -300,7 +300,11 @@ ENTRY
       --exclude='CLAUDE.md' \
       --exclude='.claude' \
       --exclude='.claude/*' \
-      --exclude='examples/wiki/C*'
+      --exclude='examples/wiki/C*' \
+      --exclude='.clusterfuzzlite' \
+      --exclude='.clusterfuzzlite/*' \
+      --exclude='oss-fuzz' \
+      --exclude='oss-fuzz/*'
     rm -rf "$TMPCLONE"
 
     if [ ! -f "$DEST/package.json" ]; then
