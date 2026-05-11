@@ -216,8 +216,7 @@ module.exports = function (app) {
       var body = Buffer.concat(chunks).toString("utf8");
       var params = Object.fromEntries(new URLSearchParams(body));
       if (!req.session || !validateToken(req.session, req, params)) {
-        res.writeHead(403, { "Content-Type": "application/json" });
-        return res.end(JSON.stringify({ error: "CSRF validation failed." }));
+        return res.status(403).json({ error: "CSRF validation failed." });
       }
       audit.log(audit.ACTIONS.LOGOUT, { req: req });
       await sessionService.logoutUser(req);

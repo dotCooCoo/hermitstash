@@ -716,11 +716,9 @@ module.exports = function (app) {
       var stash = stashRepo.findById(req.params.id);
       if (!stash) return res.status(404).json({ error: "Stash page not found." });
 
-      var sha3 = b.crypto.sha3Hash;
-
       var rawKey = "hs_" + b.crypto.generateToken(32);
       var prefix = rawKey.substring(0, 7);
-      var keyHash = sha3(rawKey);
+      var keyHash = b.crypto.sha3Hash(rawKey);
 
       apiKeysRepo.create({
         name: "Sync: " + (stash.name || stash.slug),

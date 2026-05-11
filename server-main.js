@@ -815,7 +815,7 @@ function reloadTlsContext() {
 if (tlsEnabled) {
   // Poll cadence: 1 minute (was 1 hour pre-v1.9.4). Spec §12.Q2 — cheap
   // polling is fine and shortens the ACME-renewal-to-active-key window.
-  fs.watchFile(TLS_CERT, { interval: 60000 }, reloadTlsContext);
+  fs.watchFile(TLS_CERT, { interval: C.TIME.ONE_MIN }, reloadTlsContext);
   // SIGHUP triggers an immediate reload — used by scripts/tls-key-seal.js
   // --reload after manually sealing a freshly-rotated key.
   process.on("SIGHUP", function () {

@@ -191,7 +191,7 @@ function preflightSync(opts) {
       var ageDays = 0;
       try {
         var stat = fs.statSync(fullDir);
-        ageDays = Math.floor((Date.now() - stat.mtimeMs) / (24 * 60 * 60 * 1000));
+        ageDays = Math.floor((Date.now() - stat.mtimeMs) / C.TIME.ONE_DAY);
       } catch { /* stat failure doesn't block rotation */ }
       console.log("         " + oldDirs[i] + " (mtime age: " + ageDays + " days)");
     }
