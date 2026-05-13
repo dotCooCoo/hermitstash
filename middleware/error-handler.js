@@ -7,15 +7,35 @@
  * - AppError subclasses: returns their status code + message
  * - Security errors (401/403/429): logged to audit
  * - 500 errors: stack trace logged to stderr, generic message to client
- * - HTML clients get the error template; JSON clients get { error: message }
+ * - HTML clients get the error template
+ * - Non-HTML clients get RFC 9457 application/problem+json via b.problemDetails
  * - Stack traces are NEVER leaked to the client
  */
 var audit = require("../lib/audit");
 var logger = require("../app/shared/logger");
+var b = require("../lib/vendor/blamejs");
 var { send } = require("./send");
 
 // Security-relevant status codes that warrant an audit entry
 var SECURITY_CODES = { 401: true, 403: true, 429: true };
+
+// Point problem-type URIs at HermitStash's own namespace so operators
+// know the catalog they're looking at. URIs are identifiers, not resolvable
+// links — nothing has to live at the URL.
+b.problemDetails.setBase("https://hermitstash.com/problems");
+
+// VALIDATION_ERROR → validation-error
+function codeToTypeSlug(code) {
+  return (code || "internal-error").toLowerCase().replace(/_/g, "-");
+}
+
+// VALIDATION_ERROR → Validation Error
+function codeToTitle(code) {
+  if (!code) return "Error";
+  return code.split("_").map(function (w) {
+    return w.charAt(0) + w.slice(1).toLowerCase();
+  }).join(" ");
+}
 
 function errorHandler(err, req, res) {
   // Determine status and client-facing message
@@ -55,7 +75,7 @@ function errorHandler(err, req, res) {
   // Don't attempt to respond if headers already sent
   if (res.writableEnded) return;
 
-  // Decide response format: HTML vs JSON
+  // Decide response format: HTML vs RFC 9457 problem+json
   var accept = req.headers && req.headers.accept || "";
   var wantsHtml = accept.indexOf("text/html") !== -1;
 
@@ -71,10 +91,18 @@ function errorHandler(err, req, res) {
       res.writeHead(status, { "Content-Type": "text/plain" });
       res.end(status >= 500 ? "Internal Server Error" : message);
     }
-  } else {
-    res.writeHead(status, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: status >= 500 ? "Internal Server Error" : message }));
+    return;
   }
+
+  // RFC 9457 problem+json — 5xx detail is suppressed so internal failure
+  // text never reaches clients.
+  var problem = b.problemDetails.create({
+    type:   "https://hermitstash.com/problems/" + codeToTypeSlug(code),
+    title:  codeToTitle(code),
+    status: status,
+    detail: status >= 500 ? undefined : message,
+  });
+  b.problemDetails.respond(res, problem);
 }
 
 module.exports = errorHandler;

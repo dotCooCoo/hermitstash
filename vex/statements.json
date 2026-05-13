@@ -1,0 +1,17 @@
+{
+  "_doc": "Input file for scripts/build-vex.js. Each entry becomes a CSAF 2.1 §3.2.3 VEX statement via b.vex.statement(...). The build script combines all entries into one CSAF document attached to the GHCR image as a cosign attestation (predicate type https://docs.oasis-open.org/csaf/csaf-vex/v2.1/) named `hermitstash-vX.Y.Z.vex.json`. Empty `statements` array = no VEX document emitted (script logs and skips).",
+  "_statementShape": {
+    "cveId": "CVE-YYYY-NNNN (or use `ids` for non-CVE identifiers, see CSAF §3.2.3.5)",
+    "status": "one of: known_not_affected | affected | fixed | under_investigation",
+    "justification": "required iff status='known_not_affected'. One of: component_not_present | vulnerable_code_not_present | vulnerable_code_not_in_execute_path | vulnerable_code_cannot_be_controlled_by_adversary | inline_mitigations_already_exist",
+    "impactStatement": "free-text reason (recommended for known_not_affected)",
+    "references": "[{ url, summary? }] — advisory links, patch URLs",
+    "productScope": "'all' (every released platform + container image at the release version) or an array of product IDs"
+  },
+  "_productIdShapes": [
+    "hermitstash@<version>:linux-amd64",
+    "hermitstash@<version>:linux-arm64",
+    "hermitstash@<version>:container"
+  ],
+  "statements": []
+}

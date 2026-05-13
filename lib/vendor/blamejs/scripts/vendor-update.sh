@@ -28,8 +28,12 @@ MANIFEST="lib/vendor/MANIFEST.json"
 DATE=$(date +%Y-%m-%d)
 
 # Packages we vendor — kept in sync with MANIFEST.json. Used by --check
-# and --diff-all to know which entries to walk.
-VENDORED_PACKAGES=("@noble/ciphers" "@noble/post-quantum" "@simplewebauthn/server" "argon2" "peculiar-pki")
+# and --diff-all to know which entries to walk. argon2 was removed in
+# v0.4.x — Node 24's built-in `crypto.argon2*` replaced the prebuilds
+# (see lib/argon2-builtin.js). The case-block below preserves the
+# `argon2` operator-friendly error message for anyone who still tries
+# `vendor-update.sh argon2`.
+VENDORED_PACKAGES=("@noble/ciphers" "@noble/post-quantum" "@simplewebauthn/server" "peculiar-pki")
 
 get_vendored_ver() {
   node -e "var m=require('./$MANIFEST'); var p=m.packages['$1']; console.log(p?p.version:'?')"

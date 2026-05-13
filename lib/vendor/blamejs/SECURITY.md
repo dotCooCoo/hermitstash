@@ -19,6 +19,50 @@ Please include:
 
 Encrypt the report with the maintainer PGP key if the report itself is sensitive (key fingerprint published on the project's [Security tab on GitHub](https://github.com/blamejs/blamejs/security)).
 
+### Verifying release authenticity
+
+From **v0.9.7 onward**, every release tag is an annotated, SSH-signed tag. The `release-tags` ruleset on the repository refuses any unsigned or lightweight tag push, so the signed-tag invariant is server-side enforced.
+
+Verify before deploying:
+
+```sh
+git fetch --tags
+git tag -v vX.Y.Z          # must print: Good "git" signature for RobertLeeLW@gmail.com
+```
+
+Earlier releases (`v0.9.6` and earlier) were tagged as lightweight commits before the signing pipeline landed; `git tag -v` will report *"cannot verify a non-tag object of type commit"* on those. They remain verifiable via the **two other trust roots** that have been attached since v0.4.x and v0.6.x respectively:
+
+- **npm tarball** — SLSA L3 provenance via OIDC. `npm view @blamejs/core@vX.Y.Z --json | jq .dist` returns the integrity hash; `gh attestation verify` walks the provenance chain back to the workflow run.
+- **SBOM** (`sbom.cdx.json` + `sbom.vendored.cdx.json`) — Sigstore-keyless signed by the publish workflow's OIDC token. Verify via:
+
+  ```sh
+  cosign verify-blob --bundle sbom.cdx.json.sigstore           \
+    --certificate-identity-regexp 'https://github.com/blamejs/blamejs/.*' \
+    --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+    sbom.cdx.json
+  ```
+
+Maintainer SSH signing key (Ed25519, applies v0.9.7+):
+
+| Field | Value |
+|---|---|
+| Email | `RobertLeeLW@gmail.com` |
+| Fingerprint (SHA-256) | `SHA256:5oF/XWhFpMde9TRfEX2GAHiApAq/MXOS4vti5zQbD7g` |
+| Public key file | `https://github.com/dotCooCoo.keys` (filter for `ssh-ed25519`) |
+| Registered as | GitHub SSH signing key (`desktop2-signing`) |
+
+To verify locally without trusting GitHub's UI, fetch the public key, write your own `allowed_signers` file, and run `git tag -v`:
+
+```sh
+curl -sf https://github.com/dotCooCoo.keys                                                       \
+  | grep "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPiE/PETpyiVPd8aMygJ+S9CsSVolp4HQZaAuiYVwbBa"      \
+  | awk '{print "RobertLeeLW@gmail.com namespaces=\"git\" "$1" "$2}'                             \
+  > /tmp/blamejs-allowed-signers
+git -c gpg.ssh.allowedSignersFile=/tmp/blamejs-allowed-signers tag -v vX.Y.Z
+```
+
+The three trust roots — SLSA L3 npm provenance, Sigstore-keyless SBOM signing, SSH-signed tags (v0.9.7+) — are independently verifiable. Tampering with any single root is detected by the others.
+
 ### Response time
 
 | Severity | First response | Triage / acknowledgment | Fix released |

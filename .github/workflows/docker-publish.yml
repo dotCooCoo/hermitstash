@@ -228,6 +228,37 @@ jobs:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: cosign sign --yes ${{ env.IMAGE }}@${DIGEST}
 
+      - name: Set up Node.js (for build-vex.js)
+        if: ${{ !inputs.dry_run }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.14.1
+
+      - name: Build CSAF 2.1 VEX document
+        if: ${{ !inputs.dry_run }}
+        id: vex
+        run: |
+          mkdir -p artifacts
+          node scripts/build-vex.js --out artifacts
+          VEX_FILE="artifacts/hermitstash-v${{ steps.version.outputs.version }}.vex.json"
+          if [ -f "$VEX_FILE" ]; then
+            echo "vex_file=$VEX_FILE" >> "$GITHUB_OUTPUT"
+            echo "VEX document built: $VEX_FILE"
+          else
+            echo "No VEX statements pending — skipping attestation."
+          fi
+
+      - name: Attach VEX as cosign attestation
+        if: ${{ !inputs.dry_run && steps.vex.outputs.vex_file }}
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          VEX_FILE: ${{ steps.vex.outputs.vex_file }}
+        run: |
+          cosign attest --yes \
+            --predicate "$VEX_FILE" \
+            --type "https://docs.oasis-open.org/csaf/csaf-vex/v2.1/" \
+            "${{ env.IMAGE }}@${DIGEST}"
+
       # Two-step Trivy: full visibility for the next-release fix log,
       # narrow gate that fails on actionable CRITICAL/HIGH with a fix available.
       - name: Scan image with Trivy (visibility — all severities, informational)

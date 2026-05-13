@@ -95,7 +95,7 @@ The framework bundles the surface a typical Node app reaches for. Every primitiv
 - **AAD-bound sealed columns** — AEAD tag tied to `(table, rowId, column, schemaVersion)`; copy-paste between rows or schema-version replay surfaces as refused decrypt (`b.vault.aad`)
 - **Signed webhooks + API encryption** — SLH-DSA-SHAKE-256f default; ML-DSA-65 opt-in; ECIES API encryption (`b.webhook`, `b.crypto`)
 - **HPKE / HTTP signatures** — RFC 9180 HPKE with ML-KEM-1024 + HKDF-SHA3-512 + ChaCha20-Poly1305 (`b.crypto.hpke`); RFC 9421 HTTP Message Signatures with derived components and ed25519 / ML-DSA-65 (`b.crypto.httpSig`)
-- **TLS / channel binding** — RFC 9266 TLS-Exporter token-to-session pinning (`b.tlsExporter`); RFC 9162 CT v2 inclusion-proof verification (`b.network.tls.ct.verifyInclusion`); RFC 8555 ACME + RFC 9773 ARI for 47-day certs (`b.acme`); RFC 8470 0-RTT inbound posture refuse / replay-cache (`b.router.create({tls0Rtt})`); RFC 9794 SecP256r1MLKEM768 in preferred-group order (`b.network.tls.preferredGroups`)
+- **TLS / channel binding** — RFC 9266 TLS-Exporter token-to-session pinning (`b.tlsExporter`); RFC 9162 CT v2 inclusion-proof verification (`b.network.tls.ct.verifyInclusion`); RFC 8555 ACME + RFC 9773 ARI for 47-day certs with `{ jitter: true }` fleet-scheduling (`b.acme.renewIfDue`); draft-aaron-acme-profiles (`acme.listProfiles()` + `newOrder({ profile })`); draft-ietf-acme-dns-account-label (`acme.dnsAccount01ChallengeRecord(token, { identifier })`); RFC 8470 0-RTT inbound posture refuse / replay-cache (`b.router.create({tls0Rtt})`); RFC 9794 SecP256r1MLKEM768 in preferred-group order (`b.network.tls.preferredGroups`)
 - **mTLS CA** — pure-JS, issues clientAuth / serverAuth / dual-EKU certs with SAN; auto-detects highest-PQC signature alg (today ECDSA-P384-SHA384; self-upgrades to SLH-DSA / ML-DSA when X.509 ecosystem catches up); PQC TLS gates inbound + outbound (`b.mtlsCa`, `b.pqcGate`, `b.pqcAgent`)
 ### HTTP
 
@@ -156,11 +156,15 @@ The framework bundles the surface a typical Node app reaches for. Every primitiv
 ### Compliance regimes
 
 - **Posture coordinator** — `b.compliance` cascades operator-declared regime into retention / audit / db / cryptoField via POSTURE_DEFAULTS:
-  - **US** — `hipaa` / `hipaa-2026` / `pci-dss` / `sox-404` / `soc2` / `soc2-cc1.3` / `sec-cyber` / `sec-17a-4` / `finra-4511` / `fda-21cfr11` / `fda-annex-11` / `modpa` / `nydfs-500` / `staterramp`
-  - **EU / UK** — `gdpr` / `dora` / `nis2` / `cra` / `uk-g-cloud`
-  - **APAC + LATAM** — `dpdp` / `pipl-cn` / `lgpd-br` / `appi-jp` / `pdpa-sg` / `quebec-25` / `irap`
+  - **US** — `hipaa` / `hipaa-2026` / `hhs-repro-24` / `hitech` / `pci-dss` / `glba-safeguards` / `sox-404` / `soc2` / `soc2-cc1.3` / `sec-cyber` / `sec-17a-4` / `finra-4511` / `fda-21cfr11` / `fda-annex-11` / `modpa` / `nydfs-500` / `staterramp` / `ferpa` / `fl-fdbr` / `coppa` / `coppa-2025` / `gina` / `vppa` / `can-spam` / `il-gipa` / `nist-pf-1.1`
+  - **EU / UK** — `gdpr` / `dora` / `nis2` / `cra` / `eu-data-act` / `eaa` / `uk-g-cloud` / `uk-duaa` / `dsa` / `dga` / `eu-cer` / `eu-cyber-sol` / `eidas-2`
+  - **APAC + LATAM** — `dpdp` / `pipl-cn` / `lgpd-br` / `appi-jp` / `pdpa-sg` / `quebec-25` / `irap` / `kr-ai-basic` / `pipa-kr` / `au-privacy` / `th-pdpa` / `vn-pdp` / `id-pdp` / `my-pdpa` / `cl-pdpa` / `mx-lfpdppp` / `ar-pdpa`
+  - **Child privacy / age-appropriate design** — `ca-aadc` / `ny-safe-kids` / `ny-saffe` / `md-kids-code` / `vt-aadc`
   - **Financial / data-portability** — `fapi2` / `fapi-2.0-message-signing` / `fdx` / `dsr`
+  - **AI governance** — `co-ai` / `il-hb3773` / `tx-traiga` / `ut-aipa` / `nyc-ll144` / `ca-tfaia` / `ca-sb942` / `ca-ab853` / `cn-ai-label` / `iso-42001` / `iso-23894`
+  - **Accessibility** — `wcag-2-2`
   - **Other** — `bsi-c5` / `ens-es` / etc.
+- **AI Act ⇄ ISO cross-walk** — `b.compliance.aiAct.crossWalkIso42001()` + `crossWalkIso23894()` map every AI Act article (Art. 9 risk management → Art. 73 incident reporting) to the matching ISO/IEC 42001:2023 Annex A controls and ISO/IEC 23894:2023 risk-management clauses for ISO-certification audit packs
 - **EU Data Act** — Regulation 2023/2854 connected-product data access workflow with DMA-gatekeeper share refusal (Art 32 §1) and 30-day switch-request notice cap (Art 28 §3) (`b.dataAct`)
 - **Audit + segregation** — 21 CFR Part 11 §11.10(e) audit-content gate + §11.50(b) electronicSignature (`b.fda21cfr11`); PCI DSS 4.0 Req 10.4.1.1 daily-review automation (`b.auditDailyReview`); SOX §404 + SOC 2 CC1.3 segregation-of-duties via Postgres trigger DDL (`b.audit.bindActor`, `b.audit.assertSegregation`)
 - **Change control + WORM** — m-of-n approver DDL change-control with maintenance-window + ML-DSA-87 signed proposals (`b.ddlChangeControl`); row-level WORM triggers boot-asserted under `sec-17a-4` / `finra-4511` / `fda-21cfr11` (`b.db.declareWorm`); dual-control physical delete + crypto-erase + REINDEX in one transaction (`b.db.declareRequireDualControl`, `b.db.eraseHard`)

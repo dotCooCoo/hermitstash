@@ -231,10 +231,19 @@ jobs:
       - name: Cosign sign-blob SBOM
         if: ${{ !inputs.dry_run && steps.version.outputs.is_tag == 'true' }}
         run: |
+          # Sign the primary npm-tree SBOM…
           cosign sign-blob --yes \
             --bundle sbom.cdx.json.sigstore \
             sbom.cdx.json
-          echo "[cosign-sbom] signed; bundle at sbom.cdx.json.sigstore"
+          echo "[cosign-sbom] signed sbom.cdx.json; bundle at sbom.cdx.json.sigstore"
+
+          # …and the vendored-deps SBOM (the higher-value artifact for
+          # downstream scanners since it lists what's actually shipping
+          # under lib/vendor/* with per-file sha256 + purl).
+          cosign sign-blob --yes \
+            --bundle sbom.vendored.cdx.json.sigstore \
+            sbom.vendored.cdx.json
+          echo "[cosign-sbom] signed sbom.vendored.cdx.json; bundle at sbom.vendored.cdx.json.sigstore"
 
       - name: Attach SBOM as release asset
         if: ${{ !inputs.dry_run && steps.version.outputs.is_tag == 'true' }}
@@ -243,32 +252,71 @@ jobs:
           TAG:      v${{ steps.version.outputs.version }}
         run: |
           # The release was created by the operator's `gh release create`
-          # step before this workflow ran. We attach the SBOM as a second
-          # access path (alongside the npm tarball, which also includes it).
+          # step before this workflow ran. We attach BOTH SBOMs + both
+          # sigstore bundles as a second access path (alongside the npm
+          # tarball, which also includes them). The vendored SBOM is the
+          # one downstream scanners care about — it describes the actual
+          # code shipping under lib/vendor/*; the npm-tree SBOM is the
+          # CycloneDX 1.6 view of the (empty) npm dep tree.
           #
           # Failure modes we tolerate:
           #   - HTTP 422 "Cannot upload assets to an immutable release"
-          #     when the repo has the immutable-releases setting on. The
-          #     SBOM is still in the npm tarball; the GitHub release
+          #     when the repo has the immutable-releases setting on.
+          #     SBOMs are still in the npm tarball; the GitHub release
           #     attachment is supplementary, not load-bearing.
           #   - Asset already exists (--clobber re-uploads).
           # Any other failure is logged but does not fail the publish —
           # the npm package is the canonical artifact.
           set +e
-          OUT=$(gh release upload "$TAG" sbom.cdx.json sbom.cdx.json.sigstore --repo "$GITHUB_REPOSITORY" --clobber 2>&1)
+          OUT=$(gh release upload "$TAG" \
+            sbom.cdx.json sbom.cdx.json.sigstore \
+            sbom.vendored.cdx.json sbom.vendored.cdx.json.sigstore \
+            --repo "$GITHUB_REPOSITORY" --clobber 2>&1)
           STATUS=$?
           set -e
           if [ "$STATUS" -eq 0 ]; then
-            echo "[sbom-attach] uploaded to release $TAG"
+            echo "[sbom-attach] uploaded primary + vendored SBOMs to release $TAG"
           else
             echo "[sbom-attach] upload failed (status=$STATUS):"
             echo "$OUT"
             if echo "$OUT" | grep -qi "immutable release"; then
-              echo "::warning::GitHub repo has immutable releases enabled — SBOM not attached to GH release. The SBOM is still bundled in the npm tarball at sbom.cdx.json (npm install @blamejs/core && cat node_modules/@blamejs/core/sbom.cdx.json)."
+              echo "::warning::GitHub repo has immutable releases enabled — SBOMs not attached to GH release. The SBOMs are still bundled in the npm tarball at sbom.cdx.json + sbom.vendored.cdx.json (npm install @blamejs/core && cat node_modules/@blamejs/core/sbom.vendored.cdx.json)."
             else
               echo "::warning::SBOM attach to GH release failed for $TAG — the npm tarball is the canonical SBOM source."
             fi
           fi
+
+      - name: Verify npm registry signing chain (npm audit signatures)
+        if: ${{ !inputs.dry_run && steps.version.outputs.is_tag == 'true' }}
+        # `npm audit signatures` verifies the cryptographic signing chain
+        # for every package in the install tree against the npm registry's
+        # public keys. blamejs ships zero npm runtime deps so the tree is
+        # trivially empty today — the step's purpose here is regression-
+        # defense: if a future patch accidentally adds a runtime dep, this
+        # gate catches an unsigned registry entry before the publish step
+        # proceeds.
+        #
+        # When zero deps exist, `npm audit signatures --omit dev` exits 1
+        # with `found no installed dependencies to audit`. That's NOT a
+        # signing failure — it's the empty-tree case the framework
+        # actually wants. The shell guard below treats that exit code as
+        # success while keeping every other failure mode loud.
+        run: |
+          set +e
+          OUT=$(npm audit signatures --omit dev 2>&1)
+          STATUS=$?
+          set -e
+          echo "$OUT"
+          if [ "$STATUS" -eq 0 ]; then
+            echo "[npm-audit-signatures] registry signing chain verified"
+            exit 0
+          fi
+          if echo "$OUT" | grep -qi "no installed dependencies to audit"; then
+            echo "[npm-audit-signatures] empty-deps tree (zero-runtime-deps posture) — regression gate armed for future deps"
+            exit 0
+          fi
+          echo "::error::npm audit signatures failed with a real signing-chain error"
+          exit "$STATUS"
 
       - name: Publish to npm (with SLSA provenance)
         if: ${{ !inputs.dry_run && steps.version.outputs.is_tag == 'true' }}

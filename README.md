@@ -943,6 +943,61 @@ The timer fires [`deploy/update.sh`](deploy/update.sh) daily with a randomized 4
 
 **Signed releases:** the native updater has pluggable strategies — `UPDATE_STRATEGY=git` today, with stubs for `release-tarball` (checksum-verified) and `signed-tarball` (P-384 ECDSA signed against keys in `/etc/hermitstash/trusted-keys.d/`) so the transport can be hardened later without rewriting the timer, rollback, or health-check paths.
 
+### Release provenance
+
+Every release tag (`vX.Y.Z`) and every commit on `main` is signed at push time, and GitHub rejects unsigned pushes at the repository edge. Tags are also immutable — they cannot be deleted or moved once published.
+
+The simplest verification path: open `https://github.com/dotCooCoo/hermitstash/releases/tag/vX.Y.Z` and confirm the **Verified** badge on the tag. GitHub checks the signature against the maintainer's registered signing keys (`gh api users/dotCooCoo/ssh_signing_keys`).
+
+Local verification, for operators who prefer not to trust GitHub's view:
+
+```bash
+# One-time: pin the maintainer's signing key locally
+mkdir -p ~/.config/git
+cat > ~/.config/git/allowed_signers <<'EOF'
+* ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPiE/PETpyiVPd8aMygJ+S9CsSVolp4HQZaAuiYVwbBa
+EOF
+git config --global gpg.ssh.allowedSignersFile ~/.config/git/allowed_signers
+
+# Then for any release tag
+git fetch --tags
+git tag --verify vX.Y.Z
+```
+
+Container images carry a CSAF 2.1 VEX attestation when the release includes
+CVE assessments (e.g. "transitively pulled CVE-2026-XXXXX is not affected
+because the vulnerable code path isn't reachable"). Inspect with:
+
+```bash
+cosign verify-attestation \
+  --certificate-identity-regexp 'https://github.com/dotCooCoo/hermitstash/' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  --type 'https://docs.oasis-open.org/csaf/csaf-vex/v2.1/' \
+  ghcr.io/dotcoocoo/hermitstash:vX.Y.Z
+```
+
+When `vex/statements.json` has no entries the attestation is omitted — most
+releases will fall into that bucket.
+
+### Boot-time clock check
+
+On startup HermitStash queries NTP (`time.cloudflare.com`, then
+`pool.ntp.org`) to verify the system clock is sane — audit log timestamps,
+session/token expirations, backup naming, and cert validity all depend on
+it. Outcomes:
+
+| Drift | Default | `BLAMEJS_NTP_STRICT=1` |
+|-------|---------|------------------------|
+| < 5 min | log info, continue | log info, continue |
+| 5 min – 1 hr | log warning, continue | log warning, continue |
+| ≥ 1 hr | log warning, continue | refuse to boot |
+| NTP unreachable (UDP/123 egress blocked) | log warning, continue | log warning, continue |
+
+Set `BLAMEJS_NTP_STRICT=1` in the environment when you want a misconfigured
+clock to fail the deployment loudly instead of producing a misleading audit
+trail. Leave unset for the default — useful when your container host has no
+UDP/123 egress but the host OS's NTP daemon is keeping the clock correct.
+
 ### Maintenance mode
 
 Toggle from Admin > Settings > Branding. Blocks all non-admin access and serves a 503 page. Admin routes, auth routes, and API keys with admin scope still work during maintenance.
@@ -966,6 +1021,34 @@ Response (key shown once, then SHA3-hashed -- never retrievable):
 ```json
 { "success": true, "key": "hs_a1b2c3d4e5f6...", "prefix": "hs_a1b2" }
 ```
+
+### Error responses
+
+Non-HTML clients (Bearer-authenticated API, sync client, anything that doesn't
+send `Accept: text/html`) receive errors as RFC 9457 problem-details:
+
+```
+HTTP/1.1 400 Bad Request
+Content-Type: application/problem+json
+Cache-Control: no-store
+
+{
+  "type":   "https://hermitstash.com/problems/validation-error",
+  "title":  "Validation Error",
+  "status": 400,
+  "detail": "name must be a non-empty string"
+}
+```
+
+`type` identifies the problem class; `title` is the human-readable summary
+of the class; `status` mirrors the HTTP status; `detail` carries the
+instance-specific message. 5xx responses omit `detail` so internal failure
+text never reaches clients. HTML clients still receive the standard error
+template — the content negotiation is `Accept`-driven.
+
+Migrating from the pre-v1.10.1 `{ "error": "..." }` shape: read `.detail`
+instead of `.error`, branch on `.status` rather than HTTP status alone if
+you want type-stable error codes (`.type` is the long-lived identifier).
 
 ### Authentication
 

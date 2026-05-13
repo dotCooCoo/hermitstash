@@ -63,6 +63,29 @@
   // cache for lib/vault holds the plaintext keys, so every downstream
   // vault.seal/unseal from here on is synchronous and safe.
 
+  // Boot-time NTP clock-drift check. Audit log entries, token expirations,
+  // backup naming, and cert validity windows all depend on a sane wall clock.
+  // BLAMEJS_NTP_STRICT=1 → refuse to boot on fatal drift; otherwise warn + continue.
+  // NTP unreachable (container with UDP/123 egress blocked) is a soft warning.
+  try {
+    var b = require("./lib/vendor/blamejs");
+    var ntpResult = await b.ntpCheck.bootCheck();
+    if (ntpResult.severity === "fatal") {
+      if (process.env.BLAMEJS_NTP_STRICT === "1") {
+        console.error("FATAL: " + ntpResult.message);
+        process.exit(1);
+      }
+      console.warn("[ntp] " + ntpResult.message + " (set BLAMEJS_NTP_STRICT=1 to fail closed)");
+    } else if (ntpResult.severity === "warning") {
+      console.warn("[ntp] " + ntpResult.message);
+    } else {
+      console.log("[ntp] " + ntpResult.message);
+    }
+  } catch (e) {
+    // NTP module failure must not block boot — log and continue.
+    console.warn("[ntp] boot check failed to run: " + (e && e.message));
+  }
+
   // Boot-time auto-migrate (Phase 2): if the on-disk envelope is still
   // 0xE1, convert it to 0xE2 before any subsequent module calls
   // vault.unseal (which post-Phase-2 refuses 0xE1). Idempotent — the

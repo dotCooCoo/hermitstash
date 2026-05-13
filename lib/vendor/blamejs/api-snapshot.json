@@ -1,11 +1,15 @@
 {
   "version": 1,
-  "frameworkVersion": "0.8.80",
-  "createdAt": "2026-05-11T05:28:14.300Z",
+  "frameworkVersion": "0.9.7",
+  "createdAt": "2026-05-13T05:08:30.329Z",
   "exports": {
     "a2a": {
       "type": "object",
       "members": {
+        "A2aTasksError": {
+          "type": "function",
+          "arity": 4
+        },
         "canonicalize": {
           "type": "function",
           "arity": 1
@@ -14,9 +18,43 @@
           "type": "function",
           "arity": 1
         },
+        "middleware": {
+          "type": "object",
+          "members": {
+            "agentCard": {
+              "type": "function",
+              "arity": 1
+            },
+            "tasks": {
+              "type": "function",
+              "arity": 1
+            }
+          }
+        },
         "signCard": {
           "type": "function",
           "arity": 3
+        },
+        "tasks": {
+          "type": "object",
+          "members": {
+            "ALLOWED_METHODS": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "cancel": {
+              "type": "function",
+              "arity": 1
+            },
+            "get": {
+              "type": "function",
+              "arity": 1
+            },
+            "send": {
+              "type": "function",
+              "arity": 1
+            }
+          }
         },
         "verifyCard": {
           "type": "function",
@@ -1485,6 +1523,43 @@
             }
           }
         },
+        "fal": {
+          "type": "object",
+          "members": {
+            "BANDS": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "FAL1": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "FAL2": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "FAL3": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "fromAssertion": {
+              "type": "function",
+              "arity": 1
+            },
+            "isValidBand": {
+              "type": "function",
+              "arity": 1
+            },
+            "meets": {
+              "type": "function",
+              "arity": 2
+            },
+            "requireFal": {
+              "type": "function",
+              "arity": 1
+            }
+          }
+        },
         "fidoMds3": {
           "type": "object",
           "members": {
@@ -1502,7 +1577,7 @@
             },
             "verifyAuthenticator": {
               "type": "function",
-              "arity": 2
+              "arity": 3
             }
           }
         },
@@ -4058,6 +4133,68 @@
         }
       }
     },
+    "cacheStatus": {
+      "type": "object",
+      "members": {
+        "CacheStatusError": {
+          "type": "function",
+          "arity": 4
+        },
+        "FWD_VALUES": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "KNOWN_PARAMS": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "append": {
+          "type": "function",
+          "arity": 2
+        },
+        "entry": {
+          "type": "function",
+          "arity": 1
+        },
+        "parse": {
+          "type": "function",
+          "arity": 1
+        }
+      }
+    },
+    "cdnCacheControl": {
+      "type": "object",
+      "members": {
+        "BOOLEAN_DIRECTIVES": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "CdnCacheControlError": {
+          "type": "function",
+          "arity": 4
+        },
+        "NUMERIC_DIRECTIVES": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "TARGETED_HEADERS": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "build": {
+          "type": "function",
+          "arity": 1
+        },
+        "isTargetedHeader": {
+          "type": "function",
+          "arity": 1
+        },
+        "parse": {
+          "type": "function",
+          "arity": 1
+        }
+      }
+    },
     "chainWriter": {
       "type": "object",
       "members": {
@@ -4159,6 +4296,31 @@
         "resolvePassphrase": {
           "type": "function",
           "arity": 3
+        }
+      }
+    },
+    "clientHints": {
+      "type": "object",
+      "members": {
+        "ClientHintsError": {
+          "type": "function",
+          "arity": 4
+        },
+        "KNOWN_HINTS": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "acceptList": {
+          "type": "function",
+          "arity": 1
+        },
+        "isKnownHint": {
+          "type": "function",
+          "arity": 1
+        },
+        "parse": {
+          "type": "function",
+          "arity": 1
         }
       }
     },
@@ -4295,6 +4457,405 @@
         "POSTURE_DEFAULTS": {
           "type": "object",
           "members": {
+            "ar-pdpa": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "au-privacy": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ca-ab853": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ca-sb942": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ca-tfaia": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "can-spam": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "circia": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "cis-controls-v8": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "cjis-v6": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "cl-pdpa": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "cmmc-2.0": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "cmmc-2.0-level-2": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "cn-ai-label": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "co-ai": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "coppa": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "coppa-2025": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "cwe-top-25-2024": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "cyclonedx-v1.6": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "dga": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "dora": {
               "type": "object",
               "members": {
@@ -4337,7 +4898,280 @@
                 }
               }
             },
+            "dsa": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "eaa": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ehds": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "eidas-2": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "eu-cer": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "eu-cyber-sol": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "eu-data-act": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "fedramp-rev5-moderate": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ferpa": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "fl-fdbr": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "gdpr": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "gina": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "glba-safeguards": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "hhs-repro-24": {
               "type": "object",
               "members": {
                 "auditChainSignedRequired": {
@@ -4400,7 +5234,385 @@
                 }
               }
             },
+            "hipaa-security-rule": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "hitech": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "hitrust-csf-v11.4": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "id-pdp": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "iec-62443-3-3": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "il-gipa": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "il-hb3773": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "iso-23894": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "iso-23894-2023": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "iso-27001-2022": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "iso-27002-2022": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "iso-27017": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "iso-27018": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "iso-27701": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "iso-42001": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "iso-42001-2023": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "kr-ai-basic": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "lgpd-br": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "md-kids-code": {
               "type": "object",
               "members": {
                 "auditChainSignedRequired": {
@@ -4442,7 +5654,364 @@
                 }
               }
             },
+            "mx-lfpdppp": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "my-pdpa": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nerc-cip-007-6": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nist-800-115": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nist-800-218-ssdf": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nist-800-53": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nist-800-63b-rev4": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nist-800-66-r2": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nist-800-82-r3": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nist-ai-rmf-1.0": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nist-pf-1.1": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ny-safe-kids": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ny-saffe": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nyc-ll144": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "nydfs-500": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "owasp-asvs-v5.0": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "owasp-llm-top-10-2025": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "owasp-wstg-v5": {
               "type": "object",
               "members": {
                 "auditChainSignedRequired": {
@@ -4484,7 +6053,70 @@
                 }
               }
             },
+            "pipa-kr": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "pipl-cn": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "psd2-rts-sca": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ptes": {
               "type": "object",
               "members": {
                 "auditChainSignedRequired": {
@@ -4526,7 +6158,259 @@
                 }
               }
             },
+            "slsa-v1.0-build-l3": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "soc2": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "spdx-v3.0": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "swift-cscf-v2026": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "th-pdpa": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "tx-traiga": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "uk-duaa": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ut-aipa": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "vex-csaf-2.1": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "vn-pdp": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "vppa": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "vt-aadc": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "wcag-2-2": {
               "type": "object",
               "members": {
                 "auditChainSignedRequired": {
@@ -4594,6 +6478,48 @@
                 }
               }
             },
+            "ar-pdpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "au-privacy": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "bipa": {
               "type": "object",
               "members": {
@@ -4636,6 +6562,90 @@
                 }
               }
             },
+            "ca-ab853": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ca-sb942": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ca-tfaia": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "can-spam": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "ccpa": {
               "type": "object",
               "members": {
@@ -4657,7 +6667,175 @@
                 }
               }
             },
+            "circia": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "cjis-v6": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "cl-pdpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "cmmc-2.0": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "cn-ai-label": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "co-ai": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "co-cpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "coppa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "coppa-2025": {
               "type": "object",
               "members": {
                 "citation": {
@@ -4762,7 +6940,196 @@
                 }
               }
             },
+            "dga": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "dora": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "dpdp": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "dsa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "eaa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ehds": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "eidas-2": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "eu-cer": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "eu-cyber-sol": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "eu-data-act": {
               "type": "object",
               "members": {
                 "citation": {
@@ -4804,7 +7171,112 @@
                 }
               }
             },
+            "ferpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "fl-fdbr": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "gdpr": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "gina": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "glba-safeguards": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "hhs-repro-24": {
               "type": "object",
               "members": {
                 "citation": {
@@ -4867,6 +7339,27 @@
                 }
               }
             },
+            "hitech": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "ia-icdpa": {
               "type": "object",
               "members": {
@@ -4888,7 +7381,238 @@
                 }
               }
             },
+            "id-pdp": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "il-gipa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "il-hb3773": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "in-indpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "iso-23894": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "iso-27001-2022": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "iso-27002-2022": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "iso-27017": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "iso-27018": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "iso-27701": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "iso-42001": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "kr-ai-basic": {
               "type": "object",
               "members": {
                 "citation": {
@@ -4931,6 +7655,27 @@
               }
             },
             "lgpd-br": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "md-kids-code": {
               "type": "object",
               "members": {
                 "citation": {
@@ -5014,6 +7759,48 @@
                 }
               }
             },
+            "mx-lfpdppp": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "my-pdpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "ne-dpa": {
               "type": "object",
               "members": {
@@ -5077,6 +7864,48 @@
                 }
               }
             },
+            "nist-800-66-r2": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nist-pf-1.1": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "nj-njdpa": {
               "type": "object",
               "members": {
@@ -5099,6 +7928,69 @@
               }
             },
             "nv-sb370": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ny-safe-kids": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ny-saffe": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nyc-ll144": {
               "type": "object",
               "members": {
                 "citation": {
@@ -5183,6 +8075,27 @@
               }
             },
             "pdpa-sg": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "pipa-kr": {
               "type": "object",
               "members": {
                 "citation": {
@@ -5350,6 +8263,27 @@
                 }
               }
             },
+            "th-pdpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "tn-tipa": {
               "type": "object",
               "members": {
@@ -5392,7 +8326,49 @@
                 }
               }
             },
+            "tx-traiga": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "ucpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "uk-duaa": {
               "type": "object",
               "members": {
                 "citation": {
@@ -5434,7 +8410,112 @@
                 }
               }
             },
+            "ut-aipa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "vcdpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "vn-pdp": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "vppa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "vt-aadc": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "wcag-2-2": {
               "type": "object",
               "members": {
                 "citation": {
@@ -5658,6 +8739,10 @@
                 }
               }
             },
+            "ISO_42001_CROSSWALK": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
             "annexIVScaffold": {
               "type": "function",
               "arity": 1
@@ -5667,6 +8752,14 @@
               "arity": 1
             },
             "classify": {
+              "type": "function",
+              "arity": 1
+            },
+            "crossWalkIso23894": {
+              "type": "function",
+              "arity": 0
+            },
+            "crossWalkIso42001": {
               "type": "function",
               "arity": 1
             },
@@ -7518,6 +10611,23 @@
         }
       }
     },
+    "earlyHints": {
+      "type": "object",
+      "members": {
+        "EarlyHintsError": {
+          "type": "function",
+          "arity": 4
+        },
+        "REFUSED_HEADERS": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "send": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
     "errorPage": {
       "type": "object",
       "members": {
@@ -8262,6 +11372,10 @@
           "type": "function",
           "arity": 4
         },
+        "IdempotencyError": {
+          "type": "function",
+          "arity": 4
+        },
         "JobsError": {
           "type": "function",
           "arity": 4
@@ -8319,6 +11433,10 @@
           "arity": 4
         },
         "PermissionsError": {
+          "type": "function",
+          "arity": 4
+        },
+        "ProblemDetailsError": {
           "type": "function",
           "arity": 4
         },
@@ -25898,10 +29016,39 @@
             }
           }
         },
+        "feedbackId": {
+          "type": "function",
+          "arity": 1
+        },
         "iprev": {
           "type": "object",
           "members": {
             "verify": {
+              "type": "function",
+              "arity": 1
+            }
+          }
+        },
+        "requireTls": {
+          "type": "object",
+          "members": {
+            "REQUIRETLS_TOKEN": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "RequireTlsError": {
+              "type": "function",
+              "arity": 4
+            },
+            "mailFromExtension": {
+              "type": "function",
+              "arity": 1
+            },
+            "parseTlsRequiredHeader": {
+              "type": "function",
+              "arity": 1
+            },
+            "peerSupports": {
               "type": "function",
               "arity": 1
             }
@@ -25919,6 +29066,19 @@
               "arity": 1
             },
             "verify": {
+              "type": "function",
+              "arity": 1
+            }
+          }
+        },
+        "srs": {
+          "type": "object",
+          "members": {
+            "SrsError": {
+              "type": "function",
+              "arity": 4
+            },
+            "create": {
               "type": "function",
               "arity": 1
             }
@@ -26218,6 +29378,19 @@
           "type": "function",
           "arity": 1
         },
+        "toolRegistry": {
+          "type": "object",
+          "members": {
+            "ALLOWED_ALGS": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "create": {
+              "type": "function",
+              "arity": 1
+            }
+          }
+        },
         "toolResult": {
           "type": "object",
           "members": {
@@ -26369,11 +29542,19 @@
           "type": "function",
           "arity": 1
         },
+        "idempotencyKey": {
+          "type": "function",
+          "arity": 1
+        },
         "nel": {
           "type": "function",
           "arity": 1
         },
         "networkAllowlist": {
+          "type": "function",
+          "arity": 1
+        },
+        "noCache": {
           "type": "function",
           "arity": 1
         },
@@ -26595,9 +29776,486 @@
         "dns": {
           "type": "object",
           "members": {
+            "DNSKEY_ALGORITHMS": {
+              "type": "object",
+              "members": {
+                "1": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "2": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "3": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "4": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "5": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "6": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "7": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "8": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "9": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "10": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "11": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "12": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "13": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "14": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "15": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "16": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "252": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "253": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "254": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "255": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "DS_DIGEST_TYPES": {
+              "type": "object",
+              "members": {
+                "0": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "1": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "2": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "3": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "4": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "5": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "6": {
+                  "type": "object",
+                  "members": {
+                    "deprecated": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "name": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "reason": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                }
+              }
+            },
             "DnsError": {
               "type": "function",
               "arity": 4
+            },
+            "classifyDnskeyAlgorithm": {
+              "type": "function",
+              "arity": 1
+            },
+            "classifyDsDigestType": {
+              "type": "function",
+              "arity": 1
             },
             "clearCache": {
               "type": "function",
@@ -26610,6 +30268,10 @@
             "getServers": {
               "type": "function",
               "arity": 0
+            },
+            "isNullMx": {
+              "type": "function",
+              "arity": 1
             },
             "lookup": {
               "type": "function",
@@ -29745,6 +33407,43 @@
         }
       }
     },
+    "problemDetails": {
+      "type": "object",
+      "members": {
+        "ProblemDetailsError": {
+          "type": "function",
+          "arity": 4
+        },
+        "RESERVED_FIELDS": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "create": {
+          "type": "function",
+          "arity": 1
+        },
+        "fromError": {
+          "type": "function",
+          "arity": 2
+        },
+        "getBase": {
+          "type": "function",
+          "arity": 0
+        },
+        "respond": {
+          "type": "function",
+          "arity": 2
+        },
+        "setBase": {
+          "type": "function",
+          "arity": 1
+        },
+        "validate": {
+          "type": "function",
+          "arity": 1
+        }
+      }
+    },
     "processSpawn": {
       "type": "object",
       "members": {
@@ -31344,6 +35043,23 @@
         }
       }
     },
+    "serverTiming": {
+      "type": "object",
+      "members": {
+        "ServerTimingError": {
+          "type": "function",
+          "arity": 4
+        },
+        "create": {
+          "type": "function",
+          "arity": 0
+        },
+        "entry": {
+          "type": "function",
+          "arity": 3
+        }
+      }
+    },
     "session": {
       "type": "object",
       "members": {
@@ -31597,6 +35313,27 @@
         "saveRaw": {
           "type": "function",
           "arity": 3
+        }
+      }
+    },
+    "structuredFields": {
+      "type": "object",
+      "members": {
+        "containsControlBytes": {
+          "type": "function",
+          "arity": 2
+        },
+        "refuseControlBytes": {
+          "type": "function",
+          "arity": 2
+        },
+        "splitTopLevel": {
+          "type": "function",
+          "arity": 2
+        },
+        "unquoteSfString": {
+          "type": "function",
+          "arity": 1
         }
       }
     },
@@ -32205,6 +35942,43 @@
       "type": "primitive",
       "valueType": "string"
     },
+    "vex": {
+      "type": "object",
+      "members": {
+        "CSAF_VERSION": {
+          "type": "primitive",
+          "valueType": "string"
+        },
+        "JUSTIFICATION_VALUES": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "STATUS_VALUES": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "TLP_LABELS": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "VexError": {
+          "type": "function",
+          "arity": 4
+        },
+        "document": {
+          "type": "function",
+          "arity": 1
+        },
+        "serialize": {
+          "type": "function",
+          "arity": 1
+        },
+        "statement": {
+          "type": "function",
+          "arity": 1
+        }
+      }
+    },
     "watcher": {
       "type": "object",
       "members": {
@@ -32496,6 +36270,14 @@
         "canonicalizeElementById": {
           "type": "function",
           "arity": 3
+        },
+        "escapeAttrValue": {
+          "type": "function",
+          "arity": 1
+        },
+        "escapeText": {
+          "type": "function",
+          "arity": 1
         },
         "parse": {
           "type": "function",

@@ -77,6 +77,22 @@ regexes = [
 ]
 
 [[allowlists]]
+description = "Camel-case identifier names that trip generic-api-key entropy"
+# Public parameter / property names in the framework's KEM envelope
+# surface (e.g. `x25519PrivateKey`, `mlkemPrivateKey`) score above the
+# generic-api-key entropy threshold (3.7+) because they're long
+# camelCase words with no separators. gitleaks reports the bare
+# identifier as the "secret"; the bracketed destructure-shape regex
+# above doesn't catch that bare-identifier form. Stopwords match the
+# extracted-secret string literally and suppress the finding.
+stopwords = [
+  "x25519PrivateKey",
+  "x25519PublicKey",
+  "mlkemPrivateKey",
+  "mlkemPublicKey",
+]
+
+[[allowlists]]
 description = "Pre-config-landing commits (audited manually) + their fingerprints"
 # Commits made before this config landed predate the secret-scan gate
 # and were already audited manually. Pinning the SHA prevents the new

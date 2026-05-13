@@ -1,0 +1,49 @@
+name: CodeQL SAST
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "31 5 * * 1"
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analyze:
+    name: CodeQL analysis (javascript-typescript)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+
+      # CodeQL maintains a single combined language ID for JavaScript +
+      # TypeScript. The framework ships CommonJS JavaScript only (no
+      # transpilation per CLAUDE.md hard rule §7); the language ID
+      # picks up the .js files under lib/ + scripts/ regardless.
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@4e828ff8d448a8a6e532957b1811f387a63867e8  # v3.30.9
+        with:
+          languages: javascript-typescript
+          # security-extended adds higher-precision queries beyond the
+          # default suite. The query pack catches: SQL injection, XSS,
+          # prototype pollution, command injection, ReDoS, unsafe
+          # deserialization, server-side request forgery, hardcoded
+          # credentials. Findings surface as SARIF in the Security tab.
+          queries: security-extended
+
+      # Auto-build is skipped because CommonJS files don't need a build
+      # step; CodeQL extracts straight from source.
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@4e828ff8d448a8a6e532957b1811f387a63867e8  # v3.30.9
+        with:
+          category: "/language:javascript-typescript"

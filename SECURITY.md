@@ -58,6 +58,12 @@ Things that are probably out of scope:
 
 If you're not sure whether something is in scope, just send it. I'd rather decide together than have you not report something that matters.
 
+## Release integrity
+
+Every release tag and every commit on `main` is signed. GitHub enforces this at the repository edge — unsigned pushes and tag tampering (deletion, force-update) are rejected before they land. The trust anchor is the maintainer's SSH signing key registered on the GitHub user account; you can inspect it at `gh api users/dotCooCoo/ssh_signing_keys` or check the **Verified** badge on the release page.
+
+The README has a "Release provenance" section with the local `git tag --verify` recipe for operators who prefer not to rely on GitHub's view.
+
 ## What I can't offer
 
 To set expectations honestly:
