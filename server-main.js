@@ -615,6 +615,9 @@ scheduler.register("expired_enrollment_codes_cleanup", C.TIME.hours(1), function
 scheduler.register("expired_access_codes_cleanup", C.TIME.hours(1), function () { // hourly
   try { expiryCleanupJob.cleanupExpiredAccessCodes(); } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
+scheduler.register("expired_idempotency_keys_cleanup", C.TIME.hours(1), function () { // hourly
+  try { expiryCleanupJob.cleanupExpiredIdempotencyKeys(); } catch (_e) { /* scheduled cleanup — retry next tick */ }
+});
 scheduler.register("bundle_lockout_cleanup", C.TIME.hours(1), function () { // hourly
   // Remove lockout rows that haven't seen an attempt in 24h.
   // lastAttempt is a raw ISO8601 string, safe to compare in SQL.

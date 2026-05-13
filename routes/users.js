@@ -12,6 +12,7 @@ var { clearSessionsForUser } = require("../lib/session");
 var { validatePassword } = require("../app/shared/validate");
 var sessionService = require("../app/domain/auth/session.service");
 var requireAdmin = require("../middleware/require-admin");
+var idempotency = require("../middleware/idempotency");
 var { send, host } = require("../middleware/send");
 var { validateInviteInput, validateRoleChangeInput, validateSuspendInput, validateDeleteUserInput, validatePaginationParams } = require("../app/http/validators/admin.validator");
 var usersRepo = require("../app/data/repositories/users.repo");
@@ -99,7 +100,7 @@ module.exports = function (app) {
   });
 
   // Invite user via email
-  app.post("/admin/users/invite", async (req, res) => {
+  app.post("/admin/users/invite", idempotency, async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
       var body = (await b.parsers.json(req)) || {};

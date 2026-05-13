@@ -114,4 +114,22 @@ function cleanupExpiredAccessCodes() {
   }
 }
 
-module.exports = { cleanupExpiredFiles, cleanupStaleBundles, cleanupTombstones, cleanupExpiredAccessCodes, cleanupExpiredEnrollmentCodes };
+/**
+ * Clean up expired idempotency-key cache entries. Lazy cleanup also
+ * runs on every store.get() call; this sweep handles entries whose
+ * TTL elapsed without anyone retrying.
+ */
+function cleanupExpiredIdempotencyKeys() {
+  try {
+    var db = require("../../lib/db");
+    var now = Date.now();
+    var expired = db.idempotencyKeys.find({}).filter(function (r) { return r.expiresAt < now; });
+    for (var i = 0; i < expired.length; i++) db.idempotencyKeys.remove({ _id: expired[i]._id });
+    return expired.length;
+  } catch (e) {
+    logger.warn("[expiry-cleanup] Idempotency-key cleanup failed", { error: e.message });
+    return 0;
+  }
+}
+
+module.exports = { cleanupExpiredFiles, cleanupStaleBundles, cleanupTombstones, cleanupExpiredAccessCodes, cleanupExpiredEnrollmentCodes, cleanupExpiredIdempotencyKeys };

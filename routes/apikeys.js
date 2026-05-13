@@ -2,6 +2,7 @@ var b = require("../lib/vendor/blamejs");
 var apiKeysRepo = require("../app/data/repositories/apiKeys.repo");
 ;
 var requireAdmin = require("../middleware/require-admin");
+var idempotency = require("../middleware/idempotency");
 var audit = require("../lib/audit");
 var { VALID_SCOPES } = require("../app/security/scope-policy");
 var certUtils = require("../lib/cert-utils");
@@ -19,7 +20,7 @@ module.exports = function (app) {
   });
 
   // Generate new API key
-  app.post("/admin/apikeys/create", async function(req, res) {
+  app.post("/admin/apikeys/create", idempotency, async function(req, res) {
     if (!requireAdmin(req, res)) return;
     var body = (await b.parsers.json(req)) || {};
     var name = String(body.name || "").trim().slice(0, 100);

@@ -1050,6 +1050,42 @@ Migrating from the pre-v1.10.1 `{ "error": "..." }` shape: read `.detail`
 instead of `.error`, branch on `.status` rather than HTTP status alone if
 you want type-stable error codes (`.type` is the long-lived identifier).
 
+### Idempotency-Key (retry-safe writes)
+
+Five mutating POST endpoints honor an optional `Idempotency-Key` header
+(draft-ietf-httpapi-idempotency-key):
+
+- `POST /admin/apikeys/create`
+- `POST /admin/webhooks/create`
+- `POST /admin/users/invite`
+- `POST /drop/init`
+- `POST /drop/finalize/:bundleId`
+
+Send any opaque string (UUID is the typical choice) as the header value.
+The server caches the first response for 24h; if your retry-loop fires
+the same request again with the same header value, the cached response
+is replayed without re-executing the handler — no duplicate API key, no
+duplicate bundle, no duplicate invite email.
+
+```bash
+KEY=$(uuidgen)
+curl -X POST https://your-domain/admin/apikeys/create \
+  -H "Authorization: Bearer <admin-api-key>" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $KEY" \
+  -d '{"name": "CI Pipeline", "permissions": "upload"}'
+```
+
+Sending the same `Idempotency-Key` with a different request body returns
+422 + `application/problem+json` carrying type
+`https://hermitstash.com/problems/idempotency/key-reuse-mismatch` —
+that's a client-side mistake (same key reused across genuinely different
+operations) and the spec mandates the refusal.
+
+The header is optional. Clients that don't send it skip the cache
+entirely; the handler runs every time. Existing API clients keep working
+unchanged.
+
 ### Authentication
 
 Include the key as a Bearer token:

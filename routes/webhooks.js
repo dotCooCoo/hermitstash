@@ -4,6 +4,7 @@
 var b = require("../lib/vendor/blamejs");
 var logger = require("../app/shared/logger");
 var requireAdmin = require("../middleware/require-admin");
+var idempotency = require("../middleware/idempotency");
 var audit = require("../lib/audit");
 var webhookService = require("../app/domain/integrations/webhook.service");
 
@@ -13,7 +14,7 @@ module.exports = function (app) {
     res.json({ webhooks: webhookService.list() });
   });
 
-  app.post("/admin/webhooks/create", async function (req, res) {
+  app.post("/admin/webhooks/create", idempotency, async function (req, res) {
     if (!requireAdmin(req, res)) return;
     try {
       var body = (await b.parsers.json(req)) || {};
