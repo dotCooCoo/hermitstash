@@ -687,6 +687,157 @@ var CANONICAL_REQUIRE_BINDINGS = {
   "../crypto":    "bCrypto",
 };
 
+// Node built-ins that the framework requires anywhere — used by the
+// node-builtin-prefix detector to refuse `require("X")` in favor of
+// `require("node:X")` (modern Node 18+ convention; protects against
+// userland packages shadowing built-in names).
+var NODE_BUILTINS = {
+  "assert": 1, "async_hooks": 1, "buffer": 1, "child_process": 1,
+  "cluster": 1, "console": 1, "constants": 1, "crypto": 1, "dgram": 1,
+  "dns": 1, "domain": 1, "events": 1, "fs": 1, "http": 1, "http2": 1,
+  "https": 1, "inspector": 1, "module": 1, "net": 1, "os": 1, "path": 1,
+  "perf_hooks": 1, "process": 1, "punycode": 1, "querystring": 1,
+  "readline": 1, "repl": 1, "stream": 1, "string_decoder": 1, "sys": 1,
+  "timers": 1, "tls": 1, "trace_events": 1, "tty": 1, "url": 1,
+  "util": 1, "v8": 1, "vm": 1, "wasi": 1, "worker_threads": 1, "zlib": 1,
+};
+
+function testNodeBuiltinPrefixConsistency() {
+  // class: node-builtin-prefix
+  // Every `require("<X>")` of a Node built-in module must use the
+  // modern `require("node:<X>")` form. Three reasons:
+  //   1. Userland packages on npm CAN be named after built-ins
+  //      (e.g. some package called "fs"). Without the `node:` prefix
+  //      a typo / package-install accident would shadow the built-in.
+  //   2. The prefix is a clearer signal at a glance that this is a
+  //      framework dependency on Node, not on a userland module.
+  //   3. Bundler / SEA static-trace passes treat `node:` prefix as
+  //      an unambiguous Node-builtin marker; the unprefixed form
+  //      can be resolved against userland first.
+  //
+  // Fix is to rewrite the require string, NOT to rename the local
+  // binding. The CANONICAL_REQUIRE_BINDINGS map already maps both
+  // `"fs"` and `"node:fs"` to the same canonical name (`nodeFs`), so
+  // the binding stays stable across the rewrite.
+  var files = _libFiles();
+  var bad = [];
+  for (var fi = 0; fi < files.length; fi++) {
+    var rel = _relPath(files[fi]);
+    var src = fs.readFileSync(files[fi], "utf8");
+    var lines = src.split("\n");
+    for (var li = 0; li < lines.length; li++) {
+      var line = lines[li];
+      // Match any `require("X")` where X is a Node built-in name.
+      // Skip lines INSIDE a JSDoc `@example` block (* indented form)
+      // — those are operator-facing examples where bare `require("fs")`
+      // is intentional. Heuristic: skip lines where the require sits
+      // inside a ` *   ` (JSDoc continuation) indent.
+      if (/^\s*\*\s/.test(line)) continue;
+      var re = /\brequire\(["']([a-z_][a-z0-9_]*)["']\)/g;
+      var m;
+      while ((m = re.exec(line)) !== null) {
+        var modName = m[1];
+        if (NODE_BUILTINS[modName]) {
+          bad.push({
+            file:    rel,
+            line:    li + 1,
+            content: 'require("' + modName + '") — use require("node:' +
+                     modName + '") for the modern Node-builtin prefix',
+          });
+          break;   // one report per line
+        }
+      }
+    }
+  }
+  bad = _filterMarkers(bad, "node-builtin-prefix");
+  _report("require() for Node built-in modules must use the `node:` " +
+          "prefix (modern Node 18+ convention; protects against " +
+          "userland packages shadowing built-in names)",
+    bad);
+}
+
+// INTERNAL_BINDING_NAMES — bindings that exist as INTERNAL framework
+// variables but should NEVER appear in operator-facing prose / error
+// messages / JSDoc comments. Operators reading docs or catching errors
+// see the public API name (`b.crypto`, `b.retry`, `path`, `fs`), never
+// the internal binding (`bCrypto`, `retryHelper`, `nodePath`, `nodeFs`).
+//
+// Surfaced by the v0.9.15 → v0.9.16 audit: the mechanical rename of
+// `<OLD>.` → `<NEW>.` also caught occurrences inside JSDoc `@opts`
+// comments and error-message string literals (e.g. operator's
+// "fallbackFile must be an absolute path" became "absolute nodePath").
+// This detector enforces the rule going forward.
+var INTERNAL_BINDING_NAMES = [
+  "nodeFs", "nodePath", "nodeCrypto", "nodeStream", "nodeTls", "nodeUrl",
+  "bCrypto", "retryHelper",
+];
+
+function testNoInternalBindingNameInProse() {
+  // class: internal-binding-in-prose
+  // Internal binding names must not appear in:
+  //   - JSDoc/comment lines (` * `-prefixed continuation lines)
+  //   - String literals visible to operators (error messages, audit
+  //     metadata, log messages)
+  //
+  // CODE positions are EXCLUDED — `var nodeFs = require(...)`,
+  // `nodeFs.readFileSync(...)`, `if (nodeTls && nodeTls.X)`,
+  // `void nodeCrypto;` etc. are legit framework-internal usages.
+  // The detector specifically checks the prose surface — anything
+  // an operator reading docs / catching errors actually sees.
+  var files = _libFiles();
+  var bad = [];
+  var bindingAlt = INTERNAL_BINDING_NAMES.join("|");
+  // Two contexts to scan:
+  //   1. JSDoc/comment continuation lines (` * `-prefixed).
+  //   2. String literals on any line.
+  var jsdocLineRe = /^\s*\*\s/;
+  var bareWordRe = new RegExp("\\b(" + bindingAlt + ")\\b", "g");
+  // String-literal matcher: find double-quoted or single-quoted spans.
+  // Lazy match avoids spanning multiple string boundaries on one line.
+  var stringSpanRe = /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g;
+  for (var fi = 0; fi < files.length; fi++) {
+    var rel = _relPath(files[fi]);
+    var src = fs.readFileSync(files[fi], "utf8");
+    var lines = src.split("\n");
+    for (var li = 0; li < lines.length; li++) {
+      var line = lines[li];
+      var hit = null;
+      if (jsdocLineRe.test(line)) {
+        // JSDoc/comment continuation — flag any binding-name word.
+        bareWordRe.lastIndex = 0;
+        var mJs = bareWordRe.exec(line);
+        if (mJs) hit = mJs[1];
+      } else {
+        // Code line — only flag binding-name words INSIDE string
+        // literals (operator-visible error messages etc.).
+        stringSpanRe.lastIndex = 0;
+        var mStr;
+        while ((mStr = stringSpanRe.exec(line)) !== null) {
+          bareWordRe.lastIndex = 0;
+          var mInStr = bareWordRe.exec(mStr[0]);
+          if (mInStr) { hit = mInStr[1]; break; }
+        }
+      }
+      if (hit) {
+        bad.push({
+          file:    rel,
+          line:    li + 1,
+          content: "internal binding name `" + hit +
+                   "` appears in operator-facing prose — use the " +
+                   "public API name (path / fs / crypto / retry / ...) " +
+                   "or, for legit binding documentation, hide behind " +
+                   "an `// allow:internal-binding-in-prose` marker",
+        });
+      }
+    }
+  }
+  bad = _filterMarkers(bad, "internal-binding-in-prose");
+  _report("internal binding names (`nodeFs` / `nodePath` / `bCrypto` / " +
+          "`retryHelper` / ...) must not appear in operator-facing " +
+          "prose — JSDoc comments, error messages, audit metadata",
+    bad);
+}
+
 function testRequireBindingConsistency() {
   // class: require-binding-name
   // For each module imported via the plain `var <name> = require("<module>")`
@@ -718,7 +869,14 @@ function testRequireBindingConsistency() {
     var lines = src.split("\n");
     for (var li = 0; li < lines.length; li++) {
       var line = lines[li];
+      // Plain top-level binding: `var X = require("M");`
       var m = line.match(/^\s*var\s+(\w+)\s*=\s*require\(["']([^"']+)["']\)\s*;?\s*$/);
+      // lazyRequire wrapper: `var X = lazyRequire(function () { return require("M"); });`
+      // — same binding-identity, just deferred-load. Apply the same
+      // canonical-name rule.
+      if (!m) {
+        m = line.match(/^\s*var\s+(\w+)\s*=\s*lazyRequire\(\s*function\s*\(\s*\)\s*\{\s*return\s+require\(["']([^"']+)["']\)\s*;?\s*\}\s*\)\s*;?\s*$/);
+      }
       if (!m) continue;
       var name = m[1];
       var mod  = m[2];
@@ -4768,6 +4926,8 @@ async function run() {
   testNoTierTerminologyInLib();
   testNoInlineRequires();
   testRequireBindingConsistency();
+  testNodeBuiltinPrefixConsistency();
+  testNoInternalBindingNameInProse();
   testNoDynamicRequires();
   testNoMathRandomForSecurity();
   testNoRawHashCompare();
