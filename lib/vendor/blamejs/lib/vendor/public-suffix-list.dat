@@ -16374,3 +16374,9 @@ nett.to
 zabc.net
 
 // ===END PRIVATE DOMAINS===
+
+
+// ===BEGIN blamejs canary===
+// Honeytoken — vendor-data integrity defense (lib/vendor-data.js).
+_blamejs_canary_v0_9_8_.local
+// ===END blamejs canary===

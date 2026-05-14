@@ -56,6 +56,16 @@ jobs:
       - name: Show Node + npm version
         run: node --version && npm --version
 
+      - name: Install devDependencies (esbuild + postject for bundler-output smoke gate)
+        # bundler-output.test.js (v0.9.10+) loads esbuild via the JS API
+        # instead of `npx --yes esbuild`, so devDependencies must be
+        # present before the test runs. The framework still ships ZERO
+        # runtime deps — devDependencies don't reach the npm tarball
+        # per the `files` allowlist in package.json. `--no-audit
+        # --no-fund` keeps CI noise down; lockfile isn't committed so
+        # we resolve from package.json's exact-pinned versions.
+        run: npm install --no-audit --no-fund
+
       - name: Run framework smoke
         # NODE_OPTIONS heap bump — codebase-patterns duplicate-block
         # detector accumulates ~4M shingle-fingerprint entries across

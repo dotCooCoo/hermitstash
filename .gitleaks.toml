@@ -1,0 +1,37 @@
+# Gitleaks configuration — allowlist false positives
+# Run from project root:
+# gitleaks detect --no-git --source . --report-path tests/gitleaks-report.json
+# gitleaks detect --source . --report-path tests/gitleaks-history.json
+
+title = "HermitStash gitleaks config"
+
+[allowlist]
+  description = "Known false positives"
+
+  paths = [
+    '''node_modules''',
+    '''tests/node_modules''',
+    # Vendored third-party crypto library (OID constants trigger generic-api-key)
+    '''lib/vendor/simplewebauthn-server\.cjs''',
+  ]
+
+  # Identifier names that gitleaks's generic-api-key heuristic flags but
+  # which are protocol constants in the codebase. Required by the
+  # vendored codebase-patterns rule — every identifier the rule's
+  # KNOWN_GITLEAKS_TRIPPING_IDS list catalogs must appear here.
+  stopwords = [
+    "x25519PrivateKey",
+    "x25519PublicKey",
+    "mlkemPrivateKey",
+    "mlkemPublicKey",
+  ]
+
+  regexTarget = "match"
+  regexes = [
+    # README example API key
+    '''hs_a1b2c3d4e5f6''',
+    # Test passwords in test files
+    '''password:\s*"(vaultowner|otheruser|placeholder|teamadmin|member|outsider|siteadmin)\d*"''',
+    # HTML data-key attributes (not secrets)
+    '''data-key="[a-zA-Z]+"''',
+  ]

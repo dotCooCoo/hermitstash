@@ -135,6 +135,15 @@ jobs:
           format:   tty
           check_together: 'yes'
 
+      - name: Install devDependencies (esbuild + postject for bundler-output smoke gate)
+        # bundler-output.test.js (v0.9.10+) loads esbuild via its JS API
+        # instead of `npx --yes esbuild`, so devDependencies must be
+        # present before the test runs. The framework still ships ZERO
+        # runtime deps — devDependencies don't reach the npm tarball
+        # per the `files` allowlist in package.json. Mirrors the same
+        # step in .github/workflows/ci.yml.
+        run: npm install --no-audit --no-fund
+
       - name: Framework smoke
         run: node test/smoke.js
 
@@ -296,26 +305,45 @@ jobs:
         # gate catches an unsigned registry entry before the publish step
         # proceeds.
         #
-        # When zero deps exist, `npm audit signatures --omit dev` exits 1
-        # with `found no installed dependencies to audit`. That's NOT a
-        # signing failure — it's the empty-tree case the framework
-        # actually wants. The shell guard below treats that exit code as
-        # success while keeping every other failure mode loud.
+        # Gate logic — invariant-driven, not error-message-driven:
+        #
+        # The framework's zero-npm-runtime-deps posture means
+        # `package.json`'s `"dependencies"` is the empty object `{}`. We
+        # check that invariant FIRST, before invoking audit-signatures.
+        # If it holds: the framework has nothing in the runtime tree to
+        # sign, and audit-signatures has nothing meaningful to verify.
+        # Skip with a regression-armed log line.
+        #
+        # If a future patch adds a runtime dep (any shape — registry,
+        # file:, git:, link:), this branch falls through and runs
+        # audit-signatures for real. The step then requires exit 0 OR
+        # an explicit empty-tree message; it does NOT accept the newer
+        # npm phrasing `no dependencies to audit that were installed
+        # from a supported registry`, because that message ALSO fires
+        # when deps exist but are unverifiable (file:/git:/etc.) — a
+        # state the gate is supposed to refuse, not paper over.
+        #
+        # Codex P1 review on v0.9.11 → v0.9.12 caught the broader-grep
+        # version of this gate silently passing for unverifiable-dep
+        # trees. The invariant check below makes the empty-tree path
+        # determined by `package.json`, not by npm CLI's error message.
         run: |
           set +e
+          RUNTIME_DEP_COUNT=$(node -e "console.log(Object.keys(require('./package.json').dependencies || {}).length)")
+          if [ "$RUNTIME_DEP_COUNT" = "0" ]; then
+            echo "[npm-audit-signatures] package.json declares zero runtime dependencies — invariant holds; regression gate armed for the first dep added."
+            exit 0
+          fi
+          echo "Runtime dependencies declared in package.json: $RUNTIME_DEP_COUNT"
           OUT=$(npm audit signatures --omit dev 2>&1)
           STATUS=$?
           set -e
           echo "$OUT"
           if [ "$STATUS" -eq 0 ]; then
-            echo "[npm-audit-signatures] registry signing chain verified"
+            echo "[npm-audit-signatures] registry signing chain verified for $RUNTIME_DEP_COUNT runtime dep(s)"
             exit 0
           fi
-          if echo "$OUT" | grep -qi "no installed dependencies to audit"; then
-            echo "[npm-audit-signatures] empty-deps tree (zero-runtime-deps posture) — regression gate armed for future deps"
-            exit 0
-          fi
-          echo "::error::npm audit signatures failed with a real signing-chain error"
+          echo "::error::npm audit signatures failed — runtime deps exist but couldn't be verified against the registry signing chain"
           exit "$STATUS"
 
       - name: Publish to npm (with SLSA provenance)

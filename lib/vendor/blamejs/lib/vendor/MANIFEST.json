@@ -1,5 +1,5 @@
 {
-  "_comment": "Vendored dependencies — no npm runtime packages. Use scripts/vendor-update.sh to update.",
+  "_comment": "Vendored dependencies \u00e2\u20ac\u201d no npm runtime packages. Use scripts/vendor-update.sh to update.",
   "packages": {
     "@noble/ciphers": {
       "version": "2.2.0",
@@ -23,7 +23,7 @@
       "license": "MIT",
       "author": "Paul Miller",
       "source": "https://github.com/paulmillr/noble-post-quantum",
-      "_about": "FIPS 203 / 204 / 205 PQC algorithms in pure JS. First-class on both server-side and client-side — interoperable with Node's built-in WebCrypto ML-KEM (a ciphertext encapsulated with Node ML-KEM-1024 decapsulates correctly with b.pqcSoftware.ml_kem_1024 and vice versa). Operators wire it server-side via `b.pqcSoftware.{ml_kem_1024,ml_dsa_87,slh_dsa_shake_256f,...}` (security-first defaults are the highest cat-5 levels), or re-bundle for browser / mobile clients shipping b.middleware.apiEncrypt.client. Older Node versions without the experimental WebCrypto ML-KEM extension can use the vendored bundle as the primary PQC path.",
+      "_about": "FIPS 203 / 204 / 205 PQC algorithms in pure JS. First-class on both server-side and client-side \u00e2\u20ac\u201d interoperable with Node's built-in WebCrypto ML-KEM (a ciphertext encapsulated with Node ML-KEM-1024 decapsulates correctly with b.pqcSoftware.ml_kem_1024 and vice versa). Operators wire it server-side via `b.pqcSoftware.{ml_kem_1024,ml_dsa_87,slh_dsa_shake_256f,...}` (security-first defaults are the highest cat-5 levels), or re-bundle for browser / mobile clients shipping b.middleware.apiEncrypt.client. Older Node versions without the experimental WebCrypto ML-KEM extension can use the vendored bundle as the primary PQC path.",
       "exports": [
         "ml_kem512",
         "ml_kem768",
@@ -73,15 +73,19 @@
       "license": "CC-BY-3.0",
       "author": "Daniel Miessler / SecLists contributors",
       "source": "https://github.com/danielmiessler/SecLists",
-      "_about": "Top 10,000 most-common passwords (breach-derived). Loaded by b.auth.password.policy() to satisfy NIST 800-63B §5.1.1.2 'previously breached' check. Operators with deeper enforcement (HIBP downloads, NCSC 100k) layer on top via opts.forbidCommon — the bundled set is additive.",
+      "_about": "Top 10,000 most-common passwords (breach-derived). Loaded by b.auth.password.policy() to satisfy NIST 800-63B \u00c2\u00a75.1.1.2 'previously breached' check. Operators with deeper enforcement (HIBP downloads, NCSC 100k) layer on top via opts.forbidCommon \u00e2\u20ac\u201d the bundled set is additive.",
       "files": {
-        "server": "lib/vendor/common-passwords-top-10000.txt"
+        "server": "lib/vendor/common-passwords-top-10000.txt",
+        "data_js": "lib/vendor/common-passwords-top-10000.data.js"
       },
       "bundler": "curl https://raw.githubusercontent.com/danielmiessler/SecLists/master/Passwords/Common-Credentials/10k-most-common.txt",
-      "bundledAt": "2026-05-02",
+      "bundledAt": "2026-05-13",
       "hashes": {
-        "server": "sha256:4adb3f0afb4a10cf19ebe48d8c69a46f934bbc8d77c694c210564f9583e7f4ba"
-      }
+        "server": "sha256:3c04e3cec775a7d0e21e544d33810dd434cccdb02e98903ba12e506dd9cd01bd",
+        "data_js": "sha256:87b223beca89f33d2c2c32a2cfda0bc187e58061de40e7127bb5ffc4258c6e2a"
+      },
+      "runtime_artifact": "lib/vendor/common-passwords-top-10000.data.js",
+      "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)"
     },
     "bimi-trust-anchors": {
       "version": "operator-managed",
@@ -93,28 +97,36 @@
         "bimi-vmc-trust-anchors"
       ],
       "files": {
-        "server": "lib/vendor/bimi-trust-anchors.pem"
+        "server": "lib/vendor/bimi-trust-anchors.pem",
+        "data_js": "lib/vendor/bimi-trust-anchors.data.js"
       },
       "bundler": "operator-managed (see file header for refresh procedure)",
-      "bundledAt": "2026-05-09",
+      "bundledAt": "2026-05-13",
       "hashes": {
-        "server": "sha256:81ff9f5ab3c9774132c845684e783be95cf73146f8b670d964105f0a3765b4b4"
-      }
+        "server": "sha256:81ff9f5ab3c9774132c845684e783be95cf73146f8b670d964105f0a3765b4b4",
+        "data_js": "sha256:aa7a4d33b65a68422a2a2c1670177689f66fdcaa08bd2514d78798b827bd1608"
+      },
+      "runtime_artifact": "lib/vendor/bimi-trust-anchors.data.js",
+      "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)"
     },
     "publicsuffix-list": {
       "version": "master",
       "license": "MPL-2.0",
       "author": "Mozilla Foundation",
       "source": "https://publicsuffix.org/list/public_suffix_list.dat",
-      "_about": "Mozilla Public Suffix List — canonical catalog of effective top-level domains used by b.publicSuffix to derive organizational domains for DMARCbis (psd= / np=), BIMI, cookie-scope checks, and same-site policies. Loaded at module-init from lib/vendor/public-suffix-list.dat; the file is the data, not a code bundle.",
+      "_about": "Mozilla Public Suffix List \u00e2\u20ac\u201d canonical catalog of effective top-level domains used by b.publicSuffix to derive organizational domains for DMARCbis (psd= / np=), BIMI, cookie-scope checks, and same-site policies. Loaded at module-init from lib/vendor/public-suffix-list.dat; the file is the data, not a code bundle.",
       "files": {
-        "server": "lib/vendor/public-suffix-list.dat"
+        "server": "lib/vendor/public-suffix-list.dat",
+        "data_js": "lib/vendor/public-suffix-list.data.js"
       },
       "bundler": "curl https://publicsuffix.org/list/public_suffix_list.dat",
-      "bundledAt": "2026-05-09",
+      "bundledAt": "2026-05-13",
       "hashes": {
-        "server": "sha256:a00855bbf027ca86cead1cf0bafc0b9b1ae904dda97f3e24b0062aa2e6e289e2"
-      }
+        "server": "sha256:f15642cea028662c39d380caa9ddfbe36c81466e3a82f8f4b10703d83760295c",
+        "data_js": "sha256:b4b6ae76fdacbfe07683c4ea62761326f42894c2ccf4359f253bbcab9826ed04"
+      },
+      "runtime_artifact": "lib/vendor/public-suffix-list.data.js",
+      "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)"
     },
     "peculiar-pki": {
       "version": "2.0.0+pkijs-3.4.0",

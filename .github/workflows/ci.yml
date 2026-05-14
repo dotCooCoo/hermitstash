@@ -107,6 +107,28 @@ jobs:
           fi
           exit $EXIT_CODE
 
+      # ── codebase-patterns (vendored from blamejs) ──────────────
+      - name: Run codebase-patterns
+        if: always()
+        id: codebase_patterns
+        run: |
+          set +e
+          OUTPUT=$(node tests/lint/codebase-patterns.test.js 2>&1)
+          EXIT_CODE=$?
+          set -e
+
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+          {
+            echo "output<<PATTERNS_EOF"
+            echo "$OUTPUT"
+            echo "PATTERNS_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "::error::codebase-patterns found violations"
+          fi
+          exit $EXIT_CODE
+
       # ── Summary + PR comment ───────────────────────────────────
       - name: Build summary
         if: always()
@@ -115,10 +137,12 @@ jobs:
           ESLINT_OUTPUT: ${{ steps.eslint.outputs.output }}
           HADOLINT_OUTPUT: ${{ steps.hadolint_result.outputs.output }}
           SHELLCHECK_OUTPUT: ${{ steps.shellcheck.outputs.output }}
+          PATTERNS_OUTPUT: ${{ steps.codebase_patterns.outputs.output }}
         run: |
           ESLINT_OK=${{ steps.eslint.outcome == 'success' }}
           HADOLINT_OK=${{ steps.hadolint.outcome == 'success' }}
           SHELLCHECK_OK=${{ steps.shellcheck.outcome == 'success' }}
+          PATTERNS_OK=${{ steps.codebase_patterns.outcome == 'success' }}
 
           PASS="✅"
           FAIL="❌"
@@ -126,9 +150,10 @@ jobs:
           ESLINT_ICON=$( [ "$ESLINT_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
           HADOLINT_ICON=$( [ "$HADOLINT_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
           SHELLCHECK_ICON=$( [ "$SHELLCHECK_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
+          PATTERNS_ICON=$( [ "$PATTERNS_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
 
           ALL_OK=true
-          [ "$ESLINT_OK" = "true" ] && [ "$HADOLINT_OK" = "true" ] && [ "$SHELLCHECK_OK" = "true" ] || ALL_OK=false
+          [ "$ESLINT_OK" = "true" ] && [ "$HADOLINT_OK" = "true" ] && [ "$SHELLCHECK_OK" = "true" ] && [ "$PATTERNS_OK" = "true" ] || ALL_OK=false
 
           {
             echo "body<<SUMMARY_EOF"
@@ -141,6 +166,7 @@ jobs:
             echo "| ESLint (JS + security) | $ESLINT_ICON |"
             echo "| Hadolint (Dockerfile) | $HADOLINT_ICON |"
             echo "| ShellCheck (shell scripts) | $SHELLCHECK_ICON |"
+            echo "| codebase-patterns (vendored) | $PATTERNS_ICON |"
 
             if [ "$ESLINT_OK" != "true" ] && [ -n "$ESLINT_OUTPUT" ]; then
               echo ""
@@ -172,6 +198,16 @@ jobs:
               echo "</details>"
             fi
 
+            if [ "$PATTERNS_OK" != "true" ] && [ -n "$PATTERNS_OUTPUT" ]; then
+              echo ""
+              echo "<details><summary>codebase-patterns output</summary>"
+              echo ""
+              echo '```'
+              printf '%s\n' "$PATTERNS_OUTPUT"
+              echo '```'
+              echo "</details>"
+            fi
+
             echo "SUMMARY_EOF"
           } >> "$GITHUB_OUTPUT"
 
@@ -185,6 +221,7 @@ jobs:
           echo "| ESLint | $ESLINT_ICON |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Hadolint | $HADOLINT_ICON |" >> "$GITHUB_STEP_SUMMARY"
           echo "| ShellCheck | $SHELLCHECK_ICON |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| codebase-patterns | $PATTERNS_ICON |" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment on PR
         if: always() && github.event_name == 'pull_request'

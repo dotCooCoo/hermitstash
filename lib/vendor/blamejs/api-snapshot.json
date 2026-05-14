@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.9.7",
-  "createdAt": "2026-05-13T05:08:30.329Z",
+  "frameworkVersion": "0.9.15",
+  "createdAt": "2026-05-13T23:19:13.853Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -9638,6 +9638,10 @@
           "arity": 1
         },
         "hashFile": {
+          "type": "function",
+          "arity": 2
+        },
+        "hashFilesParallel": {
           "type": "function",
           "arity": 2
         },
@@ -29425,6 +29429,23 @@
           "type": "function",
           "arity": 1
         },
+        "snapshot": {
+          "type": "object",
+          "members": {
+            "read": {
+              "type": "function",
+              "arity": 1
+            },
+            "render": {
+              "type": "function",
+              "arity": 2
+            },
+            "startWriter": {
+              "type": "function",
+              "arity": 1
+            }
+          }
+        },
         "tap": {
           "type": "function",
           "arity": 3
@@ -31824,6 +31845,10 @@
         "enforced": {
           "type": "primitive",
           "valueType": "boolean"
+        },
+        "reload": {
+          "type": "function",
+          "arity": 0
         }
       }
     },
@@ -34197,6 +34222,10 @@
           "type": "function",
           "arity": 1
         },
+        "withBreaker": {
+          "type": "function",
+          "arity": 2
+        },
         "withRetry": {
           "type": "function",
           "arity": 2
@@ -35032,6 +35061,19 @@
         "rollback": {
           "type": "function",
           "arity": 1
+        },
+        "standaloneVerifier": {
+          "type": "object",
+          "members": {
+            "path": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "verify": {
+              "type": "function",
+              "arity": 3
+            }
+          }
         },
         "swap": {
           "type": "function",
@@ -35935,6 +35977,87 @@
         "wrap": {
           "type": "function",
           "arity": 3
+        }
+      }
+    },
+    "vendorData": {
+      "type": "object",
+      "members": {
+        "KNOWN_VENDOR_DATA": {
+          "type": "object",
+          "members": {
+            "bimi-trust-anchors": {
+              "type": "object",
+              "members": {
+                "canary": {
+                  "type": "primitive",
+                  "valueType": "null"
+                },
+                "description": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "module": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "common-passwords-top-10000": {
+              "type": "object",
+              "members": {
+                "canary": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "description": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "module": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "public-suffix-list": {
+              "type": "object",
+              "members": {
+                "canary": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "description": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "module": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            }
+          }
+        },
+        "VendorDataError": {
+          "type": "function",
+          "arity": 4
+        },
+        "get": {
+          "type": "function",
+          "arity": 1
+        },
+        "getAsString": {
+          "type": "function",
+          "arity": 1
+        },
+        "inventory": {
+          "type": "function",
+          "arity": 0
+        },
+        "verifyAll": {
+          "type": "function",
+          "arity": 0
         }
       }
     },

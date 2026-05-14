@@ -128,25 +128,39 @@ jobs:
           if [ $EXIT_CODE -ne 0 ]; then echo "::error::ShellCheck found issues"; fi
           exit $EXIT_CODE
 
+      - name: Run codebase-patterns (vendored from blamejs)
+        if: always()
+        id: codebase_patterns
+        run: |
+          set +e
+          node tests/lint/codebase-patterns.test.js
+          EXIT_CODE=$?
+          set -e
+          if [ $EXIT_CODE -ne 0 ]; then echo "::error::codebase-patterns found violations"; fi
+          exit $EXIT_CODE
+
       - name: Lint summary
         if: always()
         run: |
           ESLINT_OK=${{ steps.eslint.outcome == 'success' }}
           HADOLINT_OK=${{ steps.hadolint.outcome == 'success' }}
           SHELLCHECK_OK=${{ steps.shellcheck.outcome == 'success' }}
+          PATTERNS_OK=${{ steps.codebase_patterns.outcome == 'success' }}
           PASS="✅"
           FAIL="❌"
           ESLINT_ICON=$( [ "$ESLINT_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
           HADOLINT_ICON=$( [ "$HADOLINT_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
           SHELLCHECK_ICON=$( [ "$SHELLCHECK_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
+          PATTERNS_ICON=$( [ "$PATTERNS_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
           {
             echo "### Lint Results"
             echo ""
             echo "| Check | Status |"
             echo "|-------|--------|"
-            echo "| ESLint (JS + security) | $ESLINT_ICON |"
-            echo "| Hadolint (Dockerfile)  | $HADOLINT_ICON |"
-            echo "| ShellCheck (shell)     | $SHELLCHECK_ICON |"
+            echo "| ESLint (JS + security)         | $ESLINT_ICON |"
+            echo "| Hadolint (Dockerfile)          | $HADOLINT_ICON |"
+            echo "| ShellCheck (shell)             | $SHELLCHECK_ICON |"
+            echo "| codebase-patterns (vendored)   | $PATTERNS_ICON |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   build-and-push:

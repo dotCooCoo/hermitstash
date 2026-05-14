@@ -1,6 +1,6 @@
 {
   "name": "@blamejs/core",
-  "version": "0.9.7",
+  "version": "0.9.15",
   "description": "The Node framework that owns its stack.",
   "license": "Apache-2.0",
   "author": "blamejs contributors",
@@ -74,6 +74,8 @@
     "prepack": "node scripts/check-pack-against-gitignore.js",
     "check:vendor-currency": "node scripts/check-vendor-currency.js"
   },
-  "dependencies": {},
-  "devDependencies": {}
+  "devDependencies": {
+    "esbuild": "0.28.0",
+    "postject": "1.0.0-alpha.6"
+  }
 }
