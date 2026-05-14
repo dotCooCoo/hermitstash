@@ -15,3 +15,5 @@ tests/lint/*
 tests/helpers/*
 !tests/helpers/check.js
 !tests/helpers/index.js
+!tests/helpers/_codebase-shingle.js
+!tests/helpers/_codebase-shingle-worker.js
