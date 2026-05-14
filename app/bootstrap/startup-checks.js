@@ -4,7 +4,7 @@
  *
  * Call this after config is loaded but before routes are registered.
  */
-var fs = require("fs");
+var nodeFs = require("node:fs");
 var config = require("../../lib/config");
 var { PATHS } = require("../../lib/constants");
 
@@ -15,9 +15,9 @@ function run() {
   // ---- Critical: vault key must exist and be readable ----
   var dataDir = PATHS.DATA_DIR;
   var vaultKeyPath = PATHS.VAULT_KEY;
-  if (fs.existsSync(vaultKeyPath)) {
+  if (nodeFs.existsSync(vaultKeyPath)) {
     try {
-      var keyData = JSON.parse(fs.readFileSync(vaultKeyPath, "utf8"));
+      var keyData = JSON.parse(nodeFs.readFileSync(vaultKeyPath, "utf8"));
       // Hybrid format (ML-KEM-1024 + P-384) — matches lib/vault.js loadKeys().
       if (!keyData.ecPublicKey || !keyData.ecPrivateKey) {
         errors.push("Vault key file exists but is not in the ML-KEM-1024 + P-384 hybrid format. Run the migration tool.");
@@ -76,12 +76,12 @@ function run() {
   // browser certs and, if any, notify offline sync clients to re-enroll).
   // The flag is consumed and deleted to prevent repeated warnings.
   try {
-    var regenFlagPath = require("path").join(PATHS.DATA_DIR, "ca-regen-flag.json");
-    if (fs.existsSync(regenFlagPath)) {
-      var flagData = JSON.parse(fs.readFileSync(regenFlagPath, "utf8"));
+    var regenFlagPath = require("node:path").join(PATHS.DATA_DIR, "ca-regen-flag.json");
+    if (nodeFs.existsSync(regenFlagPath)) {
+      var flagData = JSON.parse(nodeFs.readFileSync(regenFlagPath, "utf8"));
       var s = flagData.summary || {};
       warnings.push("mTLS CA was regenerated at " + flagData.at + " (v" + s.caGenerationBefore + " → v" + s.caGenerationAfter + "). Acked: " + (s.syncClientsAcked || 0) + "/" + (s.syncClientsConnected || 0) + " live sync clients. " + (s.syncClientsOffline || 0) + " offline clients need re-enrollment. " + (s.browserCertsRevoked || 0) + " browser cert(s) invalidated — admins must re-download.");
-      try { fs.unlinkSync(regenFlagPath); } catch (_e) { /* flag file may have been removed by a concurrent boot */ }
+      try { nodeFs.unlinkSync(regenFlagPath); } catch (_e) { /* flag file may have been removed by a concurrent boot */ }
     }
   } catch (_e) { /* flag corrupted or unreadable — non-fatal */ }
 
@@ -132,9 +132,9 @@ function run() {
   } catch (_e) { /* settings-schema not loaded yet — non-fatal */ }
 
   // ---- Warning: data directory permissions ----
-  if (fs.existsSync(dataDir)) {
+  if (nodeFs.existsSync(dataDir)) {
     try {
-      var stat = fs.statSync(dataDir);
+      var stat = nodeFs.statSync(dataDir);
       // Check if group/other readable (Unix only)
       if (process.platform !== "win32" && (stat.mode & 0o077) !== 0) {
         warnings.push("data/ directory has loose permissions (" + (stat.mode & 0o777).toString(8) + "). Consider chmod 700.");

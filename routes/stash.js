@@ -4,7 +4,7 @@
  * Admin routes for CRUD management.
  */
 var b = require("../lib/vendor/blamejs");
-var path = require("path");
+var nodePath = require("node:path");
 var config = require("../lib/config");
 ;
 var stashRepo = require("../app/data/repositories/stash.repo");
@@ -22,7 +22,7 @@ var { resolveUploadConfig, handleFileUpload, handleChunkUpload, handleFinalize }
 ;
 var { TIME, PATHS } = require("../lib/constants");
 var { validateEmail } = require("../app/shared/validate");
-var fs = require("fs");
+var nodeFs = require("node:fs");
 var { sanitizeSvg } = require("../lib/sanitize-svg");
 var apiKeysRepo = require("../app/data/repositories/apiKeys.repo");
 var db = require("../lib/db");
@@ -673,16 +673,16 @@ module.exports = function (app) {
         data = Buffer.from(clean, "utf8");
       }
 
-      if (!fs.existsSync(STASH_LOGO_DIR)) fs.mkdirSync(STASH_LOGO_DIR, { recursive: true });
+      if (!nodeFs.existsSync(STASH_LOGO_DIR)) nodeFs.mkdirSync(STASH_LOGO_DIR, { recursive: true });
 
       // Remove old logo for this stash
       try {
-        var existing = fs.readdirSync(STASH_LOGO_DIR);
-        existing.forEach(function (f) { if (f.startsWith(stash._id)) fs.unlinkSync(path.join(STASH_LOGO_DIR, f)); });
+        var existing = nodeFs.readdirSync(STASH_LOGO_DIR);
+        existing.forEach(function (f) { if (f.startsWith(stash._id)) nodeFs.unlinkSync(nodePath.join(STASH_LOGO_DIR, f)); });
       } catch (_e) { /* STASH_LOGO_DIR may not exist on first upload */ }
 
       var filename = stash._id + ext;
-      fs.writeFileSync(path.join(STASH_LOGO_DIR, filename), data);
+      nodeFs.writeFileSync(nodePath.join(STASH_LOGO_DIR, filename), data);
 
       var logoPath = "/img/stash/" + filename;
       stashRepo.update(stash._id, { $set: { logoUrl: logoPath } });

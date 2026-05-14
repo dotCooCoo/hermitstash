@@ -3,7 +3,7 @@
  * Handles download, preview (with SVG sanitization), and deletion.
  */
 var b = require("../../../lib/vendor/blamejs");
-var path = require("path");
+var nodePath = require("node:path");
 var filesRepo = require("../../data/repositories/files.repo");
 var storage = require("../../../lib/storage");
 ;
@@ -105,16 +105,16 @@ async function getSanitizedSvg(doc) {
   return new Promise(function (resolve, reject) {
     var chunks = [];
     var totalBytes = 0;
-    stream.on("data", function (c) {
+    nodeStream.on("data", function (c) {
       totalBytes += c.length;
       if (totalBytes > SVG_SIZE_LIMIT) {
-        stream.destroy();
+        nodeStream.destroy();
         return reject(new ValidationError("SVG too large for preview."));
       }
       chunks.push(c);
     });
-    stream.on("error", function (err) { reject(err); });
-    stream.on("end", function () {
+    nodeStream.on("error", function (err) { reject(err); });
+    nodeStream.on("end", function () {
       var svgRaw = Buffer.concat(chunks).toString("utf8");
       var clean = sanitizeSvg(svgRaw);
       var headers = {
@@ -187,7 +187,7 @@ async function saveToStorage(buffer, storagePath) {
  * @returns {{ doc: object, shareId: string, checksum: string, saved: object }}
  */
 async function saveAndCreateFileRecord(buffer, opts) {
-  var ext = path.extname(opts.filename).toLowerCase();
+  var ext = nodePath.extname(opts.filename).toLowerCase();
   var fileShareId = b.crypto.generateToken(32);
   var storagePath = "bundles/" + opts.bundleShareId + "/" + Date.now() + "-" + fileShareId + ext;
   var checksum = b.crypto.sha3Hash(buffer);

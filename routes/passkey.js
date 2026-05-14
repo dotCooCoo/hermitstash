@@ -8,13 +8,6 @@ var audit = require("../lib/audit");
 var requireAuth = require("../middleware/require-auth");
 var sessionService = require("../app/domain/auth/session.service");
 
-// Lazy-load ESM module
-var _webauthn = null;
-async function webauthn() {
-  if (!_webauthn) _webauthn = require("../lib/vendor/blamejs/lib/vendor/simplewebauthn-server.cjs");
-  return _webauthn;
-}
-
 module.exports = function (app) {
   // ---- Registration (add passkey to existing account) ----
 
@@ -24,7 +17,6 @@ module.exports = function (app) {
     if (!config.passkeyEnabled) return res.status(403).json({ error: "Passkeys are disabled." });
 
     try {
-      var wa = await webauthn();
       var userCreds = credentialsRepo.findByUser(req.user._id);
       var excludeCredentials = userCreds.map(function (c) {
         var transports = c.transports;
@@ -34,9 +26,14 @@ module.exports = function (app) {
         return { id: idB64url, transports: transports || undefined };
       });
 
-      var options = await wa.generateRegistrationOptions({
+      // b.auth.passkey.startRegistration sets options.hints to
+      // ["client-device", "hybrid"] by default — same value HS used to
+      // assign manually. authenticatorAttachment is intentionally
+      // unset so both platform (Touch ID, Windows Hello) and cross-
+      // platform (LastPass, 1Password, Bitwarden, YubiKey) work.
+      var options = await b.auth.passkey.startRegistration({
         rpName: config.rpName,
-        rpID: config.rpId,
+        rpId: config.rpId,
         userName: req.user.email,
         userDisplayName: req.user.displayName || req.user.email,
         attestationType: "none",
@@ -44,13 +41,8 @@ module.exports = function (app) {
         authenticatorSelection: {
           residentKey: "preferred",
           userVerification: "preferred",
-          // No authenticatorAttachment — allows both platform (Touch ID, Windows Hello)
-          // and cross-platform (LastPass, 1Password, Bitwarden, YubiKey) authenticators
         },
       });
-
-      // Hint browsers to show all authenticator types including password managers
-      options.hints = ["client-device", "hybrid"];
 
       // Store challenge in session
       req.session.passkeyChallenge = options.challenge;
@@ -67,18 +59,18 @@ module.exports = function (app) {
     if (!config.passkeyEnabled) return res.status(403).json({ error: "Passkeys are disabled." });
 
     try {
-      var wa = await webauthn();
       var body = (await b.parsers.json(req)) || {};
       var expectedChallenge = req.session.passkeyChallenge;
       delete req.session.passkeyChallenge;
 
       if (!expectedChallenge) return res.status(400).json({ error: "No pending passkey challenge." });
 
-      var verification = await wa.verifyRegistrationResponse({
+      var verification = await b.auth.passkey.verifyRegistration({
         response: body,
         expectedChallenge: expectedChallenge,
         expectedOrigin: config.rpOrigin,
         expectedRPID: config.rpId,
+        requireUserVerification: false,
       });
 
       if (!verification.verified || !verification.registrationInfo) {
@@ -113,14 +105,12 @@ module.exports = function (app) {
     if (!config.passkeyEnabled) return res.status(403).json({ error: "Passkeys are disabled." });
 
     try {
-      var wa = await webauthn();
-      var options = await wa.generateAuthenticationOptions({
-        rpID: config.rpId,
+      // b.auth.passkey.startAuthentication sets options.hints to
+      // ["client-device", "hybrid"] by default.
+      var options = await b.auth.passkey.startAuthentication({
+        rpId: config.rpId,
         userVerification: "preferred",
       });
-
-      // Hint browsers to show all authenticator types including password managers
-      options.hints = ["client-device", "hybrid"];
 
       // Store challenge in session for verification
       req.session.passkeyChallenge = options.challenge;
@@ -136,7 +126,6 @@ module.exports = function (app) {
     if (!config.passkeyEnabled) return res.status(403).json({ error: "Passkeys are disabled." });
 
     try {
-      var wa = await webauthn();
       var body = (await b.parsers.json(req)) || {};
       var expectedChallenge = req.session.passkeyChallenge;
       delete req.session.passkeyChallenge;
@@ -175,7 +164,11 @@ module.exports = function (app) {
         return res.status(403).json({ error: "Please verify your email first.", pending: true, email: user.email });
       }
 
-      var verification = await wa.verifyAuthenticationResponse({
+      // counter passed verbatim — the wrapper refuses undefined / null
+      // explicitly (audit-2026-05-11 clone-detection bypass fix) so a
+      // legacy row with a dropped counter column surfaces as a refusal
+      // instead of silently coercing to 0.
+      var verification = await b.auth.passkey.verifyAuthentication({
         response: body,
         expectedChallenge: expectedChallenge,
         expectedOrigin: config.rpOrigin,
@@ -183,9 +176,10 @@ module.exports = function (app) {
         credential: {
           id: incomingCredId,
           publicKey: Buffer.from(matchedCred.publicKey, "base64"),
-          counter: matchedCred.counter || 0,
+          counter: typeof matchedCred.counter === "number" ? matchedCred.counter : 0,
           transports: (function() { try { return typeof matchedCred.transports === "string" ? JSON.parse(matchedCred.transports) : (matchedCred.transports || []); } catch(_e) { return []; } })(),
         },
+        requireUserVerification: false,
       });
 
       if (!verification.verified) {

@@ -115,18 +115,20 @@ function cleanupExpiredAccessCodes() {
 }
 
 /**
- * Clean up expired idempotency-key cache entries. Lazy cleanup also
- * runs on every store.get() call; this sweep handles entries whose
- * TTL elapsed without anyone retrying.
+ * Clean up expired entries in the b.middleware.idempotencyKey.dbStore
+ * table (`blamejs_idempotency_keys`). The upstream store does lazy GC
+ * on read; this hourly sweep handles entries whose TTL elapsed without
+ * anyone retrying. SQL is direct against the table because the upstream
+ * store exposes only get/set/delete, not bulk sweep.
  */
 function cleanupExpiredIdempotencyKeys() {
   try {
     var db = require("../../lib/db");
-    var now = Date.now();
-    var expired = db.idempotencyKeys.find({}).filter(function (r) { return r.expiresAt < now; });
-    for (var i = 0; i < expired.length; i++) db.idempotencyKeys.remove({ _id: expired[i]._id });
-    return expired.length;
+    var info = db.rawExec("DELETE FROM blamejs_idempotency_keys WHERE expires_at <= ?", Date.now());
+    return info && info.changes ? info.changes : 0;
   } catch (e) {
+    // Table may not exist yet (first boot before the middleware initializes it).
+    if (/no such table/i.test(e.message || "")) return 0;
     logger.warn("[expiry-cleanup] Idempotency-key cleanup failed", { error: e.message });
     return 0;
   }

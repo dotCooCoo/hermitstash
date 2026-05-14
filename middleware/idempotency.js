@@ -1,10 +1,15 @@
 /**
  * Idempotency-Key middleware mount-ready instance.
  *
- * Single shared b.middleware.idempotencyKey instance pointed at the
- * DB-backed lib/idempotency-store. Mounted on mutating POST endpoints
- * where a network retry would otherwise create a duplicate resource
- * (apikeys create, webhooks create, drop init/finalize, user invite).
+ * Single shared b.middleware.idempotencyKey instance backed by the
+ * upstream b.middleware.idempotencyKey.dbStore (since blamejs 0.9.15).
+ * The dbStore handles key-hashing (sha3-512 namespace-hash before
+ * insert) + body/header sealing (via b.cryptoField, which routes
+ * through b.vault.seal — HS mirrors its vault into b.vault on boot).
+ *
+ * Mounted on mutating POST endpoints where a network retry would
+ * otherwise create a duplicate resource (apikeys create, webhooks
+ * create, drop init/finalize, user invite).
  *
  * Idempotency-Key is OPTIONAL. Clients that don't send the header
  * skip the cache and the middleware is a pass-through. Clients
@@ -19,7 +24,7 @@
  * on the original call).
  */
 var b = require("../lib/vendor/blamejs");
-var store = require("../lib/idempotency-store");
+var hsDb = require("../lib/db");
 
 // Idempotent — error-handler.js also sets this. Whichever module loads
 // first wins; subsequent calls with the same URI are no-ops. Ensures
@@ -29,6 +34,11 @@ var store = require("../lib/idempotency-store");
 b.problemDetails.setBase("https://hermitstash.com/problems");
 
 module.exports = b.middleware.idempotencyKey({
-  store: store,
+  store: b.middleware.idempotencyKey.dbStore({
+    db: hsDb.getDb(),
+    // Defaults preserved: tableName="blamejs_idempotency_keys", init=true,
+    // hashKeys=true (raw header value never reaches the DB), seal=true
+    // (headers + body sealed via b.cryptoField once b.vault.init() has run).
+  }),
   ttlMs: b.constants.TIME.hours(24),
 });

@@ -11,8 +11,8 @@
  * all known storagePaths from the DB, then deletes anything not in the set.
  * Chunks directory is handled separately by chunk-gc.job.js.
  */
-var fs = require("fs");
-var path = require("path");
+var nodeFs = require("node:fs");
+var nodePath = require("node:path");
 var { isS3Path, s3KeyFromPath } = require("../../lib/storage");
 var config = require("../../lib/config");
 var storage = require("../../lib/storage");
@@ -26,8 +26,8 @@ var { TIME } = require("../../lib/constants");
  */
 function scanLocalOrphans() {
   var uploadDir = storage.uploadDir;
-  var bundlesDir = path.join(uploadDir, "bundles");
-  if (!fs.existsSync(bundlesDir)) return { orphans: [], totalScanned: 0 };
+  var bundlesDir = nodePath.join(uploadDir, "bundles");
+  if (!nodeFs.existsSync(bundlesDir)) return { orphans: [], totalScanned: 0 };
 
   // Build set of known local storagePaths from DB
   var knownPaths = new Set();
@@ -36,7 +36,7 @@ function scanLocalOrphans() {
     var sp = allFiles[i].storagePath;
     if (sp && !isS3Path(sp)) {
       // Normalize: DB may store absolute or relative paths
-      var rel = path.isAbsolute(sp) ? path.relative(uploadDir, sp) : sp;
+      var rel = nodePath.isAbsolute(sp) ? nodePath.relative(uploadDir, sp) : sp;
       knownPaths.add(rel.replace(/\\/g, "/"));
     }
   }
@@ -47,16 +47,16 @@ function scanLocalOrphans() {
 
   function walk(dir) {
     var entries;
-    try { entries = fs.readdirSync(dir); } catch (_e) { return; }
+    try { entries = nodeFs.readdirSync(dir); } catch (_e) { return; }
     for (var j = 0; j < entries.length; j++) {
-      var full = path.join(dir, entries[j]);
+      var full = nodePath.join(dir, entries[j]);
       var stat;
-      try { stat = fs.statSync(full); } catch (_e) { continue; }
+      try { stat = nodeFs.statSync(full); } catch (_e) { continue; }
       if (stat.isDirectory()) {
         walk(full);
       } else {
         totalScanned++;
-        var rel = path.relative(uploadDir, full).replace(/\\/g, "/");
+        var rel = nodePath.relative(uploadDir, full).replace(/\\/g, "/");
         // Grace period: skip files modified in the last 5 minutes to avoid
         // racing with in-flight uploads that haven't inserted a DB record yet
         if (!knownPaths.has(rel) && (Date.now() - stat.mtimeMs > TIME.minutes(5))) {
@@ -118,14 +118,14 @@ function deleteLocalOrphans(orphans) {
   var uploadDir = storage.uploadDir;
   for (var i = 0; i < orphans.length; i++) {
     try {
-      fs.unlinkSync(orphans[i].path);
+      nodeFs.unlinkSync(orphans[i].path);
       deleted++;
       // Clean empty parent dirs up to bundles/
-      var dir = path.dirname(orphans[i].path);
-      var bundlesDir = path.join(uploadDir, "bundles");
+      var dir = nodePath.dirname(orphans[i].path);
+      var bundlesDir = nodePath.join(uploadDir, "bundles");
       while (dir !== bundlesDir && dir.startsWith(bundlesDir)) {
         try {
-          if (fs.readdirSync(dir).length === 0) { fs.rmdirSync(dir); dir = path.dirname(dir); }
+          if (nodeFs.readdirSync(dir).length === 0) { nodeFs.rmdirSync(dir); dir = nodePath.dirname(dir); }
           else break;
         } catch (_e) { break; }
       }
@@ -173,7 +173,7 @@ async function scanDanglingRecords() {
     // resolveLocalPath normalizes + guards against escape. If the path
     // escapes uploadDir, that itself is a dangling/corrupted record.
     var resolved = storage.resolveLocalPath(sp);
-    if (!resolved.ok || !fs.existsSync(resolved.absPath)) {
+    if (!resolved.ok || !nodeFs.existsSync(resolved.absPath)) {
       dangling.push({ fileId: allFiles[i]._id, shareId: allFiles[i].shareId, storagePath: sp });
     }
   }
@@ -212,15 +212,15 @@ function scanEmptyBundles() {
     // directory. Orphan cleanup runs before empty-bundle cleanup in the same
     // request, so a follow-up scan will catch this bundle once orphans are gone.
     if (b.shareId) {
-      var bundleDir = path.join(uploadDir, "bundles", b.shareId);
-      if (fs.existsSync(bundleDir)) {
+      var bundleDir = nodePath.join(uploadDir, "bundles", b.shareId);
+      if (nodeFs.existsSync(bundleDir)) {
         var hasFiles = false;
         try {
           (function walk(dir) {
             if (hasFiles) return;
-            var entries = fs.readdirSync(dir, { withFileTypes: true });
+            var entries = nodeFs.readdirSync(dir, { withFileTypes: true });
             for (var k = 0; k < entries.length && !hasFiles; k++) {
-              var full = path.join(dir, entries[k].name);
+              var full = nodePath.join(dir, entries[k].name);
               if (entries[k].isDirectory()) walk(full);
               else if (entries[k].isFile()) hasFiles = true;
             }

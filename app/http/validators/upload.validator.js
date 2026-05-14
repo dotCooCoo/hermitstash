@@ -2,7 +2,7 @@
  * Upload request validators — shared validation for regular and chunked uploads.
  * Ensures consistent size/count/type enforcement across all upload paths.
  */
-var path = require("path");
+var nodePath = require("node:path");
 
 /**
  * Validate a file against allowed extensions, max size, and empty check.
@@ -13,7 +13,7 @@ function validateFile(filename, fileSize, allowedExtensions, maxFileSize) {
   if (fileSize === 0) return { valid: false, reason: "Empty file." };
   if (maxFileSize && fileSize > maxFileSize) return { valid: false, reason: "File too large." };
 
-  var ext = path.extname(filename).toLowerCase();
+  var ext = nodePath.extname(filename).toLowerCase();
   if (!ext) return { valid: false, reason: "No file extension." };
   if (allowedExtensions && allowedExtensions.length > 0 && !allowedExtensions.includes(ext)) {
     return { valid: false, reason: "File type not allowed: " + ext };
@@ -106,7 +106,7 @@ function detectContentType(buf) {
  */
 function validateMagicBytes(filename, buffer) {
   if (!filename || !buffer) return { valid: true };
-  var ext = path.extname(filename).toLowerCase();
+  var ext = nodePath.extname(filename).toLowerCase();
   if (!RISKY_EXTENSIONS.has(ext)) return { valid: true };
   if (buffer.length < 8) return { valid: false, reason: "File too small to verify content type." };
 

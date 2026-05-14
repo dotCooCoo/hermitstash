@@ -5,7 +5,7 @@
  */
 var clientIp = require("../../../lib/client-ip");
 var b = require("../../../lib/vendor/blamejs");
-var path = require("path");
+var nodePath = require("node:path");
 var config = require("../../../lib/config");
 ;
 var filesRepo = require("../../data/repositories/files.repo");
@@ -151,7 +151,7 @@ async function handleFileUpload(ctx) {
       var old = existing[0];
       oldSize = old.size || 0;
       // Save new file, delete old blob, update existing record
-      var ext = path.extname(file.filename).toLowerCase();
+      var ext = nodePath.extname(file.filename).toLowerCase();
       fileShareId = b.crypto.generateToken(32);
       var storagePath = "bundles/" + bundle.shareId + "/" + Date.now() + "-" + fileShareId + ext;
       checksum = b.crypto.sha3Hash(file.data);
@@ -166,7 +166,7 @@ async function handleFileUpload(ctx) {
   // matches the final DB state even under concurrent uploads. Previously
   // three call sites each computed `(bundle.seq || 0) + 1` from the stale
   // in-memory value, which under concurrency produced duplicate seq numbers
-  // and silently dropped events on the WS catch-up path.
+  // and silently dropped events on the WS catch-up nodePath.
   var newSeq = bundlesRepo.incrementSeq(bundle._id);
 
   var now = new Date().toISOString();
@@ -242,7 +242,7 @@ async function handleChunkUpload(ctx) {
 
   // Early extension validation
   var earlyFilename = fields.filename || "file";
-  var earlyExt = path.extname(earlyFilename).toLowerCase();
+  var earlyExt = nodePath.extname(earlyFilename).toLowerCase();
   if (earlyExt && limits.allowedExtensions && limits.allowedExtensions.length > 0 && !limits.allowedExtensions.includes(earlyExt)) {
     return { error: "File type not allowed: " + earlyExt };
   }
@@ -258,7 +258,7 @@ async function handleChunkUpload(ctx) {
     storage.saveChunk(bundle.shareId, fileId, chunkIndex, chunk.data);
   } catch (e) {
     logger.error("Chunk save failed", { error: e.message || String(e), bundle: bundle._id });
-    return { error: "Invalid path." };
+    return { error: "Invalid nodePath." };
   }
 
   // Check if all chunks received
@@ -447,14 +447,14 @@ async function handleSyncFileRename(ctx) {
   // Sanitize new path
   var segments = newPath.split("/");
   segments = segments.map(function (s) { return sanitizeFilename(s); }).filter(Boolean);
-  if (segments.length === 0) return { error: "Invalid new path.", status: 400 };
+  if (segments.length === 0) return { error: "Invalid new nodePath.", status: 400 };
   newPath = segments.join("/");
 
   // Find existing file by oldRelativePath
   var allFiles = filesRepo.findAll({ bundleId: bundle._id }).filter(function (f) {
     return !f.deletedAt && f.relativePath === oldPath;
   });
-  if (allFiles.length === 0) return { error: "File not found at old path.", status: 404 };
+  if (allFiles.length === 0) return { error: "File not found at old nodePath.", status: 404 };
 
   var file = allFiles[0];
   var now = new Date().toISOString();

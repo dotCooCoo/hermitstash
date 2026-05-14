@@ -2,7 +2,7 @@
  * Shared email access-code request / verify logic for bundles and stash pages.
  */
 var b = require("../../lib/vendor/blamejs");
-var crypto = require("crypto");
+var nodeCrypto = require("node:crypto");
 ;
 var { HASH_PREFIX, TIME } = require("../../lib/constants");
 var accessCodesRepo = require("../data/repositories/bundleAccessCodes.repo");
@@ -30,7 +30,7 @@ async function requestCode(opts) {
 
   accessCodesRepo.invalidatePending(shareId, emailHash);
 
-  var codeNum = crypto.randomInt(0, 1000000);
+  var codeNum = nodeCrypto.randomInt(0, 1000000);
   var code = String(codeNum).padStart(6, "0");
 
   accessCodesRepo.create({

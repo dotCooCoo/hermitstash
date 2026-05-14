@@ -10,7 +10,7 @@
  *               released after passkey re-auth (works with all passkey providers)
  */
 var b = require("../lib/vendor/blamejs");
-var path = require("path");
+var nodePath = require("node:path");
 var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
 var usersRepo = require("../app/data/repositories/users.repo");
@@ -222,7 +222,7 @@ module.exports = function (app) {
         return res.status(400).json({ error: "Missing encrypted file data." });
       }
       // Sanitize filename — strip path components, limit length
-      body.filename = path.basename(String(body.filename)).slice(0, 255);
+      body.filename = nodePath.basename(String(body.filename)).slice(0, 255);
       // Strip null bytes and control characters
       body.filename = body.filename.replace(/[\x00-\x1f\x7f]/g, "");
       if (!body.filename) body.filename = "unnamed";
@@ -251,7 +251,7 @@ module.exports = function (app) {
       // Extension is incorporated into the storage path; restrict to a safe
       // charset (alnum, 1–10 chars) so a filename like "a.<odd>" can't create
       // surprising on-disk names for operators browsing the upload dir.
-      var ext = path.extname(body.filename).toLowerCase() || "";
+      var ext = nodePath.extname(body.filename).toLowerCase() || "";
       if (!/^\.[a-z0-9]{1,10}$/.test(ext)) ext = "";
       var storagePath = "vault/" + req.user._id + "/" + Date.now() + "-" + fileShareId + ext;
 

@@ -11,10 +11,10 @@
  */
 
 var b = require("../../../lib/vendor/blamejs");
-var fs = require("fs");
-var path = require("path");
+var nodeFs = require("node:fs");
+var nodePath = require("node:path");
 
-var migrationsDir = path.join(__dirname, "migrations");
+var migrationsDir = nodePath.join(__dirname, "migrations");
 
 /**
  * Ensure the _migrations tracking table exists.
@@ -46,8 +46,8 @@ function getApplied(db) {
  * Read migration files from the migrations directory, sorted alphabetically.
  */
 function getMigrationFiles() {
-  if (!fs.existsSync(migrationsDir)) return [];
-  return fs
+  if (!nodeFs.existsSync(migrationsDir)) return [];
+  return nodeFs
     .readdirSync(migrationsDir)
     .filter(function (f) { return f.endsWith(".js") && f !== ".gitkeep"; })
     .sort();
@@ -72,7 +72,7 @@ function run(db) {
 
   for (var i = 0; i < pending.length; i++) {
     var filename = pending[i];
-    var filePath = path.join(migrationsDir, filename);
+    var filePath = nodePath.join(migrationsDir, filename);
     try {
       var migration = require(filePath);
       if (typeof migration.up !== "function") {

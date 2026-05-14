@@ -21,7 +21,7 @@
  * Browser clients receive the session key via template embedding (res._apiKey).
  */
 var b = require("../lib/vendor/blamejs");
-var crypto = require("node:crypto");
+var nodeCrypto = require("node:crypto");
 var vault = require("../lib/vault");
 var config = require("../lib/config");
 ;
@@ -42,7 +42,7 @@ var ECIES_PROTOCOL_VERSION = 0x01;
  *
  * @param {Buffer} sessionKeyBuffer - the 32-byte session key to protect
  * @param {Buffer} clientKemPubKeyBytes - client's ML-KEM-1024 public key (from X-KEM-Public-Key header)
- * @param {crypto.KeyObject} clientEcdhPubKey - client's P-384 public key (from mTLS cert)
+ * @param {nodeCrypto.KeyObject} clientEcdhPubKey - client's P-384 public key (from mTLS cert)
  * @returns {{ ek, epk, kem }} base64url-encoded fields for the response
  */
 function hybridEciesEncrypt(sessionKeyBuffer, clientKemPubKeyBytes, clientEcdhPubKey) {
@@ -52,8 +52,8 @@ function hybridEciesEncrypt(sessionKeyBuffer, clientKemPubKeyBytes, clientEcdhPu
   var ciphertextKem = kemResult.cipherText;        // 1088 bytes
 
   // --- ECDH P-384 leg ---
-  var ephemeral = crypto.generateKeyPairSync("ec", { namedCurve: "secp384r1" });
-  var sharedSecretEcdh = crypto.diffieHellman({
+  var ephemeral = nodeCrypto.generateKeyPairSync("ec", { namedCurve: "secp384r1" });
+  var sharedSecretEcdh = nodeCrypto.diffieHellman({
     privateKey: ephemeral.privateKey,
     publicKey: clientEcdhPubKey,
   });
@@ -65,7 +65,7 @@ function hybridEciesEncrypt(sessionKeyBuffer, clientKemPubKeyBytes, clientEcdhPu
   ]);
 
   // --- Derive wrapping key via HKDF-SHA3-512 ---
-  var wrappingKey = crypto.hkdfSync("sha3-512", combinedSecret, "", HYBRID_HKDF_INFO, 32);
+  var wrappingKey = nodeCrypto.hkdfSync("sha3-512", combinedSecret, "", HYBRID_HKDF_INFO, 32);
 
   // --- Encrypt session key with XChaCha20-Poly1305 using the wrapping key ---
   var nonce = b.crypto.generateBytes(24);
@@ -189,7 +189,7 @@ module.exports = function apiEncrypt(req, res, next) {
       if (peerCert && peerCert.raw && peerCert.raw.length > 0) {
         try {
           // Extract the client's P-384 public key from the mTLS certificate
-          var x509 = new crypto.X509Certificate(peerCert.raw);
+          var x509 = new nodeCrypto.X509Certificate(peerCert.raw);
           var clientEcdhPubKey = x509.publicKey;
 
           // Perform hybrid ECIES encryption of the session key

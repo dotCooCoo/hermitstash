@@ -17,7 +17,6 @@ var logger = require("./app/shared/logger");
 var { sendHtml } = require("./lib/template");
 var certUtils = require("./lib/cert-utils");
 var mtlsCa = require("./lib/mtls-ca");
-var { createPQCGate } = require("./lib/pqc-gate");
 
 // WebSocket upgrade — handshake handled by b.websocket.handleUpgrade,
 // which writes the 101 and returns a WebSocketConnection (or null on
@@ -731,7 +730,7 @@ if (tlsEnabled && PQC_ENFORCE) {
     logger.info("[PQC] Internal HTTPS server listening on 127.0.0.1:" + INTERNAL_TLS_PORT);
   }, tlsOptions, "127.0.0.1");
 
-  gateServer = createPQCGate(INTERNAL_TLS_PORT);
+  gateServer = b.pqcGate.create({ internalPort: INTERNAL_TLS_PORT, log: logger });
   gateServer.listen(config.port, function () {
     logger.info("HermitStash is running", {
       url: protocol + "://localhost:" + config.port,

@@ -1,6 +1,6 @@
-var fs = require("fs");
+var nodeFs = require("node:fs");
 var fsp = require("fs/promises");
-var path = require("path");
+var nodePath = require("node:path");
 var config = require("../../../lib/config");
 var S3Client = require("../../../lib/s3-client");
 var storage = require("../../../lib/storage");
@@ -67,7 +67,7 @@ async function migrateStorage(direction, progressCb) {
         var resolved = storage.resolveLocalPath(sp);
         if (!resolved.ok) throw new Error(resolved.reason);
         var localPath = resolved.absPath;
-        if (!fs.existsSync(localPath)) {
+        if (!nodeFs.existsSync(localPath)) {
           throw new Error("Local file not found: " + sp);
         }
         // Async I/O so the event loop stays responsive during large migrations.
@@ -77,9 +77,9 @@ async function migrateStorage(direction, progressCb) {
 
         // Derive the S3 key from the relative path
         var s3Key = sp;
-        if (path.isAbsolute(sp)) {
+        if (nodePath.isAbsolute(sp)) {
           // Convert absolute local path back to relative key
-          s3Key = path.relative(uploadDir, sp).replace(/\\/g, "/");
+          s3Key = nodePath.relative(uploadDir, sp).replace(/\\/g, "/");
         }
 
         // Upload to S3
@@ -93,13 +93,13 @@ async function migrateStorage(direction, progressCb) {
         await fsp.unlink(localPath);
 
         // Clean up empty parent directories (best-effort, async)
-        var parentDir = path.dirname(localPath);
+        var parentDir = nodePath.dirname(localPath);
         try {
           while (parentDir !== uploadDir) {
             var kids = await fsp.readdir(parentDir);
             if (kids.length !== 0) break;
             await fsp.rmdir(parentDir);
-            parentDir = path.dirname(parentDir);
+            parentDir = nodePath.dirname(parentDir);
           }
         } catch (_e) { /* parent dir cleanup — stop on first non-empty or permission error */ }
 
@@ -116,9 +116,9 @@ async function migrateStorage(direction, progressCb) {
         var data = await s3.getBuffer(s3Key);
 
         // Write to local disk (async — see note above on responsiveness)
-        var localPath = path.join(uploadDir, s3Key);
-        var dir = path.dirname(localPath);
-        if (!fs.existsSync(dir)) await fsp.mkdir(dir, { recursive: true });
+        var localPath = nodePath.join(uploadDir, s3Key);
+        var dir = nodePath.dirname(localPath);
+        if (!nodeFs.existsSync(dir)) await fsp.mkdir(dir, { recursive: true });
         await fsp.writeFile(localPath, data);
 
         // Update DB record with local path
@@ -174,7 +174,7 @@ function migrationPreview(direction) {
       totalBytes += allFiles[i].size || 0;
       if (bid) bundlesAffected.add(bid);
       var resolvedPreview = storage.resolveLocalPath(sp);
-      if (!resolvedPreview.ok || !fs.existsSync(resolvedPreview.absPath)) missing++;
+      if (!resolvedPreview.ok || !nodeFs.existsSync(resolvedPreview.absPath)) missing++;
     } else if (!toS3 && onS3) {
       toMigrate++;
       totalBytes += allFiles[i].size || 0;

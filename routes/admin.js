@@ -21,8 +21,8 @@
  * the route handler.
  */
 var b = require("../lib/vendor/blamejs");
-var fs = require("fs");
-var path = require("path");
+var nodeFs = require("node:fs");
+var nodePath = require("node:path");
 var { certFingerprintSha3 } = require("../lib/cert-utils");
 var audit = require("../lib/audit");
 var C = require("../lib/constants");
@@ -61,16 +61,16 @@ var { sanitizeSvg } = require("../lib/sanitize-svg");
 // real on-disk storage including chunks, orphan files, and empty bundle dirs that
 // aren't represented in the file table. Returns 0 if dir is missing/unreadable.
 function walkDiskUsage(dir) {
-  if (!fs.existsSync(dir)) return 0;
+  if (!nodeFs.existsSync(dir)) return 0;
   var total = 0;
   var entries;
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_e) { return 0; }
+  try { entries = nodeFs.readdirSync(dir, { withFileTypes: true }); } catch (_e) { return 0; }
   for (var i = 0; i < entries.length; i++) {
-    var full = path.join(dir, entries[i].name);
+    var full = nodePath.join(dir, entries[i].name);
     if (entries[i].isDirectory()) {
       total += walkDiskUsage(full);
     } else if (entries[i].isFile()) {
-      try { total += fs.statSync(full).size; } catch (_e) { /* file may have been removed between readdir and stat */ }
+      try { total += nodeFs.statSync(full).size; } catch (_e) { /* file may have been removed between readdir and stat */ }
     }
   }
   return total;
@@ -300,17 +300,17 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     // Prefer encrypted-at-rest copy; fall back to plain DB for dev/custom setups
     var encDbPath = PATHS.DB_ENC;
-    var plainDbPath = process.env.HERMITSTASH_DB_PATH || path.join(path.dirname(encDbPath), "hermitstash.db");
-    var dbPath = fs.existsSync(encDbPath) ? encDbPath : plainDbPath;
+    var plainDbPath = process.env.HERMITSTASH_DB_PATH || nodePath.join(nodePath.dirname(encDbPath), "hermitstash.db");
+    var dbPath = nodeFs.existsSync(encDbPath) ? encDbPath : plainDbPath;
     var isEnc = dbPath === encDbPath;
-    if (!fs.existsSync(dbPath)) { res.writeHead(404); return res.end("No database found"); }
+    if (!nodeFs.existsSync(dbPath)) { res.writeHead(404); return res.end("No database found"); }
     audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Database backup downloaded" + (isEnc ? " (encrypted)" : ""), req: req });
     var ext = isEnc ? ".db.enc" : ".db";
     res.writeHead(200, {
       "Content-Type": "application/octet-stream",
       "Content-Disposition": "attachment; filename=\"hermitstash-backup-" + new Date().toISOString().slice(0,10) + ext + "\""
     });
-    fs.createReadStream(dbPath).pipe(res);
+    nodeFs.createReadStream(dbPath).pipe(res);
   });
 
   // ---- Storage S3 test ----
@@ -415,22 +415,21 @@ module.exports = function (app) {
   app.get("/admin/security/status", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
-      var fs = require("fs");
       var C = require("../lib/constants");
       var mtlsCa = require("../lib/mtls-ca");
 
       var vaultMode = (process.env.VAULT_PASSPHRASE_MODE || "disabled").toLowerCase();
-      var vaultSealedExists = fs.existsSync(C.PATHS.VAULT_KEY_SEALED);
+      var vaultSealedExists = nodeFs.existsSync(C.PATHS.VAULT_KEY_SEALED);
 
       var caKeyMode = (process.env.CA_KEY_SEALED || "auto").toLowerCase();
-      var caSealedExists = fs.existsSync(C.PATHS.CA_KEY_SEALED);
-      var caPlainExists = fs.existsSync(C.PATHS.CA_KEY);
+      var caSealedExists = nodeFs.existsSync(C.PATHS.CA_KEY_SEALED);
+      var caPlainExists = nodeFs.existsSync(C.PATHS.CA_KEY);
       var caExists = mtlsCa.exists();
 
       var tlsKeyMode = (process.env.TLS_KEY_SEALED || "auto").toLowerCase();
-      var tlsSealedExists = fs.existsSync(C.PATHS.TLS_KEY_SEALED);
-      var tlsPlainExists = fs.existsSync(process.env.TLS_KEY ||
-        require("path").join(C.PATHS.TLS_DIR, "privkey.pem"));
+      var tlsSealedExists = nodeFs.existsSync(C.PATHS.TLS_KEY_SEALED);
+      var tlsPlainExists = nodeFs.existsSync(process.env.TLS_KEY ||
+        nodePath.join(C.PATHS.TLS_DIR, "privkey.pem"));
 
       var enforceMtlsStrict = process.env.ENFORCE_MTLS_STRICT;
       var mtlsHardEnforced = enforceMtlsStrict === "true" && caExists;
@@ -456,7 +455,7 @@ module.exports = function (app) {
             : "RECOMMENDED: enable via VAULT_PASSPHRASE_MODE=required + scripts/vault-passphrase-setup.js",
           actions: vaultSealedExists
             ? [{ kind: "unseal", route: "/admin/security/unseal/vault-passphrase", needsPassphrase: true, label: "Disable", confirmText: "This will unwrap vault.key.sealed back to plaintext. You'll need to unset VAULT_PASSPHRASE_MODE before the next restart." }]
-            : (fs.existsSync(C.PATHS.VAULT_KEY) ? [{ kind: "seal", route: "/admin/security/seal/vault-passphrase", needsPassphrase: true, label: "Enable", confirmText: "After enabling, you MUST add VAULT_PASSPHRASE_FILE=/path to your environment AND drop the passphrase into that file BEFORE the next server restart, OR the next restart will FAIL." }]
+            : (nodeFs.existsSync(C.PATHS.VAULT_KEY) ? [{ kind: "seal", route: "/admin/security/seal/vault-passphrase", needsPassphrase: true, label: "Enable", confirmText: "After enabling, you MUST add VAULT_PASSPHRASE_FILE=/path to your environment AND drop the passphrase into that file BEFORE the next server restart, OR the next restart will FAIL." }]
                 : []),
         },
         {
@@ -616,12 +615,11 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     return _withSecurityLock(res, async function () {
       try {
-        var fs2 = require("fs");
         var pemSeal = require("../lib/pem-seal");
         var caPlain = PATHS.CA_KEY;
         var caSealed = PATHS.CA_KEY_SEALED;
-        if (!fs2.existsSync(caPlain)) return res.status(409).json({ error: "data/ca.key does not exist — nothing to seal" });
-        if (fs2.existsSync(caSealed)) return res.status(409).json({ error: "data/ca.key.sealed already exists — refusing to overwrite" });
+        if (!nodeFs.existsSync(caPlain)) return res.status(409).json({ error: "data/ca.key does not exist — nothing to seal" });
+        if (nodeFs.existsSync(caSealed)) return res.status(409).json({ error: "data/ca.key.sealed already exists — refusing to overwrite" });
         var result = pemSeal.sealPemFile(caPlain, caSealed, {});
         audit.log(audit.ACTIONS.CA_KEY_SEALED, { details: "mTLS CA private key sealed via admin UI", req: req });
         res.json({
@@ -643,12 +641,11 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     return _withSecurityLock(res, async function () {
       try {
-        var fs2 = require("fs");
         var pemSeal = require("../lib/pem-seal");
         var caPlain = PATHS.CA_KEY;
         var caSealed = PATHS.CA_KEY_SEALED;
-        if (!fs2.existsSync(caSealed)) return res.status(409).json({ error: "data/ca.key.sealed does not exist — nothing to unseal" });
-        if (fs2.existsSync(caPlain)) return res.status(409).json({ error: "data/ca.key already exists — refusing to overwrite" });
+        if (!nodeFs.existsSync(caSealed)) return res.status(409).json({ error: "data/ca.key.sealed does not exist — nothing to unseal" });
+        if (nodeFs.existsSync(caPlain)) return res.status(409).json({ error: "data/ca.key already exists — refusing to overwrite" });
         pemSeal.unsealPemFile(caSealed, caPlain);
         audit.log(audit.ACTIONS.CA_KEY_UNSEALED, { details: "mTLS CA private key unsealed via admin UI", req: req });
         res.json({
@@ -669,13 +666,11 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     return _withSecurityLock(res, async function () {
       try {
-        var fs2 = require("fs");
-        var path2 = require("path");
         var pemSeal = require("../lib/pem-seal");
-        var tlsPlain = process.env.TLS_KEY || path2.join(PATHS.TLS_DIR, "privkey.pem");
+        var tlsPlain = process.env.TLS_KEY || nodePath.join(PATHS.TLS_DIR, "privkey.pem");
         var tlsSealed = tlsPlain + ".sealed";
-        if (!fs2.existsSync(tlsPlain)) return res.status(409).json({ error: tlsPlain + " does not exist — nothing to seal" });
-        if (fs2.existsSync(tlsSealed)) return res.status(409).json({ error: tlsSealed + " already exists — refusing to overwrite" });
+        if (!nodeFs.existsSync(tlsPlain)) return res.status(409).json({ error: tlsPlain + " does not exist — nothing to seal" });
+        if (nodeFs.existsSync(tlsSealed)) return res.status(409).json({ error: tlsSealed + " already exists — refusing to overwrite" });
         var result = pemSeal.sealPemFile(tlsPlain, tlsSealed, {});
         // Best-effort SIGHUP self-signal so the server's cert watcher picks
         // up the new sealed file immediately (server-main.js installs the
@@ -701,13 +696,11 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     return _withSecurityLock(res, async function () {
       try {
-        var fs2 = require("fs");
-        var path2 = require("path");
         var pemSeal = require("../lib/pem-seal");
-        var tlsPlain = process.env.TLS_KEY || path2.join(PATHS.TLS_DIR, "privkey.pem");
+        var tlsPlain = process.env.TLS_KEY || nodePath.join(PATHS.TLS_DIR, "privkey.pem");
         var tlsSealed = tlsPlain + ".sealed";
-        if (!fs2.existsSync(tlsSealed)) return res.status(409).json({ error: tlsSealed + " does not exist — nothing to unseal" });
-        if (fs2.existsSync(tlsPlain)) return res.status(409).json({ error: tlsPlain + " already exists — refusing to overwrite" });
+        if (!nodeFs.existsSync(tlsSealed)) return res.status(409).json({ error: tlsSealed + " does not exist — nothing to unseal" });
+        if (nodeFs.existsSync(tlsPlain)) return res.status(409).json({ error: tlsPlain + " already exists — refusing to overwrite" });
         pemSeal.unsealPemFile(tlsSealed, tlsPlain);
         try { process.kill(process.pid, "SIGHUP"); } catch (_e) { /* same */ }
         audit.log(audit.ACTIONS.TLS_KEY_UNSEALED, { details: "TLS server private key unsealed via admin UI", req: req });
@@ -929,16 +922,16 @@ module.exports = function (app) {
         data = Buffer.from(clean, "utf8");
       }
 
-      if (!fs.existsSync(LOGO_DIR)) fs.mkdirSync(LOGO_DIR, { recursive: true });
+      if (!nodeFs.existsSync(LOGO_DIR)) nodeFs.mkdirSync(LOGO_DIR, { recursive: true });
 
       // Remove old custom logo
       try {
-        var existing = fs.readdirSync(LOGO_DIR);
-        existing.forEach(function (f) { if (f.startsWith("logo")) fs.unlinkSync(path.join(LOGO_DIR, f)); });
+        var existing = nodeFs.readdirSync(LOGO_DIR);
+        existing.forEach(function (f) { if (f.startsWith("logo")) nodeFs.unlinkSync(nodePath.join(LOGO_DIR, f)); });
       } catch (_e) { /* LOGO_DIR may not exist on first upload */ }
 
       var filename = "logo" + ext;
-      fs.writeFileSync(path.join(LOGO_DIR, filename), data);
+      nodeFs.writeFileSync(nodePath.join(LOGO_DIR, filename), data);
 
       var logoPath = "/img/custom/" + filename;
       config.updateSettings({ customLogo: logoPath });
@@ -953,9 +946,9 @@ module.exports = function (app) {
   app.post("/admin/logo/remove", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
-      if (fs.existsSync(LOGO_DIR)) {
-        var existing = fs.readdirSync(LOGO_DIR);
-        existing.forEach(function (f) { if (f.startsWith("logo")) fs.unlinkSync(path.join(LOGO_DIR, f)); });
+      if (nodeFs.existsSync(LOGO_DIR)) {
+        var existing = nodeFs.readdirSync(LOGO_DIR);
+        existing.forEach(function (f) { if (f.startsWith("logo")) nodeFs.unlinkSync(nodePath.join(LOGO_DIR, f)); });
       }
       config.updateSettings({ customLogo: "" });
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Custom logo removed", req: req });
@@ -1077,7 +1070,7 @@ module.exports = function (app) {
         }
         // Write a flag file so startup-checks can show a post-restart banner
         try {
-          fs.writeFileSync(path.join(PATHS.DATA_DIR, "ca-regen-flag.json"), JSON.stringify({
+          nodeFs.writeFileSync(nodePath.join(PATHS.DATA_DIR, "ca-regen-flag.json"), JSON.stringify({
             at: new Date().toISOString(),
             summary: summary,
             byUser: req.session && req.session.userId ? req.session.userId : null,
@@ -1365,7 +1358,7 @@ module.exports = function (app) {
       // Remove the initial-admin-password.txt plaintext file now that the
       // operator has chosen their own credentials.
       try {
-        if (fs.existsSync(PATHS.INITIAL_ADMIN_PASSWORD)) fs.unlinkSync(PATHS.INITIAL_ADMIN_PASSWORD);
+        if (nodeFs.existsSync(PATHS.INITIAL_ADMIN_PASSWORD)) nodeFs.unlinkSync(PATHS.INITIAL_ADMIN_PASSWORD);
       } catch (e) {
         logger.error("Failed to remove initial-admin-password.txt", { error: e.message || String(e) });
       }
