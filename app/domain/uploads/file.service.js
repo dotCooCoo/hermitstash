@@ -105,16 +105,16 @@ async function getSanitizedSvg(doc) {
   return new Promise(function (resolve, reject) {
     var chunks = [];
     var totalBytes = 0;
-    nodeStream.on("data", function (c) {
+    stream.on("data", function (c) {
       totalBytes += c.length;
       if (totalBytes > SVG_SIZE_LIMIT) {
-        nodeStream.destroy();
+        stream.destroy();
         return reject(new ValidationError("SVG too large for preview."));
       }
       chunks.push(c);
     });
-    nodeStream.on("error", function (err) { reject(err); });
-    nodeStream.on("end", function () {
+    stream.on("error", function (err) { reject(err); });
+    stream.on("end", function () {
       var svgRaw = Buffer.concat(chunks).toString("utf8");
       var clean = sanitizeSvg(svgRaw);
       var headers = {
