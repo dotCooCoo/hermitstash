@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.9.46",
-  "createdAt": "2026-05-15T21:50:25.317Z",
+  "frameworkVersion": "0.9.54",
+  "createdAt": "2026-05-16T04:59:07.772Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -10720,7 +10720,7 @@
         },
         "decrypt": {
           "type": "function",
-          "arity": 2
+          "arity": 3
         },
         "decryptEnvelopeAsCertPeer": {
           "type": "function",
@@ -20207,6 +20207,493 @@
         }
       }
     },
+    "guardImapCommand": {
+      "type": "object",
+      "members": {
+        "COMPLIANCE_POSTURES": {
+          "type": "object",
+          "members": {
+            "gdpr": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "hipaa": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "pci-dss": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "soc2": {
+              "type": "primitive",
+              "valueType": "string"
+            }
+          }
+        },
+        "GuardImapCommandError": {
+          "type": "function",
+          "arity": 4
+        },
+        "KNOWN_VERBS": {
+          "type": "object",
+          "members": {
+            "APPEND": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "AUTHENTICATE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "CAPABILITY": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "CHECK": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "CLOSE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "COPY": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "CREATE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "DELETE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "DONE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "ENABLE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "EXAMINE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "EXPUNGE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "FETCH": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "GETQUOTA": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "GETQUOTAROOT": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "ID": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "IDLE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "LIST": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "LOGIN": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "LOGOUT": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "MOVE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "NAMESPACE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "NOOP": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "RENAME": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "SEARCH": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "SELECT": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "SETQUOTA": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "STARTTLS": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "STATUS": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "STORE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "SUBSCRIBE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "UID": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "UNSELECT": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "UNSUBSCRIBE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            }
+          }
+        },
+        "PROFILES": {
+          "type": "object",
+          "members": {
+            "balanced": {
+              "type": "object",
+              "members": {
+                "allowBareLf": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowLegacyMUtf7": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowLiteralPlus": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "maxLineBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxLiteralBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxMailboxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxSearchDepth": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxSequenceSetItems": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            },
+            "permissive": {
+              "type": "object",
+              "members": {
+                "allowBareLf": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowLegacyMUtf7": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowLiteralPlus": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "maxLineBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxLiteralBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxMailboxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxSearchDepth": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxSequenceSetItems": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            },
+            "strict": {
+              "type": "object",
+              "members": {
+                "allowBareLf": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowLegacyMUtf7": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowLiteralPlus": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "maxLineBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxLiteralBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxMailboxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxSearchDepth": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxSequenceSetItems": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            }
+          }
+        },
+        "ZERO_ARG_VERBS": {
+          "type": "object",
+          "members": {
+            "CAPABILITY": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "CHECK": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "CLOSE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "DONE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "EXPUNGE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "IDLE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "LOGOUT": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "NAMESPACE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "NOOP": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "STARTTLS": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "UNSELECT": {
+              "type": "primitive",
+              "valueType": "boolean"
+            }
+          }
+        },
+        "compliancePosture": {
+          "type": "function",
+          "arity": 1
+        },
+        "detectLiteralSmuggling": {
+          "type": "function",
+          "arity": 1
+        },
+        "validate": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
+    "guardJmap": {
+      "type": "object",
+      "members": {
+        "COMPLIANCE_POSTURES": {
+          "type": "object",
+          "members": {
+            "gdpr": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "hipaa": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "pci-dss": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "soc2": {
+              "type": "primitive",
+              "valueType": "string"
+            }
+          }
+        },
+        "CORE_CAPABILITIES": {
+          "type": "object",
+          "members": {
+            "urn:ietf:params:jmap:core": {
+              "type": "primitive",
+              "valueType": "boolean"
+            }
+          }
+        },
+        "GuardJmapError": {
+          "type": "function",
+          "arity": 4
+        },
+        "PROFILES": {
+          "type": "object",
+          "members": {
+            "balanced": {
+              "type": "object",
+              "members": {
+                "maxBackRefDepth": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxCallsInRequest": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxObjectsInGet": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxObjectsInSet": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxSizeRequest": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxUsingCapabilities": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            },
+            "permissive": {
+              "type": "object",
+              "members": {
+                "maxBackRefDepth": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxCallsInRequest": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxObjectsInGet": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxObjectsInSet": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxSizeRequest": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxUsingCapabilities": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            },
+            "strict": {
+              "type": "object",
+              "members": {
+                "maxBackRefDepth": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxCallsInRequest": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxObjectsInGet": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxObjectsInSet": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxSizeRequest": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxUsingCapabilities": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            }
+          }
+        },
+        "compliancePosture": {
+          "type": "function",
+          "arity": 1
+        },
+        "validate": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
     "guardJson": {
       "type": "object",
       "members": {
@@ -26171,6 +26658,218 @@
         "sanitize": {
           "type": "function",
           "arity": 2
+        },
+        "validate": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
+    "guardPop3Command": {
+      "type": "object",
+      "members": {
+        "COMPLIANCE_POSTURES": {
+          "type": "object",
+          "members": {
+            "gdpr": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "hipaa": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "pci-dss": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "soc2": {
+              "type": "primitive",
+              "valueType": "string"
+            }
+          }
+        },
+        "GuardPop3CommandError": {
+          "type": "function",
+          "arity": 4
+        },
+        "KNOWN_VERBS": {
+          "type": "object",
+          "members": {
+            "APOP": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "AUTH": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "CAPA": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "DELE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "LIST": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "NOOP": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "PASS": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "QUIT": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "RETR": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "RSET": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "STAT": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "STLS": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "TOP": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "UIDL": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "USER": {
+              "type": "primitive",
+              "valueType": "boolean"
+            }
+          }
+        },
+        "PROFILES": {
+          "type": "object",
+          "members": {
+            "balanced": {
+              "type": "object",
+              "members": {
+                "allowApop": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowBareLf": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "maxLineBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxPasswordBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxUsernameBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            },
+            "permissive": {
+              "type": "object",
+              "members": {
+                "allowApop": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowBareLf": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "maxLineBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxPasswordBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxUsernameBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            },
+            "strict": {
+              "type": "object",
+              "members": {
+                "allowApop": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowBareLf": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "maxLineBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxPasswordBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxUsernameBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            }
+          }
+        },
+        "ZERO_ARG_VERBS": {
+          "type": "object",
+          "members": {
+            "CAPA": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "NOOP": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "QUIT": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "RSET": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "STAT": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "STLS": {
+              "type": "primitive",
+              "valueType": "boolean"
+            }
+          }
+        },
+        "compliancePosture": {
+          "type": "function",
+          "arity": 1
         },
         "validate": {
           "type": "function",
@@ -33639,6 +34338,10 @@
               "type": "function",
               "arity": 2
             },
+            "bootstrap": {
+              "type": "function",
+              "arity": 1
+            },
             "create": {
               "type": "function",
               "arity": 1
@@ -34029,6 +34732,32 @@
         "server": {
           "type": "object",
           "members": {
+            "imap": {
+              "type": "object",
+              "members": {
+                "MailServerImapError": {
+                  "type": "function",
+                  "arity": 4
+                },
+                "create": {
+                  "type": "function",
+                  "arity": 1
+                }
+              }
+            },
+            "jmap": {
+              "type": "object",
+              "members": {
+                "MailServerJmapError": {
+                  "type": "function",
+                  "arity": 4
+                },
+                "create": {
+                  "type": "function",
+                  "arity": 1
+                }
+              }
+            },
             "mx": {
               "type": "object",
               "members": {
@@ -34037,6 +34766,83 @@
                   "arity": 4
                 },
                 "create": {
+                  "type": "function",
+                  "arity": 1
+                }
+              }
+            },
+            "pop3": {
+              "type": "object",
+              "members": {
+                "MailServerPop3Error": {
+                  "type": "function",
+                  "arity": 4
+                },
+                "create": {
+                  "type": "function",
+                  "arity": 1
+                }
+              }
+            },
+            "rateLimit": {
+              "type": "object",
+              "members": {
+                "DEFAULTS": {
+                  "type": "object",
+                  "members": {
+                    "authFailuresPerIpPer15Min": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "connectionsPerIpPerMinute": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "disabled": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "maxConcurrentConnectionsPerIp": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "minBytesPerSecond": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    }
+                  }
+                },
+                "MailServerRateLimitError": {
+                  "type": "function",
+                  "arity": 4
+                },
+                "create": {
+                  "type": "function",
+                  "arity": 1
+                }
+              }
+            },
+            "submission": {
+              "type": "object",
+              "members": {
+                "MailServerSubmissionError": {
+                  "type": "function",
+                  "arity": 4
+                },
+                "create": {
+                  "type": "function",
+                  "arity": 1
+                }
+              }
+            },
+            "tls": {
+              "type": "object",
+              "members": {
+                "MailServerTlsError": {
+                  "type": "function",
+                  "arity": 4
+                },
+                "context": {
                   "type": "function",
                   "arity": 1
                 }
@@ -40480,6 +41286,10 @@
         "SelfUpdateError": {
           "type": "function",
           "arity": 4
+        },
+        "compareTags": {
+          "type": "function",
+          "arity": 2
         },
         "poll": {
           "type": "function",
