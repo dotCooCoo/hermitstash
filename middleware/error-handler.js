@@ -95,14 +95,15 @@ function errorHandler(err, req, res) {
   }
 
   // RFC 9457 problem+json — 5xx detail is suppressed so internal failure
-  // text never reaches clients.
-  var problem = b.problemDetails.create({
+  // text never reaches clients. b.problemDetails.send (v0.9.41+) is the
+  // single-call form of create(fields) + respond(res, problem); same
+  // application/problem+json + Cache-Control: no-store wire shape.
+  b.problemDetails.send(res, {
     type:   "https://hermitstash.com/problems/" + codeToTypeSlug(code),
     title:  codeToTitle(code),
     status: status,
     detail: status >= 500 ? undefined : message,
   });
-  b.problemDetails.respond(res, problem);
 }
 
 module.exports = errorHandler;

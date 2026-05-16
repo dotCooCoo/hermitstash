@@ -20,7 +20,7 @@ module.exports = function (app) {
       var userCreds = credentialsRepo.findByUser(req.user._id);
       var excludeCredentials = userCreds.map(function (c) {
         var transports = c.transports;
-        if (typeof transports === "string") { try { transports = JSON.parse(transports); } catch (_e) { transports = undefined; } }
+        if (typeof transports === "string") { transports = b.safeJson.parseOrDefault(transports, undefined); }
         // credentialId stored as base64, WebAuthn needs base64url
         var idB64url = Buffer.from(c.credentialId, "base64").toString("base64url");
         return { id: idB64url, transports: transports || undefined };
@@ -177,7 +177,9 @@ module.exports = function (app) {
           id: incomingCredId,
           publicKey: Buffer.from(matchedCred.publicKey, "base64"),
           counter: typeof matchedCred.counter === "number" ? matchedCred.counter : 0,
-          transports: (function() { try { return typeof matchedCred.transports === "string" ? JSON.parse(matchedCred.transports) : (matchedCred.transports || []); } catch(_e) { return []; } })(),
+          transports: typeof matchedCred.transports === "string"
+            ? b.safeJson.parseOrDefault(matchedCred.transports, [])
+            : (matchedCred.transports || []),
         },
         requireUserVerification: false,
       });

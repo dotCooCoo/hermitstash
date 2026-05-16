@@ -149,8 +149,14 @@ module.exports = function apiEncrypt(req, res, next) {
       });
       origOn("end", function () {
         var raw = Buffer.concat(chunks).toString();
-        var body;
-        try { body = JSON.parse(raw); } catch (_e) { body = null; }
+        // b.safeJson.parseOrDefault — bounded depth + key-count + null-
+        // prototype output object that defends against __proto__ /
+        // constructor / prototype keys polluting the chain before
+        // downstream property reads. Pass maxBytes=MAX_JSON_BODY so
+        // vault uploads (which legitimately exceed safeJson's 16 MiB
+        // default) parse — the stream-side cap above already refuses
+        // bodies larger than MAX_JSON_BODY before they reach here.
+        var body = b.safeJson.parseOrDefault(raw, null, { maxBytes: MAX_JSON_BODY });
 
         if (body && body._e) {
           try {

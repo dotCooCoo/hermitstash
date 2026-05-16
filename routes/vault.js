@@ -170,7 +170,9 @@ module.exports = function (app) {
           id: incomingCredId,
           publicKey: Buffer.from(matchedCred.publicKey, "base64"),
           counter: matchedCred.counter || 0,
-          transports: (function() { try { return typeof matchedCred.transports === "string" ? JSON.parse(matchedCred.transports) : (matchedCred.transports || []); } catch(_e) { return []; } })(),
+          transports: typeof matchedCred.transports === "string"
+            ? b.safeJson.parseOrDefault(matchedCred.transports, [])
+            : (matchedCred.transports || []),
         },
       });
 

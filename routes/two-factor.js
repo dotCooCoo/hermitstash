@@ -144,8 +144,9 @@ module.exports = function (app) {
       }
 
       // Try backup code
-      var backupCodes = [];
-      try { backupCodes = Array.isArray(user.totpBackupCodes) ? user.totpBackupCodes : JSON.parse(user.totpBackupCodes || "[]"); } catch (_e) {}
+      var backupCodes = Array.isArray(user.totpBackupCodes)
+        ? user.totpBackupCodes
+        : b.safeJson.parseOrDefault(user.totpBackupCodes || "[]", []);
       var codeHash = b.crypto.sha3Hash(code);
       var idx = backupCodes.indexOf(codeHash);
 
@@ -174,7 +175,10 @@ module.exports = function (app) {
     if (!requireAuth(req, res)) return;
     var user = usersRepo.findById(req.user._id);
     var backupCount = 0;
-    try { var codes = Array.isArray(user.totpBackupCodes) ? user.totpBackupCodes : JSON.parse(user.totpBackupCodes || "[]"); backupCount = codes.length; } catch (_e) { /* malformed backupCodes — report 0 remaining */ }
+    var codes = Array.isArray(user.totpBackupCodes)
+      ? user.totpBackupCodes
+      : b.safeJson.parseOrDefault(user.totpBackupCodes || "[]", []);
+    backupCount = codes.length;
     res.json({ enabled: user.totpEnabled === "true", backupCodesRemaining: backupCount, algorithm: algorithmFor(user) });
   });
 
