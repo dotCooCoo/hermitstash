@@ -136,7 +136,7 @@ module.exports = function apiEncrypt(req, res, next) {
 
       var bodySize = 0;
       var isVaultUpload = req.pathname && (req.pathname === "/vault/upload" || req.pathname === "/vault/rotate");
-      var MAX_JSON_BODY = isVaultUpload ? config.maxFileSize * 2 : 1048576;
+      var MAX_JSON_BODY = isVaultUpload ? config.maxFileSize * 2 : b.constants.BYTES.mib(1);
       origOn("data", function (c) {
         bodySize += c.length;
         if (bodySize > MAX_JSON_BODY) {
