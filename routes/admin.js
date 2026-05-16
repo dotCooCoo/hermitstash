@@ -1153,9 +1153,14 @@ module.exports = function (app) {
 
       summary.restartInMs = ACK_TIMEOUT_MS + RESTART_DELAY_MS;
 
-      // Race allSettled against the ack-window timeout
-      var timeoutP = new Promise(function (r) { setTimeout(function () { r("timeout"); }, ACK_TIMEOUT_MS); });
-      await Promise.race([Promise.allSettled(ackPromises), timeoutP]);
+      // Race allSettled against the ack-window timeout — b.safeAsync.sleep
+      // validates the ms arg (no NaN / non-finite / negative) and returns a
+      // cancellable promise. The fixed-ms race lands on whichever finishes
+      // first; rejecting the sleep on a finite ms wouldn't fire here.
+      await Promise.race([
+        Promise.allSettled(ackPromises),
+        b.safeAsync.sleep(ACK_TIMEOUT_MS).then(function () { return "timeout"; }),
+      ]);
 
       // Clear ack callbacks so stray late acks don't leak
       for (var ce = 0; ce < liveEntries.length; ce++) {
