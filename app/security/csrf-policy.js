@@ -8,7 +8,7 @@
  * generated lazily on first request and persisted via `b.session.
  * updateData` (lib/session.js's res.end wrap).
  *
- * Strategy (unchanged from pre-blamejs HS):
+ * Strategy:
  *   - JSON requests: CSRF-safe via per-session XChaCha20-Poly1305
  *     encryption — the api-encrypt middleware validates the
  *     session-bound key, which serves as an implicit CSRF token (a

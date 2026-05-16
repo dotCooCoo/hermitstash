@@ -613,7 +613,7 @@ Receivers verify with `hmac.compare_digest()` (Python) or `crypto.timingSafeEqua
 
 ## 7. Algorithm agility & versioning
 
-Three separate version mechanisms, described in detail in `CLAUDE.md`:
+Three separate version mechanisms:
 
 1. **Storage envelope** (`lib/crypto.js`) — 4-byte header identifies KEM/cipher/KDF. Old blobs remain readable when new IDs are added. Current: KEM `0x03`, cipher `0x02`, KDF `0x02`
 2. **ECIES protocol** (`middleware/api-encrypt.js`) — 1-byte version on the `_ek` field. Current: `0x01`. Unlike the envelope, sessions are ephemeral so backward-compat on decrypt is not required — both sides must agree

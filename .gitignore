@@ -2,18 +2,7 @@ node_modules/
 /data/
 /uploads/
 template/
-# tests/ is private (E2E + integration suites that live alongside HS but
-# aren't shipped to the public repo). Two exceptions: the codebase-patterns
-# lint test + its minimal helper imports are tracked because the CI lint
-# gate (.github/workflows/{ci,docker-publish}.yml) needs the file on the
-# public-repo checkout where Docker builds run.
-tests/*
-!tests/lint
-!tests/helpers
-tests/lint/*
-!tests/lint/codebase-patterns.test.js
-tests/helpers/*
-!tests/helpers/check.js
-!tests/helpers/index.js
-!tests/helpers/_codebase-shingle.js
-!tests/helpers/_codebase-shingle-worker.js
+# Test runtime data directories — per-test mkdtemp output stays ignored.
+tests/data/
+tests/.test-output/
+tests/.scratch/

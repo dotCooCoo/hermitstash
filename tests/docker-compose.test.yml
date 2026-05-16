@@ -1,0 +1,7 @@
+services:
+  test:
+    build:
+      context: ..
+      dockerfile: tests/Dockerfile.test
+    environment:
+      NODE_ENV: test

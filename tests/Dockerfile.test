@@ -1,0 +1,32 @@
+FROM node:25-alpine
+
+WORKDIR /app
+
+RUN apk add --no-cache python3 make g++
+
+COPY package*.json ./
+RUN npm install
+
+COPY . .
+RUN mkdir -p data uploads
+
+CMD ["node", "--test", \
+  "tests/unit/password.test.js", \
+  "tests/unit/crypto.test.js", \
+  "tests/unit/vault.test.js", \
+  "tests/unit/api-crypto.test.js", \
+  "tests/unit/session.test.js", \
+  "tests/unit/template.test.js", \
+  "tests/unit/router.test.js", \
+  "tests/unit/db.test.js", \
+  "tests/integration/auth.test.js", \
+  "tests/integration/drop.test.js", \
+  "tests/integration/user-management.test.js", \
+  "tests/security/security.test.js", \
+  "tests/security/adversarial-auth.test.js", \
+  "tests/security/adversarial-upload.test.js", \
+  "tests/security/adversarial-input.test.js", \
+  "tests/security/adversarial-resilience.test.js", \
+  "tests/security/api-encrypt.test.js", \
+  "tests/security/zero-plaintext.test.js", \
+  "tests/performance/performance.test.js"]
