@@ -59,6 +59,24 @@ jobs:
           - parsers__safe-yaml
           - parsers__safe-xml
           - parsers__safe-ini
+          - safe-mime
+          - guard-message-id
+          - guard-mail-query
+          - guard-mail-compose
+          - guard-mail-reply
+          - guard-mail-move
+          - guard-mail-sieve
+          - guard-agent-registry
+          - guard-idempotency-key
+          - guard-stream-args
+          - guard-event-bus-topic
+          - guard-event-bus-payload
+          - guard-tenant-id
+          - guard-saga-config
+          - guard-posture-chain
+          - guard-trace-context
+          - guard-snapshot-envelope
+          - safe-smtp
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.0

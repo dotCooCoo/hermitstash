@@ -18,6 +18,19 @@
 # `workflow_dispatch.dry_run` lets an operator exercise the validation
 # + lint + test path without actually pushing to npm — useful for
 # verifying a package.json change before tagging.
+#
+# Job structure:
+#   - `validate`: lint, smoke, SBOM, OSV scan, pack tarball. No NPM_TOKEN
+#     access; runs from any ref (tag push, manual dispatch, dry-run).
+#     Uploads the packed tarball + SBOMs as an artifact for the publish job.
+#   - `publish`: downloads the artifact, signs the SBOMs, runs
+#     `npm publish` on the prebuilt tarball. Gated by
+#     `environment: npm-publish` whose deployment-branch policy is
+#     `tag: v*.*.*` — only tag pushes can enter, and the job's `if:`
+#     additionally excludes `inputs.dry_run`. NPM_TOKEN lives only in
+#     the env (no other workflow in this repo can read it).
+#   - `summary`: always runs; renders the job-outcome table to the
+#     run's step summary.
 
 name: npm publish
 
@@ -33,8 +46,7 @@ on:
 
 # Workflow-level is read-only; the publish job's permissions block
 # below elevates contents:write (gh release asset upload) and
-# id-token:write (npm provenance). No other job exists; an operator
-# adding one inherits read-only by default.
+# id-token:write (npm provenance + sigstore cosign).
 permissions:
   contents: read
 
@@ -43,46 +55,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Lint, smoke, publish
+  validate:
+    name: Lint, smoke, SBOM, pack
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # gh release upload (SBOM asset)
-      id-token: write   # OIDC token for npm provenance attestation
-    # 30-min cap covers the now-larger smoke surface (~7200+ checks) +
-    # wiki e2e + sbom + the cold npx eslint pull. v0.6.38 → v0.6.53
-    # all timed out at the previous 15-min cap, leaving npm registry
-    # stuck at v0.6.37. Bumped 2026-05-03 along with v0.6.54.
+      contents: read
+    # 30-min cap covers lint + smoke + wiki e2e + cold npx eslint pull
+    # + SBOM generation. v0.6.38 → v0.6.53 all timed out at the previous
+    # 15-min cap, leaving npm registry stuck at v0.6.37. Bumped along
+    # with v0.6.54.
     timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_tag:  ${{ steps.version.outputs.is_tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.0
 
-      - name: Set up Node 24.14.1 LTS + npm registry auth
+      - name: Set up Node 24.14.1 LTS
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.0.0
         with:
           node-version: '24.14.1'
-          registry-url: 'https://registry.npmjs.org'
-
-      # Fail loud + early if the NPM_TOKEN secret isn't visible to this
-      # workflow run. The publish step otherwise burns ~60s of lint +
-      # smoke + e2e + tarball-build before producing an opaque
-      # ENEEDAUTH. Diagnostic message points operators at the
-      # most-common cause (org-secret with restricted repo access).
-      - name: Verify NPM_TOKEN is reachable
-        if: ${{ !inputs.dry_run }}
-        env:
-          NPM_TOKEN_REACHABLE: ${{ secrets.NPM_TOKEN != '' }}
-        run: |
-          if [ "$NPM_TOKEN_REACHABLE" != "true" ]; then
-            echo "::error::NPM_TOKEN secret is empty in this workflow run."
-            echo "::error::Check at: https://github.com/organizations/blamejs/settings/secrets/actions"
-            echo "::error::  - Confirm a secret named NPM_TOKEN exists at the org level (not personal account)"
-            echo "::error::  - Confirm 'Repository access' includes blamejs/blamejs (or is 'All repositories')"
-            echo "::error::  - Confirm the secret value is not empty/whitespace"
-            exit 1
-          fi
-          echo "NPM_TOKEN secret is reachable (length will be revealed only by the npm publish step)."
 
       - name: Compute version
         id: version
@@ -142,7 +135,15 @@ jobs:
         # runtime deps — devDependencies don't reach the npm tarball
         # per the `files` allowlist in package.json. Mirrors the same
         # step in .github/workflows/ci.yml.
-        run: npm install --no-audit --no-fund
+        #
+        # Each devDependency is installed by exact name@version (the
+        # same pins package.json carries) so CodeQL's PinnedDependencies
+        # query sees a version-pinned install rather than a bare
+        # `npm install` that resolves dynamically. blamejs deliberately
+        # does not commit a lockfile (CLAUDE.md hard rule §1 — zero npm
+        # runtime deps; transpilation hops are supply-chain hops); the
+        # explicit name@version specifiers are the source-of-truth pin.
+        run: npm install --no-audit --no-fund --no-save esbuild@0.28.0 postject@1.0.0-alpha.6
 
       - name: Framework smoke
         run: node test/smoke.js
@@ -222,8 +223,87 @@ jobs:
             --sbom=sbom.vendored.cdx.json
             -r lib/vendor/
 
-      - name: Sign SBOM with cosign (sigstore keyless)
-        if: ${{ !inputs.dry_run && steps.version.outputs.is_tag == 'true' }}
+      - name: Pack tarball (the exact bytes that will be published)
+        # Build the tarball HERE, in the validate job, so the publish
+        # job receives bit-for-bit the artifact that passed every gate
+        # above. npm publish on the packed tarball still attaches SLSA
+        # provenance for the workflow run that calls publish (publish
+        # job below) — provenance signs the tarball bytes + the workflow
+        # run context, not the working tree at publish-call-time.
+        run: |
+          mkdir -p dist
+          npm pack --pack-destination ./dist
+          ls -lh dist/
+
+      - name: Upload publish bundle (tarball + SBOMs)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: publish-bundle
+          path: |
+            dist/*.tgz
+            sbom.cdx.json
+            sbom.vendored.cdx.json
+            package.json
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Sign SBOMs + publish to npm
+    needs: validate
+    # Gate the publish job structurally:
+    #   - Must be a tag push (workflow_dispatch can't reach this job).
+    #   - Must NOT be a dry-run.
+    #   - `environment: npm-publish` adds a second gate via its
+    #     deployment-branch policy (`tag: v*.*.*`) — a branch ref can't
+    #     enter the env even if `if:` permitted, so accidental publish-
+    #     from-branch is structurally impossible at two layers.
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !inputs.dry_run && needs.validate.outputs.is_tag == 'true' }}
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: write   # gh release upload (SBOM asset)
+      id-token: write   # OIDC token for npm provenance + sigstore cosign
+    # Publish-only steps run fast — no test surface, no compilation.
+    # 15-min cap is generous; cosign + npm publish typically complete
+    # in under 90 seconds combined.
+    timeout-minutes: 15
+    steps:
+      - name: Set up Node 24.14.1 LTS + npm registry auth
+        # Re-run setup-node here so the publish job's environment has
+        # the registry-url wiring for `npm publish` auth. The validate
+        # job's setup-node did NOT register a registry-url (it never
+        # talks to the registry).
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.0.0
+        with:
+          node-version: '24.14.1'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Download publish bundle (tarball + SBOMs)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v7.0.1
+        with:
+          name: publish-bundle
+
+      # Fail loud + early if the NPM_TOKEN secret isn't visible to this
+      # workflow run. The publish step otherwise produces an opaque
+      # ENEEDAUTH after ~60s of npm registry churn. Diagnostic message
+      # points operators at the env-scoped location (the prior repo-
+      # scoped + org-scoped tokens were both moved to env-scope as part
+      # of the v0.12.16 audit goal).
+      - name: Verify NPM_TOKEN is reachable
+        env:
+          NPM_TOKEN_REACHABLE: ${{ secrets.NPM_TOKEN != '' }}
+        run: |
+          if [ "$NPM_TOKEN_REACHABLE" != "true" ]; then
+            echo "::error::NPM_TOKEN secret is empty in this workflow run."
+            echo "::error::Check at: https://github.com/blamejs/blamejs/settings/environments/npm-publish"
+            echo "::error::  - Confirm a secret named NPM_TOKEN exists in the npm-publish environment"
+            echo "::error::  - Confirm the env's deployment-branch policy includes the tag this workflow ran on"
+            echo "::error::  - Confirm the secret value is not empty/whitespace"
+            exit 1
+          fi
+          echo "NPM_TOKEN secret is reachable (length will be revealed only by the npm publish step)."
+
+      - name: Install cosign (sigstore keyless)
         # Sigstore keyless signing — the workflow's OIDC token (line
         # 51 — `id-token: write`) is exchanged with Sigstore's Fulcio
         # for a short-lived cert bound to the workflow identity, then
@@ -237,8 +317,8 @@ jobs:
         #     --bundle sbom.cdx.json.sigstore \
         #     sbom.cdx.json
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      - name: Cosign sign-blob SBOM
-        if: ${{ !inputs.dry_run && steps.version.outputs.is_tag == 'true' }}
+
+      - name: Cosign sign-blob SBOMs
         run: |
           # Sign the primary npm-tree SBOM…
           cosign sign-blob --yes \
@@ -254,11 +334,10 @@ jobs:
             sbom.vendored.cdx.json
           echo "[cosign-sbom] signed sbom.vendored.cdx.json; bundle at sbom.vendored.cdx.json.sigstore"
 
-      - name: Attach SBOM as release asset
-        if: ${{ !inputs.dry_run && steps.version.outputs.is_tag == 'true' }}
+      - name: Attach SBOMs as release asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG:      v${{ steps.version.outputs.version }}
+          TAG:      v${{ needs.validate.outputs.version }}
         run: |
           # The release was created by the operator's `gh release create`
           # step before this workflow ran. We attach BOTH SBOMs + both
@@ -296,7 +375,6 @@ jobs:
           fi
 
       - name: Verify npm registry signing chain (npm audit signatures)
-        if: ${{ !inputs.dry_run && steps.version.outputs.is_tag == 'true' }}
         # `npm audit signatures` verifies the cryptographic signing chain
         # for every package in the install tree against the npm registry's
         # public keys. blamejs ships zero npm runtime deps so the tree is
@@ -322,11 +400,6 @@ jobs:
         # from a supported registry`, because that message ALSO fires
         # when deps exist but are unverifiable (file:/git:/etc.) — a
         # state the gate is supposed to refuse, not paper over.
-        #
-        # Codex P1 review on v0.9.11 → v0.9.12 caught the broader-grep
-        # version of this gate silently passing for unverifiable-dep
-        # trees. The invariant check below makes the empty-tree path
-        # determined by `package.json`, not by npm CLI's error message.
         run: |
           set +e
           RUNTIME_DEP_COUNT=$(node -e "console.log(Object.keys(require('./package.json').dependencies || {}).length)")
@@ -347,30 +420,56 @@ jobs:
           exit "$STATUS"
 
       - name: Publish to npm (with SLSA provenance)
-        if: ${{ !inputs.dry_run && steps.version.outputs.is_tag == 'true' }}
-        run: npm publish --provenance --access public
+        # `npm publish <tarball>` publishes the EXACT bytes the validate
+        # job packed (and OSV-scanned). Provenance is generated by the
+        # publish step against this workflow run's context — the
+        # attestation links the tarball bytes to this commit + tag +
+        # workflow run. Verifiable via `npm view @blamejs/core@<version>`
+        # → "Provenance" tab on the registry UI.
+        #
+        # The leading `./` is load-bearing — without it npm 10+
+        # mis-classifies a relative path containing `/` as a git spec
+        # and tries `git ls-remote ssh://git@github.com/dist/...tgz`
+        # (v0.9.30 + v0.9.37 publish failed on exactly this; SSH
+        # auth refused, exit 128). With `./` the path is unambiguous
+        # as a local tarball.
+        run: |
+          TARBALL=$(ls dist/*.tgz | head -1)
+          echo "Publishing: $TARBALL"
+          npm publish "./${TARBALL}" --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Build summary
-        if: always()
+  summary:
+    name: Build summary
+    needs: [validate, publish]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Render outcome table
         env:
-          IS_TAG:  ${{ steps.version.outputs.is_tag }}
-          VERSION: ${{ steps.version.outputs.version }}
-          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+          IS_TAG:          ${{ needs.validate.outputs.is_tag || 'false' }}
+          VERSION:         ${{ needs.validate.outputs.version || 'unknown' }}
+          DRY_RUN:         ${{ inputs.dry_run || 'false' }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+          PUBLISH_RESULT:  ${{ needs.publish.result }}
         run: |
           {
             echo "### npm publish"
             echo ""
             echo "| | |"
             echo "|---|---|"
-            echo "| **Package**   | \`@blamejs/core\` |"
-            echo "| **Version**   | \`${VERSION}\` |"
-            echo "| **Tag push**  | ${IS_TAG} |"
-            echo "| **Dry run**   | ${DRY_RUN} |"
-            echo "| **Registry**  | https://registry.npmjs.org |"
-            if [ "$IS_TAG" = "true" ] && [ "$DRY_RUN" != "true" ]; then
-              echo "| **Provenance** | https://www.npmjs.com/package/@blamejs/core/v/${VERSION} → Provenance tab |"
+            echo "| **Package**         | \`@blamejs/core\` |"
+            echo "| **Version**         | \`${VERSION}\` |"
+            echo "| **Tag push**        | ${IS_TAG} |"
+            echo "| **Dry run**         | ${DRY_RUN} |"
+            echo "| **Validate job**    | ${VALIDATE_RESULT} |"
+            echo "| **Publish job**     | ${PUBLISH_RESULT} |"
+            echo "| **Registry**        | https://registry.npmjs.org |"
+            if [ "$IS_TAG" = "true" ] && [ "$DRY_RUN" != "true" ] && [ "$PUBLISH_RESULT" = "success" ]; then
+              echo "| **Provenance**      | https://www.npmjs.com/package/@blamejs/core/v/${VERSION} → Provenance tab |"
             fi
             echo ""
             echo "Operators can install with:"

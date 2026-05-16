@@ -64,16 +64,29 @@ jobs:
         # per the `files` allowlist in package.json. `--no-audit
         # --no-fund` keeps CI noise down; lockfile isn't committed so
         # we resolve from package.json's exact-pinned versions.
-        run: npm install --no-audit --no-fund
+        #
+        # Each devDependency is installed by exact name@version (the
+        # same pins package.json carries) so CodeQL's PinnedDependencies
+        # query sees a version-pinned install rather than a bare
+        # `npm install` that resolves dynamically. blamejs deliberately
+        # does not commit a lockfile (CLAUDE.md hard rule §1 — zero npm
+        # runtime deps; transpilation hops are supply-chain hops); the
+        # explicit name@version specifiers are the source-of-truth pin.
+        run: npm install --no-audit --no-fund --no-save esbuild@0.28.0 postject@1.0.0-alpha.6
 
       - name: Run framework smoke
         # NODE_OPTIONS heap bump — codebase-patterns duplicate-block
-        # detector accumulates ~4M shingle-fingerprint entries across
-        # the lib/ corpus. macOS-arm64 CI runners with the 2 GB Node
-        # default OOMed mid-scan; 4 GB is enough headroom for the
-        # whole smoke run including the parallel-shingle pass.
+        # detector accumulates shingle-fingerprint entries across the
+        # lib/ corpus + the parent smoke runner buffers per-fork
+        # stdout/stderr for every parallel child. 4 GB was enough at
+        # v0.9.30; v0.9.44 (chunkScratch + tenant cryptoField + the
+        # accumulated v0.9.x slice growth) tipped ubuntu-latest's
+        # 7 GB runner into OOM during the shingle pass. 6 GB gives
+        # headroom for the lib/ corpus to keep growing across the
+        # remaining v0.9.x slices before we revisit the shingle
+        # accumulator design.
         env:
-          NODE_OPTIONS: --max-old-space-size=4096
+          NODE_OPTIONS: --max-old-space-size=6144
         run: node test/smoke.js
 
   wiki-e2e:
