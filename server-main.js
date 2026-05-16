@@ -112,24 +112,36 @@ if (users.count({}) === 0 && config.localAuth) {
 txHelper.init(db.getDb ? db.getDb() : null);
 
 // Middleware
-app.use(require("./middleware/request-id"));
-// Web-guard runs early so we avoid any template/CSP/static processing for
-// requests that will be dropped. No-op when config.enforceMtls is false
-// (default), so existing deployments see zero behavior change.
-app.use(require("./middleware/web-guard"));
-app.use(require("./middleware/security-headers"));
-// Restrictive CSP for user-uploaded content (custom logos) — defense in depth against SVG XSS
-app.use(function (req, res, next) {
-  if (req.pathname && (req.pathname.startsWith("/img/custom/") || req.pathname.startsWith("/img/stash/"))) {
-    res.setHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'");
-    res.setHeader("X-Content-Type-Options", "nosniff");
-  }
-  next();
-});
-app.use(require("./middleware/ip-check"));
-app.use(require("./middleware/bot-guard"));
-app.use(require("./middleware/cors"));
-app.use(serveStatic(path.join(__dirname, "public")));
+// Pre-session middleware pipeline composed via b.middleware.composePipeline
+// (v0.9.43+). The entry array IS the order; the composer detects conflicts at
+// registration time (duplicate names / non-monotonic positions / canonical
+// mismatches) and emits a system.middleware.compose.pipeline_built audit at
+// boot. Canonical positions are documented in
+// lib/vendor/blamejs/lib/middleware/compose-pipeline.js — names matching
+// CANONICAL_POSITIONS get warning-on-mismatch; HS-specific names get an
+// explicit position number in the slot they belong to.
+app.use(b.middleware.composePipeline([
+  { name: "requestId",        mw: require("./middleware/request-id") },
+  // Web-guard runs early so we avoid any template/CSP/static processing for
+  // requests that will be dropped. No-op when config.enforceMtls is false
+  // (default), so existing deployments see zero behavior change.
+  { name: "webGuard",         mw: require("./middleware/web-guard"),       position: 6 },
+  { name: "securityHeaders",  mw: require("./middleware/security-headers") },
+  // Restrictive CSP override for user-uploaded content (custom logos) —
+  // defense in depth against SVG XSS. Runs AFTER securityHeaders (position
+  // 25) so its broader CSP gets overwritten for the gated paths only.
+  { name: "uploadedAssetsCsp", mw: function (req, res, next) {
+    if (req.pathname && (req.pathname.startsWith("/img/custom/") || req.pathname.startsWith("/img/stash/"))) {
+      res.setHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+    }
+    next();
+  }, position: 26 },
+  { name: "ipCheck",          mw: require("./middleware/ip-check"),         position: 27 },
+  { name: "botGuard",         mw: require("./middleware/bot-guard") },
+  { name: "cors",             mw: require("./middleware/cors"),              position: 44 },
+  { name: "staticAssets",     mw: serveStatic(path.join(__dirname, "public")), position: 45 },
+]));
 
 // Serve admin custom logo + per-stash logos from the writable data directory.
 // These are user-uploaded assets that can't live under public/img/ because the

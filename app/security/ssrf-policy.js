@@ -15,7 +15,7 @@
  */
 var dns = require("dns");
 var net = require("net");
-var { URL } = require("url");
+var b = require("../../lib/vendor/blamejs");
 
 var blockList = new net.BlockList();
 
@@ -103,14 +103,20 @@ function isPrivateHost(hostname) {
 /**
  * Validate a URL for outbound requests (webhooks, etc.).
  * Returns { valid: true, url } or { valid: false, reason }.
+ *
+ * b.safeUrl.parse with ALLOW_HTTP_TLS pre-frozen ["https:"] enforces the
+ * HTTPS-only constraint at parse time. parse also bounds the input
+ * length (8 KiB default), refuses NUL/CR/LF in the input, and runs
+ * the URL through Node's WHATWG parser — same bytes the runtime
+ * would dispatch on, no double-parse drift.
  */
 function validateOutboundUrl(urlStr) {
+  var u;
   try {
-    var u = new URL(urlStr);
+    u = b.safeUrl.parse(urlStr, { allowedProtocols: b.safeUrl.ALLOW_HTTP_TLS });
   } catch (_e) {
     return { valid: false, reason: "Invalid URL" };
   }
-  if (u.protocol !== "https:") return { valid: false, reason: "HTTPS required" };
   if (u.username || u.password) return { valid: false, reason: "Credentials in URL not allowed" };
   if (!u.hostname) return { valid: false, reason: "Missing hostname" };
   return { valid: true, url: u };

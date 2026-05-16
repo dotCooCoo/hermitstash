@@ -5,6 +5,7 @@
  * Call this after config is loaded but before routes are registered.
  */
 var nodeFs = require("node:fs");
+var b = require("../../lib/vendor/blamejs");
 var config = require("../../lib/config");
 var { PATHS } = require("../../lib/constants");
 
@@ -17,7 +18,7 @@ function run() {
   var vaultKeyPath = PATHS.VAULT_KEY;
   if (nodeFs.existsSync(vaultKeyPath)) {
     try {
-      var keyData = JSON.parse(nodeFs.readFileSync(vaultKeyPath, "utf8"));
+      var keyData = b.safeJson.parseOrDefault(nodeFs.readFileSync(vaultKeyPath, "utf8"), {});
       // Hybrid format (ML-KEM-1024 + P-384) — matches lib/vault.js loadKeys().
       if (!keyData.ecPublicKey || !keyData.ecPrivateKey) {
         errors.push("Vault key file exists but is not in the ML-KEM-1024 + P-384 hybrid format. Run the migration tool.");
@@ -78,7 +79,7 @@ function run() {
   try {
     var regenFlagPath = require("node:path").join(PATHS.DATA_DIR, "ca-regen-flag.json");
     if (nodeFs.existsSync(regenFlagPath)) {
-      var flagData = JSON.parse(nodeFs.readFileSync(regenFlagPath, "utf8"));
+      var flagData = b.safeJson.parseOrDefault(nodeFs.readFileSync(regenFlagPath, "utf8"), {});
       var s = flagData.summary || {};
       warnings.push("mTLS CA was regenerated at " + flagData.at + " (v" + s.caGenerationBefore + " → v" + s.caGenerationAfter + "). Acked: " + (s.syncClientsAcked || 0) + "/" + (s.syncClientsConnected || 0) + " live sync clients. " + (s.syncClientsOffline || 0) + " offline clients need re-enrollment. " + (s.browserCertsRevoked || 0) + " browser cert(s) invalidated — admins must re-download.");
       try { nodeFs.unlinkSync(regenFlagPath); } catch (_e) { /* flag file may have been removed by a concurrent boot */ }

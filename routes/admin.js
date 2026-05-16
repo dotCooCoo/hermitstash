@@ -732,9 +732,9 @@ module.exports = function (app) {
       for (var i = 0; i < manifestKeys.length; i++) {
         try {
           var data = await backend.getBuffer(manifestKeys[i]);
-          var m = JSON.parse(data.toString("utf8"));
-          if (m.timestamp === timestamp) { targetPrefix = manifestKeys[i].replace("manifest.json", ""); break; }
-        } catch (_e) { /* skip unreadable/corrupt manifest — continue scanning */ }
+          var m = b.safeJson.parseOrDefault(data.toString("utf8"), null);
+          if (m && m.timestamp === timestamp) { targetPrefix = manifestKeys[i].replace("manifest.json", ""); break; }
+        } catch (_e) { /* skip unreadable manifest — continue scanning */ }
       }
       if (!targetPrefix) return res.status(404).json({ error: "Backup not found" });
       // Delete all files under this backup's prefix
