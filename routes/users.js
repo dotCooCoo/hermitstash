@@ -103,7 +103,7 @@ module.exports = function (app) {
   app.post("/admin/users/invite", idempotency, async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
-      var body = (await b.parsers.json(req)) || {};
+      var body = req.body || (await b.parsers.json(req)) || {};
       var check = validateInviteInput(body);
       if (check.error) return res.status(400).json({ error: check.error });
       var email = check.email;

@@ -72,6 +72,14 @@ id_ed25519*
 # The example app's repo-tracked content is its source; data/ is local.
 examples/*/data/
 examples/*/data-e2e/
+# On Windows the wiki e2e's data-e2e path can land under a literal
+# `C:/` directory inside examples/wiki/ when an env var like
+# BLAMEJS_E2E_DATA_DIR holds a Windows-absolute path that Node joins
+# onto cwd. The colon is either ASCII `:` or NTFS's Unicode
+# substitute U+F03A — match both. Ignore the whole branch so it
+# never reaches staging.
+examples/*/C\:/
+examples/wiki/C*/
 examples/*/package-lock.json
 # Top-level lockfile — the framework owns its stack via vendoring
 # (lib/vendor/) and runs zero npm deps (runtime OR dev). Any

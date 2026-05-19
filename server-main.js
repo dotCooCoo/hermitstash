@@ -279,6 +279,19 @@ app.post("/sync/enroll", b.middleware.rateLimit({ scope: "sync-enroll", max: SYN
       } catch (_e) { /* stash lookup best-effort — fall through with null */ }
     }
 
+    // Resolve shareId from the bundle row. Sync clients need this for the
+    // initial-sync pull (`GET /b/:shareId` seeds the daemon with the
+    // bundle's existing files at enroll-time); without it the WebSocket
+    // connection establishes but the local mirror starts empty and only
+    // catches files uploaded AFTER connect.
+    var resolvedShareId = null;
+    if (resolvedBundleId) {
+      try {
+        var bundle = db.bundles.findOne({ _id: resolvedBundleId });
+        if (bundle && bundle.shareId) resolvedShareId = bundle.shareId;
+      } catch (_e) { /* bundle lookup best-effort — fall through with null */ }
+    }
+
     // Return the provisioning bundle
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
@@ -289,6 +302,7 @@ app.post("/sync/enroll", b.middleware.rateLimit({ scope: "sync-enroll", max: SYN
       caCert: record.caCert,
       stashId: record.stashId || null,
       bundleId: resolvedBundleId,
+      shareId: resolvedShareId,
       reissue: record.reissue || false,
     }));
 
@@ -437,7 +451,7 @@ function isBlamejsApiEncryptPath(req) {
 var legacyApiEncrypt = require("./middleware/api-encrypt");
 app.use(function legacyApiEncryptCarve(req, res, next) {
   if (isBlamejsApiEncryptPath(req)) return next();
-  legacyApiEncrypt(req, res, next);
+  return legacyApiEncrypt(req, res, next);
 });
 
 // blamejs body-parser — populates req.body from JSON for blamejs paths
@@ -497,9 +511,14 @@ app.get("/manifest.json", (req, res) => {
   });
 });
 
-// First-run setup redirect — admin must complete setup before using the app
+// First-run setup redirect — admin must complete setup before using the app.
+// Bearer-authed sync clients bypass: api-auth resolves a sync API key to its
+// owner (the admin user), which would otherwise trigger the wizard redirect
+// even when everything is correctly configured at the transport level.
+// Setup is a browser-only flow; programmatic callers should never see the 302.
 app.use(function (req, res, next) {
   if (config.setupComplete) return next();
+  if (req.apiKey) return next();
   // Allow static assets, auth, and the setup page itself
   if (req.pathname && (req.pathname.startsWith("/css") || req.pathname.startsWith("/js") || req.pathname.startsWith("/img"))) return next();
   if (req.pathname && req.pathname.startsWith("/auth")) return next();

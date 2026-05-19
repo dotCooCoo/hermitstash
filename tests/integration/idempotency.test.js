@@ -51,16 +51,11 @@ describe("Idempotency-Key integration", function () {
         "replay must return the cached key, not generate a new one");
     });
 
-    // Same-key-different-body refusal is a KNOWN GAP today. The upstream
-    // middleware fingerprints (method + path + body sha3-256), but it
-    // reads body from `req._rawBody || req.body` — both unset on HS
-    // routes because b.parsers.json(req) runs INSIDE the handler, AFTER
-    // the middleware. Without a body-parser mounted between rate-limit
-    // and idempotency, the body falls out of the fingerprint and same
-    // key + different body produces a (wrong) cache hit. Tracked in
-    // memory as a follow-up. This test is a guard so we don't regress
-    // once the body-parser mount lands.
-    it.skip("retry with same key + different body refuses with 422 problem-details", async function () {
+    // middleware/idempotency.js composes b.middleware.bodyParser before
+    // b.middleware.idempotencyKey so req.body is populated by the time
+    // the fingerprint (method + path + body sha3-256) runs. Same key +
+    // different body produces the §4.3 422 key-reuse-mismatch refusal.
+    it("retry with same key + different body refuses with 422 problem-details", async function () {
       var key = uuidLike();
       var bodyA = { name: "key-a-" + b.crypto.generateToken(4), permissions: "upload" };
       var bodyB = { name: "key-b-" + b.crypto.generateToken(4), permissions: "admin" };

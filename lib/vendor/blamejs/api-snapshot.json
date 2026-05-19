@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.9.54",
-  "createdAt": "2026-05-16T04:59:07.772Z",
+  "frameworkVersion": "0.10.11",
+  "createdAt": "2026-05-18T03:59:42.520Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -519,6 +519,10 @@
             "BUILTIN_REGIMES": {
               "type": "instance",
               "ctorName": "Array"
+            },
+            "MAX_HOP_COUNT": {
+              "type": "primitive",
+              "valueType": "number"
             },
             "create": {
               "type": "function",
@@ -1384,6 +1388,116 @@
             }
           }
         },
+        "aiContentDetect": {
+          "type": "object",
+          "members": {
+            "AiContentDetectError": {
+              "type": "function",
+              "arity": 4
+            },
+            "COMPLIANCE_POSTURES": {
+              "type": "object",
+              "members": {
+                "ca-ab-853": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "ca-sb-942": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "cac-genai-label": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "eu-ai-act-art-50": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "iso-23894": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "iso-42001": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "nist-ai-600-1": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "nist-ai-rmf": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "PROFILES": {
+              "type": "object",
+              "members": {
+                "balanced": {
+                  "type": "object",
+                  "members": {
+                    "auditOnly": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "refuseUnpinned": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "refuseUnsigned": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    }
+                  }
+                },
+                "permissive": {
+                  "type": "object",
+                  "members": {
+                    "auditOnly": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "refuseUnpinned": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "refuseUnsigned": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    }
+                  }
+                },
+                "strict": {
+                  "type": "object",
+                  "members": {
+                    "auditOnly": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "refuseUnpinned": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    },
+                    "refuseUnsigned": {
+                      "type": "primitive",
+                      "valueType": "boolean"
+                    }
+                  }
+                }
+              }
+            },
+            "compliancePosture": {
+              "type": "function",
+              "arity": 1
+            },
+            "report": {
+              "type": "function",
+              "arity": 1
+            }
+          }
+        },
         "input": {
           "type": "object",
           "members": {
@@ -1398,6 +1512,35 @@
             "refuseIfMalicious": {
               "type": "function",
               "arity": 2
+            }
+          }
+        },
+        "modelManifest": {
+          "type": "object",
+          "members": {
+            "AiModelManifestError": {
+              "type": "function",
+              "arity": 4
+            },
+            "BOM_FORMAT": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "SPEC_VERSION": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "build": {
+              "type": "function",
+              "arity": 1
+            },
+            "sign": {
+              "type": "function",
+              "arity": 2
+            },
+            "verify": {
+              "type": "function",
+              "arity": 3
             }
           }
         }
@@ -1755,6 +1898,10 @@
           }
         },
         "cleanOrphans": {
+          "type": "function",
+          "arity": 2
+        },
+        "conflictPath": {
           "type": "function",
           "arity": 2
         },
@@ -2986,13 +3133,34 @@
             },
             "verifyEntityStatement": {
               "type": "function",
-              "arity": 2
+              "arity": 3
             }
           }
         },
         "passkey": {
           "type": "object",
           "members": {
+            "ALLOWED_EXTENSION_KEYS": {
+              "type": "object",
+              "members": {
+                "credBlob": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "largeBlob": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "prf": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            },
+            "compareBackupState": {
+              "type": "function",
+              "arity": 2
+            },
             "conditionalAuthOptions": {
               "type": "function",
               "arity": 1
@@ -4245,6 +4413,19 @@
           "arity": 1
         },
         "verifySignature": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
+    "bootGates": {
+      "type": "object",
+      "members": {
+        "BootGatesError": {
+          "type": "function",
+          "arity": 4
+        },
+        "run": {
           "type": "function",
           "arity": 2
         }
@@ -5583,6 +5764,10 @@
     "compliance": {
       "type": "object",
       "members": {
+        "ARTIFACT_STANDARDS": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
         "ComplianceError": {
           "type": "function",
           "arity": 4
@@ -5825,6 +6010,27 @@
                 }
               }
             },
+            "cmmc-2.0-level-1": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "cmmc-2.0-level-2": {
               "type": "object",
               "members": {
@@ -5833,6 +6039,31 @@
                   "valueType": "boolean"
                 },
                 "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "cmmc-2.0-level-3": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "fipsMode": {
                   "type": "primitive",
                   "valueType": "boolean"
                 },
@@ -6190,6 +6421,10 @@
                   "valueType": "boolean"
                 },
                 "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "fipsMode": {
                   "type": "primitive",
                   "valueType": "boolean"
                 },
@@ -10101,6 +10336,10 @@
             }
           }
         },
+        "artifactStandards": {
+          "type": "function",
+          "arity": 0
+        },
         "assert": {
           "type": "function",
           "arity": 1
@@ -10133,6 +10372,10 @@
               "arity": 1
             }
           }
+        },
+        "fipsMode": {
+          "type": "function",
+          "arity": 1
         },
         "list": {
           "type": "function",
@@ -10595,6 +10838,14 @@
           "type": "function",
           "arity": 1
         },
+        "cacImplicitLabel": {
+          "type": "function",
+          "arity": 1
+        },
+        "cacImplicitLabelRead": {
+          "type": "function",
+          "arity": 1
+        },
         "required": {
           "type": "function",
           "arity": 1
@@ -10752,7 +11003,7 @@
         },
         "fromBase64Url": {
           "type": "function",
-          "arity": 1
+          "arity": 2
         },
         "generateBytes": {
           "type": "function",
@@ -10830,6 +11081,45 @@
               "type": "function",
               "arity": 1
             },
+            "pq": {
+              "type": "object",
+              "members": {
+                "connolly": {
+                  "type": "object",
+                  "members": {
+                    "label": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "open": {
+                      "type": "function",
+                      "arity": 1
+                    },
+                    "seal": {
+                      "type": "function",
+                      "arity": 1
+                    }
+                  }
+                },
+                "wg": {
+                  "type": "object",
+                  "members": {
+                    "label": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "open": {
+                      "type": "function",
+                      "arity": 1
+                    },
+                    "seal": {
+                      "type": "function",
+                      "arity": 1
+                    }
+                  }
+                }
+              }
+            },
             "seal": {
               "type": "function",
               "arity": 1
@@ -10872,6 +11162,10 @@
         "namespaceHash": {
           "type": "function",
           "arity": 3
+        },
+        "randomInt": {
+          "type": "function",
+          "arity": 2
         },
         "sha3Hash": {
           "type": "function",
@@ -23887,6 +24181,210 @@
         }
       }
     },
+    "guardManageSieveCommand": {
+      "type": "object",
+      "members": {
+        "COMPLIANCE_POSTURES": {
+          "type": "object",
+          "members": {
+            "gdpr": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "hipaa": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "pci-dss": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "soc2": {
+              "type": "primitive",
+              "valueType": "string"
+            }
+          }
+        },
+        "GuardManageSieveCommandError": {
+          "type": "function",
+          "arity": 4
+        },
+        "KNOWN_VERBS": {
+          "type": "object",
+          "members": {
+            "AUTHENTICATE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "CAPABILITY": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "DELETESCRIPT": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "GETSCRIPT": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "HAVESPACE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "LISTSCRIPTS": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "LOGOUT": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "NOOP": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "PUTSCRIPT": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "RENAMESCRIPT": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "SETACTIVE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "STARTTLS": {
+              "type": "primitive",
+              "valueType": "boolean"
+            }
+          }
+        },
+        "PROFILES": {
+          "type": "object",
+          "members": {
+            "balanced": {
+              "type": "object",
+              "members": {
+                "allowBareLf": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowCleartextAuth": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowLiteralPlus": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "maxLineBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxScriptBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxScriptNameBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            },
+            "permissive": {
+              "type": "object",
+              "members": {
+                "allowBareLf": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowCleartextAuth": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowLiteralPlus": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "maxLineBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxScriptBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxScriptNameBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            },
+            "strict": {
+              "type": "object",
+              "members": {
+                "allowBareLf": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowCleartextAuth": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowLiteralPlus": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "maxLineBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxScriptBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxScriptNameBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            }
+          }
+        },
+        "ZERO_ARG_VERBS": {
+          "type": "object",
+          "members": {
+            "CAPABILITY": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "LISTSCRIPTS": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "LOGOUT": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "STARTTLS": {
+              "type": "primitive",
+              "valueType": "boolean"
+            }
+          }
+        },
+        "compliancePosture": {
+          "type": "function",
+          "arity": 1
+        },
+        "validate": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
     "guardMarkdown": {
       "type": "object",
       "members": {
@@ -27000,6 +27498,10 @@
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "consecutiveStarPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
                 "controlPolicy": {
                   "type": "primitive",
                   "valueType": "string"
@@ -27020,6 +27522,10 @@
                   "type": "primitive",
                   "valueType": "number"
                 },
+                "maxConsecutiveStars": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
                 "maxPatternBytes": {
                   "type": "primitive",
                   "valueType": "number"
@@ -27027,6 +27533,10 @@
                 "maxRuntimeMs": {
                   "type": "primitive",
                   "valueType": "number"
+                },
+                "nestedExtglobPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
                 },
                 "nestedQuantPolicy": {
                   "type": "primitive",
@@ -27057,6 +27567,10 @@
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "consecutiveStarPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
                 "controlPolicy": {
                   "type": "primitive",
                   "valueType": "string"
@@ -27064,6 +27578,10 @@
                 "forensicSnippetBytes": {
                   "type": "primitive",
                   "valueType": "number"
+                },
+                "inputKind": {
+                  "type": "primitive",
+                  "valueType": "string"
                 },
                 "lookaroundQuantPolicy": {
                   "type": "primitive",
@@ -27077,6 +27595,10 @@
                   "type": "primitive",
                   "valueType": "number"
                 },
+                "maxConsecutiveStars": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
                 "maxPatternBytes": {
                   "type": "primitive",
                   "valueType": "number"
@@ -27084,6 +27606,10 @@
                 "maxRuntimeMs": {
                   "type": "primitive",
                   "valueType": "number"
+                },
+                "nestedExtglobPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
                 },
                 "nestedQuantPolicy": {
                   "type": "primitive",
@@ -27114,6 +27640,10 @@
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "consecutiveStarPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
                 "controlPolicy": {
                   "type": "primitive",
                   "valueType": "string"
@@ -27121,6 +27651,10 @@
                 "forensicSnippetBytes": {
                   "type": "primitive",
                   "valueType": "number"
+                },
+                "inputKind": {
+                  "type": "primitive",
+                  "valueType": "string"
                 },
                 "lookaroundQuantPolicy": {
                   "type": "primitive",
@@ -27134,6 +27668,10 @@
                   "type": "primitive",
                   "valueType": "number"
                 },
+                "maxConsecutiveStars": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
                 "maxPatternBytes": {
                   "type": "primitive",
                   "valueType": "number"
@@ -27141,6 +27679,10 @@
                 "maxRuntimeMs": {
                   "type": "primitive",
                   "valueType": "number"
+                },
+                "nestedExtglobPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
                 },
                 "nestedQuantPolicy": {
                   "type": "primitive",
@@ -27171,6 +27713,10 @@
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "consecutiveStarPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
                 "controlPolicy": {
                   "type": "primitive",
                   "valueType": "string"
@@ -27178,6 +27724,10 @@
                 "forensicSnippetBytes": {
                   "type": "primitive",
                   "valueType": "number"
+                },
+                "inputKind": {
+                  "type": "primitive",
+                  "valueType": "string"
                 },
                 "lookaroundQuantPolicy": {
                   "type": "primitive",
@@ -27191,6 +27741,10 @@
                   "type": "primitive",
                   "valueType": "number"
                 },
+                "maxConsecutiveStars": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
                 "maxPatternBytes": {
                   "type": "primitive",
                   "valueType": "number"
@@ -27198,6 +27752,10 @@
                 "maxRuntimeMs": {
                   "type": "primitive",
                   "valueType": "number"
+                },
+                "nestedExtglobPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
                 },
                 "nestedQuantPolicy": {
                   "type": "primitive",
@@ -27230,7 +27788,15 @@
               "type": "primitive",
               "valueType": "string"
             },
+            "consecutiveStarPolicy": {
+              "type": "primitive",
+              "valueType": "string"
+            },
             "controlPolicy": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "inputKind": {
               "type": "primitive",
               "valueType": "string"
             },
@@ -27246,6 +27812,10 @@
               "type": "primitive",
               "valueType": "number"
             },
+            "maxConsecutiveStars": {
+              "type": "primitive",
+              "valueType": "number"
+            },
             "maxPatternBytes": {
               "type": "primitive",
               "valueType": "number"
@@ -27255,6 +27825,10 @@
               "valueType": "number"
             },
             "mode": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "nestedExtglobPolicy": {
               "type": "primitive",
               "valueType": "string"
             },
@@ -27327,6 +27901,10 @@
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "consecutiveStarPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
                 "controlPolicy": {
                   "type": "primitive",
                   "valueType": "string"
@@ -27343,6 +27921,10 @@
                   "type": "primitive",
                   "valueType": "number"
                 },
+                "maxConsecutiveStars": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
                 "maxPatternBytes": {
                   "type": "primitive",
                   "valueType": "number"
@@ -27350,6 +27932,10 @@
                 "maxRuntimeMs": {
                   "type": "primitive",
                   "valueType": "number"
+                },
+                "nestedExtglobPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
                 },
                 "nestedQuantPolicy": {
                   "type": "primitive",
@@ -27380,6 +27966,10 @@
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "consecutiveStarPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
                 "controlPolicy": {
                   "type": "primitive",
                   "valueType": "string"
@@ -27396,6 +27986,10 @@
                   "type": "primitive",
                   "valueType": "number"
                 },
+                "maxConsecutiveStars": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
                 "maxPatternBytes": {
                   "type": "primitive",
                   "valueType": "number"
@@ -27403,6 +27997,10 @@
                 "maxRuntimeMs": {
                   "type": "primitive",
                   "valueType": "number"
+                },
+                "nestedExtglobPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
                 },
                 "nestedQuantPolicy": {
                   "type": "primitive",
@@ -27433,7 +28031,15 @@
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "consecutiveStarPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
                 "controlPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "inputKind": {
                   "type": "primitive",
                   "valueType": "string"
                 },
@@ -27449,6 +28055,10 @@
                   "type": "primitive",
                   "valueType": "number"
                 },
+                "maxConsecutiveStars": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
                 "maxPatternBytes": {
                   "type": "primitive",
                   "valueType": "number"
@@ -27456,6 +28066,10 @@
                 "maxRuntimeMs": {
                   "type": "primitive",
                   "valueType": "number"
+                },
+                "nestedExtglobPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
                 },
                 "nestedQuantPolicy": {
                   "type": "primitive",
@@ -31155,6 +31769,10 @@
                   "type": "primitive",
                   "valueType": "number"
                 },
+                "maxNumericCharRefs": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
                 "nullBytePolicy": {
                   "type": "primitive",
                   "valueType": "string"
@@ -31229,6 +31847,10 @@
                   "valueType": "number"
                 },
                 "maxElements": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxNumericCharRefs": {
                   "type": "primitive",
                   "valueType": "number"
                 },
@@ -31309,6 +31931,10 @@
                   "type": "primitive",
                   "valueType": "number"
                 },
+                "maxNumericCharRefs": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
                 "nullBytePolicy": {
                   "type": "primitive",
                   "valueType": "string"
@@ -31386,6 +32012,10 @@
                   "type": "primitive",
                   "valueType": "number"
                 },
+                "maxNumericCharRefs": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
                 "nullBytePolicy": {
                   "type": "primitive",
                   "valueType": "string"
@@ -31458,6 +32088,10 @@
               "valueType": "number"
             },
             "maxElements": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "maxNumericCharRefs": {
               "type": "primitive",
               "valueType": "number"
             },
@@ -31590,6 +32224,10 @@
                   "type": "primitive",
                   "valueType": "number"
                 },
+                "maxNumericCharRefs": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
                 "nullBytePolicy": {
                   "type": "primitive",
                   "valueType": "string"
@@ -31663,6 +32301,10 @@
                   "type": "primitive",
                   "valueType": "number"
                 },
+                "maxNumericCharRefs": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
                 "nullBytePolicy": {
                   "type": "primitive",
                   "valueType": "string"
@@ -31733,6 +32375,10 @@
                   "valueType": "number"
                 },
                 "maxElements": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxNumericCharRefs": {
                   "type": "primitive",
                   "valueType": "number"
                 },
@@ -33064,6 +33710,41 @@
         }
       }
     },
+    "jose": {
+      "type": "object",
+      "members": {
+        "jwe": {
+          "type": "object",
+          "members": {
+            "experimental": {
+              "type": "object",
+              "members": {
+                "EXPERIMENTAL_ALG": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "EXPERIMENTAL_ENC": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "JoseJweExperimentalError": {
+                  "type": "function",
+                  "arity": 4
+                },
+                "decrypt": {
+                  "type": "function",
+                  "arity": 3
+                },
+                "encrypt": {
+                  "type": "function",
+                  "arity": 3
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "keychain": {
       "type": "object",
       "members": {
@@ -34331,12 +35012,158 @@
           "type": "function",
           "arity": 1
         },
+        "crypto": {
+          "type": "object",
+          "members": {
+            "MailCryptoError": {
+              "type": "function",
+              "arity": 4
+            },
+            "isMailCryptoError": {
+              "type": "function",
+              "arity": 1
+            },
+            "pgp": {
+              "type": "object",
+              "members": {
+                "MailCryptoError": {
+                  "type": "function",
+                  "arity": 4
+                },
+                "sign": {
+                  "type": "function",
+                  "arity": 1
+                },
+                "verify": {
+                  "type": "function",
+                  "arity": 1
+                }
+              }
+            },
+            "smime": {
+              "type": "object",
+              "members": {
+                "ALLOWED_HASHES": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
+                "COMPLIANCE_POSTURES": {
+                  "type": "object",
+                  "members": {
+                    "gdpr": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "hipaa": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "pci-dss": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "soc2": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "DEFERRAL_MESSAGE": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "MailCryptoError": {
+                  "type": "function",
+                  "arity": 4
+                },
+                "PROFILES": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
+                "REFUSED_HASHES": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
+                "RSA_MIN_BITS": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "checkCert": {
+                  "type": "function",
+                  "arity": 1
+                },
+                "sign": {
+                  "type": "function",
+                  "arity": 1
+                },
+                "verify": {
+                  "type": "function",
+                  "arity": 1
+                }
+              }
+            }
+          }
+        },
+        "dav": {
+          "type": "object",
+          "members": {
+            "MailDavError": {
+              "type": "function",
+              "arity": 4
+            },
+            "create": {
+              "type": "function",
+              "arity": 1
+            }
+          }
+        },
+        "deploy": {
+          "type": "object",
+          "members": {
+            "MailDeployError": {
+              "type": "function",
+              "arity": 4
+            },
+            "autoConfigXml": {
+              "type": "function",
+              "arity": 1
+            },
+            "autoDiscoverXml": {
+              "type": "function",
+              "arity": 1
+            },
+            "danePublish": {
+              "type": "function",
+              "arity": 1
+            },
+            "mtaStsPublish": {
+              "type": "function",
+              "arity": 1
+            }
+          }
+        },
         "dkim": {
           "type": "object",
           "members": {
+            "DKIM_CLOCK_SKEW_MS_MAX": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "DKIM_MAX_SIGNATURES_PER_MESSAGE": {
+              "type": "primitive",
+              "valueType": "number"
+            },
             "DkimError": {
               "type": "function",
               "arity": 2
+            },
+            "RSA_LEGACY_MIN_BITS": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "RSA_MIN_BITS": {
+              "type": "primitive",
+              "valueType": "number"
             },
             "bootstrap": {
               "type": "function",
@@ -34602,6 +35429,52 @@
             }
           }
         },
+        "journal": {
+          "type": "object",
+          "members": {
+            "MailJournalError": {
+              "type": "function",
+              "arity": 4
+            },
+            "REGIME_FLOOR_MS": {
+              "type": "object",
+              "members": {
+                "finra-4511": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "gdpr": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "hipaa": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "mifid-ii": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "sec-17a-4": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "soc2": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "sox": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            },
+            "create": {
+              "type": "function",
+              "arity": 1
+            }
+          }
+        },
         "rbl": {
           "type": "object",
           "members": {
@@ -34729,6 +35602,113 @@
           "type": "function",
           "arity": 1
         },
+        "scan": {
+          "type": "object",
+          "members": {
+            "ALLOWED_PROTOCOLS": {
+              "type": "object",
+              "members": {
+                "clamav-instream": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "icap": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                }
+              }
+            },
+            "COMPLIANCE_POSTURES": {
+              "type": "object",
+              "members": {
+                "gdpr": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "hipaa": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "pci-dss": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "soc2": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "MailScanError": {
+              "type": "function",
+              "arity": 4
+            },
+            "PROFILES": {
+              "type": "object",
+              "members": {
+                "balanced": {
+                  "type": "object",
+                  "members": {
+                    "maxMessageBytes": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "maxResponseBytes": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "timeoutMs": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    }
+                  }
+                },
+                "permissive": {
+                  "type": "object",
+                  "members": {
+                    "maxMessageBytes": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "maxResponseBytes": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "timeoutMs": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    }
+                  }
+                },
+                "strict": {
+                  "type": "object",
+                  "members": {
+                    "maxMessageBytes": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "maxResponseBytes": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "timeoutMs": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    }
+                  }
+                }
+              }
+            },
+            "compliancePosture": {
+              "type": "function",
+              "arity": 1
+            },
+            "create": {
+              "type": "function",
+              "arity": 1
+            }
+          }
+        },
         "server": {
           "type": "object",
           "members": {
@@ -34749,6 +35729,19 @@
               "type": "object",
               "members": {
                 "MailServerJmapError": {
+                  "type": "function",
+                  "arity": 4
+                },
+                "create": {
+                  "type": "function",
+                  "arity": 1
+                }
+              }
+            },
+            "managesieve": {
+              "type": "object",
+              "members": {
+                "MailServerManageSieveError": {
                   "type": "function",
                   "arity": 4
                 },
@@ -34809,6 +35802,10 @@
                     "minBytesPerSecond": {
                       "type": "primitive",
                       "valueType": "number"
+                    },
+                    "rcptFailuresPerIpPerMinute": {
+                      "type": "primitive",
+                      "valueType": "number"
                     }
                   }
                 },
@@ -34845,8 +35842,460 @@
                 "context": {
                   "type": "function",
                   "arity": 1
+                },
+                "upgradeSocket": {
+                  "type": "function",
+                  "arity": 1
                 }
               }
+            }
+          }
+        },
+        "serverRegistry": {
+          "type": "object",
+          "members": {
+            "CATALOGUE": {
+              "type": "object",
+              "members": {
+                "imap": {
+                  "type": "object",
+                  "members": {
+                    "APPEND": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "AUTHENTICATE": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "CAPABILITY": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "CHECK": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "CLOSE": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "COPY": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "CREATE": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "DELETE": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "DONE": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "ENABLE": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "EXAMINE": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "EXPUNGE": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "FETCH": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "ID": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "IDLE": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "LIST": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "LOGIN": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "LOGOUT": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "MOVE": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "NAMESPACE": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "NOOP": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "RENAME": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "SEARCH": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "SELECT": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "STARTTLS": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "STATUS": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "STORE": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "SUBSCRIBE": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "UID": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "UNSELECT": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "UNSUBSCRIBE": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    }
+                  }
+                },
+                "jmap": {
+                  "type": "object",
+                  "members": {
+                    "Core/echo": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "Email/changes": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "Email/copy": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "Email/get": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "Email/import": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "Email/parse": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "Email/query": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "Email/queryChanges": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "Email/set": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "EmailSubmission/changes": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "EmailSubmission/get": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "EmailSubmission/query": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "EmailSubmission/queryChanges": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "EmailSubmission/set": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "Identity/changes": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "Identity/get": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "Identity/set": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "Mailbox/changes": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "Mailbox/get": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "Mailbox/query": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "Mailbox/queryChanges": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "Mailbox/set": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "SearchSnippet/get": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "Thread/changes": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "Thread/get": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "VacationResponse/get": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "VacationResponse/set": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    }
+                  }
+                },
+                "managesieve": {
+                  "type": "object",
+                  "members": {
+                    "AUTHENTICATE": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "CAPABILITY": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "DELETESCRIPT": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "GETSCRIPT": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "HAVESPACE": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "LISTSCRIPTS": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "LOGOUT": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "NOOP": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "PUTSCRIPT": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "RENAMESCRIPT": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "SETACTIVE": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "STARTTLS": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    }
+                  }
+                }
+              }
+            },
+            "IMAP_VERBS": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "JMAP_METHODS": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "MANAGESIEVE_VERBS": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "MailServerRegistryError": {
+              "type": "function",
+              "arity": 4
+            },
+            "create": {
+              "type": "function",
+              "arity": 1
+            }
+          }
+        },
+        "sieve": {
+          "type": "object",
+          "members": {
+            "DEFAULT_GAS_UNITS": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "MAX_GAS_UNITS": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "MailSieveError": {
+              "type": "function",
+              "arity": 4
+            },
+            "create": {
+              "type": "function",
+              "arity": 1
+            },
+            "run": {
+              "type": "function",
+              "arity": 3
+            },
+            "runScript": {
+              "type": "function",
+              "arity": 3
+            }
+          }
+        },
+        "spamScore": {
+          "type": "object",
+          "members": {
+            "COMPLIANCE_POSTURES": {
+              "type": "object",
+              "members": {
+                "gdpr": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "hipaa": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "pci-dss": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "soc2": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "MailSpamScoreError": {
+              "type": "function",
+              "arity": 4
+            },
+            "PROFILES": {
+              "type": "object",
+              "members": {
+                "balanced": {
+                  "type": "object",
+                  "members": {
+                    "maxReasonBytes": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "maxReasons": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "threshold": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    }
+                  }
+                },
+                "permissive": {
+                  "type": "object",
+                  "members": {
+                    "maxReasonBytes": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "maxReasons": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "threshold": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    }
+                  }
+                },
+                "strict": {
+                  "type": "object",
+                  "members": {
+                    "maxReasonBytes": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "maxReasons": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "threshold": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    }
+                  }
+                }
+              }
+            },
+            "compliancePosture": {
+              "type": "function",
+              "arity": 1
+            },
+            "create": {
+              "type": "function",
+              "arity": 1
             }
           }
         },
@@ -35244,6 +36693,10 @@
             "render": {
               "type": "function",
               "arity": 2
+            },
+            "shadowRegistry": {
+              "type": "function",
+              "arity": 1
             },
             "startWriter": {
               "type": "function",
@@ -36736,6 +38189,10 @@
               "arity": 2
             },
             "useSystemTrust": {
+              "type": "function",
+              "arity": 1
+            },
+            "wrapSNICallback": {
               "type": "function",
               "arity": 1
             }
@@ -39377,6 +40834,19 @@
         }
       }
     },
+    "promisePool": {
+      "type": "object",
+      "members": {
+        "PromisePoolError": {
+          "type": "function",
+          "arity": 4
+        },
+        "create": {
+          "type": "function",
+          "arity": 1
+        }
+      }
+    },
     "protocolDispatcher": {
       "type": "object",
       "members": {
@@ -40562,6 +42032,577 @@
         }
       }
     },
+    "safeIcal": {
+      "type": "object",
+      "members": {
+        "COMPLIANCE_POSTURES": {
+          "type": "object",
+          "members": {
+            "gdpr": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "hipaa": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "pci-dss": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "soc2": {
+              "type": "primitive",
+              "valueType": "string"
+            }
+          }
+        },
+        "KNOWN_COMPONENTS": {
+          "type": "object",
+          "members": {
+            "AVAILABLE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "DAYLIGHT": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "STANDARD": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "VALARM": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "VAVAILABILITY": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "VCALENDAR": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "VEVENT": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "VFREEBUSY": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "VJOURNAL": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "VTIMEZONE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "VTODO": {
+              "type": "primitive",
+              "valueType": "boolean"
+            }
+          }
+        },
+        "KNOWN_PROPERTIES": {
+          "type": "object",
+          "members": {
+            "ACTION": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "ATTACH": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "ATTENDEE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "CALSCALE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "CATEGORIES": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "CLASS": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "COLOR": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "COMMENT": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "COMPLETED": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "CONFERENCE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "CONTACT": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "CREATED": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "DESCRIPTION": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "DTEND": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "DTSTAMP": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "DTSTART": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "DUE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "DURATION": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "EXDATE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "EXRULE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "FREEBUSY": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "GEO": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "IMAGE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "LAST-MODIFIED": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "LOCATION": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "METHOD": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "NAME": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "ORGANIZER": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "PERCENT-COMPLETE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "PRIORITY": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "PRODID": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "RDATE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "RECURRENCE-ID": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "REFRESH-INTERVAL": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "RELATED-TO": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "REPEAT": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "REQUEST-STATUS": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "RESOURCES": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "RRULE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "SEQUENCE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "SOURCE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "STATUS": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "SUMMARY": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "TRANSP": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "TRIGGER": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "TZID": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "TZNAME": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "TZOFFSETFROM": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "TZOFFSETTO": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "TZURL": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "UID": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "URL": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "VERSION": {
+              "type": "primitive",
+              "valueType": "boolean"
+            }
+          }
+        },
+        "PROFILES": {
+          "type": "object",
+          "members": {
+            "balanced": {
+              "type": "object",
+              "members": {
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxComponents": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxLineBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxLines": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxNestingDepth": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxPropertiesPerComponent": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            },
+            "permissive": {
+              "type": "object",
+              "members": {
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxComponents": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxLineBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxLines": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxNestingDepth": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxPropertiesPerComponent": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            },
+            "strict": {
+              "type": "object",
+              "members": {
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxComponents": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxLineBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxLines": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxNestingDepth": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxPropertiesPerComponent": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            }
+          }
+        },
+        "SafeIcalError": {
+          "type": "function",
+          "arity": 4
+        },
+        "compliancePosture": {
+          "type": "function",
+          "arity": 1
+        },
+        "parse": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
+    "safeIcap": {
+      "type": "object",
+      "members": {
+        "ALLOWED_STATUS": {
+          "type": "object",
+          "members": {
+            "100": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "200": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "204": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "400": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "403": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "404": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "405": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "408": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "500": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "501": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "502": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "503": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "504": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "505": {
+              "type": "primitive",
+              "valueType": "string"
+            }
+          }
+        },
+        "COMPLIANCE_POSTURES": {
+          "type": "object",
+          "members": {
+            "gdpr": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "hipaa": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "pci-dss": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "soc2": {
+              "type": "primitive",
+              "valueType": "string"
+            }
+          }
+        },
+        "KIND": {
+          "type": "primitive",
+          "valueType": "string"
+        },
+        "NAME": {
+          "type": "primitive",
+          "valueType": "string"
+        },
+        "PROFILES": {
+          "type": "object",
+          "members": {
+            "balanced": {
+              "type": "object",
+              "members": {
+                "maxBodyBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxHeaderCount": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxHeaderValueBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxResponseHeaderBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            },
+            "permissive": {
+              "type": "object",
+              "members": {
+                "maxBodyBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxHeaderCount": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxHeaderValueBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxResponseHeaderBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            },
+            "strict": {
+              "type": "object",
+              "members": {
+                "maxBodyBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxHeaderCount": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxHeaderValueBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxResponseHeaderBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            }
+          }
+        },
+        "SafeIcapError": {
+          "type": "function",
+          "arity": 4
+        },
+        "compliancePosture": {
+          "type": "function",
+          "arity": 1
+        },
+        "parse": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
     "safeJson": {
       "type": "object",
       "members": {
@@ -40731,6 +42772,10 @@
               "type": "primitive",
               "valueType": "number"
             },
+            "maxHeaderCount": {
+              "type": "primitive",
+              "valueType": "number"
+            },
             "maxHeaderLineBytes": {
               "type": "primitive",
               "valueType": "number"
@@ -40776,6 +42821,27 @@
         "walk": {
           "type": "function",
           "arity": 2
+        }
+      }
+    },
+    "safePath": {
+      "type": "object",
+      "members": {
+        "SafePathError": {
+          "type": "function",
+          "arity": 4
+        },
+        "resolve": {
+          "type": "function",
+          "arity": 3
+        },
+        "resolveOrNull": {
+          "type": "function",
+          "arity": 3
+        },
+        "validate": {
+          "type": "function",
+          "arity": 3
         }
       }
     },
@@ -40917,12 +42983,283 @@
         }
       }
     },
+    "safeSieve": {
+      "type": "object",
+      "members": {
+        "COMPLIANCE_POSTURES": {
+          "type": "object",
+          "members": {
+            "gdpr": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "hipaa": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "pci-dss": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "soc2": {
+              "type": "primitive",
+              "valueType": "string"
+            }
+          }
+        },
+        "KNOWN_CAPABILITIES": {
+          "type": "object",
+          "members": {
+            "comparator-i;ascii-casemap": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "comparator-i;octet": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "date": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "editheader": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "enclose": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "encoded-character": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "enotify": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "envelope": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "ereject": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "extlists": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "extracttext": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "fcc": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "fileinto": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "ihave": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "imap4flags": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "imapsieve": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "include": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "index": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "mailbox": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "mailboxid": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "mime": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "reject": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "relational": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "replace": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "spamtest": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "subaddress": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "vacation": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "variables": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "virustest": {
+              "type": "primitive",
+              "valueType": "boolean"
+            }
+          }
+        },
+        "PROFILES": {
+          "type": "object",
+          "members": {
+            "balanced": {
+              "type": "object",
+              "members": {
+                "maxArgsPerCmd": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxDepth": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxIfChainLen": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxRequiredCaps": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxScriptBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxStringBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxStringListLen": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            },
+            "permissive": {
+              "type": "object",
+              "members": {
+                "maxArgsPerCmd": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxDepth": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxIfChainLen": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxRequiredCaps": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxScriptBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxStringBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxStringListLen": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            },
+            "strict": {
+              "type": "object",
+              "members": {
+                "maxArgsPerCmd": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxDepth": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxIfChainLen": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxRequiredCaps": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxScriptBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxStringBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxStringListLen": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            }
+          }
+        },
+        "SafeSieveError": {
+          "type": "function",
+          "arity": 4
+        },
+        "compliancePosture": {
+          "type": "function",
+          "arity": 1
+        },
+        "parse": {
+          "type": "function",
+          "arity": 2
+        },
+        "validate": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
     "safeSmtp": {
       "type": "object",
       "members": {
         "SafeSmtpError": {
           "type": "function",
           "arity": 4
+        },
+        "dotStuff": {
+          "type": "function",
+          "arity": 1
         },
         "dotUnstuff": {
           "type": "function",
@@ -40993,6 +43330,366 @@
         "SafeUrlError": {
           "type": "function",
           "arity": 2
+        },
+        "format": {
+          "type": "function",
+          "arity": 1
+        },
+        "parse": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
+    "safeVcard": {
+      "type": "object",
+      "members": {
+        "COMPLIANCE_POSTURES": {
+          "type": "object",
+          "members": {
+            "gdpr": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "hipaa": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "pci-dss": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "soc2": {
+              "type": "primitive",
+              "valueType": "string"
+            }
+          }
+        },
+        "EMBED_PROPERTIES": {
+          "type": "object",
+          "members": {
+            "KEY": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "LOGO": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "PHOTO": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "SOUND": {
+              "type": "primitive",
+              "valueType": "boolean"
+            }
+          }
+        },
+        "KNOWN_PROPERTIES": {
+          "type": "object",
+          "members": {
+            "ADR": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "AGENT": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "ANNIVERSARY": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "BDAY": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "BEGIN": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "BIRTHPLACE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "CALADRURI": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "CALURI": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "CATEGORIES": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "CLASS": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "CLIENTPIDMAP": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "DEATHDATE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "DEATHPLACE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "EMAIL": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "END": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "EXPERTISE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "FBURL": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "FN": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "GENDER": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "GEO": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "HOBBY": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "IMPP": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "INTEREST": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "KEY": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "KIND": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "LABEL": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "LANG": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "LOGO": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "MAILER": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "MEMBER": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "N": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "NAME": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "NICKNAME": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "NOTE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "ORG": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "ORG-DIRECTORY": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "PHOTO": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "PRODID": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "PROFILE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "RELATED": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "REV": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "ROLE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "SORT-STRING": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "SORT_STRING": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "SOUND": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "SOURCE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "TEL": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "TITLE": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "TZ": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "UID": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "URL": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "VERSION": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "XML": {
+              "type": "primitive",
+              "valueType": "boolean"
+            }
+          }
+        },
+        "PROFILES": {
+          "type": "object",
+          "members": {
+            "balanced": {
+              "type": "object",
+              "members": {
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxCards": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxEmbedBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxLineBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxPropertiesPerCard": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            },
+            "permissive": {
+              "type": "object",
+              "members": {
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxCards": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxEmbedBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxLineBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxPropertiesPerCard": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            },
+            "strict": {
+              "type": "object",
+              "members": {
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxCards": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxEmbedBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxLineBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxPropertiesPerCard": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            }
+          }
+        },
+        "SafeVcardError": {
+          "type": "function",
+          "arity": 4
+        },
+        "compliancePosture": {
+          "type": "function",
+          "arity": 1
         },
         "parse": {
           "type": "function",
@@ -41178,6 +43875,39 @@
           "arity": 3
         },
         "parseCron": {
+          "type": "function",
+          "arity": 1
+        }
+      }
+    },
+    "sdNotify": {
+      "type": "object",
+      "members": {
+        "SdNotifyError": {
+          "type": "function",
+          "arity": 4
+        },
+        "isAvailable": {
+          "type": "function",
+          "arity": 0
+        },
+        "ready": {
+          "type": "function",
+          "arity": 1
+        },
+        "reloading": {
+          "type": "function",
+          "arity": 1
+        },
+        "send": {
+          "type": "function",
+          "arity": 1
+        },
+        "stopping": {
+          "type": "function",
+          "arity": 1
+        },
+        "watchdog": {
           "type": "function",
           "arity": 1
         }
@@ -42330,11 +45060,48 @@
           "type": "instance",
           "ctorName": "Array"
         },
+        "NOTE_CATEGORY_VALUES": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "REFERENCE_CATEGORY_VALUES": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
         "STATUS_VALUES": {
           "type": "instance",
           "ctorName": "Array"
         },
+        "TLP_DEFAULT_TEXTS": {
+          "type": "object",
+          "members": {
+            "AMBER": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "AMBER+STRICT": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "CLEAR": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "GREEN": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "RED": {
+              "type": "primitive",
+              "valueType": "string"
+            }
+          }
+        },
         "TLP_LABELS": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "TRACKING_STATUS_VALUES": {
           "type": "instance",
           "ctorName": "Array"
         },

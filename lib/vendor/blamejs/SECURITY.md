@@ -33,14 +33,17 @@ git tag -v vX.Y.Z          # must print: Good "git" signature for RobertLeeLW@gm
 Earlier releases (`v0.9.6` and earlier) were tagged as lightweight commits before the signing pipeline landed; `git tag -v` will report *"cannot verify a non-tag object of type commit"* on those. They remain verifiable via the **two other trust roots** that have been attached since v0.4.x and v0.6.x respectively:
 
 - **npm tarball** — SLSA L3 provenance via OIDC. `npm view @blamejs/core@vX.Y.Z --json | jq .dist` returns the integrity hash; `gh attestation verify` walks the provenance chain back to the workflow run.
-- **SBOM** (`sbom.cdx.json` + `sbom.vendored.cdx.json`) — Sigstore-keyless signed by the publish workflow's OIDC token. Verify via:
+- **SBOM** (`sbom.cdx.json` + `sbom.vendored.cdx.json`) — Sigstore-keyless signed by the publish workflow's OIDC token. The verifier identity pins both the workflow PATH (not any workflow under the repo) and the Rekor transparency log URL so a DNS / HTTPS MITM cannot redirect the Rekor lookup to a forged log:
 
   ```sh
   cosign verify-blob --bundle sbom.cdx.json.sigstore           \
-    --certificate-identity-regexp 'https://github.com/blamejs/blamejs/.*' \
-    --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+    --certificate-identity-regexp '^https://github.com/blamejs/blamejs/\.github/workflows/npm-publish\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
+    --certificate-oidc-issuer     'https://token.actions.githubusercontent.com' \
+    --rekor-url                   'https://rekor.sigstore.dev'                  \
     sbom.cdx.json
   ```
+
+  For offline / air-gapped verification, set `SIGSTORE_NO_CACHE=1` + `TUF_ROOT=/path/to/local/tuf-repo` (a `tuf repo init` clone of `https://sigstore-tuf-root.storage.googleapis.com/` snapshotted at install time) so cosign reads the Sigstore TUF root from disk rather than over the network. Capture the root metadata once from a trusted channel and verify its signature against the published Sigstore root operators (see `https://docs.sigstore.dev/about/tuf/` for the rotation cadence).
 
 Maintainer SSH signing key (Ed25519, applies v0.9.7+):
 

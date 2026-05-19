@@ -146,6 +146,13 @@ jobs:
         run: npm install --no-audit --no-fund --no-save esbuild@0.28.0 postject@1.0.0-alpha.6
 
       - name: Framework smoke
+        # The smoke runner forks per-test workers (each gets 8GB via
+        # execArgv); the parent process itself loads every test module
+        # too and needs the same headroom now that v0.10.0 added the
+        # mail-stack + audit-fix test surface. Default ~4GB heap OOMs
+        # on the GitHub runner. NODE_OPTIONS applies to the parent.
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
         run: node test/smoke.js
 
       - name: Wiki e2e
@@ -216,7 +223,7 @@ jobs:
         # Stricter than v1's `--fail-on-vuln=HIGH` (which v2 dropped),
         # appropriate for a zero-npm-runtime-dep framework where any
         # surfaced vuln means a vendor refresh is overdue.
-        uses: google/osv-scanner-action/osv-scanner-action@c51854704019a247608d928f370c98740469d4b5 # v2.3.5
+        uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
         with:
           scan-args: |-
             --sbom=sbom.cdx.json
@@ -310,10 +317,17 @@ jobs:
         # cosign signs the SBOM. Verifiers reach for the Rekor
         # transparency log entry (cosign emits a .sig + the
         # transparency-log inclusion proof in the .sigstore bundle).
-        # Operators verify the signed SBOM via:
+        # Operators verify the signed SBOM via the recipe documented in
+        # SECURITY.md — the identity-regexp pins BOTH the workflow path
+        # (npm-publish.yml) AND the tag-ref shape (refs/tags/v<semver>)
+        # so a maliciously-introduced sibling workflow under the same
+        # repo cannot satisfy the gate, and --rekor-url is pinned so
+        # DNS / HTTPS MITM cannot redirect the transparency-log lookup:
         #   cosign verify-blob \
-        #     --certificate-identity-regexp "https://github.com/blamejs/blamejs/.github/workflows/npm-publish.yml@.*" \
+        #     --certificate-identity-regexp \
+        #       '^https://github.com/blamejs/blamejs/\.github/workflows/npm-publish\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
         #     --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+        #     --rekor-url "https://rekor.sigstore.dev" \
         #     --bundle sbom.cdx.json.sigstore \
         #     sbom.cdx.json
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2

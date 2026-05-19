@@ -22,7 +22,7 @@ module.exports = function (app) {
   // Generate new API key
   app.post("/admin/apikeys/create", idempotency, async function(req, res) {
     if (!requireAdmin(req, res)) return;
-    var body = (await b.parsers.json(req)) || {};
+    var body = req.body || (await b.parsers.json(req)) || {};
     var name = String(body.name || "").trim().slice(0, 100);
     var rawPerms = String(body.permissions || "upload").trim().toLowerCase();
     var permList = rawPerms.split(",").map(function(s) { return s.trim(); }).filter(Boolean);

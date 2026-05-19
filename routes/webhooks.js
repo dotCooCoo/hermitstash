@@ -17,7 +17,7 @@ module.exports = function (app) {
   app.post("/admin/webhooks/create", idempotency, async function (req, res) {
     if (!requireAdmin(req, res)) return;
     try {
-      var body = (await b.parsers.json(req)) || {};
+      var body = req.body || (await b.parsers.json(req)) || {};
       var result = await webhookService.create(body.url, body.events, req.user._id);
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Webhook created: " + body.url, req: req });
       res.json({ success: true, secret: result.secret });

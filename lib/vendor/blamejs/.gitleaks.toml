@@ -129,6 +129,16 @@ commits = [
   # token in the documentation prose. The next commit rewrote the
   # CHANGELOG entry to avoid the literal shape.
   "959b44bb322e7559ec106a19bb21784a4ba9dc25",
+  # v0.10.0 mail-stack final bundle commit — b.mail.crypto.pgp
+  # @example block carries a `privateKeyPem: "-----BEGIN PRIVATE
+  # KEY----- ..."` doc placeholder. The PEM-framing sentinel trips
+  # the private-key rule; the body is a literal "..." with no
+  # entropy. Documentation, not a key.
+  "37fdff6c56337a6b7e88027025fbf590f7b10b31",
+  # Same `@example` placeholder, now landed on main via the squash-
+  # merge of PR #83 (commit d126fa4). gitleaks scans every commit
+  # SHA the placeholder ever appeared in.
+  "d126fa416043ee7f47d89011951378a06c91a617",
 ]
 fingerprints = [
   "74e627ea0fea39f06e01fe424a19724bea37aee8:test/smoke.js:jwt:2415",
@@ -147,4 +157,10 @@ fingerprints = [
   "a270ae987b83e1497b76aee41480fbc021f6bf9a:lib/log-stream.js:stripe-access-token:178",
   "a270ae987b83e1497b76aee41480fbc021f6bf9a:lib/crypto.js:generic-api-key:1044",
   "959b44bb322e7559ec106a19bb21784a4ba9dc25:CHANGELOG.md:generic-api-key:11",
+  # v0.10.0 mail-stack final bundle — b.mail.crypto.pgp @intro
+  # @example shows a sign() call with `privateKeyPem: "-----BEGIN
+  # PRIVATE KEY----- ..."` placeholder. The PEM-framing sentinel
+  # trips the private-key rule; the body is a literal "..." with
+  # no entropy. Documentation, not a key.
+  "37fdff6c56337a6b7e88027025fbf590f7b10b31:lib/mail-crypto-pgp.js:private-key:76",
 ]
