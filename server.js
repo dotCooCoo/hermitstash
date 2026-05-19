@@ -63,12 +63,39 @@
   // cache for lib/vault holds the plaintext keys, so every downstream
   // vault.seal/unseal from here on is synchronous and safe.
 
+  // Framework-internal audit emits — silence before any framework code loads.
+  //
+  // blamejs's internal modules (mtls-engine-default at boot, others later)
+  // emit best-effort audit events via b.audit.safeEmit. b.audit's async
+  // handler tries to record these through b.db, which HermitStash does NOT
+  // initialize — HS owns its own DB lifecycle (lib/db.js) with separate
+  // vault sealing (lib/vault.js). The handler's flush throws db/not-
+  // initialized; the handler catches + log.errors "flush dropped event: ..."
+  // every boot. That's a false alert to any operator monitoring on log
+  // severity.
+  //
+  // The events themselves are framework-internal observability (e.g. mtls
+  // algorithm selection — also visible via lib/mtls-ca.js's own info log),
+  // not data HS cares to chain. Routing them into HS's audit_log would need
+  // a shape adapter; b.audit doesn't currently expose a custom-handler
+  // primitive to do that cleanly. Patching emit/safeEmit to no-op here is
+  // a transparent silencer — same end state the catch-and-drop path would
+  // produce, minus the false error log. Framework code is unaffected (try-
+  // wrapped at every call site).
+  //
+  // Fundamental fix belongs upstream: b.audit needs `useStore({ record })`
+  // so operators with their own audit infrastructure can register a sink.
+  // Tracked locally; file upstream PR when bandwidth allows.
+  var b = require("./lib/vendor/blamejs");
+  // codebase-patterns:allow framework-audit-silence — see block comment above
+  b.audit.emit = function () {};
+  b.audit.safeEmit = function () {};
+
   // Boot-time NTP clock-drift check. Audit log entries, token expirations,
   // backup naming, and cert validity windows all depend on a sane wall clock.
   // BLAMEJS_NTP_STRICT=1 → refuse to boot on fatal drift; otherwise warn + continue.
   // NTP unreachable (container with UDP/123 egress blocked) is a soft warning.
   try {
-    var b = require("./lib/vendor/blamejs");
     var ntpResult = await b.ntpCheck.bootCheck();
     if (ntpResult.severity === "fatal") {
       if (process.env.BLAMEJS_NTP_STRICT === "1") {
