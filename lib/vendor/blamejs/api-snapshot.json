@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.10.15",
-  "createdAt": "2026-05-19T01:18:55.442Z",
+  "frameworkVersion": "0.11.2",
+  "createdAt": "2026-05-19T13:38:25.862Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -4259,7 +4259,7 @@
           "type": "function",
           "arity": 1
         },
-        "localStorage": {
+        "diskStorage": {
           "type": "function",
           "arity": 1
         },
@@ -5864,6 +5864,10 @@
         "encodeSignedData": {
           "type": "function",
           "arity": 1
+        },
+        "parseSignedData": {
+          "type": "function",
+          "arity": 2
         }
       }
     },
@@ -5885,6 +5889,27 @@
         "POSTURE_DEFAULTS": {
           "type": "object",
           "members": {
+            "42-cfr-part-2": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "ar-pdpa": {
               "type": "object",
               "members": {
@@ -6267,6 +6292,48 @@
                 }
               }
             },
+            "cra": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "cri-profile-v2.0": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "cwe-top-25-2024": {
               "type": "object",
               "members": {
@@ -6565,6 +6632,27 @@
                 }
               }
             },
+            "ffiec-cat-2": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "fl-fdbr": {
               "type": "object",
               "members": {
@@ -6775,6 +6863,27 @@
                 }
               }
             },
+            "hti-1": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "id-pdp": {
               "type": "object",
               "members": {
@@ -6839,6 +6948,27 @@
               }
             },
             "il-hb3773": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "irs-1075": {
               "type": "object",
               "members": {
                 "auditChainSignedRequired": {
@@ -7090,6 +7220,48 @@
                 }
               }
             },
+            "m-22-09": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "m-22-18": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "md-kids-code": {
               "type": "object",
               "members": {
@@ -7195,6 +7367,27 @@
                 }
               }
             },
+            "nis2": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "nist-800-115": {
               "type": "object",
               "members": {
@@ -7203,6 +7396,31 @@
                   "valueType": "boolean"
                 },
                 "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nist-800-172-r3": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "fipsMode": {
                   "type": "primitive",
                   "valueType": "boolean"
                 },
@@ -7238,6 +7456,27 @@
               }
             },
             "nist-800-53": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nist-800-53-r5-privacy": {
               "type": "object",
               "members": {
                 "auditChainSignedRequired": {
@@ -7321,7 +7560,49 @@
                 }
               }
             },
+            "nist-ai-600-1-genai": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "nist-ai-rmf-1.0": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nist-csf-2.0": {
               "type": "object",
               "members": {
                 "auditChainSignedRequired": {
@@ -7406,6 +7687,27 @@
               }
             },
             "nyc-ll144": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nyc-ll144-2024": {
               "type": "object",
               "members": {
                 "auditChainSignedRequired": {
@@ -7636,6 +7938,27 @@
                 }
               }
             },
+            "sb-53": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "slsa-v1.0-build-l3": {
               "type": "object",
               "members": {
@@ -7658,6 +7981,27 @@
               }
             },
             "soc2": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "soci-au": {
               "type": "object",
               "members": {
                 "auditChainSignedRequired": {
@@ -7741,6 +8085,27 @@
                 }
               }
             },
+            "tlp-2.0": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "tx-traiga": {
               "type": "object",
               "members": {
@@ -7763,6 +8128,27 @@
               }
             },
             "uk-duaa": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "uscdi-v4": {
               "type": "object",
               "members": {
                 "auditChainSignedRequired": {
@@ -11388,6 +11774,27 @@
         }
       }
     },
+    "csp": {
+      "type": "object",
+      "members": {
+        "CspError": {
+          "type": "function",
+          "arity": 4
+        },
+        "build": {
+          "type": "function",
+          "arity": 2
+        },
+        "hash": {
+          "type": "function",
+          "arity": 2
+        },
+        "nonce": {
+          "type": "function",
+          "arity": 1
+        }
+      }
+    },
     "csv": {
       "type": "object",
       "members": {
@@ -11692,6 +12099,27 @@
         "vacuumAfterErase": {
           "type": "function",
           "arity": 1
+        }
+      }
+    },
+    "dbsc": {
+      "type": "object",
+      "members": {
+        "DbscError": {
+          "type": "function",
+          "arity": 4
+        },
+        "challenge": {
+          "type": "function",
+          "arity": 1
+        },
+        "verifyBindingAssertion": {
+          "type": "function",
+          "arity": 2
+        },
+        "verifyChallenge": {
+          "type": "function",
+          "arity": 2
         }
       }
     },
@@ -12503,6 +12931,39 @@
         "validateResponse": {
           "type": "function",
           "arity": 2
+        }
+      }
+    },
+    "fedcm": {
+      "type": "object",
+      "members": {
+        "FedcmError": {
+          "type": "function",
+          "arity": 4
+        },
+        "accountsResponse": {
+          "type": "function",
+          "arity": 1
+        },
+        "clientMetadataResponse": {
+          "type": "function",
+          "arity": 1
+        },
+        "config": {
+          "type": "function",
+          "arity": 1
+        },
+        "disconnectResponse": {
+          "type": "function",
+          "arity": 1
+        },
+        "idAssertionResponse": {
+          "type": "function",
+          "arity": 1
+        },
+        "wellKnown": {
+          "type": "function",
+          "arity": 1
         }
       }
     },
@@ -33306,6 +33767,23 @@
         }
       }
     },
+    "hal": {
+      "type": "object",
+      "members": {
+        "CONTENT_TYPE": {
+          "type": "primitive",
+          "valueType": "string"
+        },
+        "HalError": {
+          "type": "function",
+          "arity": 4
+        },
+        "resource": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
     "handlers": {
       "type": "object",
       "members": {
@@ -33665,6 +34143,19 @@
         }
       }
     },
+    "importmapIntegrity": {
+      "type": "object",
+      "members": {
+        "ImportmapError": {
+          "type": "function",
+          "arity": 4
+        },
+        "build": {
+          "type": "function",
+          "arity": 1
+        }
+      }
+    },
     "inbox": {
       "type": "object",
       "members": {
@@ -33851,6 +34342,31 @@
         }
       }
     },
+    "jsonApi": {
+      "type": "object",
+      "members": {
+        "CONTENT_TYPE": {
+          "type": "primitive",
+          "valueType": "string"
+        },
+        "JsonApiError": {
+          "type": "function",
+          "arity": 4
+        },
+        "dataResponse": {
+          "type": "function",
+          "arity": 2
+        },
+        "errorResponse": {
+          "type": "function",
+          "arity": 2
+        },
+        "parseQuery": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
     "keychain": {
       "type": "object",
       "members": {
@@ -34018,6 +34534,19 @@
         "warn": {
           "type": "function",
           "arity": 2
+        }
+      }
+    },
+    "lro": {
+      "type": "object",
+      "members": {
+        "LroError": {
+          "type": "function",
+          "arity": 4
+        },
+        "create": {
+          "type": "function",
+          "arity": 1
         }
       }
     },
@@ -35136,6 +35665,32 @@
                   "type": "function",
                   "arity": 4
                 },
+                "experimental": {
+                  "type": "object",
+                  "members": {
+                    "decrypt": {
+                      "type": "function",
+                      "arity": 1
+                    },
+                    "encrypt": {
+                      "type": "function",
+                      "arity": 1
+                    },
+                    "wkd": {
+                      "type": "object",
+                      "members": {
+                        "computeUrl": {
+                          "type": "function",
+                          "arity": 2
+                        },
+                        "fetch": {
+                          "type": "function",
+                          "arity": 2
+                        }
+                      }
+                    }
+                  }
+                },
                 "sign": {
                   "type": "function",
                   "arity": 1
@@ -35174,10 +35729,6 @@
                     }
                   }
                 },
-                "DEFERRAL_MESSAGE": {
-                  "type": "primitive",
-                  "valueType": "string"
-                },
                 "MailCryptoError": {
                   "type": "function",
                   "arity": 4
@@ -35203,6 +35754,10 @@
                   "arity": 1
                 },
                 "verify": {
+                  "type": "function",
+                  "arity": 1
+                },
+                "verifyAll": {
                   "type": "function",
                   "arity": 1
                 }
@@ -44331,6 +44886,10 @@
           "type": "function",
           "arity": 2
         },
+        "checkUrlTextual": {
+          "type": "function",
+          "arity": 2
+        },
         "cidrContains": {
           "type": "function",
           "arity": 2
@@ -44360,6 +44919,27 @@
           "arity": 1
         },
         "isReserved": {
+          "type": "function",
+          "arity": 1
+        }
+      }
+    },
+    "standardWebhooks": {
+      "type": "object",
+      "members": {
+        "DEFAULT_TOLERANCE_SEC": {
+          "type": "primitive",
+          "valueType": "number"
+        },
+        "StandardWebhooksError": {
+          "type": "function",
+          "arity": 4
+        },
+        "sign": {
+          "type": "function",
+          "arity": 1
+        },
+        "verify": {
           "type": "function",
           "arity": 1
         }
@@ -45268,6 +45848,27 @@
         "create": {
           "type": "function",
           "arity": 1
+        }
+      }
+    },
+    "webPush": {
+      "type": "object",
+      "members": {
+        "WebPushError": {
+          "type": "function",
+          "arity": 4
+        },
+        "buildVapidAuthHeader": {
+          "type": "function",
+          "arity": 1
+        },
+        "encrypt": {
+          "type": "function",
+          "arity": 1
+        },
+        "generateVapidKeypair": {
+          "type": "function",
+          "arity": 0
         }
       }
     },

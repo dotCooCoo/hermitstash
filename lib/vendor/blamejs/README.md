@@ -52,7 +52,7 @@ var b = require("@blamejs/core");
 })();
 ```
 
-**Requirements:** Node.js 24.14+ (current active LTS, fixes CVE-2026-21713 non-constant-time HMAC compare).
+**Requirements:** Node.js 24.14+ (current active LTS, fixes CVE-2026-21713 non-constant-time HMAC compare). Node 26 satisfies the floor and the framework test suite runs cleanly on it today; the floor itself will bump to `>=26.x` when Node 26 promotes to Active LTS. Two Node 26 platform changes operators integrating with blamejs should know about: the new `localStorage` global (the framework's storage backend was renamed from `b.backup.localStorage` to `b.backup.diskStorage` in v0.11.2 to avoid the ambiguity; the legacy name still works with a deprecation warning), and the seed-only ML-KEM / ML-DSA PKCS8 export shape (sealed material from Node 24 re-imports cleanly on Node 26; new material from Node 26 in the seed-only shape). See [SECURITY.md](SECURITY.md#node-26-compatibility) for the details.
 
 ## What ships in the box
 
