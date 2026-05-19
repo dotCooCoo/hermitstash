@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.10.11",
-  "createdAt": "2026-05-18T03:59:42.520Z",
+  "frameworkVersion": "0.10.15",
+  "createdAt": "2026-05-19T01:18:55.442Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -5756,6 +5756,112 @@
           "arity": 1
         },
         "tableName": {
+          "type": "function",
+          "arity": 1
+        }
+      }
+    },
+    "cms": {
+      "type": "object",
+      "members": {
+        "CmsCodecError": {
+          "type": "function",
+          "arity": 4
+        },
+        "DEFAULT_MAX_LEN": {
+          "type": "primitive",
+          "valueType": "number"
+        },
+        "MAX_DEPTH": {
+          "type": "primitive",
+          "valueType": "number"
+        },
+        "OID": {
+          "type": "object",
+          "members": {
+            "authEnvelopedData": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "chacha20Poly1305": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "contentType": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "data": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "envelopedData": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "kemri": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "messageDigest": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "mldsa44": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "mldsa65": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "mldsa87": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "mlkem1024": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "mlkem768": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "sha3_256": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "sha3_512": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "shake256": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "signedData": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "signingTime": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "slhDsaShake256f": {
+              "type": "primitive",
+              "valueType": "string"
+            }
+          }
+        },
+        "decode": {
+          "type": "function",
+          "arity": 2
+        },
+        "encodeEnvelopedData": {
+          "type": "function",
+          "arity": 1
+        },
+        "encodeSignedData": {
           "type": "function",
           "arity": 1
         }
@@ -35124,6 +35230,10 @@
               "type": "function",
               "arity": 4
             },
+            "TlsRptParseError": {
+              "type": "function",
+              "arity": 4
+            },
             "autoConfigXml": {
               "type": "function",
               "arity": 1
@@ -35139,6 +35249,18 @@
             "mtaStsPublish": {
               "type": "function",
               "arity": 1
+            },
+            "parseTlsRptReport": {
+              "type": "function",
+              "arity": 2
+            },
+            "tlsRptIngestHttp": {
+              "type": "function",
+              "arity": 1
+            },
+            "tlsRptReportSchema": {
+              "type": "function",
+              "arity": 0
             }
           }
         },
@@ -44326,6 +44448,19 @@
         "saveRaw": {
           "type": "function",
           "arity": 3
+        }
+      }
+    },
+    "streamThrottle": {
+      "type": "object",
+      "members": {
+        "StreamThrottleError": {
+          "type": "function",
+          "arity": 4
+        },
+        "create": {
+          "type": "function",
+          "arity": 1
         }
       }
     },
