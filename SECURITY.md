@@ -64,6 +64,17 @@ Every release tag and every commit on `main` is signed. GitHub enforces this at 
 
 The README has a "Release provenance" section with the local `git tag --verify` recipe for operators who prefer not to rely on GitHub's view.
 
+### Release-artifact signing keys
+
+| Purpose | Algorithm | Key location | Fingerprint |
+|---|---|---|---|
+| Commit + tag signing | Ed25519 (SSH) | `gh api users/dotCooCoo/ssh_signing_keys` | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPiE/PETpyiVPd8aMygJ+S9CsSVolp4HQZaAuiYVwbBa` |
+| Release-artifact signing | ML-DSA-65 (FIPS 204) | [`keys/release-pqc-pub.json`](keys/release-pqc-pub.json) | `SHA3-512: eae07de66cd6432dae2716b9927ab920b1e7fe2bf2db897534711f5c1d8935275fbeb75efa57103f42a289f3b179d63885e6a0089e04808e04d27e3f6f278caf` |
+
+The ML-DSA-65 release-artifact key signs the saved-image tarball bytes for every release. The `.mldsa.sig` sidecar attached to each GitHub Release verifies against the public key committed at `keys/release-pqc-pub.json`; the public-key file itself is committed-signed via the maintainer's SSH key, so the trust chain reduces to the SSH fingerprint above. Operators with strict PQC-only verification posture verify the sidecar against the in-tree public key without touching Sigstore or the GitHub API.
+
+Key rotation: re-running `scripts/generate-release-signing-key.js` produces a new keypair. Previously-signed releases remain verifiable against the older public-key file (`git log keys/release-pqc-pub.json` walks the history); the fingerprint row above tracks the current key.
+
 ## What I can't offer
 
 To set expectations honestly:
