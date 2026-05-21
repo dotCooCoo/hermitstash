@@ -38,7 +38,7 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify tag SHA is on main's first-parent + merged via PR
+    name: Verify tag SHA on main + SSH-signed tag
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -47,6 +47,16 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+
+      - name: Ensure origin/main is up to date
+        # actions/checkout@v6 on a tag-push event checks out the tag
+        # commit and may leave `origin/main` either unset or pointing at
+        # whatever state the runner cached before the tag-push fetch.
+        # `git rev-list --first-parent origin/main` then walks a stale
+        # ref and the next step's grep returns no match. Force-fetch
+        # origin/main into the remote-tracking ref so the walk hits the
+        # actual current branch head.
+        run: git fetch --no-tags origin main:refs/remotes/origin/main
 
       - name: Resolve tag + verify chain
         env:
