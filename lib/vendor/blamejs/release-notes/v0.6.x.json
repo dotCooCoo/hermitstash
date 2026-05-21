@@ -1,0 +1,1947 @@
+{
+  "$schema": "../scripts/release-notes-consolidated-schema.json",
+  "minor": "0.6",
+  "releases": [
+    {
+      "version": "0.6.70",
+      "date": "2026-05-03",
+      "headline": "`numeric-bounds` extended to three more call sites the prior sweep missed",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`lib/middleware/csp-nonce.js` `nonceBytes`",
+              "body": "Pre-fix the `typeof === \"number\"` check accepted `Infinity` and `NaN` (both bypass `< MIN_NONCE_BYTES` because every comparison with `NaN` or `Infinity` is false), then crashed per-request inside `crypto.generateBytes(Infinity)` with `ERR_OUT_OF_RANGE`. The DoS-shape: an operator typo at boot took down every CSP-protected route at request time. Now rejects at `create()` with `csp-nonce/bad-nonce-bytes`."
+            },
+            {
+              "title": "`lib/migrations.js` and `lib/external-db-migrate.js` `staleAfterMs`",
+              "body": "Both used the `> 0` guard which silently accepted `Infinity`. `(Date.now() - lockedAt) > Infinity` is always false, so `staleAfterMs: Infinity` was identical to the `0` default (never replace) but obscured the typo. Operators wanting `never expire` now pass `0` explicitly; everything else (`Infinity` / `NaN` / fractional / negative / non-number) rejects with a clear message."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.69",
+      "date": "2026-05-03",
+      "headline": "`lib/numeric-bounds.js` applied across every numeric-opt site that previously accepted `Infinity` / `NaN`",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Shared numeric-bounds validator applied across consumers",
+              "body": "The recurring pattern `typeof opts.X === \"number\" && opts.X > 0` was vulnerable everywhere it shipped: `Infinity > Infinity` is false, `byteLength > NaN` is false, `Number.isFinite()` was missing. Operators with env-var coercions (`Number(process.env.MAX_X || \"\")` produces `NaN` for missing values, `Infinity` for typo'd ones) silently lost their cap. New `lib/numeric-bounds.js` exposes `isPositiveFiniteInt(value)` and `shape(value)` (the latter formats `\"number Infinity\"` / `\"number NaN\"` / `\"string \\\"100\\\"\"` so the actual coercion is visible — `JSON.stringify` collapses Infinity/NaN to `\"null\"` and hides the typo)."
+            },
+            {
+              "title": "Sites swept",
+              "body": "`lib/safe-buffer.js` (`boundedChunkCollector`, `toBuffer`, `normalizeText`), `lib/atomic-file.js` (refactored from the previous release's inline check), `lib/csv.js` (parse `maxBytes` was operator-overridable to `Infinity` -> multi-megabyte CSV bodies through unbounded), `lib/safe-url.js` (`maxUrlLength` opt was the v0.6.62 escape hatch — now also bounded), `lib/mail-bounce.js` (`maxBytes` for inbound webhook body — DoS-shape on bounce intake)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.68",
+      "date": "2026-05-03",
+      "headline": "`b.atomicFile.read` / `readSync` enforce strict `maxBytes` validation",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Reject `Infinity` / `NaN` `maxBytes` before the size check",
+              "body": "The previous size check was `if (stat.size > opts.maxBytes)`, which silently accepted `Infinity` (`stat.size > Infinity` is always false -> reads any file regardless of size, defeating the OOM cap). Operators with `Number(env.MAX_READ_BYTES || \"\")` coercion bugs got `NaN` on missing values and unbounded reads on Infinity-typo'd values. New `_validateMaxBytes` runs before the size check and rejects `Infinity` / `NaN` / non-integer / negative / zero / non-number with `atomic-file/bad-opt`. Real-world consumers (`vault.initPlaintext`, `audit-sign`, `db.loadOrCreateDbKey`, etc.) all pass real positive integers via `C.BYTES.*` helpers and are unaffected."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.67",
+      "date": "2026-05-03",
+      "headline": "Canonical-JSON walker extracted to `lib/canonical-json.js` and applied across audit / drift / pagination",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Unified canonical-JSON serializer",
+              "body": "`audit-tools._canonicalize` (used for backup-bundle JSONL serialisation, requires byte-equivalence with audit-chain) and `config-drift._stableStringify` (used to hash framework config for post-boot tamper detection) carried the same silent-data-loss walk as the audit-chain bug just fixed. New `lib/canonical-json.js` exposes `stringify(value, opts?)` with `opts.bufferAs = \"hex\" | \"reject\"` (default `hex` for crypto / config / audit, `reject` for pagination's strict-cursor policy). All four call sites — audit-chain, audit-tools, config-drift, pagination — now route through it; the four near-identical inline walkers collapse to one. Existing audit rows and pre-existing backup bundles round-trip correctly because byte output for plain types is unchanged."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.66",
+      "date": "2026-05-03",
+      "headline": "`b.auditChain.canonicalize` deep-walks values and rejects non-plain types",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Canonical-JSON walker hardened",
+              "body": "The pre-fix walker did `Object.keys(row).map(...)` and `JSON.stringify`'d whatever fell through, which silently encoded `Map` / `Set` / `RegExp` as `{}`, `Symbol` / function as missing keys, `BigInt` as a thrown `Do not know how to serialize` mid-emit (DoS-shape on any operator routing bigint IDs into audit metadata), and circular references as the unwrapped `JSON.stringify` error message. The post-fix walker maps `BigInt -> decimal string`, `Date -> ISO string`, rejects `Map` / `Set` / `RegExp` / `Symbol` / function with a clear constructor-name message, and detects circular references via `WeakSet`. Recursive so nested structures like `{ a: [BigInt(1), BigInt(2)] }` and `{ a: { b: Uint8Array(...) } }` all serialise correctly. Stored-row compatibility is preserved because existing audit rows verify identically — their stored `metadata` columns are already JSON strings."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.65",
+      "date": "2026-05-03",
+      "headline": "`b.scheduler.parseCron` rejects step values exceeding the field's range",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Out-of-range cron step rejected",
+              "body": "Previously `*/99999 * * * *` was silently accepted and degenerated to `minute 0 of every hour` (because the for-loop adding values stopped at the first iteration when `step > range`); an operator typing the typo got a once-per-hour schedule when they probably meant once per N minutes. `_parseCronField` now rejects with `scheduler/invalid-cron` when `step > (range.max - range.min + 1)`. The bound is inclusive so `*/60 * * * *` (= minute 0 of every hour written with a redundant explicit step) still accepts."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.64",
+      "date": "2026-05-03",
+      "headline": "`b.credentialHash.verify` enforces the same 16-byte minimum payload as `hash`",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Symmetric minimum-length on verify",
+              "body": "Previously `hash()` refused to create a hash shorter than 16 bytes but `verify()` silently accepted any payload length, including 1-byte payloads where the collision space is 256 — a hand-crafted envelope `{ magic, algoId, SHAKE256(targetPassword, 1)[0] }` would verify against the target password in microseconds. A storage bug or attacker tampering that truncated the stored envelope produced a verifiable but catastrophically weak hash; an attacker with DB write access who couldn't replace the hash outright could truncate it to a nearly-cleartext-equivalent value. Both ends now refuse short payloads symmetrically via the new `SHAKE256_MIN_LENGTH = 16` constant; verify returns false (with `payload-too-short` observability label) when the envelope's payload is under 16 bytes."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.63",
+      "date": "2026-05-03",
+      "headline": "`b.parsers.toml.parse` enforces `maxDepth` on dotted-key paths",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Dotted-key path depth cap",
+              "body": "Previously the parser walked arbitrarily deep table headers (`[a.b.c.d.e...]`) without applying the existing `maxDepth` (which only ran inside `_parseValue` for inline tables and arrays); a 10,000-segment path built a tree deep enough to stack-overflow the recursive `_normalize` walker after parse. An attacker submitting a malicious TOML config to `b.config` would crash the framework at boot or whenever the file was reloaded. `_parseDottedKey` now rejects a path with more than `maxDepth` segments via the same `toml/too-deep` error code already used for value-side depth."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.62",
+      "date": "2026-05-03",
+      "headline": "URL-length DoS-shape gap closed in `safeSchema().url()` and `safeUrl.parse`",
+      "summary": "Both surfaces previously accepted arbitrarily long URL strings before validation; an 8 KB cap referencing RFC 7230 §3.1.1 now applies before downstream processing.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`b.safeSchema.string().url()` length cap",
+              "body": "Was regex-only with no length cap, accepting arbitrarily long matching strings — same DoS class as the previous release's `.email()` gap. An operator chaining `.url()` on a request body would feed multi-megabyte URLs into downstream HTTP clients, SSRF gates, and log lines. Now rejects with `string/url-too-long` at 8193+ characters."
+            },
+            {
+              "title": "`b.safeUrl.parse` length cap",
+              "body": "Same gap at the framework's primary URL-validation surface (used by httpClient, ssrfGuard, and every operator-supplied URL). The 8 KB cap now applies BEFORE handing the string to Node's `new URL()` parser, so operator-supplied URLs feeding `b.httpClient.request({ url })` from request bodies and webhook configs are bounded. Operators with legitimate non-standard use override via `opts.maxUrlLength`."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 7230 §3.1.1 — HTTP/1.1 Message Syntax",
+          "url": "https://www.rfc-editor.org/rfc/rfc7230.html"
+        }
+      ]
+    },
+    {
+      "version": "0.6.61",
+      "date": "2026-05-03",
+      "headline": "`b.safeSchema.string().email()` enforces RFC 5321 §4.5.3.1.3's 254-character cap",
+      "summary": "The previous regex-only validator accepted arbitrarily long matching strings — a 50 KB \"email\" passed validation and flowed into downstream DB writes / log lines unbounded. The 254-character cap now refuses oversized addresses before the regex runs.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Email length cap closes a DoS-shape gap in operator request validation",
+              "body": "Pre-fix the validator was the regex-only `/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/`, which accepts arbitrarily long matching strings — an operator chaining `.email()` on a request body was open to a DoS shape (50 KB email passes validation, downstream DB writes / log lines unbounded). The validator now rejects with `string/email-too-long` at 255+ chars before the regex even runs, with a message naming the RFC. Operators with a legitimate non-RFC reason for longer addresses skip `.email()` and chain `.regex(custom)` directly."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 5321 §4.5.3.1.3 — Path length limits",
+          "url": "https://www.rfc-editor.org/rfc/rfc5321#section-4.5.3.1.3"
+        }
+      ]
+    },
+    {
+      "version": "0.6.60",
+      "date": "2026-05-03",
+      "headline": "`b.pagination.encodeCursor` rejects non-plain types instead of silently losing data",
+      "summary": "The cursor `_canonicalize` walker silently encoded `Date` as `{}`, `Buffer`/`Uint8Array` as `{\"0\":97,…}`, and stack-overflowed on circular references. After encode → decode the operator's data was either gone or unrecognisable. The walker now preserves `Date` as ISO string and refuses the other classes with a clear `pagination/bad-state` error.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Date round-trips as ISO string; Buffer / Map / Set / RegExp / circular reject cleanly",
+              "body": "Pre-fix the `_canonicalize` walker did `if (typeof === \"object\") Object.keys(...)`, which silently lost data on three classes of input: `Date` silently encoded as `{}` (Date instances have no own enumerable keys); `Buffer` / `Uint8Array` silently encoded as `{\"0\":97,\"1\":98,…}` (indexed-key serialisation); circular references stack-overflowed instead of throwing a clean error. After encode → decode the operator's data was either gone or unrecognisable. The fix: `Date` now serialises to its ISO string (matches stdlib `JSON.stringify` semantics — round-trips through encode/decode as the ISO string operators expect); `Buffer` / `Uint8Array` / `Map` / `Set` / `RegExp` throw `pagination/bad-state` with a message naming the offending constructor and pointing operators at the right conversion (`\"convert to a plain primitive (string / number / iso-string) first\"`); circular references throw `pagination/bad-state` cleanly via WeakSet cycle detection."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.59",
+      "date": "2026-05-03",
+      "headline": "HTTP/2 session teardown extracted to `lib/http2-teardown.js` + applied across http-client",
+      "summary": "The v0.6.58 inline `session.close()` + `session.destroy()` block was the right fix for the OTLP-gRPC sink hang, but the same bug class lived in `lib/http-client.js`'s h2 transport pool. A new shared helper consolidates the teardown routine across both consumers.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`lib/http2-teardown.js` consolidates the close()-then-destroy() routine",
+              "body": "The h2 transport pool in `lib/http-client.js` had five call sites running the bare `session.close()` (`_resetTransports`, the ALPN-fallback path, the h2 connect-error path, the h2c connect-error path, the idle-timeout handler, `_resetForTest`) all of which leak the underlying TCP socket on idle / error / fallback paths in exactly the same way as the v0.6.58 OTLP-gRPC sink. New `lib/http2-teardown.js` exports `tearDownH2Session(session)` which performs the close()-then-destroy() routine; `lib/http-client.js` and `lib/log-stream-otlp-grpc.js` both import it. The v0.6.58 inline block in the OTLP-gRPC sink is removed in favour of the shared helper."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.58",
+      "date": "2026-05-03",
+      "headline": "`b.logStream` OTLP-gRPC sink no longer leaks its TCP socket on close",
+      "summary": "The sink's `close()` was calling HTTP/2 `session.close()` (graceful) but never `session.destroy()`, leaving the underlying TCP socket connected — which blocked `server.close()` indefinitely on Linux CI runners and silently broke the npm-publish gate from v0.6.38 through v0.6.57.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "OTLP-gRPC sink `close()` follows graceful close with `session.destroy()`",
+              "body": "Pre-fix the sink's `close()` was calling `session.close()` (HTTP/2 graceful close — waits for in-flight streams before freeing the socket) but never `session.destroy()`. The graceful close completed but the underlying TCP socket stayed connected, blocking the test fixture's `server.close()` indefinitely on Linux CI runners. Same bug also added ~120 seconds of lingering latency to every local smoke run on Windows (smoke 196s → 76s after fix). The fix calls `session.close()` then `session.destroy()`; by the time we reach close(), all buffered records have been flushed via the awaited `inflightPromise` + final `_doExport`, so destroy() is structurally safe."
+            },
+            {
+              "title": "Unblocks npm-publish stuck since v0.6.37",
+              "body": "The npm registry had been stuck at v0.6.37 since 2026-05-02; every tag from v0.6.38 through v0.6.57 timed out at the publish workflow's smoke step because of the lingering HTTP/2 socket. With this fix the publish reaches `npm publish`."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.57",
+      "date": "2026-05-03",
+      "headline": "`b.safeBuffer.boundedChunkCollector` enforces positive-finite-integer `maxBytes`",
+      "summary": "The OOM-cap validator previously accepted `Infinity` (defeating its purpose) and fractional floats like `3.5` (confusing downstream arithmetic). It now requires a positive finite integer and throws `buffer/bad-arg` at boot on anything else, catching operator typos and broken env-var coercions.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`maxBytes` validator no longer silently accepts `Infinity` / `NaN` / fractional floats",
+              "body": "Pre-fix the validator was `typeof opts.maxBytes === \"number\" && opts.maxBytes > 0` which silently accepted `Infinity` (defeating the OOM-cap purpose entirely — a hostile 10-GB upstream would accumulate fully) and non-integer floats like `3.5` (which set a fractional cap that confused downstream `total + chunk.length > maxBytes` arithmetic). The validator now requires positive finite integer; everything else throws `buffer/bad-arg` at boot with the offending value in the message. Real-world consumers (`b.httpClient` request cap, `b.atomicFile.read`, `b.parsers.*`, multipart body parser) are unaffected because they pass real positive integers via `C.BYTES.*` helpers; the fix catches operator typos / misconfigured env-var coercions where `Number(env.MAX_BYTES)` produces NaN or Infinity."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.56",
+      "date": "2026-05-03",
+      "headline": "`b.auth.totp.verify` strips whitespace + separators from pasted codes",
+      "summary": "TOTP verification now normalises common paste / authenticator-UI artefacts (whitespace, `-`, `.`, `_`) before the timing-safe comparison, so codes like `\"123 456\"` or `\"123-456\"` from Google Authenticator, Authy, Duo, and 1Password verify instead of being rejected as typos.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "TOTP code normalisation before timing-safe compare",
+              "body": "`b.auth.totp.verify` strips whitespace + common separators (`\\s`, `-`, `.`, `_`) from the user-supplied code before the timing-safe comparison. Authenticator UIs (Google Authenticator, Authy, Duo, 1Password, etc.) and clipboard paste typically introduce these — `\"123 456\"`, `\"123-456\"`, `\"123.456\"`, `\"  123456\\t\"` — and the framework was rejecting all of them as if they were real typos. RFC 6238 / NIST 800-63B don't mandate normalisation, but every consumer-facing TOTP implementation strips these because the alternative is a silent operator footgun. Letters and other non-numeric characters are NOT stripped — those are real input errors, not paste artefacts. Comparison stays timing-safe via the framework's `crypto.timingSafeEqual` wrapper."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 6238 — TOTP",
+          "url": "https://www.rfc-editor.org/rfc/rfc6238"
+        },
+        {
+          "label": "NIST SP 800-63B",
+          "url": "https://pages.nist.gov/800-63-3/sp800-63b.html"
+        }
+      ]
+    },
+    {
+      "version": "0.6.55",
+      "date": "2026-05-03",
+      "headline": "SMTP SNI suppression on IP literals + shellcheck fix unblocks publish",
+      "summary": "Two bug fixes: the `b.mail` SMTP transport no longer sets a TLS ServerName when the host is an IP literal (Node refuses), and the MongoDB TLS init shell script's broken short-circuit is rewritten to a real `if` so shellcheck stops blocking the npm-publish gate.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`b.mail` SMTP TLS handshake refuses IP literals as SNI",
+              "body": "The TLS handshake (implicit on port 465 + STARTTLS upgrade) was unconditionally setting `servername: cfg.host`, which Node's `tls.connect` rejects when host is an IP literal with `Setting the TLS ServerName to an IP address is not permitted`. Operators with `host: \"127.0.0.1\"` (or any IPv4/IPv6 literal) hit the error before a real cert-verification or auth issue could surface. SNI is now auto-suppressed on IP literals (matching `lib/redis-client.js`'s v0.6.28 convention); operators with private CAs and an IP-only target pass `opts.servername: \"expected-cn.example\"` explicitly."
+            },
+            {
+              "title": "`docker/mongo/init-tls.sh` rewritten as `if … then … fi`",
+              "body": "SC2015 — `id mongodb >/dev/null && chown mongodb:mongodb ... || true` is not if-then-else; the `|| true` would fire if `chown` failed (treating it as if `id` had failed), masking real failures. The script is rewritten as a plain `if id mongodb …; then chown …; fi`. The shellcheck failure was blocking the v0.6.54 npm-publish gate."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.54",
+      "date": "2026-05-03",
+      "headline": "`npm-publish` workflow cap raised + shellcheck gate on tracked shell scripts",
+      "summary": "Releases from v0.6.38 through v0.6.53 stalled at the npm registry because the publish workflow timed out at 15 minutes before reaching `npm publish`. The cap is now 30 minutes (matching `release-container.yml`), and every tracked `.sh` file now runs through `ludeeus/action-shellcheck` so shell-script regressions fail the publish gate before the tarball ships.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`npm-publish` workflow timeout raised from 15 to 30 minutes",
+              "body": "Smoke alone runs ~3 minutes locally and 6-8 minutes on CI; combined with eslint cold-pull, wiki e2e, and SBOM generation the full pipeline exceeded the previous 15-minute cap and got cancelled before reaching `npm publish`. The cap now matches `release-container.yml` at 30 minutes so tagged releases actually publish."
+            },
+            {
+              "title": "Shellcheck enforced on every tracked `.sh` file in the publish gate",
+              "body": "`vendor-update.sh` and the docker init scripts ship in the npm tarball, so a shell-script regression must fail the publish workflow. The gate runs `ludeeus/action-shellcheck@master` against every tracked `.sh` file. Hadolint stays in `release-container.yml` only because the Dockerfile is container-only and is not part of the npm artifact."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.53",
+      "date": "2026-05-03",
+      "headline": "Audit + observability emissions across `b.objectStore.bucketOps` SigV4 state-changing surface",
+      "summary": "Object Lock, retention, and legal-hold landed in v0.6.47 positioned as SEC 17a-4 / FINRA / HIPAA-grade primitives but shipped without an audit trail — an auditor asking \"who set the retention on this object, and when?\" got nothing. Every state-changing call on the SigV4 backend now emits an audit event and an observability counter, with `bypassGovernance: true` surfaced as alertable metadata.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`audit` + `observability` opts on `bucketOps.create`",
+              "body": "`bucketOps.create({ audit, observability, auditSuccess, auditFailures })` wires the operator's `b.audit` and `b.observability` instances into every state-changing call. `auditSuccess` and `auditFailures` default to true; operators at extreme volume opt out of success-path auditing while keeping failure auditing on."
+            },
+            {
+              "title": "Audit events for every state-changing object-store op",
+              "body": "Emissions cover `objectstore.bucket.create`, `objectstore.bucket.delete`, `objectstore.bucket.setLifecycle`, `objectstore.bucket.setCorsRules`, `objectstore.bucket.setObjectLockConfiguration`, `objectstore.object.setRetention`, and `objectstore.object.setLegalHold`. Each accepts `{ req }` so the audit chain populates `actorIp`, `actorUserAgent`, `actorSessionId`, `requestId`, `method`, and `route` via `requestHelpers.resolveActorWithOverride`."
+            },
+            {
+              "title": "Observability counters on reads + writes",
+              "body": "Every op increments an observability counter, including read paths (`getObjectLockConfiguration`, `getRetention`, `getLegalHold`). Operators get visibility into retention-introspection traffic alongside the state-changing surface."
+            },
+            {
+              "title": "`objectstore` namespace registered in `audit.FRAMEWORK_NAMESPACES`",
+              "body": "The new event family registers as a first-class framework namespace so operator-side audit consumers route it like any other built-in primitive."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "`bypassGovernance` flagged in retention audit metadata",
+              "body": "`setObjectRetention` audit metadata sets `bypassGovernance: true` when the operator used the bypass-shorten path. Operators wire alerting on this field to satisfy compliance postures that require human review of every governance-mode override."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.52",
+      "date": "2026-05-03",
+      "headline": "`b.mtlsCa` serial-number normaliser rejects gibberish instead of silently mangling it",
+      "summary": "Before this release `_normalizeSerial(\"xyz-not-hex\")` ran `.replace(/[^0-9a-fA-F]/g, \"\")` which kept just the single `e` and silently registered a phantom `revoke(\"e\")` row. A typo from `openssl x509 -noout -serial` — or any non-serial paste — would have landed in the next CRL the operator published. The normaliser now strips only documented operator-paste shapes (leading `0x`, `:` / `-` / whitespace separators) and asserts the remainder is all-hex; anything else throws `mtls-ca/bad-serial`.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Serial-number normaliser refuses non-hex input",
+              "body": "Real shapes still accepted (`\"0xABC123\"`, `\"AB:C1:23\"`, `\"AB-C1-23\"`, `\"abc 123\"`, `\"abc123\"` all normalise to `abc123`). Gibberish input (`\"xyz-not-hex\"`, `\"   \"`, `\"nope\"`) throws `mtls-ca/bad-serial` at the call site so the typo never reaches the revocation registry or a published CRL."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Three live-CA integration assertions on top of the existing 41",
+              "body": "`test/integration/mtls-ca.test.js` now covers the bad-input refusal paths end-to-end against the real CA engine (44 checks total)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.51",
+      "date": "2026-05-03",
+      "headline": "`b.objectStore.bucketOps` Object Lock readers return clean defaults instead of raw 4xx errors",
+      "summary": "Live MinIO probing surfaced a UX regression: `getObjectLockConfiguration` on a bucket created without `objectLockEnabled` threw HTTP 404 `ObjectLockConfigurationNotFoundError`, forcing a try/catch on the operationally-trivial \"is this bucket lock-enabled?\" question. `getObjectRetention` and `getObjectLegalHold` had the same shape. All three now return semantically-correct defaults for never-configured state while real errors still throw.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Object Lock readers return defaults for never-configured state",
+              "body": "A new `_isLockNotConfigured` helper recognises both the AWS and MinIO error shapes. `getObjectLockConfiguration` now returns `{ enabled: false, mode: null, days: null, years: null }`, `getObjectRetention` returns `{ mode: null, retainUntil: null }`, and `getObjectLegalHold` returns `{ status: \"OFF\" }` (operationally identical to \"no hold ever applied\"). Auth failures, network errors, and bucket-not-found still throw as before."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Layer-0 + live MinIO coverage for the not-configured paths",
+              "body": "7 new mock-server assertions cover the not-configured branches; 8 new live MinIO assertions in `_runObjectLockOnEndpoint` and a new no-lock-bucket variant in `_runOnEndpoint` exercise the round-trip end-to-end (object-store-sigv4 39 to 47 checks)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.50",
+      "date": "2026-05-03",
+      "headline": "SigV4 multipart subresource consistency + live coverage",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`?uploads` bare on the wire",
+              "body": "`lib/object-store/sigv4.js` was the only remaining `URLSearchParams.set(k, \"\")` empty-value site — `initiateUrl.searchParams.set(\"uploads\", \"\")` produced `?uploads=` for InitiateMultipartUpload. AWS S3 and MinIO both accept `?uploads=` today, so this wasn't broken in the real world, but the convention drift would mask future regressions and a stricter S3 implementation could route differently. `?uploads` is now bare on the wire, matching the prior subresource fix; SigV4 canonicalization is unchanged (still presents `uploads=` to the signer per AWS spec)."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Live multipart-upload integration",
+              "body": "`test/integration/object-store-sigv4.test.js` `_runOnEndpoint` gains a multipart-upload + get round-trip pass (forces multipart with `multipartThresholdBytes: 1`, `partSizeBytes: 5 MiB`, payload 6 MiB -> 2-part flow). The live MinIO assertion locks in `?uploads`, `?partNumber=N&uploadId=...`, and `?uploadId=...` (CompleteMultipartUpload) wire flow."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.49",
+      "date": "2026-05-03",
+      "headline": "SigV4 subresource-query wire form (no trailing `=`)",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Bare `?subresource` for empty-value query keys",
+              "body": "The previous Object Lock implementation built URLs via `URLSearchParams.set(\"retention\", \"\")`, producing `?retention=` on the wire. Strict S3 implementations (MinIO in particular) interpret the trailing `=` as a body PUT with a query parameter and route the request to the put-object handler, which then rejects with `InvalidRequest: Object is WORM protected and cannot be overwritten`. `_bucketUrl` and `_objectUrl` now build the URL string manually with `?subresource` (no `=`) for empty-value query keys; `URL` preserves the bare token in `url.search` while `url.searchParams` still presents it as `subresource=` to the SigV4 canonicalizer (AWS spec REQUIRES `key=` in the canonical query string for signature computation)."
+            },
+            {
+              "title": "Live integration coverage for Object Lock",
+              "body": "`test/integration/object-store-sigv4.test.js` gains a third endpoint variant (`_runObjectLockOnEndpoint`) that creates a bucket with `objectLockEnabled: true` against live MinIO and exercises per-object retention set + get, per-object legal hold ON/OFF round-trip, bucket-level `setObjectLockConfiguration` + `getObjectLockConfiguration` round-trip, `bypassGovernance` retention shortening, and cleanup."
+            }
+          ]
+        },
+        {
+          "heading": "Detectors",
+          "items": [
+            {
+              "title": "Subresource bare-token wire-form regression check",
+              "body": "`test/layer-0-primitives/sigv4-bucket-ops.test.js` gains three wire-form assertions on `?retention`, `?legal-hold`, and `?object-lock` (`bare subresource, no '=' suffix`) to catch this class of regression before it reaches operators."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.48",
+      "date": "2026-05-03",
+      "headline": "Doc catch-up for the v0.6.47 Object Lock surface",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "README + SECURITY weave-ins for Object Lock",
+              "body": "The README `What ships in the box` object-store bullet now mentions S3 Object Lock + per-object retention + legal hold for write-once-read-many compliance workloads. SECURITY application checklist gains a sibling line to `b.retention` covering the operator's hardening checklist for WORM archives (SEC 17a-4, FINRA, HIPAA-shaped retention) — `objectLockEnabled: true` at create time only, `COMPLIANCE` mode irrevocable by anyone (including root), `bypassGovernance` requires `s3:BypassGovernanceRetention`. No code changes."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.47",
+      "date": "2026-05-03",
+      "headline": "S3 Object Lock, retention, and legal-hold for `b.objectStore.bucketOps`",
+      "summary": "Adds the write-once-read-many compliance surface (SEC 17a-4, FINRA, HIPAA retention) to the SigV4 protocol; Azure and GCS handle WORM out-of-band.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Object Lock + retention + legal-hold",
+              "body": "`create(name, { objectLockEnabled: true })` flips the underlying versioning and WORM at create time (the only point S3 allows it). `setObjectLockConfiguration(name, { mode, days|years })` / `getObjectLockConfiguration(name)` apply and read bucket-level default retention. `setObjectRetention(name, key, { mode, retainUntil, bypassGovernance? })` / `getObjectRetention(name, key)` apply and read per-object retention dates. `setObjectLegalHold(name, key, \"ON\"|\"OFF\")` / `getObjectLegalHold(name, key)` apply and read per-object legal holds."
+            },
+            {
+              "title": "Up-front validation",
+              "body": "Bad inputs are rejected at the call site before any request is signed: unknown mode, `days` + `years` together, fractional or negative durations, non-Date or past-dated `retainUntil`, statuses outside `ON` / `OFF` — all throw `INVALID_OBJECT_LOCK` / `INVALID_RETENTION` / `INVALID_LEGAL_HOLD` (or `INVALID_KEY`) before TCP. `bypassGovernance: true` adds the `x-amz-bypass-governance-retention: true` header for accounts with the `s3:BypassGovernanceRetention` permission; `COMPLIANCE` mode cannot be shortened or bypassed by anyone, including root."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.46",
+      "date": "2026-05-02",
+      "headline": "`b.i18n.messageFormat` ICU MessageFormat parser + evaluator",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "ICU MessageFormat support",
+              "body": "`lib/i18n-messageformat.js` ships a minimal-but-correct ICU MessageFormat parser and evaluator (~330 LOC, zero npm dep). Supports `{argName}` replacement; `{argName, plural, =N {...} category {...} other {...}}` with optional `offset:N` and `#` placeholder for the plural arg minus offset; `{argName, selectordinal, ...}` (CLDR ordinal categories via `Intl.PluralRules({ type: \"ordinal\" })`); `{argName, select, caseA {...} other {...}}`; nested arguments inside any case body; and ICU-spec apostrophe escaping. CLDR cardinal + ordinal categories via `Intl.PluralRules` per locale (cached). Inline `number` / `date` / `time` formatters, choice-format, and custom argument types are out of scope — operators use `formatNumber` / `formatDate` from `b.i18n` separately and inline the result."
+            },
+            {
+              "title": "Auto-detect via `b.i18n.t`",
+              "body": "`b.i18n.t(key, vars, opts)` auto-detects MessageFormat-shaped entries via `messageFormat.looksLikeMessageFormat(template)` (matches `{name, plural / select / selectordinal, ...}`); operators force the path with `opts.messageFormat = true`. Plain `{var}` interpolation and existing CLDR plural-shaped JSON entries continue to work unchanged on the legacy interpolator."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.45",
+      "date": "2026-05-02",
+      "headline": "`b.mtlsCa` revocation registry + signed CRL generation",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`ca.revoke(serialNumber, opts?)`",
+              "body": "Records a revocation in `dataDir/revocations.json` with serial / reason / `revokedAt` timestamp. Serials are normalized (strips `0x`, removes non-hex chars, lowercases) so operators can paste any of `\"0xABC123\"` / `\"AB:C1:23\"` / `\"abc123\"` and hit the same row. Reason names map to RFC 5280 numeric codes (full set: `unspecified / keyCompromise / caCompromise / affiliationChanged / superseded / cessationOfOperation / certificateHold / removeFromCRL / privilegeWithdrawn / aACompromise`). Idempotent — repeated revoke of the same serial preserves the original `revokedAt`."
+            },
+            {
+              "title": "`ca.isRevoked` / `ca.getRevocations`",
+              "body": "Registry queries, also serial-format-agnostic so callers can pass whichever shape their upstream emits."
+            },
+            {
+              "title": "`ca.generateCrl(opts?)`",
+              "body": "Builds an RFC 5280 X.509 CRL signed with the CA private key via `engine.generateCrl({ caCertPem, caKeyPem, revocations, thisUpdate, nextUpdate })`. Default `nextUpdate` is 7 days after `thisUpdate`; operators publishing at a different cadence pass explicit dates. CRL persists to `dataDir/ca.crl` by default; `{ persist: false }` returns the bytes without writing. Operators serve `ca.crl` at the CRL distribution point referenced from issued certs."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 5280 — X.509 Public Key Infrastructure",
+          "url": "https://www.rfc-editor.org/rfc/rfc5280.html"
+        }
+      ]
+    },
+    {
+      "version": "0.6.44",
+      "date": "2026-05-02",
+      "headline": "`b.bundler` engine surface for ESM module-graph bundling",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Pluggable engine layer",
+              "body": "`b.bundler.create({ engine })` accepts any object implementing `{ name, transform(entryPath, contentBuf) -> { content, sourceMap?, imports? } }` between the file read and the cache-bust hash. `b.bundler.engine.passthrough` is the default and preserves the prior byte-verbatim behavior — no breaking change."
+            },
+            {
+              "title": "`b.bundler.engine.fromEsbuild(esbuild, opts?)`",
+              "body": "Wraps an operator-supplied esbuild module into the engine contract. Routes through `esbuild.build({ entryPoints, write: false, ...opts })`, picks the JS output and `.map` sibling out of `outputFiles`, returns `{ content, sourceMap }` for the framework to hash and write atomically. Source maps land as `<hashed-filename>.map` siblings; the bundler's `outputs[i].sourceMapPath` reports the on-disk path. The framework does not vendor `esbuild-wasm` — at ~10 MB it would 3-5x the npm tarball for a build-time tool most operators only need at deploy time. The integration seam is the framework's; the heavy machinery stays operator-supplied."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.43",
+      "date": "2026-05-02",
+      "headline": "AWS SQS queue backend",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.queue` SQS protocol",
+              "body": "`protocol: \"sqs\"` for operators on AWS who want a fully-managed queue without standing up a Redis cluster. Wire is AWSJsonProtocol_1.0 over HTTPS (Content-Type `application/x-amz-json-1.0`, `X-Amz-Target: AmazonSQS.<Action>`), SigV4-signed via the framework's service-agnostic `lib/object-store/sigv4.js`. Action mapping: `enqueue -> SendMessage`, `lease -> ReceiveMessage` (long-poll up to `WaitTimeSeconds`), `extendLease -> ChangeMessageVisibility`, `complete -> DeleteMessage`, `fail -> ChangeMessageVisibility(VisibilityTimeout=0)`, `size -> GetQueueAttributes`, `purge -> PurgeQueue`. Queue-name -> URL by default `https://sqs.{region}.amazonaws.com/{accountId}/{queueName}`; operators with cross-account / FIFO / VPCE endpoints pass an explicit `queueUrlByName(name) -> url` resolver. STS session tokens propagate as `x-amz-security-token`. Payloads pass through `cryptoField.sealRow(\"_blamejs_jobs\", row)` before SendMessage so SQS only ever sees the sealed envelope."
+            },
+            {
+              "title": "SQS hard-cap clamps",
+              "body": "`DelaySeconds` is clamped to the 900-second SQS hard cap; `MaxNumberOfMessages` is clamped to 10 (SQS's per-call ceiling)."
+            }
+          ]
+        },
+        {
+          "heading": "Removed",
+          "items": [
+            {
+              "title": "`sqs` removed from `DEFERRED_PROTOCOLS`",
+              "body": "The SQS queue backend is first-class and no longer listed as a deferred protocol. DLQ inspection (`dlqList` / `dlqRetry` / `dlqSize`), flow / cron / parent-child dependencies, and `sweepExpired` stay on `local` / `redis` — SQS handles those server-side or via separate-queue DLQs operators wire as a second backend."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.42",
+      "date": "2026-05-02",
+      "headline": "Wiki primitive sections for testing / format-helpers / backup-restore",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`testing` page primitive sections",
+              "body": "`b.testing.mockReq(opts?)` / `.mockRes()`, `b.testing.fakeClock(initialMs?)`, `b.testing.captureAudit()` (corrected surface: `.byAction` / `.captured`), `b.testing.captureObservability()` (corrected surface: `.byName` / `.captured`), `b.testing.fakeHttpClient(handler)`, `b.testing.runMiddleware(fn, req, res)`, `b.testing.waitFor(predicate, opts?)`, `b.testing.tempDir(name?)`."
+            },
+            {
+              "title": "`format-helpers` page primitive sections",
+              "body": "`b.csv.parse(input, opts?)` / `.stringify(rows, opts?)`, `b.uuid.v4 / .v7 / .parse / .isValid`, `b.slug(input, opts?)` / `.unique(input, exists, opts?)`, `b.time.toParts / .format / .addDays / .addMonths / .startOfDay / .endOfDay / .diffDays / .parseISO / .tzOffsetMs`, `b.archive.zip()`, `b.pagination.cursor(query, opts)` (corrected from non-existent `b.pagination.create({...})`), `b.forms.render(spec, opts?)` / `.validate(spec, body)` / `.generateCsrfToken / .verifyCsrfToken`."
+            },
+            {
+              "title": "`backup-restore` page primitive sections",
+              "body": "`b.backup.create(opts)` and `b.restore.create(opts)`. The wiki primitive-runtime gate is up from 147 to 186 clean exec runs."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.41",
+      "date": "2026-05-02",
+      "headline": "Wiki primitive sections for welcome / crypto-vault / network-crypto / safe-parsers",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`welcome` page primitive sections",
+              "body": "`b.createApp(opts)` documented as the operator entry point that wires the dependency-ordered boot."
+            },
+            {
+              "title": "`crypto-vault` page primitive sections",
+              "body": "`b.vault.seal(plaintext) / .unseal(sealed)` and `b.cryptoField.registerTable(name, opts)` (sealedFields + derivedHashes registry the db-query layer reads on every read/write). The API-drift `b.webhook.signer.create({...})` / `b.webhook.verifier.create({...})` examples are removed — actual API is `b.webhook.signer({...})` and `b.webhook.verifier({...})` documented at outbound-http; crypto-vault now cross-links instead of restating."
+            },
+            {
+              "title": "`network-crypto` page primitive sections",
+              "body": "`b.mtlsCa.create(opts)` (lib allow-list reflects `dataDir / vault / paths / caKeySealedMode / generation / engine`), `b.pqcGate.create(opts)` (corrected to `internalPort / internalHost / bypass / clientHelloTimeoutMs / maxClientHelloBytes / log`), `b.pqcAgent.create(opts?)` (with the `b.pqcAgent.agent` and `.enforced` shared-singleton handles documented)."
+            },
+            {
+              "title": "`safe-parsers` page primitive sections",
+              "body": "`b.safeJson.parse(text, opts?)`, `b.safeBuffer.normalizeText(input, opts?)` / `.boundedChunkCollector(opts)` / `.secureZero(buf)` (corrected to `bytesCollected()`), `b.safeSql.validateIdentifier(value, opts?)` (corrected from `b.safeSql.identifier` which doesn't exist), and the `b.safeSchema` builder factories (`object / string / number / boolean / array / literal / union` with refinements). The wiki primitive-runtime gate is up from 130 to 147 clean exec runs."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.40",
+      "date": "2026-05-02",
+      "headline": "Wiki harness upgrade + compound-primitive coverage for routing / middleware / outbound-http",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Harness extension for operator-side identifiers",
+              "body": "`examples/wiki/test/run-example.js` adds stub bindings for `app` (Express-shape stub with the full HTTP-verb surface), `users` (db-model stub), `template`, `metrics`, `currentToken`, `largeBuffer`, `body`, `loginUrl`, `meUrl`, `authMiddleware`, and `loginHandler`. Compound-primitive examples can now round-trip cleanly through the runtime gate."
+            },
+            {
+              "title": "`routing` page primitive sections",
+              "body": "`new b.router.Router(opts?)`, `router.METHOD(path, spec?, ...handlers)`, `router.openapi(opts)`, `b.render.htmlString / .json / .text / .redirect`, `b.htmlBalance.check`, `b.staticServe.create(opts)` (corrected to opts-only with required `root`), `b.errorPage.create(opts)`, `b.requestHelpers.extractActorContext / .parseQualityList / .parseListHeader`."
+            },
+            {
+              "title": "`middleware` page primitive sections",
+              "body": "`b.middleware.rateLimit / .csrfProtect / .cspNonce / .bodyParser / .bodyParser.raw / .sse(handler, opts?) / .requestLog / .networkAllowlist`, `b.cookies.create(opts?)` / `.parse(headerValue)`, `b.validateOpts`. Real API drifts corrected: `rateLimit` uses `refillPerSecond`, `csrfProtect` uses `tokenLookup / fieldName`, `requestLog` uses `logger`, `cookies.create` accepts `vault` for sealing values, `sse(handler, opts?)` takes the handler positionally."
+            },
+            {
+              "title": "`outbound-http` page primitive sections",
+              "body": "`b.httpClient.request(opts)` with subsections for `maxRedirects`, `multipart`, `before / after` interceptors; `b.httpClient.cookieJar.create`; `b.ssrfGuard.checkUrl / .classify`; `b.safeUrl.parse`; `b.webhook.signer / .verifier`. The wiki primitive-runtime gate is up from 87 to 130 clean exec runs."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.39",
+      "date": "2026-05-02",
+      "headline": "Wiki primitive sections for self-contained pure-function helpers",
+      "summary": "The wiki harness exec-runs every example with only `b` in scope; this release converts the self-contained primitives whose examples fit in two or three pure-function lines. Compound primitives that need operator stubs (`app`, `req`, `res`) land in a follow-up patch alongside the harness upgrade.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Primitive sections for pure-function helpers",
+              "body": "`b.requestHelpers.parseQualityList(value, opts?)` (RFC 9110 §12.5 Accept-* parser), `b.requestHelpers.parseListHeader(value, opts?)` (comma-separated parser with trim / lowercase / unique opts), `b.htmlBalance.check(html)` (structural HTML check returning `null` when balanced or `{code, message, line, column}` when not), `b.ssrfGuard.classify(ip)` (offline IP classifier), and `b.safeUrl.parse(input, opts?)` each gain a four-piece primitive section (heading + opts model + description + example). The wiki primitive-runtime gate is up from 75 to 87 clean exec runs."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.38",
+      "date": "2026-05-02",
+      "headline": "OTLP gRPC + protobuf transport for `b.logStream`",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`otlp-grpc` log sink",
+              "body": "First-class `protocol: \"otlp-grpc\"` companion to the existing OTLP/JSON sink: same OTel Logs Data Model, transported over HTTP/2 + gRPC framing for the higher-throughput path operators reach for when pushing past 100K logs per second straight to a collector. Single HTTP/2 session per sink, kept alive across many Export calls; recreated on disconnect. Reads `grpc-status` + `grpc-message` from response trailers; non-zero gRPC status surfaces as `HTTP_ERROR` with the gRPC error code and message preserved. Same back-pressure semantics as the JSON sink."
+            },
+            {
+              "title": "`lib/protobuf-encoder.js`",
+              "body": "Minimal proto3 wire-format encoder (write-only — no decoder ships). Implements varint, 64-bit fixed, length-delimited, and 32-bit fixed wire types with helpers for `uint32` / `uint64` / `bool` / `fixed64` / `double` / `string` / `bytes` / `embeddedMessage` / `repeatedMessage`. Operators reach for it when constructing protobuf bodies for any external service that accepts proto over HTTP — gRPC, AWS SigV4-protobuf, GCP protobuf APIs. Zero vendored protobuf parser; the encoder is the framework's own."
+            },
+            {
+              "title": "`lib/log-stream-otlp-grpc.js`",
+              "body": "Encodes `ExportLogsServiceRequest` per the OTel `logs.proto` schema (Resource -> ScopeLogs -> LogRecord -> AnyValue / KeyValue), wraps in gRPC framing (1-byte compression flag + 4-byte big-endian length + protobuf body), POSTs over `node:http2` to `/opentelemetry.proto.collector.logs.v1.LogsService/Export` with `content-type: application/grpc+proto` plus `te: trailers`. Severity mapping debug=5 / info=9 / warn=13 / error=17."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.37",
+      "date": "2026-05-02",
+      "headline": "Azure + GCS bucket-ops parity for `b.objectStore.bucketOps`",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Protocol-dispatching `bucketOps` factory",
+              "body": "`b.objectStore.bucketOps` now accepts `{ protocol: 'sigv4' | 'azure-blob' | 'gcs', ... }` and returns a service-scoped client for the matching cloud. Previously SigV4 only."
+            },
+            {
+              "title": "Azure Blob bucket-ops",
+              "body": "`lib/object-store/azure-blob-bucket-ops.js` provides container lifecycle via Shared Key auth: `create(name, {publicAccess?})` (PUT `/{container}?restype=container`), `delete(name)` (DELETE), `list({prefix?, maxResults?})` (GET `/?comp=list` with XML response parsed into `[{ name, lastModified, etag, leaseStatus, leaseState, publicAccess }]`), `setCorsRules(rules)` (account-level — Azure CORS is not per-container). `setLifecycle` throws `NOT_SUPPORTED` because Azure lifecycle lives on Azure Resource Manager with Azure AD bearer auth; the error message points at Terraform / Bicep / az CLI."
+            },
+            {
+              "title": "GCS bucket-ops",
+              "body": "`lib/object-store/gcs-bucket-ops.js` provides bucket lifecycle via service-account JWT exchanged for an OAuth2 access token (admin-scoped `devstorage.full_control`): `create(name, {location?, storageClass?, iamConfiguration?})`, `delete(name)`, `list({prefix?, maxResults?, pageToken?})`, `setLifecycle(name, rules)` (PATCH bucket with `lifecycle: { rule: [{ action, condition }] }` — supports `Delete` / `SetStorageClass` / `AbortIncompleteMultipartUpload`), `setCorsRules(name, rules)`."
+            },
+            {
+              "title": "Per-cloud bucket-name validation",
+              "body": "Azure containers (3-63 lowercase alphanumeric + hyphens, no consecutive hyphens, start/end alphanumeric); GCS buckets (3-63 lowercase + digits + hyphens + underscores + dots, no consecutive dots, no `goog` prefix). Bad names rejected at the call site before the request leaves the process. Both modules treat 404 on delete as already-gone and 409 on create as `BUCKET_ALREADY_OWNED`."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.36",
+      "date": "2026-05-02",
+      "headline": "`b.db.from(\"schema.table\")` cross-schema chain",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Two-part `schema.table` identifiers",
+              "body": "`b.db.from(\"audit.events\")` now accepts a two-part identifier. Both halves validated separately as SQL identifiers (rejects three-part names, empty parts, embedded quotes / SQL keywords); both halves wrapped in `\"...\"` when interpolated so generated SQL is `SELECT * FROM \"audit\".\"events\" WHERE ...`. The bare `b.db.from(\"users\")` form still works unchanged. Sealed-field registry lookup tries the qualified name (`audit.users`) first when schema is set, falls back to the bare table. Use cases: cross-schema joins on Postgres external-db, SQLite `ATTACH DATABASE` per-classification audit / archive databases."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.35",
+      "date": "2026-05-02",
+      "headline": "`cluster-provider-db` gains MySQL dialect",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "MySQL dialect for the default leader-election provider",
+              "body": "`b.cluster.create({ provider: clusterProviderDb.create({ dialect: \"mysql\", ... }) })` lets operators on MySQL use the framework's default DB-row leader-election provider; it now speaks all three of postgres / sqlite / mysql. MySQL acquireLease uses `INSERT INTO _blamejs_leader (...) VALUES (...) ON DUPLICATE KEY UPDATE col = IF(expiresAt < ?, VALUES(col), col), ..., expiresAt = IF(expiresAt < ?, VALUES(expiresAt), expiresAt)` so a still-valid lease is preserved untouched and an expired one is overwritten atomically, followed by a `SELECT` to read who holds. Renew uses `UPDATE ... SET expiresAt=?, endpoint=? WHERE scope='leader' AND nodeId=? AND leaseId=?` followed by a check-SELECT to surface takeover races as `LEASE_LOST`. Schema generation switches to `BIGINT` / `VARCHAR(64)` / `VARCHAR(255)` per MySQL's primary-key length rules, drops the `CHECK` constraint that some MariaDB / MySQL 5.x versions silently strip, and flips placeholder style to `?`."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.34",
+      "date": "2026-05-02",
+      "headline": "`b.pubsub` distributed pub/sub primitive",
+      "summary": "Single API for cross-node fan-out with three backends — `local`, `cluster` (shared DB table polled), and `redis` (SUBSCRIBE/PSUBSCRIBE).",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.pubsub` with local / cluster / redis backends",
+              "body": "Operator API: `ps.subscribe(channel, handler) -> token`, `ps.subscribePattern(pattern, handler) -> token` (glob-style on local + cluster, native PSUBSCRIBE on redis), `ps.unsubscribe(token)`, `await ps.publish(channel, payload) -> { local, remote }`, `await ps.close()`. `topicPrefix` opt scopes channel names so independent pubsub instances sharing a backend don't collide. Handler errors are caught and logged via the framework's boot logger; they never abort dispatch to other handlers on the same channel."
+            },
+            {
+              "title": "Redis push-message demultiplexing",
+              "body": "`lib/redis-client.js` adds push-message demultiplexing: server-pushed `[\"message\", channel, payload]` and `[\"pmessage\", pattern, channel, payload]` arrays route through `setOnPushMessage` instead of consuming a pending request slot, while SUBSCRIBE / UNSUBSCRIBE acks still flow through the normal command pipeline. Per-instance nonce stamped on outgoing redis payloads so the SUBSCRIBE socket recognizes its own publishes and skips the loopback."
+            },
+            {
+              "title": "`lib/websocket-channels.js` reroutes through `b.pubsub`",
+              "body": "Replaces the inline cluster-poll-and-fan-out logic with `b.pubsub` consumption. The hub owns one pubsub instance per primitive; cross-node delivery is `pubsub.subscribe` per channel the hub joins, with the hub's `_localDispatch` as the handler. Per-channel pubsub subscription is refcounted by local conn count. The `_blamejs_ws_messages` table is renamed to `_blamejs_pubsub_messages` (column `channel` -> `topic`); pre-1.0, no compat shim — operators upgrading wipe the previous table."
+            },
+            {
+              "title": "`b.cache.create({ invalidationPubsub })`",
+              "body": "Passing a `b.pubsub.create()` instance auto-publishes on every successful `del` / `clear` / `invalidateTag`, and subscribes for the same events so other cache instances on other nodes (or processes sharing the pubsub backend) react locally. Re-entrancy guard prevents inbound invalidation events from re-publishing."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.33",
+      "date": "2026-05-02",
+      "headline": "`b.logStream` syslog sink (RFC 5424) + CloudWatch `autoCreate`",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Syslog sink (RFC 5424)",
+              "body": "`protocol: \"syslog\"` for `b.logStream.init`; new module `lib/log-stream-syslog.js`. URL-driven transport selection: `udp://host:514`, `tcp://host:514`, `tls://host:6514`. UDP is best-effort one-datagram-per-record; TCP / TLS use RFC 6587 octet-counting framing. TLS is TLS 1.3 minimum; operators with private CAs pass `ca` for trust pinning, `servername` for SNI override (auto-suppressed on IP literals). Records formatted with PRI = `(facility << 3) | severity` (default facility `local0`), severity mapped from the framework's level field (debug=7 / info=6 / warn=4 / error=3); operators override via `facility`, `appName` (default `blamejs`), `procId` (default `process.pid`), `hostname` (default `os.hostname()`), `structuredData` (default `-`). TCP / TLS reconnect with exponential backoff; records buffer during the down window with `bufferLimit`-bounded oldest-drop, replay on reconnect. `close()` waits up to 3s for an in-flight (re)connect to drain the buffer before tearing down. Operator-supplied `onDrop({reason, batch, error})` surfaces every drop class."
+            },
+            {
+              "title": "CloudWatch sink `autoCreate`",
+              "body": "Pass `{ autoCreate: true }` to have the framework issue `CreateLogGroup` + `CreateLogStream` on first emit. Idempotent: AWS's `ResourceAlreadyExistsException` is treated as success on both calls. Hard failures drop the batch with `onDrop` reason `autocreate-failed`. Default remains `autoCreate: false`."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`docker/init/generate-certs.sh` preserves existing CA",
+              "body": "Was overwriting an existing CA when re-run with `.complete` removed, invalidating every previously-issued leaf cert. Now reuses an existing `(ca.crt, ca.key)` pair across `.complete`-only resets and only generates a fresh CA when neither file is present."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 5424 — The Syslog Protocol",
+          "url": "https://www.rfc-editor.org/rfc/rfc5424.html"
+        },
+        {
+          "label": "RFC 6587 — Transmission of Syslog Messages over TCP",
+          "url": "https://www.rfc-editor.org/rfc/rfc6587.html"
+        }
+      ]
+    },
+    {
+      "version": "0.6.32",
+      "date": "2026-05-02",
+      "headline": "`b.cache` Redis backend",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "First-class `backend: \"redis\"` for `b.cache.create`",
+              "body": "New module `lib/cache-redis.js` consumes `lib/redis-client.js` directly with no operator-supplied glue. Storage layout: `<namespace>:e:<key>` STRING (JSON-encoded value, PEXPIREAT-bounded), `<namespace>:t:<tag>` SET (cacheKeys carrying that tag — powers `invalidateTag` fan-out), `<namespace>:k:<key>:tags` SET (tags this key carries — powers per-key tag cleanup on `del` / `set`-overwrite, expires alongside the entry). TTL is enforced by Redis itself (PEXPIREAT) so the framework's sweeper is a no-op for this backend; sliding TTL bumps the entry's expiry on every read when `slidingTtl: true` AND `ttlMs` is finite."
+            },
+            {
+              "title": "Redis cache opts",
+              "body": "New opts on `cache.create`: `redisUrl` (required when `backend: \"redis\"`), `redisPassword`, `redisUsername`, `redisTls`, `redisCa` (private-CA trust pinning), `redisServername`, `redisConnectTimeoutMs`, `redisCommandTimeoutMs`, `redisMaxReconnectAttempts`. Lazy connect — `cache.create({backend:\"redis\"})` stays sync-safe and the first op opens the socket. `invalidateTag` filters out ghost entries (key already PEXPIRE'd from the keyspace but lingering in a tag SET) by EXISTS-checking before del."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.31",
+      "date": "2026-05-02",
+      "headline": "Redis queue priority + flow `dependsOn`; WebSocket per-message-deflate",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Redis queue priority ordering",
+              "body": "`b.queue.enqueue({ priority })` on the Redis backend now matches `queue-local`'s `ORDER BY priority DESC, availableAt ASC, enqueuedAt ASC` semantics. The Redis ZSET stays scored by availableAt only, but `LEASE_LUA` over-fetches `maxRows*5` candidates by score, HMGETs priority + availableAt + enqueuedAt for each, sorts server-side in Lua by the same triple, and leases the top `maxRows`."
+            },
+            {
+              "title": "Redis queue flow `dependsOn` cascade",
+              "body": "`b.queue.enqueue({ flowId, flowChildName, dependsOn })` on the Redis backend now releases dependent jobs when their parents complete, mirroring `_maybeReleaseFlowChildren` in `queue-local`. A per-flow `<prefix>:flow:<flowId>` Redis SET tracks every job in the flow; `complete()` walks the set, looks up siblings whose `dependsOn` matches the just-completed job (by id or `flowChildName`) AND every other dep is satisfied, and HSET-bumps their `availableAt` to now and ZADDs them into the ready zset."
+            },
+            {
+              "title": "WebSocket per-message-deflate (RFC 7692)",
+              "body": "`b.websocket.handleUpgrade` negotiates the `permessage-deflate` extension when the client offers it, accepting `client_max_window_bits` / `server_max_window_bits` (8-15, default 15) and always asserting `client_no_context_takeover` + `server_no_context_takeover` so every message uses fresh zlib state. Send path compresses TEXT/BINARY frames via `zlib.deflateRawSync`, strips the 4-byte `0x00 0x00 0xff 0xff` trailer per RFC 7692 §7.2.1, and sets RSV1 on the first frame. Receive path appends the trailer back and inflates via `zlib.inflateRawSync`. RSV1 on a continuation frame, RSV1 without negotiated extension, RSV2/RSV3 set, and decompressed payload exceeding `maxMessageBytes` all close with the appropriate RFC 6455 status. Operator opt-out: pass `permessageDeflate: false`."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 7692 — Compression Extensions for WebSocket",
+          "url": "https://www.rfc-editor.org/rfc/rfc7692.html"
+        }
+      ]
+    },
+    {
+      "version": "0.6.30",
+      "date": "2026-05-02",
+      "headline": "Wiki-app integration gate + framework follow-ups",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`scripts/test-wiki-integration.js`",
+              "body": "Boots `examples/wiki` against the docker-compose fixture stack (real Redis, MinIO, Mailpit, CoreDNS, NTP, mtls-ca) and drives every backend through the wiki's HTTP surface AND the underlying framework primitives — validates that each primitive routes through the configured backend (cache -> custom backend, queue -> Redis Streams, mail -> Mailpit SMTP, object-store -> MinIO SigV4, log-stream -> webhook receiver)."
+            },
+            {
+              "title": "Wiki test-only routes under `/test/*`",
+              "body": "Gated by `WIKI_INTEGRATION_TEST=1`, mounted before CSRF / staticServe so test POSTs don't have to round-trip a token cookie. Covers cache get/set/del, queue enqueue/size, mail send, object-store put/get, http-client fetch, log-stream emit, mtls-ca issue, ntp query, dns lookup, ssrf classify+check, plus `/test/diagnostic` exposing the active backend posture."
+            },
+            {
+              "title": "External-integration two-gate rule",
+              "body": "When a release diff touches a primitive that talks to an external service, operators run BOTH `scripts/test-integration.js` (per-primitive) AND `scripts/test-wiki-integration.js` (wiki app exercising the same backends end to end) before pushing. Documented in CONTRIBUTING.md and the release workflow. The smoke and wiki-e2e gates stay pure (no docker dependency)."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`b.mtlsCa.create` auto-creates `dataDir`",
+              "body": "Now creates `opts.dataDir` with `mode: 0o700` if it doesn't exist (matches `b.logStream`'s local sink, `b.backup`, `b.restoreBundle`). Without it the first `initCA()` call hit `ENOENT` writing `ca.key.tmp`."
+            },
+            {
+              "title": "`b.logStream` webhook-sink close-order, revisited",
+              "body": "`close()` now waits for the in-flight `_flush()` before draining the buffer. The previous drain fix only tracked emit-time wrapper promises, not the actual HTTP POST in flight; a record arriving mid-flush would buffer, the emit-time `_flush` early-returned on `if (inFlight) return`, and shutdown would then strand it."
+            },
+            {
+              "title": "`b.queue.bootFromEnv()` wired in the wiki app",
+              "body": "The wiki app's `build-app.js` now calls `bootFromEnv()` unconditionally so the wiki picks up `BLAMEJS_QUEUE_PROTOCOL=redis` from env without code changes."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.29",
+      "date": "2026-05-02",
+      "headline": "Shellcheck gate green and eslint pin alignment",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`docker/init/generate-certs.sh` line count",
+              "body": "The footer line counted output via `ls \"$CERT_DIR\" | wc -l` (SC2012, fragile on filenames with newlines or quoting metacharacters); replaced with `find \"$CERT_DIR\" -maxdepth 1 -mindepth 1 | wc -l`. Same semantics, robust to any cert filename pki-init might end up writing."
+            },
+            {
+              "title": "shellcheck added to the documented pre-push gate list",
+              "body": "CONTRIBUTING.md now lists shellcheck alongside smoke / wiki e2e / eslint / api-snapshot / primitive-section validators. CI's `Lint summary` job has always run it, but the local-dev recipe didn't, so contributors hit it after push instead of catching it locally."
+            },
+            {
+              "title": "eslint pin alignment",
+              "body": "`.github/PULL_REQUEST_TEMPLATE.md` and CONTRIBUTING.md still pinned `eslint@10` while CI runners had already swapped to `eslint@latest`; both are bumped to `@latest` to match the forward-track posture of every other CI tool."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.28",
+      "date": "2026-05-02",
+      "headline": "Live integration test suite + framework bugs caught by it",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`test/integration/` suite + docker-compose stack",
+              "body": "13 live test files covering Redis (plain + TLS), `b.queue` on Redis, `b.mail` SMTP / STARTTLS / multi-rcpt / dot-stuffing, `b.mail.dkim` rsa-sha256 + ed25519-sha256 + bad-algorithm reject, `b.ntpCheck` v4 + v6 + bootCheck, `b.network.dns` plain + DoT + DoH with strict CA pinning + bad-servername + cache, `b.network.heartbeat` http + tcp + state-change callbacks, `b.objectStore` SigV4 on plain HTTP + TLS, `b.cache` memory + Redis-backed cluster, `b.httpClient` direct + Squid forward proxy + TLS pin, `b.ssrfGuard` classify + checkUrl + cloud-metadata block, `b.logStream` local + webhook + deferred-syslog error path, and `b.mtlsCa` CA bootstrap + clientAuth + serverAuth + dual-EKU. Companion `docker-compose.test.yml` stands up redis (plain + TLS), postgres, mysql, mongo, minio (HTTP + HTTPS), rabbitmq (plain + TLS), nats, syslog, ntp, mailpit, coredns (plain + DoT + DoH), haproxy, caddy, mitmproxy, squid, and pki-init. Host port bindings dual-stack on `127.0.0.1` AND `[::1]`. `scripts/test-integration.js` exports the test CA via `docker cp` and sets `NODE_EXTRA_CA_CERTS` per-test child process; no `rejectUnauthorized: false` bypass anywhere."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`b.ssrfGuard.checkUrl` cloud-metadata hard-deny",
+              "body": "`allowInternal: true` no longer permits 169.254.169.254 (AWS / GCP / Azure metadata). Loopback / private / link-local / reserved stay overridable per existing semantics; cloud-metadata is unconditional because a blanket override would let any compromised request exfiltrate instance credentials."
+            },
+            {
+              "title": "`b.mtlsCa` issues server certs and dual-EKU certs",
+              "body": "`generateClientCert({ usage: \"client\" | \"server\" | \"both\", sans: [...] })`: `usage` controls EKU (`client` = clientAuth, `server` = serverAuth, `both` = both); `sans` accepts `DNS:` / `IP:` / bare-DNS entries; serverAuth without an explicit SAN auto-adds the CN. Operators wiring inbound mTLS reverse-proxy fronts no longer hit `unsuitable certificate purpose` on the handshake."
+            },
+            {
+              "title": "`b.mtlsCa` algorithm auto-detect",
+              "body": "Probes webcrypto plus the vendored x509 library at first cert issuance and picks the highest-PQC option that round-trips: SLH-DSA-SHAKE-256f -> SLH-DSA-SHAKE-128f -> ML-DSA-87 -> ML-DSA-65 -> ECDSA-P384-SHA384. When the bridge condition lifts the same `b.mtlsCa.create(...)` call self-upgrades; `b.mtlsCa.status().cert.label` and `.posture` surface the chosen algorithm."
+            },
+            {
+              "title": "`b.redisClient.create({ ca, servername })`",
+              "body": "Managed-Redis and on-prem-cluster operators connecting over `rediss://` against a private CA can pin trust roots. `servername` auto-suppresses for IP literals so `rediss://127.0.0.1:6380` no longer trips Node's IP-as-SNI rule."
+            },
+            {
+              "title": "DoT / DoH accept a `ca` opt",
+              "body": "`b.network.dns.useDnsOverTls` and `useDnsOverHttps` accept a `ca` opt for the same trust-pinning surface against self-signed / private-PKI endpoints."
+            },
+            {
+              "title": "DoT handshake errors and socket lifecycle",
+              "body": "DoT TLS handshake errors now route as `DnsError` on the lookup promise rather than leaking as `unhandledRejection`. The DoT socket is now ref'd while a query is in flight and unref'd when idle, so Node doesn't exit during an in-flight lookup."
+            },
+            {
+              "title": "`b.ntpCheck.querySingle` honors IPv6 servers",
+              "body": "Previously hardcoded to `dgram.createSocket(\"udp4\")` — `::1` and `fd00::...` queries failed with `EINVAL`. Family is now auto-detected from the server string."
+            },
+            {
+              "title": "`b.logStream.shutdown` drains in-flight emits",
+              "body": "`shutdown` now drains in-flight emit microtasks before closing sink fds; fire-and-forget emits queued just before shutdown were previously dropped."
+            },
+            {
+              "title": "`b.logStream` webhook-sink close-order",
+              "body": "`close()` flushes before setting `closed = true` — `_flush`'s while loop bailed on `!closed`, leaving any records buffered just before shutdown stranded."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.27",
+      "date": "2026-05-02",
+      "headline": "Redis backend for `b.queue`",
+      "summary": "Multi-replica apps can share a single queue without each needing to be cluster leader.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Bespoke RESP2 client",
+              "body": "`lib/redis-client.js` is zero-npm-dep: TCP via `node:net` and TLS via `node:tls` (`rediss://` auto-detected), legacy single-arg AUTH plus ACL `AUTH user pass`, `SELECT db`, pipelining, exponential-backoff reconnect, and an EVAL helper."
+            },
+            {
+              "title": "`b.queue` Redis protocol",
+              "body": "`lib/queue-redis.js` ships full `enqueue` / `lease` / `extendLease` / `complete` / `fail` / `sweepExpired` / `size` / `purge` / `dlqList` / `dlqRetry` / `dlqSize` parity with the local backend. Atomicity comes from server-side Lua scripts so concurrent consumers can't double-lease and a sweep can't race a complete. Storage: per-job HASH (sealed payload and `lastError` via `cryptoField.sealRow`), per-queue ready ZSET scored by `availableAt`, per-queue inflight ZSET scored by `leaseExpiresAt`, per-queue dlq ZSET scored by `finishedAt`, plus a queues SET so `sweepExpired` walks every known queue without a global secondary index. Cron-repeat handled in `complete()` JS — re-enqueues the next firing as a fresh `jobId` with `availableAt` set to the next cron fire."
+            },
+            {
+              "title": "`b.queue.bootFromEnv({ env })`",
+              "body": "Env-driven init mirroring `b.network.bootFromEnv` and `b.logStream.bootFromEnv`. Reads `BLAMEJS_QUEUE_PROTOCOL` (`local` or `redis`), `BLAMEJS_QUEUE_REDIS_URL`, `BLAMEJS_QUEUE_REDIS_PASSWORD`, `BLAMEJS_QUEUE_REDIS_USERNAME`, `BLAMEJS_QUEUE_REDIS_TLS`, and `BLAMEJS_QUEUE_REDIS_KEY_PREFIX`. Operators flip from local to Redis without a code change; both wiki docker-compose configs declare the new env knobs."
+            }
+          ]
+        },
+        {
+          "heading": "Removed",
+          "items": [
+            {
+              "title": "`redis` removed from `DEFERRED_PROTOCOLS`",
+              "body": "The Redis queue backend is first-class and no longer listed as a deferred protocol."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.26",
+      "date": "2026-05-02",
+      "headline": "CLI subcommands for restore and audit chain verification",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`blamejs restore`",
+              "body": "`list` enumerates bundles in storage, `inspect` reads the manifest summary without touching live data, `apply` runs an in-place restore preserving rollback, `rollback` reverts to the most-recent or named restore point, and `list-rollbacks` enumerates preserved rollback points. Operators identify a bundle via `--bundle <dir>` (matching what `blamejs backup extract` produces) or `--storage-root <root> --bundle-id <id>`. `apply` honors `--max-pulled-bytes` / `--max-pulled-files` (defaults 4 GiB / 100K), `--rollback-root` (default `<data-dir>.rollbacks`), `--no-audit`, and `BLAMEJS_BACKUP_PASSPHRASE`."
+            },
+            {
+              "title": "`blamejs audit verify-chain`",
+              "body": "Walks the live audit chain end to end, reports tampering with `breakAt` / `breakRowId` / expected-versus-actual `prevHash`, and honors `--max-rows` for bounded walks. Default table is `audit_log`."
+            },
+            {
+              "title": "Wiki CLI snapshot validates subcommand pairs",
+              "body": "The wiki CLI snapshot test now walks every wiki and README invocation of the form `blamejs <cmd> <sub>` and verifies `<sub>` exists in the perCommand[<cmd>].subcommands list parsed from `lib/cli.js`. Surfaced drift on first run: `backup-restore.js` referenced `blamejs audit verify-signing` which never existed (only `verify-bundle`); the wiki now references the newly shipped `verify-chain`. README CLI table updated with the `restore` row and the two new audit subcommands."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.25",
+      "date": "2026-05-02",
+      "headline": "`b.logStream` CloudWatch Logs sink + framework-level env wiring",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "CloudWatch Logs sink",
+              "body": "`protocol: \"cloudwatch\"` POSTs `PutLogEvents` over HTTPS with SigV4 signing (service `logs`). Operator pre-creates the log group and log stream (the framework does not auto-create here). Honors IAM role and STS session-token credentials. Respects all three CloudWatch caps automatically (10,000 events, 1 MiB total payload, 256 KiB per event); per-event oversize is dropped at `emit()` with `onDrop` fired carrying the truncated message; per-batch oversize splits mid-flush. Permanent AWS errors (`ResourceNotFoundException` / `AccessDeniedException` / `InvalidParameterException` / `UnrecognizedClientException` / `SerializationException`) skip the retry budget. `InvalidSequenceTokenException` (legacy CW accounts) extracts the expected token from the error message and retries with it once."
+            },
+            {
+              "title": "`b.logStream.bootFromEnv({ env })`",
+              "body": "Framework-level env-driven init mirroring `b.network.bootFromEnv`. Reads `BLAMEJS_LOG_STREAM_PROTOCOL` (`local` / `webhook` / `otlp` / `cloudwatch`), `BLAMEJS_LOG_STREAM_URL`, `BLAMEJS_LOG_STREAM_TOKEN`, `BLAMEJS_LOG_STREAM_SERVICE_NAME`, `BLAMEJS_LOG_STREAM_SERVICE_VERSION`, `BLAMEJS_LOG_STREAM_CLOUDWATCH_LOG_GROUP`, `BLAMEJS_LOG_STREAM_CLOUDWATCH_LOG_STREAM`, `BLAMEJS_LOG_STREAM_PATH`, plus standard `AWS_*` knobs. Operators get a working sink without writing build-app code; the wiki app's `build-app.js` replaces its inline env-reading with one call."
+            },
+            {
+              "title": "Wiki env-snapshot test",
+              "body": "Parallel to `api-snapshot.json` — walks `process.env.X` / `env.X` / `safeEnv.readVar(\"X\")` reads in the wiki app and framework `lib/`, walks docker-compose env declarations, and captures the union as `examples/wiki/env-snapshot.json`. Fails the e2e gate when env vars are added or removed without updating the snapshot, or when source-only / compose-only gaps appear. Surfaced 13 real gaps in the wiki app on first run; all 13 fixed. Update workflow: `BLAMEJS_UPDATE_ENV_SNAPSHOT=1 node examples/wiki/test/validate-env-snapshot.js`."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`object-store/sigv4.js` `signRequest` is service-agnostic",
+              "body": "Accepts `opts.service` (default still `\"s3\"` for back-compat) so the CloudWatch sink and any future SigV4-protobuf service can share the signer."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.24",
+      "date": "2026-05-02",
+      "headline": "`b.logStream` OTLP/HTTP-JSON sink",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "OTLP/HTTP-JSON log sink",
+              "body": "`protocol: \"otlp\"` forwards log records to any OpenTelemetry collector via the OTel Logs Data Model — `resourceLogs` -> `scopeLogs` -> `logRecords` envelope with `severityNumber` (debug=5 / info=9 / warn=13 / error=17), `severityText`, `timeUnixNano` (string-encoded for JSON-safe 64-bit), `body.stringValue`, and OTel-typed attributes. Operator opts: `{ url, serviceName, serviceVersion, resourceAttributes, auth, headers, batchSize, retry, onDrop, ... }`. Same back-pressure semantics as the webhook sink (per-sink ring buffer, batched flush on size or `maxBatchAgeMs`, exponential-backoff retry, drop-on-overflow with operator-supplied `onDrop`). URL convention: `/v1/logs` is auto-appended when the operator passes the collector root. JSON not protobuf — operators benchmarking past 100K logs per second ship the OTel Collector locally so the framework hands JSON to a sidecar that forwards via gRPC."
+            }
+          ]
+        },
+        {
+          "heading": "Removed",
+          "items": [
+            {
+              "title": "`otlp` removed from `DEFERRED_PROTOCOLS`",
+              "body": "The OTLP sink is now first-class and no longer listed as a deferred protocol."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.23",
+      "date": "2026-05-02",
+      "headline": "Cron-repeat call site cleaned up; `enqueue` scheduling precedence documented",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Cron-repeat passes `availableAt` alone",
+              "body": "The cron-repeat call site in `queue-local.js` was passing both `availableAt` and a redundant `delaySeconds = Math.floor((nextMs - nowMs) / 1000)` that only existed to work around the bug fixed in the previous release. The redundant arg is removed; cron repeat now passes `availableAt` alone, matching the queue's documented precedence rule."
+            },
+            {
+              "title": "Scheduling-precedence docstring",
+              "body": "`enqueue()` gains a 20-line scheduling-precedence header documenting that `opts.availableAt` wins over `opts.delaySeconds` when both are passed, why the framework chose that direction, and which callers should use which form."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Round-trip preservation regression test",
+              "body": "`testEnqueueRoundTripsAvailableAt` covers three precise targets, the delaySeconds-only path, and the both-opts-set case so any future attempt to rederive `availableAt` from floored seconds fails the gate."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.22",
+      "date": "2026-05-02",
+      "headline": "`b.queue.enqueue({ availableAt })` honored on the local backend",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Local enqueue honors `opts.availableAt`",
+              "body": "Previously the local-protocol enqueue ignored `opts.availableAt` and recomputed availableAt from `Date.now() + delaySeconds * 1000`. The cron-repeat path passes both fields (the exact next-fire ms in `availableAt`, the floored seconds in `delaySeconds`); the enqueue's recomputation lost sub-second precision and drifted on the internal clock-versus-caller delta. Symptoms: cron-scheduled jobs landed up to 999ms off the intended boundary, and the queue-flow-repeat smoke test was intermittently flaky on slow CI runners. Enqueue now honors `opts.availableAt` directly when finite and falls back to delaySeconds-based shorthand otherwise."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.21",
+      "date": "2026-05-02",
+      "headline": "Cluster-cache `invalidateTag`, multi-column cursor pagination, DoH POST, DoT pooling, INI parser, persistent cookie jar",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Cluster-cache `invalidateTag` and `getTags`",
+              "body": "The cluster cache backend gains a `_blamejs_cache_tags` junction table (`(cacheKey, tag)` primary key, index on `tag`) and tag-aware `set` / `del` / `clear` / `_sweep` plus `getTags(key)`. Multi-tag rotation, mid-flight tag replacement on update, and namespace-scoped sweeps are all covered. The previous `NOT_SUPPORTED` path on cluster is gone."
+            },
+            {
+              "title": "Multi-column cursor pagination",
+              "body": "`b.pagination.cursor({ orderBy: [{column, direction}, ...] })` accepts a string, an array of strings, or an array of `{column, direction}` objects. The keyset `WHERE` expands to the standard OR cascade so successive pages can't skip or repeat rows when ties on the leading columns are broken by trailing ones. `_id` is appended as a tiebreaker when not in the chain. Chained `orderBy(col, dir)` calls on the Query class extend a multi-column `ORDER BY` in the SQL. The cursor format is bumped to encode `{ orderKey, vals, forward }` — pre-1.0 break with no compat shim."
+            },
+            {
+              "title": "DoH POST mode",
+              "body": "`b.network.dns.useDnsOverHttps({ method })` accepts `\"GET\" | \"POST\" | undefined` (auto). Auto switches to POST when the GET URL would exceed 2048 bytes, covering long DNS names per RFC 8484 §4.1."
+            },
+            {
+              "title": "DoT connection pooling",
+              "body": "Per-`(host:port)` cached TLS socket with a 2-minute idle timeout, serialized in-flight queries per socket. Eliminates the per-query TLS handshake."
+            },
+            {
+              "title": "`b.parsers.ini`",
+              "body": "Covers Windows `.ini`, `.gitconfig`, systemd-unit, `php.ini`, and `tox.ini` shapes: sections (including `[parent.child]` and `[parent \"child\"]` nesting), `;` and `#` comments (inline and leading), single and double quoting with `\\n` / `\\t` / `\\\\` / `\\\"` / `\\'` escapes, boolean coercion, and decimal / hex / float numerics. Prototype-pollution defense (`__proto__` / `constructor` / `prototype` rejected). Duplicate-key policy throws by default; `onDuplicate: \"first\" | \"last\"` opts in to silent shadowing. Section, per-section key, and value-bytes caps are configurable."
+            },
+            {
+              "title": "Cookie-jar file persistence",
+              "body": "`b.httpClient.cookieJar.create({ persist: \"file\", file: \"/abs/path\", vault: b.vault })` loads at construct, debounce-flushes on every set / clear, plus `flush()` and `close()` for explicit lifecycle. With `vault`, on-disk bytes are sealed; without, plaintext JSON (operator chooses)."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Internal-narrative cleanup in operator-facing source",
+              "body": "Comments in `vault/index.js`, `mail.js`, `bundler.js`, `archive.js`, `framework-schema.js`, and `http-client.js` are rewritten to describe what's actually shipped, dropping internal-process narrative."
+            },
+            {
+              "title": "README CLI section refreshed",
+              "body": "The CLI section is updated to reflect the additions from the four previous releases (security, config-drift, file-type, password, erase, retention) which were missing six subcommands."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 8484 — DNS over HTTPS",
+          "url": "https://www.rfc-editor.org/rfc/rfc8484.html"
+        }
+      ]
+    },
+    {
+      "version": "0.6.20",
+      "date": "2026-05-02",
+      "headline": "SBOM bundled into npm tarball; release-attach step made non-fatal",
+      "summary": "The npm-publish workflow's `gh release upload` step started failing with HTTP 422 against an already-published immutable release; the SBOM is now the canonical npm-tarball artifact and the GitHub release attachment is supplementary.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`sbom.cyclonedx.json` bundled into the npm tarball",
+              "body": "`sbom.cyclonedx.json` is now declared in `package.json` `files`, so `npm install @blamejs/core && cat node_modules/@blamejs/core/sbom.cyclonedx.json` is the canonical SBOM access path. The prepack guard's known-allowed list covers the just-in-time generation."
+            },
+            {
+              "title": "Release-asset attach step made non-fatal",
+              "body": "The workflow's GitHub-release attach step tries to upload, logs a warning if the release is immutable, and lets the publish proceed regardless. The npm tarball is the load-bearing artifact; the GitHub release attachment was only ever supplementary."
+            },
+            {
+              "title": "`.gitignore` adds `sbom.cyclonedx.json`",
+              "body": "A stray local `npm sbom` no longer pollutes the working tree."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.19",
+      "date": "2026-05-02",
+      "headline": "NTS reply verification, common-password bundle, TLS trust rotation, and DNS protocol fidelity",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`b.network.ntp.nts.querySingle` now verifies the server reply",
+              "body": "Extracts the AUTHENTICATOR_AND_ENC extension, AEAD-decrypts with AAD equal to the bytes before the authenticator, and fails closed (`nts/auth-failed` / `nts/no-authenticator`) when verification fails. Server-supplied new cookies in the encrypted plaintext are appended to the cookie pool and the consumed cookie popped (real RFC 8915 cookie rotation). Previously the function returned `authenticated: true` while only checking the unique-identifier echo — any MITM that mirrored the request's 32-byte unique field could spoof timestamps."
+            },
+            {
+              "title": "`azure-blob.presignedUploadPolicy` no longer silently misroutes",
+              "body": "Now throws `PRESIGN_NOT_SUPPORTED` instead of returning a SAS PUT URL when operators asked for POST policy semantics — Azure SAS has no body-size cap and the previous shape was a misleading mismatch. The error message points at `presignedUploadUrl` plus a post-upload HEAD as the alternative."
+            },
+            {
+              "title": "DoT handshake errors route as `DnsError`",
+              "body": "The secureConnect / error event-listener race had let cert-verification failures escape the per-query Promise wrapping and surface as `unhandledRejection`. Now every lookup-level error routes back through the per-query promise."
+            },
+            {
+              "title": "DoT socket lifecycle",
+              "body": "Previously the DoT socket was unconditionally `sock.unref()`'d after construct, causing node to exit during in-flight lookups when no other I/O kept the loop alive. It is now ref'd while a query is in flight and unref'd when idle."
+            },
+            {
+              "title": "`b.network.dns` resolver methods use real DNS queries",
+              "body": "`resolve4` / `resolve6` / `resolveAaaa` were aliasing `lookup()`; they now use `dns.promises.resolve4` / `_dohLookup` / `_dotLookup` so semantics match Node's standard library (skips `/etc/hosts`, mDNS)."
+            },
+            {
+              "title": "`b.network.dns.setResultOrder` covers DoH and DoT",
+              "body": "Previously the order setting only sorted OS-resolver results; it now flips the order on the DoH / DoT dual-stack fallback paths as well."
+            },
+            {
+              "title": "Network error-construction argument order corrected",
+              "body": "Every `new XxxError(...)` call across `lib/network*.js` was passing args in the wrong order (message-then-code instead of code-then-message), making `e.code` return human messages and `e.message` return slash-codes. Operators relying on `e.code` for error handling got the wrong field. All affected throws across `lib/network.js`, `network-dns.js`, `network-proxy.js`, `network-tls.js`, `network-heartbeat.js`, and `network-nts.js` are corrected."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.auth.password.policy` bundled common-password list",
+              "body": "The SecLists top-10000 common-password list is bundled (CC-BY-3.0, `lib/vendor/common-passwords-top-10000.txt`) and loaded lazily on first `policy.check()`. Passwords like `password`, `dragon`, and `qwerty` now reject with `policy/forbidden-common`. `useBundledCommon: false` per-policy bypasses if operator ships their own list."
+            },
+            {
+              "title": "`b.network.tls` CA-rotation surface",
+              "body": "`removeCa(fingerprint256)`, `removeCaByLabel(label)`, `clearAll()`, `purgeExpired()`, and `expiringSoon(windowMs)` let operators rotate corporate DPI CAs without process restart. Every removal audits with subject + fingerprint + reason."
+            }
+          ]
+        },
+        {
+          "heading": "Removed",
+          "items": [
+            {
+              "title": "`b.network.socket.setDefaultLinger` removed",
+              "body": "Previously a silent no-op; now throws `socket/linger-not-supported` with operator guidance to use `socket.destroy()` (abort) versus `socket.end()` (graceful) since Node's public `net.Socket` has no `setLinger()`."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "`.gitleaks.toml` smoke + workflow alignment",
+              "body": "`.gitleaks.toml` adds `test/smoke.js` to the path allowlist and pins the historical commit + fingerprint that tripped the jwt rule on a `REDACTED` placeholder. `npm-publish.yml` job permissions bumped from `contents: read` to `contents: write` so `gh release upload sbom.cyclonedx.json` no longer 403s."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.18",
+      "date": "2026-05-02",
+      "headline": "`b.network` namespace covering NTP / DNS / proxy / TLS trust / heartbeat / socket / env boot",
+      "summary": "A single namespace covering every runtime-configurable network behaviour the framework owns: authenticated time, operator-pinned DNS resolvers, HTTP/HTTPS proxy honoring, runtime-overridable trust store for DPI-fronted deploys, application-level heartbeats, socket-default tuning, and env-driven boot.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.network.ntp` with NTS-KE authenticated time",
+              "body": "Tunable warn / fatal drift thresholds with env-var bindings (`BLAMEJS_NTP_SERVERS`, `BLAMEJS_NTP_TIMEOUT_MS`, `BLAMEJS_NTP_DRIFT_WARN_MS`, `BLAMEJS_NTP_DRIFT_FATAL_MS`). `b.network.ntp.nts.query(opts)` performs an NTS-KE handshake (RFC 8915) over TLS 1.3 with the framework's PQC-hybrid group preference, extracts C2S / S2C keys via the standard TLS exporter, and authenticates NTPv4 packets with AES-SIV-CMAC-256 or AEAD-CHACHA20-POLY1305 — no extra vendored deps."
+            },
+            {
+              "title": "`b.network.dns` operator-pinned resolvers, family + ordering, DoH / DoT",
+              "body": "Exposes operator-pinned resolvers, IPv4 / IPv6 / dual-stack family selection, `ipv4first` / `verbatim` / `ipv6first` ordering, DNS lookup timeout (Node's native `dns.lookup` has none), in-memory positive and negative cache, and DoH / DoT (cloudflare / google / quad9 / custom URL). `b.ssrfGuard` and `b.httpClient` route through it when configured."
+            },
+            {
+              "title": "`b.network.proxy` honors the standard env knobs",
+              "body": "Honors `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` / `ALL_PROXY` (lower- and upper-case) with CIDR + suffix + wildcard `NO_PROXY` matching, basic-auth via `BLAMEJS_PROXY_AUTH`, and CONNECT tunnels for HTTPS through HTTP proxies; `b.httpClient` picks up the agent automatically."
+            },
+            {
+              "title": "`b.network.tls` runtime-overridable trust store",
+              "body": "`addCa(pemOrPath)` / `addCaBundle(path)` / `useSystemTrust()` / `getTrustStore()` for deep-packet-inspection deploys behind Zscaler / Netskope / corporate Squid with custom CA. Node's `NODE_EXTRA_CA_CERTS` only works at boot; this primitive accepts adds at any time and `b.pqcAgent` picks them up immediately. Every `addCa` audits with subject + issuer + fingerprint256 + validity + isSelfSigned. `b.security.assertProduction({ allowDpiTrust })` refuses to boot in production with installed CAs unless explicitly allowed."
+            },
+            {
+              "title": "`b.network.heartbeat` application-level liveness probes",
+              "body": "HTTP / TCP / NTP probe types, a healthy -> degraded -> down state machine with consecutive-failure threshold, audit on state change, and observability counters per probe."
+            },
+            {
+              "title": "`b.network.socket` defaults",
+              "body": "Operator-tunable defaults for `TCP_NODELAY`, `SO_KEEPALIVE`, and `SO_LINGER`."
+            },
+            {
+              "title": "`b.network.bootFromEnv()`",
+              "body": "Reads every supported env var at startup and applies in the right order so configuration takes effect before the first outbound socket. The wiki app's docker-compose configs ship every knob with a default-empty value; the production overlay tightens DNS lookup timeout, cache TTL, `NTP_STRICT=1`, and `SOCKET_NO_DELAY=1`."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`.gitleaks.toml` allowlisted in dotfile policy",
+              "body": "Previously gitignored by the deny-all-dotfiles allowlist, so CI's secret-scan job failed loading the framework's allowlist with `.gitleaks.toml: no such file or directory`. The file is now explicitly allowlisted."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 8915 — NTS for NTP",
+          "url": "https://www.rfc-editor.org/rfc/rfc8915.html"
+        }
+      ]
+    },
+    {
+      "version": "0.6.17",
+      "date": "2026-05-02",
+      "headline": "Six new CLI subcommands wrapping the v0.6.14 primitives",
+      "summary": "Operators can now drive the v0.6.14 security / config-drift / file-type / password / erase / retention primitives from runbooks, cron, and one-off ops without writing app code.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`blamejs security assert`",
+              "body": "Boots the framework and runs `b.security.assertProduction()` against the live posture, aggregating every failure with its code. Exits 1 on any failure."
+            },
+            {
+              "title": "`blamejs config-drift inspect/verify`",
+              "body": "Reads the signed sidecar without rebooting. `verify` exits 1 on tamper or missing sidecar so it composes into supervisord/cron health gates."
+            },
+            {
+              "title": "`blamejs file-type detect <file>`",
+              "body": "Magic-byte content classification with `--allowlist` for upload debugging — pure utility, no framework boot needed."
+            },
+            {
+              "title": "`blamejs password check --plaintext \"...\"`",
+              "body": "Tests `b.auth.password.policy` with `--profile pci-4.0` / `nist-aal2` / `hipaa-aal2`, `--breach-check` for HIBP, and `--email` / `--username` context. Pure utility."
+            },
+            {
+              "title": "`blamejs erase --table X --row-id Y --confirm`",
+              "body": "One-off cryptographic erasure for GDPR Art. 17 — replaces sealed columns and derived hashes with NULL and audits via `system.erase`."
+            },
+            {
+              "title": "`blamejs retention preview/run`",
+              "body": "Ad-hoc rule from CLI flags: `--table` + `--age-field` + `--ttl-ms` + `--action`, with `preview` for dry-run reporting."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Per-subcommand `--help` now reaches each handler's USAGE block",
+              "body": "The previous `main()` dispatch short-circuited every `<sub> --help` to the top-level help text. The fix applies to all existing subcommands too (`api-key --help`, `vault --help`, etc.)."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`b.dualControl` intentionally NOT exposed in the CLI",
+              "body": "Its grants live in an operator-supplied `b.cache` instance the CLI can't bind to without operator wiring; admins approve / revoke from the operator's app instead."
+            },
+            {
+              "title": "Hadolint action pin",
+              "body": "Pinned to `@master` because the published `@v3` floating tag doesn't exist; the maintainer ships only patch tags plus master."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.16",
+      "date": "2026-05-02",
+      "headline": "CI secret-scan + action pin forward-track posture",
+      "summary": "The CI secret-scan job switches off `gitleaks/gitleaks-action` (which began requiring a paid license for organization repositories) and installs the OSS gitleaks binary directly. Other CI tooling pins move to floating refs so security improvements ship automatically.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Secret-scan job uses the OSS gitleaks binary",
+              "body": "Replaces `gitleaks/gitleaks-action` (paid `GITLEAKS_LICENSE` requirement for org repos, which had broken the v0.6.14 publish workflow) with a direct install of the Apache-2.0 OSS binary. The job resolves the latest release at job time so new ruleset improvements ship automatically."
+            },
+            {
+              "title": "CI tool pins moved to floating refs",
+              "body": "`aquasecurity/trivy-action` swaps from `@v0.36.0` to `@master`; `hadolint/hadolint-action` from `@v3.3.0` to the `@v3` major tag; `ludeeus/action-shellcheck` from `@2.0.0` to `@master`; the ESLint runner moves from `eslint@10` to `eslint@latest` in both `ci.yml` and `npm-publish.yml`. The pinning posture matches every other security-aware CI tool — silent pinning lets security improvements be missed."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Vendored crypto libraries verified against upstream",
+              "body": "`@noble/ciphers`, `@simplewebauthn/server`, `argon2`, and `peculiar-pki` checked against upstream latest — no bundle refresh needed. The npm-publish workflow is unblocked for v0.6.14, v0.6.15, and this release."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.15",
+      "date": "2026-05-02",
+      "headline": "Wiki sidebar collapsible nav + three new wiki env knobs",
+      "summary": "The wiki sidebar's concern groups become collapsible `<details>` sections that auto-open on the active page, and the wiki app exposes three new env knobs in its docker-compose configs covering trusted-proxy detection, admin-path CIDR fencing, and production-posture boot assertion.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Collapsible sidebar concern groups",
+              "body": "Every concern group in the wiki sidebar nav is now a `<details>` element starting collapsed; the section containing the current page is rendered with `open` server-side so the operator's current location is always visible. A custom CSS-only disclosure glyph (`>` rotates to `v`) works under the wiki's strict CSP without inline JS."
+            },
+            {
+              "title": "`WIKI_TRUST_PROXY` env knob shipped in docker-compose",
+              "body": "Cookie `Secure`-flag detection through a TLS terminator was already wired in v0.6.12 library code; the env knob now ships in the wiki app's docker-compose configs with documentation so operators fronting the wiki with Caddy / nginx don't have to hand-roll the override."
+            },
+            {
+              "title": "`WIKI_ADMIN_ALLOWED_CIDRS` / `WIKI_ADMIN_DENIED_CIDRS`",
+              "body": "In-process CIDR fence on `/admin` paths via `b.middleware.networkAllowlist`. The production docker-compose overlay defaults the allowlist on; the dev overlay leaves it off."
+            },
+            {
+              "title": "`WIKI_REQUIRE_PROD_ASSERTS` boot gate",
+              "body": "Boot-time `b.security.assertProduction()` gate that refuses to boot when production posture is incomplete. Defaults on in the production overlay (so a misconfigured prod deploy fails fast) and off in the dev overlay."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.14",
+      "date": "2026-05-02",
+      "headline": "Production-posture primitives — boot assertions, ABAC, MFA, password policy, dual control, retention, drift, file-type, network allowlist",
+      "summary": "Ships a broad set of operator-facing primitives covering production-posture assertions, attribute-based authorization, MFA-gated sessions, NIST/PCI/HIPAA password policy, two-person-rule dual control, multi-stage retention with legal hold, signed config-drift baselines, magic-byte file-type detection, CIDR-fenced network middleware, host-allowlisted HTTP client, and cryptographic row-level erasure. CI additionally gains a gitleaks secret scan and a CycloneDX SBOM via `npm sbom`. Every new opt is opt-in; existing callers are unaffected.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.security.assertProduction(opts)` boot-time policy engine",
+              "body": "Refuses boot when production posture is violated: vault / DB-at-rest / audit-signing posture, NTP strict, Node minimum major, TLS minimum version, required + forbidden env vars, NODE_ENV pinning, dataDir POSIX-mode check, CORS-allow-all detection, plus operator-supplied extra asserts. Each assertion throws with the failing predicate named so operators see the misconfiguration directly."
+            },
+            {
+              "title": "`b.permissions.policy(scope, predicate)` ABAC layer",
+              "body": "Per-scope predicates evaluated after RBAC passes, supporting single / requireAll / requireAny composition modes. Lets operators attach attribute-based gates (tenant match, ownership, time-of-day, IP-bound) on top of the existing role check without weaving a parallel auth path."
+            },
+            {
+              "title": "`b.permissions` role-spec `requireMfa` / `mfaWindowMs` + per-route MFA enforcement",
+              "body": "Roles can mandate a recent MFA challenge with a configurable freshness window. The middleware refuses requests from sessions outside the window and emits an audit event so operators can wire step-up flows without rolling their own MFA-recency check."
+            },
+            {
+              "title": "`b.session` IP/UA fingerprint capture + drift detection",
+              "body": "Sessions capture an IP + user-agent fingerprint at create time. An operator-supplied scorer feeds anomaly detection; strict modes `requireFingerprintMatch` and `maxAnomalyScore` refuse the request when the live fingerprint diverges. Defaults stay permissive so existing deployments aren't broken by a NAT roam."
+            },
+            {
+              "title": "`b.auth.password.policy(opts)` with NIST 800-63B / PCI-DSS 4.0 / HIPAA-AAL2 profiles",
+              "body": "Named profiles plus length, common-password, context, dictionary, and complexity rules (categories + min-run + min-sequence). Includes an HIBP k-anonymity breach check (SHA-1 lives in `lib/internal-sha1-hibp.js` and is intentionally NOT exported on `b.crypto`). Rotation (`shouldRotate`) and history-reuse (`reuseProhibited`) are first-class. Aligned with NIST SP 800-63B-4 (March 2024) and PCI-DSS 4.0 (8.3.x)."
+            },
+            {
+              "title": "`b.dualControl.create(opts)` two-person rule",
+              "body": "m-of-n quorum, cooling-off lock between approval and consume, approver-role gate, requester cancellation, minimum reason length, notification hook on each transition. Designed for break-glass admin actions, large-value transfers, and any op that should require a second authorized human in the loop."
+            },
+            {
+              "title": "`b.retention.create(opts)` multi-stage retention",
+              "body": "Warn → archive → erase staged rules, legal-hold per-row exemption, dry-run `preview()`, soft-delete vs hard-delete vs erase, cross-table cascade, per-rule concurrency lock. Operators encode GDPR Art. 17 / CCPA-deletion / sectoral-retention floors as data instead of imperative jobs."
+            },
+            {
+              "title": "`b.configDrift.create(opts)` signed-baseline drift detection",
+              "body": "Multi-baseline support, critical-keys severity classification, ignore-keys allowlist, signed sidecar via SLH-DSA, and diff against the previous snapshot. The detector runs on a schedule and surfaces drift before the next deployment instead of at incident-response time."
+            },
+            {
+              "title": "`b.fileType.detect` / `b.fileType.assertOneOf` magic-byte classification",
+              "body": "Identifies content (image / document / archive / executable / etc.) from the byte stream's magic. Composes with `b.guardArchive` / `b.guardImage` / `b.fileUpload` so the operator gets one classifier surface instead of N ad-hoc sniffers."
+            },
+            {
+              "title": "`b.middleware.networkAllowlist({ paths, allowedCidrs, deniedCidrs })`",
+              "body": "Deny-then-allow CIDR fence per-path. Lets operators ring-fence admin paths to corporate ranges without standing up a reverse-proxy ACL. Emits an audit event on every refused request."
+            },
+            {
+              "title": "`b.httpClient.request({ allowedHosts })` host allowlist + audit",
+              "body": "Exact / suffix / wildcard / per-method entries; the client refuses any outbound request to an unlisted host and emits an audit event with the violating destination. Closes a class of SSRF / data-egress risk on outbound integrations."
+            },
+            {
+              "title": "`b.cryptoField.eraseRow(table, row)` cryptographic erasure",
+              "body": "Helper for sealed columns + derived hashes — destroys per-row key material so the ciphertext becomes irrecoverable without bulk deletes. Aligned with GDPR Art. 17 right-to-erasure on tenants that share a table."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "CI gains gitleaks secret scan + CycloneDX SBOM via `npm sbom`",
+              "body": "Both run on every PR without vendoring additional tooling — gitleaks via the official action pinned to a SHA, SBOM via `npm sbom --sbom-format=cyclonedx` shipped to the artifact bucket. Operators have a verifiable component inventory per release without a separate generation step."
+            },
+            {
+              "title": "README + SECURITY operator-checklist updated end to end",
+              "body": "Every new primitive lands in the README's `What ships` matrix and in the SECURITY hardening checklist. The wiki gains an alerting-rule reference table that maps each framework-emitted audit event to a suggested detection rule."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "NIST SP 800-63B-4 (Digital Identity Guidelines)",
+          "url": "https://pages.nist.gov/800-63-4/sp800-63b.html"
+        },
+        {
+          "label": "PCI-DSS 4.0",
+          "url": "https://www.pcisecuritystandards.org/document_library/"
+        },
+        {
+          "label": "HIPAA Security Rule (45 CFR Part 164)",
+          "url": "https://www.ecfr.gov/current/title-45/subtitle-A/subchapter-C/part-164"
+        },
+        {
+          "label": "GDPR Article 17 — Right to erasure",
+          "url": "https://gdpr-info.eu/art-17-gdpr/"
+        },
+        {
+          "label": "CycloneDX 1.6",
+          "url": "https://cyclonedx.org/specification/overview/"
+        },
+        {
+          "label": "Have I Been Pwned k-anonymity range API",
+          "url": "https://haveibeenpwned.com/API/v3#PwnedPasswords"
+        }
+      ]
+    },
+    {
+      "version": "0.6.13",
+      "date": "2026-05-02",
+      "headline": "Wiki primitive-section docs catch up to the v0.6.12 surface and `numeric-checks` consolidation",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Wiki primitive-section docs reconciled with v0.6.12",
+              "body": "Documentation for `safeUrl.parse` `allowUserinfo`, `session.touch` `extendBy` ceiling, `queue.consume` `rateLimit` validation, `mail.transports.console` `redactBcc`, the `logStream` webhook sink `onDrop`, `backup.create` `requireFlush`, and `restore.create` `maxPulledBytes` / `maxPulledFiles` is now in sync with the lib surface. The restore default cap is stated as `C.BYTES.gib(4)` rather than a raw byte literal."
+            },
+            {
+              "title": "Numeric-check predicates consolidated",
+              "body": "`isPositiveInt`, `isFiniteNonNegative`, and `isPositiveFinite` were duplicated across `api-key`, `cache`, `notify`, `queue`, `restore`, `retry`, `slug`, `testing`, and `webhook`; the helpers are now consolidated into `lib/numeric-checks.js` and every consumer routes through it."
+            },
+            {
+              "title": "API snapshot refreshed",
+              "body": "`api-snapshot.json` is refreshed to capture the new public surface introduced by the previous release."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.12",
+      "date": "2026-05-01",
+      "headline": "Hardening sweep across `safeUrl`, `session`, `queue`, middleware, backup/restore, mail, and log-stream",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`b.safeUrl.parse` rejects `user:pass@` userinfo by default",
+              "body": "Operators wanting userinfo opt in per-call via `allowUserinfo: true`. The default refuses the shape that most often appears in URL-confusion phishing payloads."
+            },
+            {
+              "title": "`b.session.touch({ extendBy })` enforces the `MAX_TTL_MS` ceiling",
+              "body": "`touch` now applies the same `MAX_TTL_MS` ceiling as `create` and `rotate` so a long-lived session can't be extended past the configured maximum."
+            },
+            {
+              "title": "`b.queue.consume({ rateLimit })` validates `max`",
+              "body": "Negative, zero, `NaN`, `Infinity`, and fractional `max` values are rejected at queue creation instead of silently bypassing the rate limit at consume time."
+            },
+            {
+              "title": "`b.middleware.requireAuth` JSON detection narrowed",
+              "body": "Request `Content-Type: application/json` is no longer treated as a JSON-preference signal; only `Accept` and `X-Requested-With` count so an attacker can't downgrade the response shape by tampering with the request body's content type."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.backup.create({ requireFlush: true })` opt-in",
+              "body": "When set, the backup fails if the pre-flush step fails instead of producing a stale snapshot."
+            },
+            {
+              "title": "`b.restore.create` preflight bounds",
+              "body": "`maxPulledBytes` and `maxPulledFiles` preflight bounds bound bundle footprint before and after pull. Defaults are 4 GiB and 100K files."
+            },
+            {
+              "title": "`b.mail.transports.console({ redactBcc: true })`",
+              "body": "When set, the console mail transport prints a recipient count instead of address strings so dev logs don't leak BCC lists."
+            },
+            {
+              "title": "`b.logStream.transports.webhook({ onDrop })`",
+              "body": "Callback fires on overflow and retry-exhausted batch drops so operators see every drop class instead of silent loss."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Wiki admin login wired through `b.auth.lockout`",
+              "body": "Admin login now applies exponential backoff after bad-credential attempts instead of accepting unlimited retries."
+            },
+            {
+              "title": "Cookie `Secure` flag routes through `requestProtocol`",
+              "body": "The wiki app's cookie `Secure` flag now routes through `b.requestHelpers.requestProtocol` with `WIKI_TRUST_PROXY` opt-in instead of trusting `x-forwarded-proto` raw. The wiki README documents the trust model for editable page bodies and the sanitization pattern operators should adopt before expanding the editor surface."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.11",
+      "date": "2026-05-01",
+      "headline": "Wiki example-execution validator: fixture init no longer reaches across module realms",
+      "summary": "Unblocks the npm-publish workflow's wiki-e2e gate, where `npm install --install-links` copies the framework into the wiki's `node_modules` and produces two distinct framework singletons.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Fixture init no longer reaches across module realms",
+              "body": "The wiki example-execution validator constructed its fixture by reaching into framework internals across module realms; with `npm install --install-links` (used by the npm-publish workflow) the wiki's `node_modules` carries a separate framework copy, producing two singletons. The fixture is reworked so initialisation runs entirely inside the wiki's realm and the workflow's wiki-e2e gate unblocks."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.10",
+      "date": "2026-05-01",
+      "headline": "Doc accuracy sweep across README / SECURITY / CONTRIBUTING / wiki",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Stale version stamps removed",
+              "body": "Several README and SECURITY sections carried version stamps that drifted across releases; they are removed in favor of pointing at the live manifest."
+            },
+            {
+              "title": "Vendored-dep list points at the live manifest",
+              "body": "SECURITY now points at `lib/vendor/MANIFEST.json` as the authoritative vendored-dependency list instead of an out-of-date prose enumeration. The supported-versions table no longer pins to a specific minor line."
+            },
+            {
+              "title": "Archive example renamed digest variable",
+              "body": "The wiki archive example named the digest variable `sha256` even though `b.archive.zip().digest()` now returns SHA3-512 hex; the variable is renamed so the example reads correctly."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.9",
+      "date": "2026-05-01",
+      "headline": "`b.archive.zip().digest()` returns SHA3-512 hex (was SHA-256)",
+      "summary": "Operators reconciling archive digests against an external SHA-256 must now hash the bytes themselves.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Archive digest output switched to SHA3-512",
+              "body": "`b.archive.zip().digest()` now returns a SHA3-512 hex string, matching the framework's PQC-first hash posture. Operators reconciling against an external SHA-256 must hash the produced bytes themselves with `sha256` to recover the prior value."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.8",
+      "date": "2026-05-01",
+      "headline": "Wiki primitive-section validator covering presence, opts diff, and example execution",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Primitive-section validator for wiki pages",
+              "body": "Wiki pages documenting a primitive now run through a validator that asserts presence of the documented surface, diffs documented opts against the lib allow-list, and executes every example against a canonical fixture so drift is caught at the gate."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.7",
+      "date": "2026-05-01",
+      "headline": "`db.role.switched` audit, per-role metrics, and an API snapshot baseline",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`db.role.switched` audit event",
+              "body": "Every request-time role switch on the db pool emits an audit event so operators can correlate role-bound queries with the requests that triggered them."
+            },
+            {
+              "title": "Per-role observability counters",
+              "body": "Observability counters now break down query / acquire / commit / rollback metrics per active DB role."
+            },
+            {
+              "title": "API snapshot baseline",
+              "body": "An `api-snapshot.json` baseline is checked in and validated by CI so accidental surface drift between releases is refused at the gate."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.6",
+      "date": "2026-05-01",
+      "headline": "Request-time DB role binding and Postgres RLS migrations",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Request-time DB role binding",
+              "body": "The db primitive binds a request-scoped role per acquire so Postgres RLS policies and least-privilege roles compose naturally with the request lifecycle."
+            },
+            {
+              "title": "Postgres RLS migration helpers",
+              "body": "Migration helpers emit the `CREATE POLICY` / `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` boilerplate Postgres needs for row-level-security rollout."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.5",
+      "date": "2026-05-01",
+      "headline": "`b.db.declareView` and `b.externalDb.migrate`",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.db.declareView`",
+              "body": "Operators declare a named view at boot and the framework manages its creation, replacement, and audit alongside table schemas."
+            },
+            {
+              "title": "`b.externalDb.migrate`",
+              "body": "Schema migrations against an external database now run through the same advisory-lock + version-table workflow the local db primitive uses."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.4",
+      "date": "2026-05-01",
+      "headline": "Wiki schema docs realigned with the actual lib API",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Wiki schema docs realigned with the actual lib API",
+              "body": "Several wiki pages documented opts and method shapes that had drifted from the underlying lib surface; every documented signature is now reconciled against the validator and exec-runtime gates."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.3",
+      "date": "2026-05-01",
+      "headline": "`externalDb` pool tuning, role-aware connect, and read-replica routing",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Pool tuning opts for `b.externalDb`",
+              "body": "Operators can now tune the underlying connection pool from primitive opts instead of passing a pre-built driver."
+            },
+            {
+              "title": "Role-aware connect",
+              "body": "Connections can now bind to a request-scoped role on acquire, giving Postgres RLS and least-privilege deploys a clean wiring point."
+            },
+            {
+              "title": "Read-replica routing",
+              "body": "Read-only queries route to a replica pool when configured, with the writer-pool fallback used for any statement that mutates state."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.2",
+      "date": "2026-05-01",
+      "headline": "Input validation tightening and identifier-quoting consistency",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Input validation tightened across primitives",
+              "body": "Validation paths refuse a broader class of malformed input at the entry boundary, surfacing typos at boot or at the request edge instead of mid-flight."
+            },
+            {
+              "title": "SQL identifier quoting normalised",
+              "body": "Identifier quoting in generated SQL is normalised across the db primitives so cross-dialect output stays consistent."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.1",
+      "date": "2026-05-01",
+      "headline": "Security tightenings and operator-facing jargon sweep",
+      "summary": "Several security defaults are tightened and operator-facing prose across the wiki and README is rewritten to remove internal vocabulary.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Operator-facing jargon sweep",
+              "body": "Wiki and README prose is rewritten to remove internal vocabulary so operators read primitive descriptions in their own terms."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Default tightenings across the request lifecycle",
+              "body": "Several security defaults across the request lifecycle are tightened so operators inherit stricter posture without extra opt-in."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.0",
+      "date": "2026-05-01",
+      "headline": "Wiki restructured into 22 focused pages with missing-primitive coverage",
+      "summary": "The wiki is reorganized into 22 concern-scoped pages so operators land on the primitive surface for their task instead of scrolling a monolithic index, and every previously missing primitive gains its own page.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Wiki reorganized into 22 concern-scoped pages",
+              "body": "Operators land on the primitive page for the concern they are working in rather than scrolling a single index. The new layout closes coverage gaps where previously missing primitives now ship their own pages."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

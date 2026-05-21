@@ -28,10 +28,11 @@ jobs:
 
       # CodeQL maintains a single combined language ID for JavaScript +
       # TypeScript. The framework ships CommonJS JavaScript only (no
-      # transpilation per CLAUDE.md hard rule §7); the language ID
-      # picks up the .js files under lib/ + scripts/ regardless.
+      # transpilation step — every transpilation hop is a supply-chain
+      # hop); the language ID picks up the .js files under lib/ +
+      # scripts/ regardless.
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@9e0d7b8d25671d64c341c19c0152d693099fb5ba  # v3.30.9
+        uses: github/codeql-action/init@9e0d7b8d25671d64c341c19c0152d693099fb5ba  # v4.35.5
         with:
           languages: javascript-typescript
           # security-extended adds higher-precision queries beyond the
@@ -44,6 +45,6 @@ jobs:
       # Auto-build is skipped because CommonJS files don't need a build
       # step; CodeQL extracts straight from source.
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@9e0d7b8d25671d64c341c19c0152d693099fb5ba  # v3.30.9
+        uses: github/codeql-action/analyze@9e0d7b8d25671d64c341c19c0152d693099fb5ba  # v4.35.5
         with:
           category: "/language:javascript-typescript"

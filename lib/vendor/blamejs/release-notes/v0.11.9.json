@@ -1,0 +1,31 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.11.9",
+  "date": "2026-05-19",
+  "headline": "Release-workflow `contents: write` — actually fixes the startup_failure that blocked v0.11.7 and v0.11.8",
+  "summary": "v0.11.8 carried the wrong permission for the SLSA reusable workflow caller. GitHub Actions evaluates the entire reusable-workflow permission surface at workflow startup — including jobs that won't run because their `if:` short-circuits. The SLSA `upload-assets` job declares `permissions: contents: write`; `contents: read` in the caller failed the parse-time superset check before any job started, surfacing as `startup_failure` with no log file. Raising the caller to `contents: write` makes the caller's permission set a superset of every job the reusable workflow declares, regardless of which jobs end up running.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Caller-level `contents: write` for the SLSA reusable workflow",
+          "body": "`.github/workflows/npm-publish.yml`'s `provenance` job now grants `contents: write` instead of `contents: read`. The change is parse-time-only — at runtime, `upload-assets: false` still skips the actual upload step, so the release-create flow remains the atomic-create-with-all-assets pattern v0.11.7 introduced. v0.11.7 and v0.11.8 are both `startup_failure` tags on the git history (no GH release, no npm publish); operators upgrading from `<= v0.11.6` should land directly on v0.11.9 — `npm install @blamejs/core@latest` lands you on v0.11.9."
+        }
+      ]
+    },
+    {
+      "heading": "Migration",
+      "items": [
+        {
+          "title": "v0.11.7 and v0.11.8 are tombstone tags",
+          "body": "The git tags for v0.11.7 and v0.11.8 exist in the repository but the publish workflow rejected at startup, so there are no corresponding GitHub Release pages and no npm registry entries. v0.11.9 carries everything those tags would have shipped: the workflow-driven release creation with SLSA L3 + Sigstore-keyless SBOM signatures + PQC sidecars (graceful-skip until the operator completes the one-time release-signing-key setup), the structured release-notes pipeline, and the CHANGELOG.md rebuild discipline."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "GitHub Actions — reusable-workflow permissions", "url": "https://docs.github.com/en/actions/sharing-automations/reusing-workflows#supported-keywords-for-jobs-that-call-a-reusable-workflow" },
+    { "label": "SLSA generic generator v2.1.0 example caller", "url": "https://github.com/slsa-framework/slsa-github-generator/tree/v2.1.0/internal/builders/generic" }
+  ]
+}

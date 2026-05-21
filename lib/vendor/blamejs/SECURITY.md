@@ -64,7 +64,102 @@ curl -sf https://github.com/dotCooCoo.keys                                      
 git -c gpg.ssh.allowedSignersFile=/tmp/blamejs-allowed-signers tag -v vX.Y.Z
 ```
 
-The three trust roots — SLSA L3 npm provenance, Sigstore-keyless SBOM signing, SSH-signed tags (v0.9.7+) — are independently verifiable. Tampering with any single root is detected by the others.
+PQC release-signing key (ML-DSA-65, applies v0.11.18+):
+
+| Field | Value |
+|---|---|
+| Algorithm | `ML-DSA-65` (FIPS 204) |
+| Public key file | `keys/release-pqc-pub.json` (committed in-tree at the release SHA) |
+| Fingerprint (SHA3-512) | `ad6bee961782cd01a0751286c23ddc04a6a0ce5d2672cfb6f4ade0cc7cdc62c351c857599e9d22996e91ee56462ddf3939951808286132335d56d3bfe99d2ede` |
+
+Every tarball ships with a `<tarball>.mldsa.sig` sidecar — an ML-DSA-65 signature over the tarball bytes computed with the framework's vendored `noble-post-quantum` primitive. The matching public key is committed in-tree at `keys/release-pqc-pub.json` and is covered by the SSH-signed tag (the first trust root) — operators fetch it from `raw.githubusercontent.com` at the tag, NOT from the GH Release page (release assets carry the tarball + digests + sigs only).
+
+```sh
+TAG=vX.Y.Z
+
+# Tarball + PQC sidecar from the GH Release.
+gh release download "$TAG" --repo blamejs/blamejs   \
+  --pattern '@blamejs-core-*.tgz'                   \
+  --pattern '@blamejs-core-*.tgz.mldsa.sig'
+
+# Public key from the git source at the same tag (SSH-tag-signed,
+# verifiable via `git tag -v` above).
+curl -fsSL -o release-pqc-pub.json   \
+  "https://raw.githubusercontent.com/blamejs/blamejs/${TAG}/keys/release-pqc-pub.json"
+
+# Verify the sig with the framework's own ML-DSA-65 primitive —
+# no Sigstore dependency, no external verifier binary.
+node -e '
+  var b   = require("@blamejs/core");
+  var fs  = require("node:fs");
+  var pub = JSON.parse(fs.readFileSync("release-pqc-pub.json", "utf8"));
+  var sig = fs.readFileSync(process.argv[1]);
+  var msg = fs.readFileSync(process.argv[2]);
+  var ok  = b.pqcSoftware.ml_dsa_65.verify(
+    sig, msg, Buffer.from(pub.publicKey, "base64url")
+  );
+  if (!ok) { process.stderr.write("MLDSA verify FAILED\n"); process.exit(1); }
+  process.stderr.write("MLDSA verify OK (fingerprint " + pub.fingerprint_sha3_512.slice(0, 16) + "…)\n");
+' @blamejs-core-vX.Y.Z.tgz.mldsa.sig @blamejs-core-vX.Y.Z.tgz
+```
+
+Compare the printed fingerprint against the SHA3-512 above — they must match. The in-tree `keys/release-pqc-pub.json` is committed alongside every release commit; an attacker swapping the public key would have to also forge the SSH-signed tag covering that commit (the first trust root). The four trust roots chain: a verified tag signs the public key file, the public key verifies the sig sidecar, the sig sidecar covers the tarball bytes.
+
+Re-running `scripts/generate-release-signing-key.js` rotates the key. Rotation updates `keys/release-pqc-pub.json`, requires an operator-side `gh secret set RELEASE_PQC_SIGNING_KEY --env npm-publish` to match, and ships the new fingerprint in this SECURITY.md table in the same commit. The previous fingerprint stays archivable via `git log -- keys/release-pqc-pub.json`.
+
+The four trust roots — SLSA L3 npm provenance, Sigstore-keyless SBOM signing, SSH-signed tags (v0.9.7+), ML-DSA-65 release-signing sidecar (v0.11.18+) — are independently verifiable. Tampering with any single root is detected by the others.
+
+### Verifying SLSA L3 provenance with `slsa-verifier`
+
+`gh attestation verify` walks the provenance chain via the GitHub API. For an offline / API-independent verification path, pin `slsa-verifier` v2.7.1 ([slsa-framework/slsa-verifier releases](https://github.com/slsa-framework/slsa-verifier/releases/tag/v2.7.1)):
+
+```sh
+TAG=vX.Y.Z
+VERSION="${TAG#v}"
+
+# Download the npm tarball + SLSA L3 attestation.
+gh release download "$TAG" --repo blamejs/blamejs   \
+  --pattern '@blamejs-core-*.tgz'                   \
+  --pattern "blamejs-${VERSION}.intoto.jsonl"
+
+slsa-verifier verify-artifact "@blamejs-core-${VERSION}.tgz"  \
+  --provenance-path "blamejs-${VERSION}.intoto.jsonl"          \
+  --source-uri      github.com/blamejs/blamejs                 \
+  --source-tag      "$TAG"
+```
+
+For air-gapped / offline use, point `slsa-verifier` at a locally-snapshotted Sigstore TUF root (`--trusted-root /path/to/trusted_root.json`, captured once from a trusted channel + verified against the published Sigstore root operators).
+
+**What this proves vs. what it doesn't.** SLSA L3 provenance binds the tarball bytes to *this exact workflow run on this exact commit on this exact tag*. It does NOT prove the source itself is clean — the [TanStack 2025-05-11 incident](https://blog.tanstack.com/the-tanstack-may-2025-supply-chain-attack/) shipped 84 malicious `@tanstack/*` versions with valid SLSA L3 provenance because the source side was compromised. Operators verifying release integrity should pair `slsa-verifier` with the [sha-to-tag verification](#verifying-release-commit-integrity) recipe below.
+
+### Verifying release-commit integrity
+
+Given a published tag, this confirms the tag's commit SHA is on `main`'s first-parent history and is the result of a merged PR (not a force-push, not a tag-mutation, not a sneaky direct push):
+
+```sh
+TAG=vX.Y.Z
+git fetch --tags origin
+
+# 1. Verify the tag signature (also captures the SSH-signing chain).
+git tag -v "$TAG"
+
+# 2. Resolve the commit the tag points at.
+SHA=$(git rev-list -n 1 "$TAG")
+
+# 3. Confirm the SHA is on main's first-parent history (refuses if the
+#    tag points at a sidetracked commit).
+git merge-base --is-ancestor "$SHA" origin/main && echo "on-main: OK"
+
+# 4. Confirm the commit was merged via a PR (squash-merge SHA appears
+#    once on first-parent; refuses on direct push to main).
+PR=$(gh api "repos/blamejs/blamejs/commits/${SHA}/pulls" --jq '.[0].number')
+test -n "$PR" && echo "merged via PR #${PR}: OK"
+```
+
+The same chain is enforced server-side on every tag push by the
+`sha-to-tag-verify` workflow — the publish workflow refuses to proceed if any link fails. The recipe above lets operators re-run the check independently.
+
+This is the defense against the tag-mutation class (CVE-2025-30066: `tj-actions/changed-files` retroactive tag rewrite, affected 23,000+ repos in March 2025) and the source-side-malicious-publish class (TanStack 2025-05-11). Paired with `slsa-verifier` above, they cover the source side AND the build side.
 
 ### Response time
 
@@ -153,6 +248,23 @@ The framework is **not** itself FIPS 140-3 validated; the cryptographic primitiv
 Argon2id (`lib/vendor/argon2/`) is similarly a vendored pure-JS / WASM implementation — not FIPS-validated. Operators on FIPS-restricted password-hashing requirements pin to PBKDF2-SHA-512 via the Node OpenSSL provider until Argon2 lands in the FIPS provider catalog.
 
 The framework's **classical** hashing (SHA-3 family, HMAC-SHA3-512), **classical** asymmetric (P-384 ECDH for the hybrid KEM), and **TLS** (Node's built-in TLS stack) all route through the Node-linked OpenSSL boundary by default — operators with `--force-fips` get FIPS coverage on every classical primitive without further configuration.
+
+---
+
+## Supply-chain transparency posture
+
+Every tagged release writes a public-transparency-log entry through [Sigstore Rekor](https://docs.sigstore.dev/logging/overview/) as part of two independent trust chains:
+
+1. **SLSA L3 provenance** (`<tarball>.intoto.jsonl`) — the SLSA reusable workflow signs the attestation with an OIDC-bound short-lived cert from Fulcio and records the issuance in Rekor. Downstream verifiers use `slsa-verifier` to confirm the tarball binds to the GitHub workflow + commit + tag that produced it.
+2. **Sigstore-keyless SBOM signatures** (`sbom.cdx.json.sigstore`, `sbom.vendored.cdx.json.sigstore`) — cosign sign-blob via the same OIDC trust root. Verifiers use `cosign verify-blob ... --bundle <.sigstore>`.
+
+Both flows publish the repository's identity (`blamejs/blamejs`), the workflow path, and the release commit SHA into the public Rekor instance. `github.com/blamejs/blamejs` is intentionally public — see the [repository's settings](https://github.com/blamejs/blamejs/settings) — so the transparency-log entry doesn't disclose anything an attacker couldn't already observe from the public repo, and the auditability gain is the operator-desired property.
+
+The release workflow passes `private-repository: true` to the SLSA reusable workflow as an explicit acknowledgement that the transparency-log write is intentional. Without the override, SLSA's internal privacy detection (which inspects workflow permissions rather than repository visibility and so reports false positives for permissive-permission workflows even on public repos) would halt the attest step to avoid leaking the repository name.
+
+**Downstream forks operating from a private mirror should flip the input.** If you fork blamejs into a private GitHub organization or a non-public namespace and want releases NOT to write Rekor entries, set `private-repository: false` in `.github/workflows/npm-publish.yml`'s `provenance` job. The SLSA workflow will then halt the attest step and the release pipeline will fail; you'll either accept the loss of SLSA provenance or migrate to a private-Sigstore deployment (the SLSA framework supports this via `sigstore-go` configuration outside the scope of this document).
+
+The framework collects no telemetry from operators. Every primitive that touches an external service (DNS lookups via DoH, ACME enrollment, OCSP checks, NTP queries, OSV-Scanner SBOM scans during release, etc.) is documented at its call site and runs through an operator-supplied endpoint — there is no framework-owned ingest channel.
 
 ---
 
@@ -310,7 +422,7 @@ Today's `engines.node` floor is `>=24.14.1` and the release container pins `node
 
 Two Node 26 platform-level changes operators integrating with blamejs should be aware of now:
 
-- **`localStorage` global.** Node 26 adds `localStorage` as a platform-wide global (returns `undefined` unless the process was started with `--localstorage-file`). The framework's storage backend was renamed from `b.backup.localStorage(opts)` to `b.backup.diskStorage(opts)` in v0.11.2 to avoid the operator-facing surface ambiguity; the legacy `b.backup.localStorage` property continues to work on the same module export through one-time deprecation warning routed via `b.deprecate.alias`, with removal scheduled for the next major (Node 24 LTS sunset). The Node 26 global itself does not collide with the framework's property-access shape (`b.backup.X(...)`) — operators with user code under blamejs that uses **bare** `localStorage` (no `b.backup.` prefix) need to know that the name now resolves to a Node global rather than throwing `ReferenceError`; what was previously a typo surface is now a silent-noop surface.
+- **`localStorage` global.** Node 26 adds `localStorage` as a platform-wide global (returns `undefined` unless the process was started with `--localstorage-file`). The framework's storage backend is exposed as `b.backup.diskStorage(opts)` (renamed from `b.backup.localStorage` in v0.11.2; the legacy alias was removed in v0.11.20). The Node 26 global itself does not collide with the framework's property-access shape (`b.backup.X(...)`) — operators with user code under blamejs that uses **bare** `localStorage` (no `b.backup.` prefix) need to know that the name now resolves to a Node global rather than throwing `ReferenceError`; what was previously a typo surface is now a silent-noop surface.
 - **ML-KEM / ML-DSA PKCS8 export shape.** Node 26 defaults `KeyObject.export({ format: "pkcs8" })` for ML-KEM-768/1024 and ML-DSA-44/65/87 to the seed-only PKCS8 encoding — structurally different and much shorter than the Node 24 full encoding. Sealed key material on disk written by the framework on Node 24 (vault primary key, audit-sign signing key, content-credentials signing key, AIBOM signing key, A2A card key, ACME account key) continues to re-import cleanly on Node 26 because `nodeCrypto.createPrivateKey({ format: "pkcs8" })` is documented to accept both shapes ([Node 26 release notes](https://nodejs.org/en/blog/release/v26.0.0)). New material written on Node 26 is in the seed-only shape — operators with parallel Node 24 readers of the same sealed disk must run a one-time migration when they bump the writer to Node 26 (Node 24's importer pre-dates the seed-only shape). The framework's integration suite at `test/integration/pqc-pkcs8-forward-compat.test.js` covers the current-Node export → re-import → sign-verify roundtrip and embeds a captured Node-26 seed-only fixture that re-imports every run as a regression guard. A captured Node-24 full-shape fixture is the missing piece for the cross-version assertion to be locally verifiable; it's added in the Node 26 floor-bump slice when a Node 24 build environment captures it. Until then the cross-version property rests on Node's documented importer contract.
 
 ## Reporting CVEs in vendored dependencies

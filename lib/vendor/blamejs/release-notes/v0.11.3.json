@@ -1,0 +1,55 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.11.3",
+  "date": "2026-05-19",
+  "headline": "SPF `a` and `mx` mechanism dispatch + smaller deferral-condition cleanups",
+  "summary": "`b.mail.spf.verify` now evaluates the `a` and `mx` mechanisms per RFC 7208 §5.3 + §5.4, including the dual-cidr-length syntax. Senders publishing `v=spf1 mx -all` or `v=spf1 a -all` previously permerrored against this framework even though those are the second-most-common SPF mechanisms in fielded policies.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "SPF `a` and `mx` mechanism evaluation",
+          "body": "`b.mail.spf.verify` now evaluates the `a` and `mx` mechanisms per RFC 7208 §5.3 + §5.4, including the dual-cidr-length syntax (`a:foo.example/24//64`, `mx//64`). Verification resolves the operator-supplied A / AAAA / MX records (via the existing `dnsLookup` callback contract — which is now honored for every record type, not only TXT) and matches the connecting IP under the parsed cidr. MX expansion is capped at the RFC §4.6.4 limit of 10 hosts (over-limit = permerror); each MX-host A/AAAA expansion counts toward the 10-lookup global ceiling and the 2-lookup void-lookup sub-limit."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Empty digit segments in dual-cidr-length grammar refuse with permerror",
+          "body": "`a/`, `a//`, `mx/`, `mx//`, `a/24//` and similar shapes now permerror with an explanatory message. RFC §5.3/§5.4 grammar requires `1*DIGIT` after each slash; accepting empty would over-authorize senders publishing `v=spf1 a/ -all` (would match every IP in the /32 of every A record)."
+        },
+        {
+          "title": "`exists` and `ptr` mechanisms permerror with explanatory message",
+          "body": "`exists` (RFC §5.7) needs macro-string expansion (RFC §7) to be usable in fielded policies; `ptr` (RFC §5.5) is strongly discouraged by the RFC and rarely seen. Each now permerrors with an explanatory message naming the RFC section and a practical operator-side mitigation."
+        },
+        {
+          "title": "S/MIME documentation corrected to reflect v0.10.16 shipped state",
+          "body": "`b.mail.crypto.smime` `@card` and the v1-only-emits-metadata comment in `lib/mail-crypto-smime.js` are corrected to reflect that sign + verify shipped in v0.10.16 on the `b.cms` substrate. EFAIL-class encrypt/decrypt remains the only deferred slice."
+        },
+        {
+          "title": "Deferral conditions documented for ACME revocation and IMAP BAD UID responses",
+          "body": "`b.acme.create.revokeCert({ useCertKey: true })` and the `BAD UID <subverb>` IMAP listener response now carry explicit re-open conditions plus named operator escape hatches alongside the deferral."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "`slice1-optional-parseint-silent-default`",
+          "body": "Any `.slice(1)` followed by an `if (X.length > 0)` guard around `parseInt(X, 10)` MUST sit in a file that also carries an explicit empty-segment refusal phrasing. Future cidr-length / prefix-length / port-range parsers inherit the discipline automatically."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "RFC 7208 §5.3 a mechanism",         "url": "https://www.rfc-editor.org/rfc/rfc7208#section-5.3" },
+    { "label": "RFC 7208 §5.4 mx mechanism",        "url": "https://www.rfc-editor.org/rfc/rfc7208#section-5.4" },
+    { "label": "RFC 7208 §4.6.4 DNS-lookup limits", "url": "https://www.rfc-editor.org/rfc/rfc7208#section-4.6.4" },
+    { "label": "RFC 8551 S/MIME 4.0",               "url": "https://www.rfc-editor.org/rfc/rfc8551.html" },
+    { "label": "RFC 9051 IMAP4rev2 §6.4.9 UID",     "url": "https://www.rfc-editor.org/rfc/rfc9051#section-6.4.9" }
+  ]
+}

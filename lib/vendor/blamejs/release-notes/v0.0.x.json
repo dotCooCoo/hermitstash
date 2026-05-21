@@ -1,0 +1,310 @@
+{
+  "$schema": "../scripts/release-notes-consolidated-schema.json",
+  "minor": "0.0",
+  "releases": [
+    {
+      "version": "0.0.19",
+      "date": "2026-04-26",
+      "headline": "HA core: leader election and fencing tokens",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Leader election and fencing-token primitive",
+              "body": "Adds the high-availability core: an operator-facing leader-election primitive with monotonic fencing tokens so followers can detect and refuse stale-leader writes against shared resources."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.0.18",
+      "date": "2026-04-26",
+      "headline": "Strip internal-process narrative from framework comments",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Source comments rewritten to operator-facing voice",
+              "body": "Rewrites in-source comments across `lib/` to describe what each primitive does and why operators care, removing internal-process vocabulary that meant nothing outside the maintainer workflow."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.0.17",
+      "date": "2026-04-25",
+      "headline": "Internal adoption pass and functional scale helpers",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Internal adoption of framework primitives across `lib/`",
+              "body": "Refactors framework-internal call sites to compose the public primitives they previously open-coded, and adds the functional scale helpers used by hot-path observability sinks."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.0.16",
+      "date": "2026-04-25",
+      "headline": "Atomic file I/O and safe XML and CSV parsers",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Atomic file I/O and safe XML and CSV parsers",
+              "body": "Adds the atomic file-write primitive that survives mid-write crashes plus hardened XML and CSV parsers with depth, byte, and field-count caps to refuse pathological inputs."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.0.15",
+      "date": "2026-04-25",
+      "headline": "HTTP middleware: request lifecycle hardening begins",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "HTTP middleware request-lifecycle hardening",
+              "body": "Starts the HTTP middleware family with the request-lifecycle hardening primitives that wire security defaults into every request entering the framework."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.0.14",
+      "date": "2026-04-25",
+      "headline": "External database support, app-data-only shape with bring-your-own client",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "External database support in app-data-only shape",
+              "body": "Adds the external-database integration in its app-data-only configuration: operators bring their own database client and the framework uses it exclusively for application data, keeping audit and key material on the sealed local store."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.0.13",
+      "date": "2026-04-25",
+      "headline": "Log streaming, redaction, and bidirectional command channel",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Log streaming with redaction and bidirectional command channel",
+              "body": "Introduces the log-stream primitive with built-in field redaction plus a bidirectional command channel so operators can stream logs out and push runtime commands in over the same transport."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.0.12",
+      "date": "2026-04-25",
+      "headline": "Queue dispatcher with local SQLite-backed protocol",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Queue dispatcher and SQLite-backed local protocol",
+              "body": "Adds the work-queue dispatcher primitive together with a local SQLite-backed protocol adapter so operators can run durable background work without standing up an external broker."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.0.11",
+      "date": "2026-04-25",
+      "headline": "GCS and Azure Blob protocol adapters complete the object-store surface",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Google Cloud Storage and Azure Blob adapters",
+              "body": "Adds the GCS and Azure Blob protocol adapters alongside the existing SigV4 adapter, giving the object-store primitive coverage of every major cloud provider out of the box."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.0.10",
+      "date": "2026-04-25",
+      "headline": "SigV4 protocol adapter for S3-compatible object stores",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "SigV4 protocol adapter",
+              "body": "Adds the AWS SigV4 signing adapter so the object-store primitive can talk to S3, Cloudflare R2, Backblaze B2, MinIO, Wasabi, DigitalOcean Spaces, and any other SigV4-speaking endpoint with a single configuration shape."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.0.9",
+      "date": "2026-04-25",
+      "headline": "Generic remote data layer with classification-routed bifurcation",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Generic remote data layer with classification-routed bifurcation",
+              "body": "Adds a generic remote data-access layer that routes reads and writes to distinct backends based on the data's classification label, so sensitive records can be steered to a hardened store while bulk data uses a cheaper path."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.0.8",
+      "date": "2026-04-25",
+      "headline": "Full tamper-proof bar with signed checkpoints and rollback detection",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Signed audit checkpoints and rollback detection",
+              "body": "Completes the tamper-evident bar for the audit chain by adding cryptographically signed checkpoints and a verifier that detects rollback or truncation of the persisted log."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.0.7",
+      "date": "2026-04-25",
+      "headline": "Traceability hardening and dynamic PK/FK schema declarations",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Traceability hardening and dynamic primary-key/foreign-key schema declarations",
+              "body": "Strengthens the audit trail's correlation identifiers across request boundaries and extends the database schema layer to declare primary and foreign keys dynamically from the migration definitions."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.0.6",
+      "date": "2026-04-25",
+      "headline": "Security-focused JSON parsing and schema validation",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Hardened JSON parser and schema validator",
+              "body": "Adds a depth-and-byte-capped JSON parser plus a companion schema validator that operators compose at request boundaries to refuse oversized or pathological payloads before they touch handlers."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.0.5",
+      "date": "2026-04-25",
+      "headline": "Session and storage local backend",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Session primitive and local storage backend",
+              "body": "Introduces the encrypted session primitive and the on-disk local storage backend that hosts session state when no external store is wired."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.0.4",
+      "date": "2026-04-25",
+      "headline": "Audit chain, consent log, and subject rights",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Tamper-evident audit chain, consent log, and subject-rights primitives",
+              "body": "Adds the append-only audit chain, the consent log used for lawful-basis tracking, and the data-subject-rights workflow primitives covering access, rectification, and erasure requests."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.0.3",
+      "date": "2026-04-25",
+      "headline": "Database, query builder, field-crypto, and migrations",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Database stack with query builder, field-level crypto, and migrations",
+              "body": "Adds the in-tree database layer including a parameterised query builder, per-field encryption hooks, and a migration runner that operators invoke at boot."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.0.2",
+      "date": "2026-04-25",
+      "headline": "Vault and key management",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Vault and key-management primitives",
+              "body": "Introduces the framework's sealed key store and the primitives that wrap key derivation, storage, and rotation for downstream crypto consumers."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.0.1",
+      "date": "2026-04-25",
+      "headline": "Foundation",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Initial framework foundation",
+              "body": "First published version establishing the framework's core layout, module conventions, and zero-runtime-dependency posture."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

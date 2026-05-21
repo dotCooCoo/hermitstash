@@ -1,0 +1,55 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.11.22",
+  "date": "2026-05-20",
+  "headline": "`b.cert.create` — turnkey TLS-certificate manager composing ACME + sealed persistence + renewal scheduler + SNI + key escrow",
+  "summary": "Operators wiring TLS no longer have to glue ACME + key generation + cert persistence + renewal scheduling + SNI dispatch + escrow by hand. `b.cert.create({ storage, acme, certs, renew, ocsp, audit, compliance })` accepts a declarative manifest of certificates plus the operator's choice of ACME challenge solver, and the manager owns the rest of the lifecycle: ACME RFC 8555 order + RFC 9773 ARI-aware renewal, leaf key rotation on renew, OCSP refresh scheduling, sealed-disk persistence via `b.vault.seal`, optional break-glass key escrow encrypted to an operator-supplied recipient via `b.crypto.encryptEnvelope`, and SNI dispatch for `https.createServer({ SNICallback })`. Composes existing primitives — `b.acme.create` (extended this release with per-challenge methods), `b.vault.seal`, `b.safeAsync.repeating`, `b.network.tls`, `b.audit` — so the operator-facing surface is one factory call.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.cert.create(opts)` — turnkey certificate manager",
+          "body": "New top-level primitive. Storage backend: `sealed-disk` (default; sealed via `b.vault.seal`). ACME: directory URL + contact + auto-generated account key (sealed on disk; operator can override with explicit key material). Certs manifest: per-cert name + domains + keyAlg (ecdsa-p256 / ecdsa-p384 / rsa-2048 / rsa-3072 / rsa-4096) + challenge `{ type, provision, cleanup }` callbacks (http-01 / dns-01 / tls-alpn-01). Renewal: ARI-respecting scheduler with configurable `intervalMs` + `minDaysBeforeExpiry` thresholds. OCSP: `stapling: true` schedules periodic OCSP refresh via `b.network.tls.ocsp`. Key escrow: optional `keyEscrow: { recipient }` encrypts each renewed private key to the recipient public key via `b.crypto.encryptEnvelope` and persists alongside the sealed key — break-glass-only recovery path, NOT routine access. Surface: `start()` / `stop()` / `getContext(name)` / `sniCallback` / `refresh(name)` / event-emitter `on('cert.issued' | 'cert.renewed' | 'cert.renew-failed', handler)`."
+        },
+        {
+          "title": "`b.acme.create.fetchAuthorization(authUrl)` — RFC 8555 §7.5 authorization GET",
+          "body": "POST-as-GET an authorization URL; returns the parsed authorization object with the challenge array. The challenge entries carry `{ type, url, token, status }` for each offered challenge type. Required by the cert manager's per-challenge flow but useful to operators implementing custom ACME wrappers."
+        },
+        {
+          "title": "`b.acme.create.notifyChallengeReady(challengeUrl)` — RFC 8555 §7.5.1 ready-notification",
+          "body": "POST an empty JSON object to a challenge URL to signal the operator has provisioned the response. Returns the updated challenge object; the CA's validation runs asynchronously and the operator polls via `waitForAuthorization` afterwards."
+        },
+        {
+          "title": "`b.acme.create.waitForAuthorization(authUrl, opts?)` — authorization status polling",
+          "body": "Polls an authorization until `status === 'valid'` (success) or `status === 'invalid'` (CA refused). Honors the client's `pollIntervalMs` + `pollMaxMs` defaults; per-call `opts.intervalMs` + `opts.timeoutMs` override available. Throws typed `acme/auth-invalid` on CA refusal and `acme/auth-timeout` on poll-budget exhaustion."
+        },
+        {
+          "title": "`b.acme.create.buildCsr({ privateKey, publicKey, domains })` — RFC 2986 PKCS#10 CSR builder",
+          "body": "Builds a CertificationRequest signed with the leaf private key. Subject `CN=<first domain>`, all domains as `dNSName` entries in the SubjectAltName extension. Supports ECDSA P-256 (signed sha256), ECDSA P-384 (signed sha384), RSA 2048 / 3072 / 4096 (signed sha256). Ed25519 is rejected at the CSR layer because CA support is uneven — operators wanting Ed25519 certs build the CSR externally. PEM-encoded output ready to feed to `finalize(order, csrPem)`."
+        },
+        {
+          "title": "`b.asn1Der` write primitives — `writeBitString` / `writeSet` / `writeUtf8String` / `writePrintableString` / `writeIa5String` / `writeBoolean` / `writeContextImplicit`",
+          "body": "ASN.1 DER encoder extensions needed for PKCS#10 CSR construction. PrintableString refuses input outside the RFC 5280 character set; IA5String refuses non-ASCII; UTF8String refuses non-string input. SET-OF encoding sorts children by their encoded bytes per DER. Internal-only today (consumed by `b.acme.create.buildCsr`); operators with their own ASN.1 needs can compose them."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "`b.audit.FRAMEWORK_NAMESPACES` adds `cert`",
+          "body": "The cert-manager lifecycle emits `cert.account.generated` / `cert.issued` / `cert.renewed` / `cert.renew-failed` / `cert.challenge-cleanup` audit events; the audit-namespace coverage check at smoke-time now recognizes the `cert` namespace."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "RFC 8555 (ACME)",                                    "url": "https://www.rfc-editor.org/rfc/rfc8555.html" },
+    { "label": "RFC 9773 (ACME Renewal Information / ARI)",          "url": "https://www.rfc-editor.org/rfc/rfc9773.html" },
+    { "label": "RFC 2986 (PKCS#10 Certification Request Syntax)",    "url": "https://www.rfc-editor.org/rfc/rfc2986.html" },
+    { "label": "RFC 5280 (X.509 Internet PKI)",                      "url": "https://www.rfc-editor.org/rfc/rfc5280.html" },
+    { "label": "RFC 8737 (TLS-ALPN-01 challenge)",                   "url": "https://www.rfc-editor.org/rfc/rfc8737.html" },
+    { "label": "OpenSSL CSR roundtrip — local OpenSSL validation",   "url": "https://www.openssl.org/docs/man3.5/man1/openssl-req.html" }
+  ]
+}

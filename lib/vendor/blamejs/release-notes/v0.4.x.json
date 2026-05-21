@@ -1,0 +1,588 @@
+{
+  "$schema": "../scripts/release-notes-consolidated-schema.json",
+  "minor": "0.4",
+  "releases": [
+    {
+      "version": "0.4.29",
+      "date": "2026-04-30",
+      "headline": "Drift cleanup: second-pass remediation",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Second-pass drift remediation across `lib/`",
+              "body": "A follow-up cleanup closes call sites missed by the previous drift cleanup releases — additional inline-require hoists, escape-helper migrations, and time-math constant adoptions across primitives that hadn't been touched in the first pass."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.28",
+      "date": "2026-04-30",
+      "headline": "Drift cleanup: inline-require hoisting + `safeAsync.sleep` + time-math constants",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Inline `require()` calls hoisted to top-of-file",
+              "body": "Inline `require()` calls inside function bodies are hoisted to top-of-file `require` declarations, matching the project convention. Remaining inline requires are exclusively for documented circular-load cases."
+            },
+            {
+              "title": "`safeAsync.sleep` adopted across call sites",
+              "body": "Hand-rolled `setTimeout`-as-promise sleeps are migrated onto the `safeAsync.sleep` primitive so abort-signal handling and the unref posture are uniform."
+            },
+            {
+              "title": "Time-math literals migrated to `C.TIME.*` constants",
+              "body": "Bare `* 1000` / `* 60` time-math literals across `lib/` are rewritten to use the `C.TIME.*` constants so the units are self-documenting and a single source of truth handles unit conversion."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.27",
+      "date": "2026-04-30",
+      "headline": "Drift cleanup: regex + escape consolidation, IPv6 completion",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Regex and string-escape helpers consolidated",
+              "body": "Duplicated regex utilities and HTML / attribute / URL escape helpers across `lib/` are collapsed onto the shared primitives so a single audited implementation handles each escape concern. Behavior is unchanged; call-site shape is uniform."
+            },
+            {
+              "title": "IPv6 parsing and matching completion",
+              "body": "IPv6 handling across address parsing, CIDR matching, and host validation paths gains coverage for the remaining corner cases (zone identifiers, IPv4-mapped variants, compressed forms) so operators serving IPv6 traffic don't hit per-call-site gaps."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.26",
+      "date": "2026-04-30",
+      "headline": "Drift cleanup: middleware audit context + `safeUrl`",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Middleware audit context unified",
+              "body": "Middleware that emits audit events now constructs the audit context through a single shared helper so the actor / outcome / metadata shape stays consistent across the request lifecycle instead of drifting per call site."
+            },
+            {
+              "title": "`safeUrl` consolidation",
+              "body": "Call sites that hand-rolled URL safety checks (scheme allowlist, credential stripping, host validation) are migrated onto the `safeUrl` primitive so a single audited implementation handles every outbound URL acceptance."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.25",
+      "date": "2026-04-30",
+      "headline": "`b.objectStore.bucketOps`: bucket-level operations (SigV4)",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.objectStore.bucketOps` namespace",
+              "body": "A new `b.objectStore.bucketOps` namespace exposes bucket-level operations (create, delete, list, head, policy / versioning / lifecycle config) over the existing SigV4 signing surface. Operators manage buckets through the same primitive that handles object I/O."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.24",
+      "date": "2026-04-30",
+      "headline": "`b.objectStore`: multipart upload + server-side encryption",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Multipart upload in `b.objectStore`",
+              "body": "`b.objectStore` supports S3-style multipart uploads so operators can stream large objects in parts with parallel uploads, automatic retry of failed parts, and completion-on-finish semantics."
+            },
+            {
+              "title": "Server-side encryption controls",
+              "body": "`b.objectStore` accepts server-side-encryption parameters (SSE-S3 / SSE-KMS / SSE-C variants) on `put` operations and surfaces the encryption metadata on `get`, so operators meet at-rest encryption requirements without bypassing the primitive."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.23",
+      "date": "2026-04-30",
+      "headline": "`b.mail.dkim` signing + calendar invites",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "DKIM signing for outbound mail and calendar-invite generation",
+              "body": "`b.mail.dkim` signs outbound messages with the operator's selector + private key so receivers can verify origin; `b.mail` also gains calendar-invite generation (iCalendar attachments) so transactional flows can attach `.ics` invitations alongside HTML/plain bodies."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.22",
+      "date": "2026-04-30",
+      "headline": "`b.mail` attachments + inline images + plain/HTML alternatives",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Attachments, inline images, and multipart/alternative bodies in `b.mail`",
+              "body": "`b.mail` gains first-class attachment support, inline-image (`cid:`) embedding for HTML bodies, and `multipart/alternative` plain/HTML message construction so receivers without HTML rendering see the text version."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.21",
+      "date": "2026-04-30",
+      "headline": "`b.queue` repeat-in-queue (cron) + parent-child Flows",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Repeatable cron jobs and parent-child Flows in `b.queue`",
+              "body": "`b.queue` gains repeat-in-queue scheduling (cron-expression-driven recurring jobs) and parent-child Flows so a parent job can fan out child jobs and wait on their completion before resolving."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.20",
+      "date": "2026-04-30",
+      "headline": "`b.queue` + `b.jobs` priority, rate-limit, and progress",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Priority, rate-limit, and progress reporting in `b.queue` / `b.jobs`",
+              "body": "`b.queue` and `b.jobs` gain per-job priority ordering, queue-level rate limiting (max jobs per interval), and a `progress(n)` callback workers invoke to publish completion percentage for observers."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.19",
+      "date": "2026-04-30",
+      "headline": "`b.router` schema-validated routes + OpenAPI generation",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Schema-validated routes and OpenAPI document generation in `b.router`",
+              "body": "Routes accept per-request JSON-Schema descriptors for params / query / body / headers / response; the router validates inbound requests against the schema and refuses malformed input before the handler runs. An OpenAPI 3.x document is generated from the registered routes for downstream tooling."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.18",
+      "date": "2026-04-30",
+      "headline": "`cookieJar` forensic-test strengthening (real crypto, replay, nonce)",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`cookieJar` test coverage exercises real crypto, replay, and nonce paths",
+              "body": "The `b.httpClient.cookieJar` test surface drops in-memory mocks for the encryption layer and exercises the production ChaCha20-Poly1305 sealing path end-to-end, with explicit assertions for replay refusal and nonce-uniqueness invariants so forensic regressions surface at test time."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.17",
+      "date": "2026-04-30",
+      "headline": "`b.httpClient.cookieJar` (encrypted) + wiki catch-up",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Encrypted `b.httpClient.cookieJar`",
+              "body": "`b.httpClient` gains a cookie jar that persists outbound cookies across requests with encrypted-at-rest storage. The jar composes the framework's sealed-storage primitive, so cookies aren't readable from disk by a process without the unlock key."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Wiki documentation catch-up",
+              "body": "The reference wiki gains coverage for the `b.httpClient` primitives that landed across the preceding releases (redirect-following, multipart, interceptors, progress events, cookie jar) so the documentation surface matches the shipped API."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.16",
+      "date": "2026-04-30",
+      "headline": "`b.httpClient`: interceptors + progress events",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Request / response interceptors",
+              "body": "`b.httpClient` accepts ordered interceptor chains for request and response phases. Operators inject auth headers, rewrite URLs, log outcomes, or transform payloads at well-defined extension points instead of wrapping the client surface."
+            },
+            {
+              "title": "Progress events on request and response streams",
+              "body": "The client emits progress events with bytes-transferred counters for both upload and download streams, so operators can surface progress UI or telemetry for long-running outbound calls."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.15",
+      "date": "2026-04-30",
+      "headline": "`b.httpClient`: redirect-following + outbound multipart",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Redirect-following in `b.httpClient`",
+              "body": "`b.httpClient` follows HTTP redirects subject to a configurable maximum hop count. Cross-origin redirects strip Authorization headers per the same safe-redirect posture the framework applies to inbound `b.safeRedirect`."
+            },
+            {
+              "title": "Outbound multipart request bodies",
+              "body": "`b.httpClient` can build and stream `multipart/form-data` request bodies — file uploads and mixed-field forms — without operators hand-assembling the boundary framing."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.14",
+      "date": "2026-04-30",
+      "headline": "`b.i18n`: lazy locales + ordinal plurals + `onMissingKey` hook",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Lazy locale loading in `b.i18n`",
+              "body": "Locales load on first use rather than at boot, so operators serving many locales pay the parse cost only for locales actually requested by traffic."
+            },
+            {
+              "title": "Ordinal plural support",
+              "body": "`b.i18n` exposes ordinal plural rules (1st / 2nd / 3rd / 4th) in addition to cardinal plurals, so operators can format positional strings correctly across locales with rich ordinal grammar."
+            },
+            {
+              "title": "`onMissingKey` hook",
+              "body": "Operators can register an `onMissingKey` callback that fires when a translation lookup misses. The hook gets the requested key, locale, and fallback chain — useful for surfacing translation gaps to an observability sink or generating per-locale coverage reports."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.13",
+      "date": "2026-04-30",
+      "headline": "`b.db`: streaming query results",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Streaming query API in `b.db`",
+              "body": "`b.db` gains a streaming query result interface so operators can process arbitrarily large result sets row-by-row without buffering the full result in memory. Backpressure surfaces naturally through the async-iterator contract."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.12",
+      "date": "2026-04-30",
+      "headline": "`b.log`: multi-sink output with per-sink level filtering",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Multi-sink output in `b.log`",
+              "body": "`b.log` can route log records to multiple sinks simultaneously (stdout, file, syslog, network), with an independent level filter per sink. Operators get verbose stdout for local development plus a higher-threshold persistent sink in one configuration."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.11",
+      "date": "2026-04-30",
+      "headline": "`b.cache`: bytes-cap eviction, sliding TTL, tag invalidation",
+      "summary": "The in-process cache primitive gains three operator-visible controls: a total-bytes cap with eviction, sliding-window TTL refresh on access, and tag-based bulk invalidation.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Bytes-cap eviction in `b.cache`",
+              "body": "`b.cache` accepts a total-bytes cap and evicts least-recently-used entries when the cap is reached. Operators can bound the cache's memory footprint deterministically instead of relying on entry-count limits alone."
+            },
+            {
+              "title": "Sliding TTL on access",
+              "body": "Cache entries can be configured with a sliding TTL — every successful read resets the entry's expiry clock, so frequently-accessed data stays warm while idle entries age out on schedule."
+            },
+            {
+              "title": "Tag invalidation",
+              "body": "Cache entries can carry one or more tags. Operators invalidate every entry sharing a tag with a single call, enabling cache flushes scoped to a logical concern (per-tenant, per-resource family, post-write invalidation)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.10",
+      "date": "2026-04-30",
+      "headline": "`bodyParser` multipart: `fileFilter` + per-field `maxBytes` / `mimeTypes`",
+      "summary": "The multipart body parser gains operator-controlled per-field policy so uploads can be filtered, size-capped, and MIME-restricted at the parse boundary rather than after the fact.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`fileFilter` callback in `bodyParser` multipart options",
+              "body": "Operators can pass a `fileFilter` callback to inspect each incoming file part (fieldname, filename, MIME) and refuse it before bytes are consumed. Refused parts short-circuit without buffering payload."
+            },
+            {
+              "title": "Per-field `maxBytes` enforcement",
+              "body": "The multipart parser accepts a per-field `maxBytes` cap. Parts exceeding the cap are refused mid-stream with the configured error, so operators don't have to size-check uploads after parse."
+            },
+            {
+              "title": "Per-field `mimeTypes` allowlist",
+              "body": "The multipart parser accepts a per-field `mimeTypes` allowlist. Parts whose declared Content-Type isn't in the allowlist are refused at the parse boundary."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.9",
+      "date": "2026-04-30",
+      "headline": "Origin-Agent-Cluster + DNS-Prefetch-Control headers; `b.auth.lockout` primitive",
+      "summary": "Two new browser-isolation headers ship in the default security-header set, and a new `b.auth.lockout` primitive lands for brute-force defense at the authentication layer.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`Origin-Agent-Cluster` header in default response headers",
+              "body": "The default security-header set now emits `Origin-Agent-Cluster: ?1` so cross-origin isolation hints reach browsers without operator wiring. This requests origin-keyed agent clusters to harden the Spectre / cross-origin attack surface."
+            },
+            {
+              "title": "`X-DNS-Prefetch-Control` header in default response headers",
+              "body": "The default security-header set emits `X-DNS-Prefetch-Control: off` so browsers don't speculatively resolve hostnames embedded in served pages, reducing the side-channel signal a malicious page could leak to a network observer."
+            },
+            {
+              "title": "`b.auth.lockout` primitive",
+              "body": "A new `b.auth.lockout` primitive lands for brute-force defense. It tracks failed authentication attempts per identity + per source-address, applies progressive backoff, and emits audit events on the lockout transitions so operators see the signal in the audit trail."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.8",
+      "date": "2026-04-30",
+      "headline": "Wiki SEO surface: OpenGraph + Twitter + JSON-LD + sitemap + robots",
+      "summary": "The reference wiki gains a complete SEO surface so operators self-hosting the wiki get discoverable, share-friendly pages out of the box.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Per-page OpenGraph and Twitter card metadata",
+              "body": "Every wiki page emits OpenGraph and Twitter card meta tags so links shared on social platforms render with a title, description, and preview image instead of a bare URL."
+            },
+            {
+              "title": "Per-page JSON-LD structured data",
+              "body": "Every wiki page includes JSON-LD structured data describing the document so search engines and content discovery surfaces can index the wiki with semantic context."
+            },
+            {
+              "title": "`sitemap.xml` and `robots.txt`",
+              "body": "The wiki serves a `sitemap.xml` enumerating every page and a `robots.txt` declaring crawl policy, so search indexers can discover the documentation tree without relying on link-graph crawling alone."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.7",
+      "date": "2026-04-30",
+      "headline": "Welcome page \"what's in the box\" table corrected",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Welcome page primitive table accuracy",
+              "body": "The wiki welcome page's \"what's in the box\" table is rewritten to match the actual shipped primitive surface. Drifted entries (primitives renamed, removed, or whose shape changed) are reconciled against the live codebase."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.6",
+      "date": "2026-04-30",
+      "headline": "Wiki brand-flare on every page + content additions",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Wiki brand styling applied consistently",
+              "body": "The reference wiki gains consistent brand styling across every page so the documentation surface reads as a cohesive site rather than per-page variants."
+            },
+            {
+              "title": "Wiki content expansions",
+              "body": "Multiple wiki pages gain expanded content covering primitives and composition patterns operators were previously left to infer from source comments."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.5",
+      "date": "2026-04-30",
+      "headline": "Canonical domain is `blamejs.com`",
+      "summary": "The project's canonical domain moves from `blamejs.app` to `blamejs.com`. All operator-facing references — package metadata, documentation, wiki links — are updated to point at the new domain.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Canonical domain renamed to `blamejs.com`",
+              "body": "Every reference to `blamejs.app` is rewritten to `blamejs.com` across the README, wiki, package metadata, and source comments. The new domain is the canonical home for documentation and download links going forward."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.4",
+      "date": "2026-04-30",
+      "headline": "Document `BLAMEJS_AUDIT_SIGNING_PASSPHRASE` everywhere",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`BLAMEJS_AUDIT_SIGNING_PASSPHRASE` documented across operator-facing surfaces",
+              "body": "The environment variable used to unlock the audit-signing key is documented across the README, SECURITY notes, and wiki so operators don't have to grep the source to discover the configuration knob."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.3",
+      "date": "2026-04-30",
+      "headline": "`b.ssrfGuard` primitive default-on in `b.httpClient` + wiki posture auto-detect",
+      "summary": "Outbound HTTP requests now pass through an SSRF guard that refuses requests to loopback / link-local / RFC 1918 / metadata-service targets unless the operator opts in explicitly. The wiki also auto-detects its TLS / bot-guard posture instead of requiring hand-wired flags.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.ssrfGuard` — default-on guard wired into `b.httpClient`",
+              "body": "Every outbound request the framework makes is screened against the SSRF guard before the socket opens. Targets matching loopback (`127.0.0.0/8`, `::1`), link-local (`169.254.0.0/16`, `fe80::/10`), private (RFC 1918 + `fc00::/7`), and cloud-metadata-service IPs (`169.254.169.254`, `fd00:ec2::254`) are refused unless the operator passes `allowPrivateTargets: true` for the specific call. The guard composes with the existing DoH resolver so DNS rebinding can't shift the target post-resolve."
+            },
+            {
+              "title": "Wiki posture auto-detect",
+              "body": "The wiki example app now derives its TLS / bot-guard / CSP posture from the environment instead of requiring operators to hand-wire each flag — running behind a proxy detects the X-Forwarded-Proto chain; running standalone enables the framework defaults."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.2",
+      "date": "2026-04-30",
+      "headline": "`package.json` keywords refresh",
+      "summary": "Operator-facing `package.json` keywords expanded so the package surfaces in `npm search` for the concerns it actually covers (server framework, PQC, security defaults). No code changes.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`package.json` keywords expanded",
+              "body": "The `keywords` array now lists the security / PQC / server-framework terms operators actually search for. Tarball contents unchanged; this is a metadata-only release."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.1",
+      "date": "2026-04-29",
+      "headline": "Wiki bot-guard skips `/healthz` so post-publish smoke check passes",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Wiki bot-guard exempts `/healthz`",
+              "body": "The reference wiki's bot-guard middleware now allows `/healthz` through unchallenged so the post-publish smoke check can verify the deployed wiki is responding without tripping the bot-detection refusal path."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.4.0",
+      "date": "2026-04-29",
+      "headline": "Benchmark suite + `b.logger.createLogger` removed",
+      "summary": "The framework gains a benchmark suite for primitive-level performance measurement, and the previously deprecated `b.logger.createLogger` API is removed in favor of `b.log`.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Benchmark suite",
+              "body": "A benchmark suite lands so operators can measure framework primitives in isolation. The harness composes the existing test scaffolding and reports per-primitive throughput for performance regression detection."
+            }
+          ]
+        },
+        {
+          "heading": "Removed",
+          "items": [
+            {
+              "title": "`b.logger.createLogger`",
+              "body": "The deprecated `b.logger.createLogger` API is removed. Callers migrate to `b.log`, which has been the documented logging surface since the deprecation warning shipped."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

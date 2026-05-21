@@ -1,0 +1,21 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.11.15",
+  "date": "2026-05-20",
+  "headline": "SLSA reusable workflow `continue-on-error: true` so `upload-assets: false` doesn't fail the workflow",
+  "summary": "v0.11.14 finally reached the SLSA provenance generation step end-to-end — the `validate` and `generator` jobs both succeeded, the provenance artifact uploaded — but the SLSA workflow's `final` step exited 27 because its outcome-AND chain evaluates `needs.upload-assets.outputs.outcome != 'failure'` against an empty value (the `upload-assets` job's `if:` short-circuited via `upload-assets: false`). The empty value evaluates falsy in the AND chain, the SLSA workflow marks itself failed, and the dependent `publish-and-release` job skips. `continue-on-error: true` on the SLSA reusable workflow call tells it to report success regardless of the final-step outcome computation; the `publish-and-release` job's `Download SLSA provenance` step catches a real missing-artifact failure independently.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Pass `continue-on-error: true` to the SLSA reusable workflow",
+          "body": "The SLSA `generator_generic_slsa3.yml` workflow has four nested jobs (`detect-env`, `generator`, `upload-assets`, `final`). When the caller passes `upload-assets: false`, the `upload-assets` job's `if:` short-circuits to skip — but its outputs evaluate empty, and the `final` job's outcome-AND chain treats that empty value as falsy, exits 27, and marks the entire SLSA workflow failed even though `generator` produced the provenance artifact successfully. `continue-on-error: true` is the documented escape hatch — the SLSA workflow now reports success when the underlying provenance generation succeeded regardless of the `final` step's strict-AND outcome computation. The `publish-and-release` job's `Download SLSA provenance` step is the real safety check — a missing artifact would surface there with an `actions/download-artifact` not-found error rather than being hidden behind the SLSA workflow's overly-strict `final` outcome."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "SLSA generic generator v2.1.0 `continue-on-error` input", "url": "https://github.com/slsa-framework/slsa-github-generator/blob/v2.1.0/.github/workflows/generator_generic_slsa3.yml" }
+  ]
+}

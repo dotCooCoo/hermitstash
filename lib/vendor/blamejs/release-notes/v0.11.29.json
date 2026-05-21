@@ -1,0 +1,53 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.11.29",
+  "date": "2026-05-21",
+  "headline": "JMAP Push — EventSource SSE handler on `b.mail.server.jmap` (RFC 8620 §7.3)",
+  "summary": "The JMAP listener now exposes a real EventSource handler at `/jmap/eventsource`. The session-resource's `eventSourceUrl` becomes a live push channel: clients connect with `?types=*|<csv>&closeafter=no|state&ping=<seconds>`, the listener subscribes via the operator backend's `mailStore.subscribePush(actor, types, emitFn)` hook, and StateChange events arrive as `event: state` SSE frames with the `{ \"@type\": \"StateChange\", changed: {...} }` payload per RFC 8620 §7.4. Keepalive `event: ping` frames default to 30 s (operator-tunable 5-900 s), `closeafter=state` closes after one event for poll-like clients, and the SSE response carries the headers proxies expect (`Cache-Control: no-cache`, `Connection: keep-alive`, `X-Accel-Buffering: no`) so nginx-fronted deployments don't buffer the stream. Without the backend subscribe hook the handler refuses with `503 serverUnavailable`, never silent OK.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`eventSourceHandler(req, res)` exposed on the JMAP listener handle",
+          "body": "`b.mail.server.jmap.create(opts).eventSourceHandler` mounts on the operator's HTTP router at whatever path the session-resource's `eventSourceUrl` points to (default `/jmap/eventsource`). Authentication is delegated to the surrounding HTTP middleware (the handler expects `req.user` / `req.actor` to be set); unauthenticated requests return `401 forbidden` per RFC 8620 §1.5. Query-string params parse `types=` (CSV or `*` wildcard), `closeafter=` (`no` | `state`), `ping=` (seconds, clamped 5..900) per §7.3."
+        },
+        {
+          "title": "Operator backend hook — `mailStore.subscribePush(actor, types, emitFn)`",
+          "body": "Backends opt in by exposing a `subscribePush` method that accepts (1) the authenticated actor, (2) a parsed `types` list (or `null` for the wildcard `*`), and (3) an `emitFn(event)` callback the backend calls when a state change occurs. The expected event shape is `{ kind: 'StateChange', changed: { <accountId>: { <typeName>: <stateString>, ... }, ... }, pushed?: {...} }`; the listener formats it into the SSE `event: state\\ndata: <JSON>\\n\\n` wire shape. The subscribe call may return either `void` or an `unsubscribe()` function the listener invokes on disconnect."
+        },
+        {
+          "title": "SSE wire-correct headers + initial-state hint",
+          "body": "Response headers: `Content-Type: text/event-stream; charset=utf-8`, `Cache-Control: no-cache`, `Connection: keep-alive`, `X-Accel-Buffering: no` (nginx-specific — disables response buffering on the stream so per-event frames flush immediately). The initial bytes carry `retry: 5000\\n\\n` (HTML5 SSE reconnect hint — 5 s) + a `: connected\\n\\n` comment so clients can confirm the channel is alive before the first state event."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Push backend missing returns `503 serverUnavailable` (no silent accept)",
+          "body": "If the operator wired the listener without `mailStore.subscribePush`, the handler returns `503 urn:ietf:params:jmap:error:serverUnavailable` with a `description` pointing at the missing hook. RFC 8620 §7.3 expects the server to honour subscriptions or refuse explicitly — silently accepting would let a client believe events will arrive when the server cannot deliver."
+        },
+        {
+          "title": "`closeafter` accepts only `no` | `state` (RFC 8620 §7.3)",
+          "body": "Any other value returns `400 invalidArguments` before the subscribe hook fires. Prevents an operator-supplied query string from steering the handler into an undocumented mode."
+        },
+        {
+          "title": "Ping interval clamped 5..900 seconds",
+          "body": "`ping=<seconds>` below 5 s or above 900 s clamps to the bounds rather than refusing — a misconfigured client cannot DoS the listener via 1 ms ping floods, and a 24 h ping won't outlast intermediate proxy idle timeouts (typical 60-120 s). The clamped default (30 s) matches the RFC 8620 §7.3 example."
+        },
+        {
+          "title": "Ping timer is `.unref()`'d",
+          "body": "Background timers without `.unref()` pin the Node process — graceful shutdown waits indefinitely. The interval is unref'd immediately after creation; per-connection cleanup (`req.on('close')` / `req.on('error')`) clears the timer + invokes the backend's optional `unsubscribe()` + ends the response."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "RFC 8620 (JMAP Core — §7 Push / §7.3 EventSource / §7.4 StateChange)", "url": "https://www.rfc-editor.org/rfc/rfc8620.html" },
+    { "label": "RFC 8621 (JMAP Mail)",                                                 "url": "https://www.rfc-editor.org/rfc/rfc8621.html" },
+    { "label": "RFC 8887 (JMAP WebSocket transport — opt-in, deferred to a later slice)", "url": "https://www.rfc-editor.org/rfc/rfc8887.html" },
+    { "label": "HTML5 Server-Sent Events (EventSource)",                              "url": "https://html.spec.whatwg.org/multipage/server-sent-events.html" }
+  ]
+}

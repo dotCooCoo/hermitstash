@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.11.2",
-  "createdAt": "2026-05-19T13:38:25.862Z",
+  "frameworkVersion": "0.11.30",
+  "createdAt": "2026-05-21T15:41:42.348Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -2034,6 +2034,10 @@
           "type": "function",
           "arity": 1
         },
+        "useStore": {
+          "type": "function",
+          "arity": 1
+        },
         "verify": {
           "type": "function",
           "arity": 1
@@ -2755,6 +2759,96 @@
               "arity": 1
             },
             "recommendMaxAge": {
+              "type": "function",
+              "arity": 1
+            }
+          }
+        },
+        "botChallenge": {
+          "type": "object",
+          "members": {
+            "BotChallengeError": {
+              "type": "function",
+              "arity": 4
+            },
+            "DEFAULTS": {
+              "type": "object",
+              "members": {
+                "maxTokenBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "minTimeoutMs": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "provider": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "timeoutMs": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            },
+            "PROVIDERS": {
+              "type": "object",
+              "members": {
+                "hcaptcha": {
+                  "type": "object",
+                  "members": {
+                    "contentTypeBody": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "endpoint": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "parseResponse": {
+                      "type": "function",
+                      "arity": 1
+                    }
+                  }
+                },
+                "recaptcha-v3": {
+                  "type": "object",
+                  "members": {
+                    "contentTypeBody": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "endpoint": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "parseResponse": {
+                      "type": "function",
+                      "arity": 1
+                    }
+                  }
+                },
+                "turnstile": {
+                  "type": "object",
+                  "members": {
+                    "contentTypeBody": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "endpoint": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "parseResponse": {
+                      "type": "function",
+                      "arity": 1
+                    }
+                  }
+                }
+              }
+            },
+            "create": {
               "type": "function",
               "arity": 1
             }
@@ -5508,6 +5602,19 @@
           "arity": 1
         },
         "parse": {
+          "type": "function",
+          "arity": 1
+        }
+      }
+    },
+    "cert": {
+      "type": "object",
+      "members": {
+        "CertError": {
+          "type": "function",
+          "arity": 4
+        },
+        "create": {
           "type": "function",
           "arity": 1
         }
@@ -13198,6 +13305,10 @@
           "type": "function",
           "arity": 4
         },
+        "BotChallengeError": {
+          "type": "function",
+          "arity": 4
+        },
         "CacheError": {
           "type": "function",
           "arity": 4
@@ -13569,6 +13680,19 @@
           "arity": 1
         },
         "tableName": {
+          "type": "function",
+          "arity": 1
+        }
+      }
+    },
+    "fsm": {
+      "type": "object",
+      "members": {
+        "FsmError": {
+          "type": "function",
+          "arity": 4
+        },
+        "define": {
           "type": "function",
           "arity": 1
         }
@@ -21151,6 +21275,10 @@
               "type": "primitive",
               "valueType": "boolean"
             },
+            "GETMETADATA": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
             "GETQUOTA": {
               "type": "primitive",
               "valueType": "boolean"
@@ -21191,6 +21319,10 @@
               "type": "primitive",
               "valueType": "boolean"
             },
+            "NOTIFY": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
             "RENAME": {
               "type": "primitive",
               "valueType": "boolean"
@@ -21200,6 +21332,10 @@
               "valueType": "boolean"
             },
             "SELECT": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "SETMETADATA": {
               "type": "primitive",
               "valueType": "boolean"
             },
@@ -24284,7 +24420,33 @@
         "FILTERABLE_COLUMNS": {
           "type": "object",
           "members": {
+            "body": {
+              "type": "object",
+              "members": {
+                "kind": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "ops": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                }
+              }
+            },
             "flag": {
+              "type": "object",
+              "members": {
+                "kind": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "ops": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                }
+              }
+            },
+            "from": {
               "type": "object",
               "members": {
                 "kind": {
@@ -24324,6 +24486,19 @@
               }
             },
             "legal_hold": {
+              "type": "object",
+              "members": {
+                "kind": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "ops": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                }
+              }
+            },
+            "limit": {
               "type": "object",
               "members": {
                 "kind": {
@@ -24388,6 +24563,19 @@
                 }
               }
             },
+            "sinceModseq": {
+              "type": "object",
+              "members": {
+                "kind": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "ops": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                }
+              }
+            },
             "size_bytes": {
               "type": "object",
               "members": {
@@ -24414,7 +24602,33 @@
                 }
               }
             },
+            "text": {
+              "type": "object",
+              "members": {
+                "kind": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "ops": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                }
+              }
+            },
             "thread_root_id": {
+              "type": "object",
+              "members": {
+                "kind": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "ops": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                }
+              }
+            },
+            "to": {
               "type": "object",
               "members": {
                 "kind": {
@@ -34592,6 +34806,10 @@
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "expunge": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
                 "fetch": {
                   "type": "primitive",
                   "valueType": "string"
@@ -35092,7 +35310,33 @@
                     "FILTERABLE_COLUMNS": {
                       "type": "object",
                       "members": {
+                        "body": {
+                          "type": "object",
+                          "members": {
+                            "kind": {
+                              "type": "primitive",
+                              "valueType": "string"
+                            },
+                            "ops": {
+                              "type": "instance",
+                              "ctorName": "Array"
+                            }
+                          }
+                        },
                         "flag": {
+                          "type": "object",
+                          "members": {
+                            "kind": {
+                              "type": "primitive",
+                              "valueType": "string"
+                            },
+                            "ops": {
+                              "type": "instance",
+                              "ctorName": "Array"
+                            }
+                          }
+                        },
+                        "from": {
                           "type": "object",
                           "members": {
                             "kind": {
@@ -35132,6 +35376,19 @@
                           }
                         },
                         "legal_hold": {
+                          "type": "object",
+                          "members": {
+                            "kind": {
+                              "type": "primitive",
+                              "valueType": "string"
+                            },
+                            "ops": {
+                              "type": "instance",
+                              "ctorName": "Array"
+                            }
+                          }
+                        },
+                        "limit": {
                           "type": "object",
                           "members": {
                             "kind": {
@@ -35196,6 +35453,19 @@
                             }
                           }
                         },
+                        "sinceModseq": {
+                          "type": "object",
+                          "members": {
+                            "kind": {
+                              "type": "primitive",
+                              "valueType": "string"
+                            },
+                            "ops": {
+                              "type": "instance",
+                              "ctorName": "Array"
+                            }
+                          }
+                        },
                         "size_bytes": {
                           "type": "object",
                           "members": {
@@ -35222,7 +35492,33 @@
                             }
                           }
                         },
+                        "text": {
+                          "type": "object",
+                          "members": {
+                            "kind": {
+                              "type": "primitive",
+                              "valueType": "string"
+                            },
+                            "ops": {
+                              "type": "instance",
+                              "ctorName": "Array"
+                            }
+                          }
+                        },
                         "thread_root_id": {
+                          "type": "object",
+                          "members": {
+                            "kind": {
+                              "type": "primitive",
+                              "valueType": "string"
+                            },
+                            "ops": {
+                              "type": "instance",
+                              "ctorName": "Array"
+                            }
+                          }
+                        },
+                        "to": {
                           "type": "object",
                           "members": {
                             "kind": {
@@ -36386,6 +36682,15 @@
             }
           }
         },
+        "send": {
+          "type": "object",
+          "members": {
+            "deliver": {
+              "type": "function",
+              "arity": 1
+            }
+          }
+        },
         "server": {
           "type": "object",
           "members": {
@@ -36589,6 +36894,10 @@
                       "type": "primitive",
                       "valueType": "number"
                     },
+                    "GETMETADATA": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
                     "ID": {
                       "type": "primitive",
                       "valueType": "number"
@@ -36621,6 +36930,10 @@
                       "type": "primitive",
                       "valueType": "number"
                     },
+                    "NOTIFY": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
                     "RENAME": {
                       "type": "primitive",
                       "valueType": "number"
@@ -36630,6 +36943,10 @@
                       "valueType": "number"
                     },
                     "SELECT": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "SETMETADATA": {
                       "type": "primitive",
                       "valueType": "number"
                     },
@@ -37260,6 +37577,346 @@
         "create": {
           "type": "function",
           "arity": 1
+        },
+        "fts": {
+          "type": "object",
+          "members": {
+            "FTS_FIELDS": {
+              "type": "object",
+              "members": {
+                "body": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "from": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "subject": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "to": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "MAX_TOKENS_PER_FIELD": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "MAX_TOKEN_LEN": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "MIN_TOKEN_LEN": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "QUERY_KEY_MAP": {
+              "type": "object",
+              "members": {
+                "body": {
+                  "type": "object",
+                  "members": {
+                    "column": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "field": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "from": {
+                  "type": "object",
+                  "members": {
+                    "column": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "field": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "subject": {
+                  "type": "object",
+                  "members": {
+                    "column": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "field": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "to": {
+                  "type": "object",
+                  "members": {
+                    "column": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "field": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "STOPWORDS": {
+              "type": "object",
+              "members": {
+                "a": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "an": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "and": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "are": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "as": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "at": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "be": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "been": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "but": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "by": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "did": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "do": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "does": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "down": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "for": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "from": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "her": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "him": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "his": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "i": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "if": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "in": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "is": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "it": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "its": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "no": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "not": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "of": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "on": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "or": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "our": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "out": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "over": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "so": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "than": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "that": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "the": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "their": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "them": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "then": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "this": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "to": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "under": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "up": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "us": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "was": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "we": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "were": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "with": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "yes": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "you": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "your": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                }
+              }
+            },
+            "buildMatchExpression": {
+              "type": "function",
+              "arity": 3
+            },
+            "columnAndFieldFor": {
+              "type": "function",
+              "arity": 1
+            },
+            "createSql": {
+              "type": "function",
+              "arity": 1
+            },
+            "hashText": {
+              "type": "function",
+              "arity": 3
+            },
+            "hashToken": {
+              "type": "function",
+              "arity": 3
+            },
+            "hashTokens": {
+              "type": "function",
+              "arity": 3
+            },
+            "rowFromMessage": {
+              "type": "function",
+              "arity": 2
+            },
+            "tokenize": {
+              "type": "function",
+              "arity": 1
+            }
+          }
         }
       }
     },
@@ -37624,6 +38281,220 @@
           "arity": 3
         },
         "create": {
+          "type": "function",
+          "arity": 1
+        }
+      }
+    },
+    "money": {
+      "type": "object",
+      "members": {
+        "CURRENCIES": {
+          "type": "object",
+          "members": {
+            "AED": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "ARS": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "AUD": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "BHD": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "BRL": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "CAD": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "CHF": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "CLF": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "CLP": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "CNY": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "COP": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "CZK": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "DKK": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "EUR": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "GBP": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "HKD": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "HUF": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "IDR": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "ILS": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "INR": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "JOD": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "JPY": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "KRW": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "KWD": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "MXN": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "MYR": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "NOK": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "NZD": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "OMR": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "PEN": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "PHP": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "PLN": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "RUB": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "SAR": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "SEK": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "SGD": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "THB": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "TND": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "TRY": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "TWD": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "USD": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "VND": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "ZAR": {
+              "type": "primitive",
+              "valueType": "number"
+            }
+          }
+        },
+        "Money": {
+          "type": "function",
+          "arity": 2
+        },
+        "MoneyError": {
+          "type": "function",
+          "arity": 4
+        },
+        "convert": {
+          "type": "function",
+          "arity": 4
+        },
+        "create": {
+          "type": "function",
+          "arity": 2
+        },
+        "fromMinorUnits": {
+          "type": "function",
+          "arity": 2
+        },
+        "of": {
+          "type": "function",
+          "arity": 2
+        },
+        "parse": {
+          "type": "function",
+          "arity": 1
+        },
+        "zero": {
           "type": "function",
           "arity": 1
         }
@@ -42429,6 +43300,10 @@
         }
       }
     },
+    "safeDecompress": {
+      "type": "function",
+      "arity": 2
+    },
     "safeDns": {
       "type": "object",
       "members": {
@@ -43498,6 +44373,35 @@
         "walk": {
           "type": "function",
           "arity": 2
+        }
+      }
+    },
+    "safeMountInfo": {
+      "type": "object",
+      "members": {
+        "DEFAULT_PATH": {
+          "type": "primitive",
+          "valueType": "string"
+        },
+        "SafeMountInfoError": {
+          "type": "function",
+          "arity": 4
+        },
+        "bestMatch": {
+          "type": "function",
+          "arity": 2
+        },
+        "isBindMount": {
+          "type": "function",
+          "arity": 1
+        },
+        "parse": {
+          "type": "function",
+          "arity": 2
+        },
+        "read": {
+          "type": "function",
+          "arity": 1
         }
       }
     },
@@ -45930,11 +46834,19 @@
           "type": "function",
           "arity": 4
         },
+        "sign": {
+          "type": "function",
+          "arity": 1
+        },
         "signer": {
           "type": "function",
           "arity": 1
         },
         "verifier": {
+          "type": "function",
+          "arity": 1
+        },
+        "verify": {
           "type": "function",
           "arity": 1
         }

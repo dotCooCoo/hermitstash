@@ -1,0 +1,51 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.11.26",
+  "date": "2026-05-20",
+  "headline": "`b.mail.server.submission` — CHUNKING / BDAT (RFC 3030)",
+  "summary": "The outbound submission listener now advertises and accepts the RFC 3030 BDAT (binary data) command, the chunked-upload alternative to DATA. Operators with large outbound payloads (attachments, MIME multipart bodies, encoded HTML) no longer pay the dot-stuffing cost of DATA; clients can stream chunks of arbitrary size and finalise with a `BDAT 0 LAST` (or `BDAT N LAST` for the final chunk). Mixing DATA + BDAT within one transaction is refused per RFC 3030 §3. Same `agent.handoff` contract — the body bytes arrive at the agent layer in their canonical SMTP form, no dot-stuffing applied (BDAT payloads are opaque).",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "EHLO advertises `CHUNKING` + new `BDAT <chunk-size> [LAST]` command",
+          "body": "The EHLO 250-line list now includes `CHUNKING` (RFC 3030 §2.1). A new `BDAT` command handler accepts `BDAT <chunk-size> [LAST]` after MAIL FROM + RCPT TO; the server reads exactly `<chunk-size>` bytes from the socket — no dot-stuffing, no end-of-data marker — and acknowledges with `250 2.0.0 <octets> octets received`. Multiple BDAT chunks accumulate into the message body; the final chunk carries the `LAST` keyword and triggers the same agent-handoff path as DATA. A `BDAT 0 LAST` finalises an empty trailer when the last chunk's byte count is unknown in advance."
+        },
+        {
+          "title": "Cumulative size cap honoured up-front",
+          "body": "`BDAT <large-size>` is refused with `552 5.3.4 BDAT cumulative size <total> exceeds maxMessageBytes (<cap>)` BEFORE the server begins reading bytes off the wire. A misconfigured client that pipelines `BDAT 999999999 LAST` and 1 GB of body is rejected at the command line, not after the byte stream lands. The collector bound on the receive side enforces the same cap as a backstop."
+        },
+        {
+          "title": "Mid-segment payload drainage",
+          "body": "When `BDAT N LAST\\r\\n<payload>` arrives in one TCP segment (typical for pipelined small messages), the line-loop drains the post-`\\r\\n` bytes from the command buffer straight into the BDAT collector before returning. Any tail bytes after the BDAT chunk completes get re-fed as the next command. Operators get pipelining + chunking with no extra round-trip cost."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "BDAT state cleared on every STARTTLS upgrade",
+          "body": "Same threat model as CVE-2021-38371 (Exim) / CVE-2021-33515 (Dovecot): pre-handshake bytes a malicious peer pipelined MUST NOT reach the post-TLS state machine. The STARTTLS handler clears `inBdatChunk` / `bdatRemaining` / `bdatCollector` / `bdatTotalBytes` alongside the existing line-buffer + DATA-collector reset, so a smuggled `BDAT <n>` + body that lands before the TLS upgrade can't bleed into the encrypted transaction."
+        },
+        {
+          "title": "Refusal on BDAT outside transaction",
+          "body": "BDAT before MAIL FROM / with zero RCPT returns `503 5.5.1` and does not enter chunk-collection mode. A misbehaving client that issues BDAT eagerly cannot leak state into the next transaction; the RSET reset path also clears all BDAT-side state."
+        },
+        {
+          "title": "Pipelining race gate mirrors DATA",
+          "body": "If the operator's `recipientPolicy` is async and not all RCPT verdicts have resolved, BDAT returns `451 4.5.0 RCPT TO verdicts pending; reissue BDAT after recipient replies` — same shape as the DATA pipelining-race gate. The transaction never commits with a partially-resolved recipient set."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "RFC 3030 (SMTP Service Extensions — CHUNKING / BDAT / BINARYMIME)", "url": "https://www.rfc-editor.org/rfc/rfc3030.html" },
+    { "label": "RFC 5321 (SMTP)",                                                  "url": "https://www.rfc-editor.org/rfc/rfc5321.html" },
+    { "label": "RFC 6409 (Message Submission for Mail)",                           "url": "https://www.rfc-editor.org/rfc/rfc6409.html" },
+    { "label": "RFC 8314 (Cleartext considered obsolete — submission ports)",       "url": "https://www.rfc-editor.org/rfc/rfc8314.html" },
+    { "label": "CVE-2021-38371 (Exim STARTTLS injection)",                          "url": "https://nvd.nist.gov/vuln/detail/CVE-2021-38371" },
+    { "label": "CVE-2021-33515 (Dovecot STARTTLS pre-handshake state leak)",        "url": "https://nvd.nist.gov/vuln/detail/CVE-2021-33515" }
+  ]
+}

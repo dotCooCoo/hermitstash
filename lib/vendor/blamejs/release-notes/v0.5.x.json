@@ -1,0 +1,390 @@
+{
+  "$schema": "../scripts/release-notes-consolidated-schema.json",
+  "minor": "0.5",
+  "releases": [
+    {
+      "version": "0.5.18",
+      "date": "2026-05-01",
+      "headline": "Bypass-fix cleanup — internal call sites routed through framework primitives",
+      "summary": "Internal call sites that were reaching past the framework's own primitives (raw `fs`, `crypto`, `Buffer.alloc`, ad-hoc validators) are routed through the matching `b.*` primitive so security defaults, audit emission, and validation discipline apply uniformly. No public API changes.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Internal call sites routed through framework primitives",
+              "body": "A sweep of `lib/` replaces direct calls to Node built-ins and hand-rolled validators with calls into the framework's own primitives (sealed storage, audit-emitting crypto, typed-error validators). The end-user surface is unchanged; the internal posture is tightened so the security defaults the framework promises operators apply to its own internals as well."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.5.17",
+      "date": "2026-05-01",
+      "headline": "CSV unification and three new shared primitives extracted from duplicated call sites",
+      "summary": "Folds the framework's two CSV parsers into a single primitive and extracts three shared helpers that had been re-implemented across `lib/`. The duplicate-detector in codebase-patterns surfaced the clusters; this release moves every call site onto the unified surface in the same commit.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "CSV parsing unified onto one primitive",
+              "body": "The two near-identical CSV parsers that had grown up in different modules are collapsed into a single primitive with one set of validation, ReDoS, and quoting rules. Every caller is migrated in the same release so there is no transitional double-surface for operators."
+            },
+            {
+              "title": "Three shared helpers extracted from duplicated call sites",
+              "body": "Inline shapes that the duplicate detector flagged across three or more files are lifted into named helpers, every call site is refactored to consume them, and the original inline shape is registered as a known antipattern so it cannot drift back into the codebase."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.5.16",
+      "date": "2026-04-30",
+      "headline": "`b.otelExport` — OTLP/HTTP exporter for `b.observability`",
+      "summary": "Adds an OTLP/HTTP exporter so the metrics, traces, and logs emitted by `b.observability` can be shipped to any OpenTelemetry-compatible collector without a userland exporter library.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.otelExport` OTLP/HTTP exporter",
+              "body": "Serializes `b.observability` signals to the OTLP protobuf-over-HTTP format and POSTs them to an operator-configured collector endpoint. Retries with exponential backoff on transient 5xx, drops on permanent 4xx, and applies a bounded queue so a slow collector cannot back-pressure the request path."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "OpenTelemetry OTLP specification",
+          "url": "https://opentelemetry.io/docs/specs/otlp/"
+        }
+      ]
+    },
+    {
+      "version": "0.5.15",
+      "date": "2026-04-30",
+      "headline": "`b.archive` gains ZIP creation",
+      "summary": "Extends the `b.archive` primitive with a ZIP creation path so operators can build archives entirely in-framework. The writer streams entries to a destination so large archives do not have to be held in memory.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "ZIP writer in `b.archive`",
+              "body": "A streaming ZIP creation API that accepts entries with explicit names, modes, and modification times and writes a valid PKZIP archive to a destination stream. The writer enforces sane name handling (no path traversal, no NTFS alternate data streams, no absolute paths) at the boundary so a malicious entry name cannot escape extraction later."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.5.14",
+      "date": "2026-04-30",
+      "headline": "`b.time` timezone-aware datetime arithmetic and formatting",
+      "summary": "Adds the `b.time` primitive — a timezone-aware datetime arithmetic and formatting surface that uses the platform's ICU tz database so DST transitions, fixed-offset zones, and named IANA zones all resolve correctly without a vendored tzdata blob.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.time` timezone-aware datetime primitive",
+              "body": "Operators can add and subtract durations, convert between zones, and format instants in named IANA zones without pulling a userland datetime library. Arithmetic honors DST boundaries (one wall-clock hour becomes 0 or 2 elapsed hours across spring-forward and fall-back), and formatting uses `Intl.DateTimeFormat` so locale and zone are resolved by the runtime."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.5.13",
+      "date": "2026-04-30",
+      "headline": "`b.testing.request` — supertest-style chainable HTTP test helper",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.testing.request` chainable HTTP test helper",
+              "body": "Supertest-style chainable HTTP test helper for asserting against responses from a `b.serve()` instance — provides `.get()` / `.post()` / `.expect()` / `.end()` style assertions over an ephemeral listener."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.5.12",
+      "date": "2026-04-30",
+      "headline": "`b.middleware.requestLog` — HTTP access-log middleware",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.middleware.requestLog` HTTP access-log middleware",
+              "body": "Structured per-request access log emitted as JSON with method, path, status, duration, and request id — wires into the framework observability sink so operators get one consistent log shape across the request lifecycle."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.5.11",
+      "date": "2026-04-30",
+      "headline": "`b.config` — schema-validated environment configuration",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.config` schema-validated environment configuration",
+              "body": "Boot-time configuration loader that validates environment variables against a declared schema — typos and missing required keys throw at process start instead of surfacing as runtime `undefined` later."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.5.10",
+      "date": "2026-04-30",
+      "headline": "`b.middleware.sse` — Server-Sent Events",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.middleware.sse` Server-Sent Events middleware",
+              "body": "WHATWG-compliant SSE middleware with automatic heartbeat, retry hints, and per-connection backpressure — composes the existing response lifecycle so the operator just writes events and the framework handles framing."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.5.9",
+      "date": "2026-04-30",
+      "headline": "`b.csv` — RFC 4180 parser and serializer",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.csv.parse` and `b.csv.stringify`",
+              "body": "RFC 4180 compliant CSV parser and serializer with quoting / escaping / header-row handling — bounded by an opts `maxBytes` ceiling so untrusted input cannot exhaust memory."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 4180 CSV",
+          "url": "https://www.rfc-editor.org/rfc/rfc4180.html"
+        }
+      ]
+    },
+    {
+      "version": "0.5.8",
+      "date": "2026-04-30",
+      "headline": "`b.uuid` — RFC 4122 v4 + RFC 9562 v7",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.uuid.v4` and `b.uuid.v7`",
+              "body": "Random UUIDv4 (RFC 4122) and time-ordered UUIDv7 (RFC 9562) generators backed by the framework's CSPRNG — v7 is the recommended choice for database primary keys since the lexicographic ordering matches insertion order."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 4122 UUID",
+          "url": "https://www.rfc-editor.org/rfc/rfc4122.html"
+        },
+        {
+          "label": "RFC 9562 UUIDv7",
+          "url": "https://www.rfc-editor.org/rfc/rfc9562.html"
+        }
+      ]
+    },
+    {
+      "version": "0.5.7",
+      "date": "2026-04-30",
+      "headline": "Defensive validation + queue closure capture + audit context",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Defensive validation on hot-path entry points",
+              "body": "Tightened input validation on config-time entry points to throw `TypeError` on malformed input at boot instead of surfacing later as confusing runtime failures."
+            },
+            {
+              "title": "Queue worker closure capture",
+              "body": "Job-queue workers now capture the per-job context at dispatch time rather than reading the shared mutable reference, preventing job N from seeing job N+1's metadata under concurrent dispatch."
+            },
+            {
+              "title": "Audit context propagation",
+              "body": "Audit emit calls inside middleware now carry the same request-id / tenant-id context as the surrounding request so an operator searching by request id sees every audit row for that request."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.5.6",
+      "date": "2026-04-30",
+      "headline": "Break-glass: `trustProxy` honored, cache require hoisted",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`b.breakGlass` honors `trustProxy` for client-IP extraction",
+              "body": "The break-glass admission check now reads the client address through the framework's `trustProxy` primitive so deployments behind a reverse proxy see the real client IP in the unseal audit row instead of the proxy's address."
+            },
+            {
+              "title": "Cache module require hoisted to top of file",
+              "body": "Moved an inline `require(\"./cache\")` call inside a hot-path function up to the top of the file, matching the framework convention and eliminating a per-call require overhead."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.5.5",
+      "date": "2026-04-30",
+      "headline": "Strict default CSP + IPv6 special-range expansion",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Default Content-Security-Policy tightened",
+              "body": "Default CSP now emits `default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'` plus `script-src 'self'` (no `'unsafe-inline'`, no `'unsafe-eval'`) — operators who need to relax it opt in explicitly via the middleware options."
+            },
+            {
+              "title": "IPv6 special-range table completed",
+              "body": "The SSRF / private-range blocklist used by outbound HTTP and DNS now covers IPv4-mapped IPv6 (`::ffff:0:0/96`), `64:ff9b::/96` NAT64, `100::/64` discard, `2002::/16` 6to4, link-local (`fe80::/10`), multicast (`ff00::/8`), and ULA (`fc00::/7`) — blocking the canonical bypass shapes that wrap a private IPv4 inside an IPv6 envelope."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.5.4",
+      "date": "2026-04-30",
+      "headline": "Close SSRF DNS-rebinding window with pinned outbound DNS",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Outbound HTTP pins the resolved IP for the lifetime of the request",
+              "body": "Outbound HTTP calls now resolve the target hostname once, validate the resulting address against the SSRF blocklist, and then connect to that exact IP — eliminating the DNS-rebinding window where an attacker's resolver could return a public IP for the safety check and then a private IP for the actual connect."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.5.3",
+      "date": "2026-04-30",
+      "headline": "`b.trustProxy` primitive, `Vary` header merge, and HSTS gating",
+      "summary": "Tightens the edge-facing posture: a dedicated `b.trustProxy` primitive replaces ad-hoc proxy-header parsing, response `Vary` headers now merge rather than overwrite, and HSTS is gated so it only emits over verified TLS-terminated requests.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.trustProxy` proxy-header parsing primitive",
+              "body": "Centralizes the decision of when to trust `X-Forwarded-For`, `Forwarded`, and `X-Forwarded-Proto` into one primitive that takes an operator-declared list of trusted proxy CIDRs. Untrusted hops are dropped from the chain instead of silently honored, closing the IP-spoofing path that hand-rolled parsers regularly leave open."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Response `Vary` header now merges instead of overwriting",
+              "body": "Middleware that set `Vary` was clobbering values that earlier middleware had already added, so caches saw an incomplete cache-key axis and could serve the wrong variant. The framework now reads any existing `Vary` value, unions the new field name in, and writes back a deduplicated comma-separated list."
+            },
+            {
+              "title": "HSTS only emitted on confirmed-TLS requests",
+              "body": "`Strict-Transport-Security` was being emitted on plaintext responses behind misconfigured proxies, training browsers to upgrade to HTTPS endpoints that did not exist. The header is now gated on the request's verified TLS posture (after `b.trustProxy` has resolved the real scheme) so it only ships when the framework can prove the request came in over TLS."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.5.2",
+      "date": "2026-04-30",
+      "headline": "`b.breakGlass` passkey factor, service-account bypass policy, and admin tooling",
+      "summary": "Rounds out the `b.breakGlass` family with a WebAuthn passkey factor option for step-up, a tightly scoped service-account bypass for unattended jobs, and operator-facing admin tools for inspecting, revoking, and auditing grants.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "WebAuthn passkey as a step-up factor",
+              "body": "Break-glass grants can now be unlocked with a registered passkey instead of (or in addition to) TOTP. The challenge-response flow piggybacks on the framework's existing WebAuthn primitive, so the authenticator binding, attestation policy, and replay defenses are inherited."
+            },
+            {
+              "title": "Scoped service-account bypass",
+              "body": "Unattended jobs that legitimately need to read flagged columns can be issued a non-interactive grant bound to a service principal, an explicit allowlist of columns, and a hard expiry. The bypass is refused for any column outside its allowlist, and every use emits an audit event tagged as a service grant so reviewers can separate human break-glass from automated access."
+            },
+            {
+              "title": "Admin tooling for grant inspection and revocation",
+              "body": "Operators can list active grants, inspect their column scopes and remaining lifetime, and revoke a grant immediately. Revocation propagates through the existing cluster pubsub so a compromised grant stops decrypting on every node in-flight rather than waiting for its TTL to expire."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.5.1",
+      "date": "2026-04-30",
+      "headline": "`b.breakGlass` — per-cell encryption, context binding, and migration tooling",
+      "summary": "Extends `b.breakGlass` with cryptographic per-cell isolation (one key per protected row) and context binding so unseal grants only work for the request scope they were issued against. Migration helpers move existing column-policy deployments onto the new layout.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Per-cell encryption with row-scoped keys",
+              "body": "Each protected row gets its own derived key, so compromise of one cell's plaintext or unseal grant does not expose any other row. Replaces the prior single-key column model for the cryptographic posture path."
+            },
+            {
+              "title": "Context binding on unseal grants",
+              "body": "Grants are bound to the issuing request context (operator identity, reason, and request-scope nonce). Replaying a grant outside its bound context is refused, which closes the window where a leaked grant token could be reused against other rows or by other actors."
+            },
+            {
+              "title": "Migration tooling for existing deployments",
+              "body": "Provides a migration path from the v0.5.0 column-policy layout to the v0.5.1 per-cell layout, so operators with seal state from the previous release upgrade without re-keying out of band."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.5.0",
+      "date": "2026-04-30",
+      "headline": "`b.breakGlass` — column-policy / row-enforcement step-up auth",
+      "summary": "Introduces the `b.breakGlass` primitive: sensitive columns (PHI, PCI, secrets) require fresh second-factor grants with operator-supplied reason before unsealing, with every unseal audited.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.breakGlass` step-up auth for sensitive columns and rows",
+              "body": "Column-policy and row-enforcement gates require a freshly issued step-up grant (operator second-factor + reason text) before the framework will decrypt or expose the protected fields. Each unseal emits an audit event carrying the grant identifier, the reason, and the columns or rows touched, so privileged data access has a paper trail by default."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

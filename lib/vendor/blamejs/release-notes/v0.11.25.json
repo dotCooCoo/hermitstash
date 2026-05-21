@@ -1,0 +1,77 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.11.25",
+  "date": "2026-05-20",
+  "headline": "Five new primitives: sealed-token mail FTS + Stripe HMAC-SHA256 webhook verify + `b.money` + `b.fsm` + `b.auth.botChallenge`",
+  "summary": "Five additive primitives in one release. Every consumer building on the framework — mail UIs, billing pipelines, e-commerce backends, multi-step business workflows, public web endpoints — now finds the substrate in-tree instead of reimplementing it. None of these replaces a default; every primitive is opt-in at the call site. Mail full-text search hashes tokens with the per-deployment vault salt before any byte hits the SQLite FTS5 index, so the index is searchable but a database dump leaks nothing readable. The Stripe-shaped HMAC-SHA-256 verifier sits next to the existing PQC and SHA3-512 webhook signers; the `whsec_` prefix stays in the key bytes per Stripe's spec; signatures are constant-time-compared and replay-defended via an operator-supplied nonce store. `b.money` arithmetic is BigInt-only across 40 ISO 4217 currencies with largest-remainder allocation and banker's-rounding FX conversion. `b.fsm` is the in-process sibling of `b.agent.saga` — declarative state + transition definition, guards, async on-enter/on-exit, drop-silent audit on every transition, with a transition-serialisation lock that makes concurrent `.transition()` calls deterministic. `b.auth.botChallenge` composes `b.httpClient` for siteverify against Cloudflare Turnstile (default), hCaptcha, and reCAPTCHA-v3 — the secret bytes never appear in any audit metadata.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.mailStore.fts` — sealed-token full-text index + `b.mailStore.create().search(folder, filter)`",
+          "body": "Every `appendMessage` now inserts a row into a SQLite FTS5 virtual table whose subject / address / body columns hold space-separated 16-char hex hashes — vault-salted SHA3 over each NFC-normalised token. The salt is the same `b.vault.getDerivedHashSalt()` `b.cryptoField` uses for sealed-column derived hashes, so rotating the vault salt invalidates the FTS index in step with every other sealed-row hash. Query terms go through the same tokenize → hash transform on the search path and issue FTS5 MATCH against the hash-token rows — the index is fully searchable without ever materialising the plaintext on disk. `b.mail.agent.search({ folder, filter })` now accepts `text` / `subject` / `body` / `from` / `to` filter keys; the agent layer hands them to the store. `hardExpunge` deletes the FTS row inside the same transaction as the canonical message row so the two cannot drift. Limits: 8192 tokens / row / field, 2..64 codepoint length band, 8 MiB input cap per field. Exact-token only (no prefix wildcard, no stemmer) — the cost of sealed-at-rest."
+        },
+        {
+          "title": "`b.webhook.verify({ alg: 'hmac-sha256-stripe', secret, header, body, toleranceMs?, nonceStore? })` + `b.webhook.sign(...)`",
+          "body": "Stripe-spec inbound webhook signature verifier (Paddle + Shopify use the same shape). Parses `Stripe-Signature: t=<unix>,v1=<hex>[,v1=<hex>...]`, validates the timestamp is within the tolerance window (default 5 min; refuses below 30s), HMAC-SHA-256s `<t>.<body>` with the `whsec_...` secret bytes verbatim (the prefix IS the key — `b.webhook.verify` never strips it), and walks the v1 entries with `b.crypto.timingSafeEqual` so a rotation grace window doesn't leak which entry matched. `b.webhook.sign` is the round-trip companion for outbound Stripe-shaped emission and round-trip tests. Optional `nonceStore: { has(k), set(k, ttlMs) }` records the accepted signature so a replay within the tolerance window refuses. The header value is hard-capped at 4096 bytes and per-`v1` hex at 256 chars (anti-DoS)."
+        },
+        {
+          "title": "`b.money` — decimal-safe money + 40-currency ISO 4217 catalog",
+          "body": "BigInt minor units throughout — Number is refused at construction. Currency exponents covering 0 (JPY/KRW), 2 (USD/EUR/GBP/…), 3 (KWD/BHD/JOD/OMR/TND), 4 (CLF) are pre-populated. Surface: `b.money.of(amount, code)` / `b.money.fromMinorUnits(bigint, code)` / `b.money.parse('12.50 USD')` / `b.money.zero(code)` plus instance methods `.add` / `.subtract` / `.multiply` / `.allocate(weights[])` / `.negate` / `.abs` / `.equals` / comparison family / `.toMinorUnits()` / `.toString()` / `.toJSON()` / `.format(locale?)`. `b.money.convert(money, toCurrency, fxRateProvider)` rounds half-to-even (banker's rounding) by default. Cross-currency arithmetic throws; `0.10 + 0.20 === 0.30` exactly. Allocation uses largest-remainder so $10 / 3 = [$3.34, $3.33, $3.33] with sum preserved."
+        },
+        {
+          "title": "`b.fsm` — in-process state machine (sibling of `b.agent.saga`)",
+          "body": "`b.fsm.define({ name, initial, states, transitions })` returns a frozen machine factory. `Machine.create({ initialContext })` returns an instance with `.state` / `.context` / `.history` / `.allowed()` / `.can(name)` / `.transition(name, opts)` / `.toJSON()`. Transitions carry an optional guard (predicate; refusal throws `fsm/guard-refused`) and trigger per-state `onEnter` / `onExit` side-effects (sync or returned-Promise — `.transition` awaits). Every transition emits a `fsm.<machineName>.transition` audit event via `b.audit.safeEmit` (drop-silent on hot path), including the actor + metadata the caller passed in. A transition lock serialises concurrent `.transition()` calls — the test suite exercises five parallel transitions and verifies only the legal path runs. State + transition names are identifier-shape only (`safeSql.DEFAULT_IDENTIFIER_RE`) so a name never lands in SQL / HTML un-validated. `Machine.restore(snapshot)` rebuilds an instance from a prior `.toJSON()` snapshot — state + history + context survive a process restart."
+        },
+        {
+          "title": "`b.auth.botChallenge.create({ secret, provider?, ... }) → { verify(token, opts?) }`",
+          "body": "Server-side challenge-response verifier for Cloudflare Turnstile (default), hCaptcha, and reCAPTCHA-v3. Composes `b.httpClient` for the outbound `/siteverify` POST — every request rides the framework's SSRF guard + DNS pinning + retry policy; the operator's secret never appears in a URL or any audit metadata field. Body encoding is `application/x-www-form-urlencoded` per the provider specs. Returns `{ ok, provider, hostname, action, challengeTs, score?, raw }` on success; throws `BotChallengeError` with structured codes (`invalid-token`, `timeout`, `hostname-mismatch`, `action-mismatch`, `provider-error`) on failure, with the upstream `error-codes` array exposed at `err.errorCodes`. Per-factory `allowedHostnames` + `allowedActions` allowlists; per-call `expectedHostname` + `expectedAction` overrides. Tokens are refused at the factory boundary if empty / non-string / > 4096 bytes, before any outbound call."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Mail FTS index leaks zero plaintext (sealed-at-rest invariant extended)",
+          "body": "Pre-v0.11.25, the only operator-facing search path on `b.mail.agent` was a modseq cursor + post-fetch unseal — fast for cursoring but useless for text content discovery. Plaintext-FTS would have broken the sealed-at-rest invariant. The new index hashes every indexed token with the per-deployment vault salt before insert; a `sqlite3 .dump` produces ASCII-hex tokens indistinguishable from random. The same vault salt protects every `b.cryptoField`-sealed column, so adding the FTS index does NOT widen the cryptographic trust boundary."
+        },
+        {
+          "title": "Stripe verifier defends the documented attack surface",
+          "body": "Constant-time HMAC compare (timing-safe across the v1 rotation list — operators don't leak which entry matched). Per-`v1` 256-hex anti-DoS cap. Tolerance-window minimum 30s — refuses operator misconfiguration that would accept hour-old signatures. The `whsec_` prefix preservation is encoded as a `codebase-patterns` detector (`stripe-hmac-sha256-no-strip-whsec-prefix`) so re-introducing the strip-bug is impossible without tripping a release gate."
+        },
+        {
+          "title": "Bot-challenge secret never reaches audit / logs",
+          "body": "`b.auth.botChallenge` audit emits `{ provider, hostname, ok, errorCodes }` — the operator's secret bytes never appear in any metadata key. A `codebase-patterns` detector (`bot-challenge-secret-not-in-audit`) scans `lib/auth/bot-challenge.js` for any `audit.*emit` window that references `secret` so a future refactor cannot regress."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "Five new `codebase-patterns` detectors encode the shape-specific bug classes",
+          "body": "`stripe-hmac-sha256-no-strip-whsec-prefix` flags `secret.replace(/^whsec_/, '')` / `secret.slice(6)` near an HMAC call (the `whsec_` prefix IS the key). `no-number-money-arithmetic` flags `b.money.of(<Number>, ...)` and Number / Money arithmetic (precision lost; only BigInt / string OK at construction). `fsm-transition-without-await` flags `<fsm>.transition(...)` without `await` or `.then` in `lib/` (the transition is async; sync misuse swallows errors). `bot-challenge-secret-not-in-audit` is file-scoped to `lib/auth/bot-challenge.js` and flags any `audit.*emit` window or `metadata: { ... }` object literal referencing `secret`. Each detector is wired into `codebase-patterns.test.js`'s `run()` so every future commit re-checks the shape."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "RFC 2104 (HMAC)",                                                                                "url": "https://www.rfc-editor.org/rfc/rfc2104.html" },
+    { "label": "RFC 6234 (US Secure Hash Algorithms — SHA-256)",                                                "url": "https://www.rfc-editor.org/rfc/rfc6234.html" },
+    { "label": "Stripe webhook signature spec",                                                                 "url": "https://docs.stripe.com/webhooks/signature" },
+    { "label": "Paddle webhook signature verification",                                                         "url": "https://developer.paddle.com/webhooks/signature-verification" },
+    { "label": "Shopify webhooks — HMAC verification",                                                          "url": "https://shopify.dev/docs/apps/webhooks/configuration/https" },
+    { "label": "ISO 4217 (Currency codes + minor unit catalog)",                                                "url": "https://www.iso.org/iso-4217-currency-codes.html" },
+    { "label": "IEEE 754 (the float-precision problem `b.money` avoids)",                                        "url": "https://standards.ieee.org/standard/754-2019.html" },
+    { "label": "Cloudflare Turnstile — server-side validation",                                                 "url": "https://developers.cloudflare.com/turnstile/get-started/server-side-validation/" },
+    { "label": "hCaptcha — verify the user response server-side",                                                "url": "https://docs.hcaptcha.com/" },
+    { "label": "reCAPTCHA-v3 — server-side verification",                                                       "url": "https://developers.google.com/recaptcha/docs/v3" },
+    { "label": "OWASP ASVS v5 §11.5 — bot defense controls",                                                    "url": "https://owasp.org/www-project-application-security-verification-standard/" },
+    { "label": "RFC 9051 (IMAP4rev2 — SEARCH semantics)",                                                       "url": "https://www.rfc-editor.org/rfc/rfc9051.html" },
+    { "label": "RFC 8621 (JMAP Mail — Email/query)",                                                            "url": "https://www.rfc-editor.org/rfc/rfc8621.html" },
+    { "label": "SQLite FTS5",                                                                                   "url": "https://www.sqlite.org/fts5.html" },
+    { "label": "UML State Machine (OMG UML 2.5.1 §14)",                                                         "url": "https://www.omg.org/spec/UML/2.5.1" }
+  ]
+}

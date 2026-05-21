@@ -1,0 +1,148 @@
+# GH Actions workflow lint gate. Three tools, three layers:
+#
+#   - pinact     — refuses any `uses:` reference that isn't pinned to a
+#                  40-char SHA + has a tag-shaped version comment. The
+#                  version comment must match the registered tag for
+#                  that SHA at refresh time. Defense against the
+#                  CVE-2025-30066 class (`tj-actions/changed-files`
+#                  retroactive tag rewrite, 23,000+ affected repos,
+#                  March 2025).
+#   - zizmor     — workflow-security audit. Catches template-injection,
+#                  excessive-permissions, dangerous-triggers, unpinned-
+#                  uses, cache-poisoning, ref-confusion, impostor-commit,
+#                  unredacted-secrets, and ~10 other classes.
+#   - actionlint — syntax + expression validation + shellcheck on every
+#                  `run:` block. Already invoked by some workflows; this
+#                  gate adds it as a repo-wide required check.
+#
+# Per the arxiv.org "Unpacking Security Scanners for GitHub Actions
+# Workflows" taxonomy:
+#   - pinact     answers "which action to pin"
+#   - zizmor     answers "what security anti-pattern is present"
+#   - actionlint answers "is the workflow correct YAML / Bash"
+# All three are necessary; none subsume the others.
+
+name: actions lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+      - '.github/actions/**'
+      - '.github/workflows/actions-lint.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: actions-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pinact:
+    name: pinact — SHA + version-comment integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Install pinact (release binary + sha256 verify)
+        # Install pinact directly from the upstream release binary
+        # instead of via the pinact-action wrapper. The wrapper is
+        # designed for auto-fix-and-commit flow; this gate wants
+        # check-only behavior with full control over exit semantics.
+        env:
+          PINACT_VERSION: v3.10.1
+        run: |
+          set -euo pipefail
+          V="${PINACT_VERSION#v}"
+          curl -fsSLo /tmp/pinact.tar.gz "https://github.com/suzuki-shunsuke/pinact/releases/download/${PINACT_VERSION}/pinact_linux_amd64.tar.gz"
+          curl -fsSLo /tmp/pinact-checksums.txt "https://github.com/suzuki-shunsuke/pinact/releases/download/${PINACT_VERSION}/pinact_${V}_checksums.txt"
+          # Verify the downloaded tarball against the upstream-published
+          # checksum line. If the upstream tarball was retroactively
+          # rewritten, this fails closed — the workflow refuses rather
+          # than running an unverified binary.
+          ACTUAL=$(sha256sum /tmp/pinact.tar.gz | awk '{print $1}')
+          EXPECTED=$(grep 'pinact_linux_amd64.tar.gz$' /tmp/pinact-checksums.txt | awk '{print $1}')
+          if [ -z "$EXPECTED" ]; then
+            echo "::error::could not find pinact_linux_amd64.tar.gz line in upstream checksums"
+            exit 1
+          fi
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::pinact tarball sha256 ${ACTUAL} does not match upstream-published ${EXPECTED}"
+            exit 1
+          fi
+          mkdir -p /tmp/pinact-bin
+          tar -xzf /tmp/pinact.tar.gz -C /tmp/pinact-bin
+          sudo install -m 0755 /tmp/pinact-bin/pinact /usr/local/bin/pinact
+          pinact --version
+
+      - name: pinact run --check (refuses any tag-shaped `uses:` reference)
+        run: |
+          set -euo pipefail
+          pinact run --check
+        # `--check` exits nonzero if any `uses:` reference is tag-pinned
+        # rather than SHA-pinned. The check is the structural defense
+        # against the CVE-2025-30066 retroactive-tag-rewrite class.
+
+      - name: pinact run --verify (refuses version-comment / SHA mismatch)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          pinact run --verify --check
+        # `--verify` re-resolves each pinned SHA's registered tag at
+        # check time and refuses if the version comment in the workflow
+        # disagrees. Catches the case where an action's tag was rewritten
+        # AFTER the workflow was pinned. Composing with `--check` keeps
+        # the gate refuse-mode (no auto-rewrite).
+
+  zizmor:
+    name: zizmor — workflow security audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      security-events: write   # required for SARIF upload to Code Scanning
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Install uv (zizmor distribution)
+        uses: astral-sh/setup-uv@69d3e2780fa0ea7da961bfbb898be32a9b1d10b1  # v7.0.0
+
+      - name: Run zizmor (fail on level=low across every rule class)
+        # `--min-severity low` flags every documented class. Suppression
+        # requires an inline `# zizmor: ignore[<rule>] — <reason>` per
+        # the spec.
+        run: |
+          set -euo pipefail
+          uvx zizmor@1.18.0 --min-severity low --format sarif . > zizmor.sarif || EXIT=$?
+          uvx zizmor@1.18.0 --min-severity low . || true   # human-readable output for the step log
+          if [ "${EXIT:-0}" != "0" ]; then exit "$EXIT"; fi
+
+      - name: Upload SARIF to Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@9e0d7b8d25671d64c341c19c0152d693099fb5ba  # v4.35.5
+        with:
+          sarif_file: zizmor.sarif
+          category: zizmor
+
+  actionlint:
+    name: actionlint — YAML + expression + shellcheck on `run:` blocks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Run actionlint
+        uses: raven-actions/actionlint@205b530c5d9fa8f44ae9ed59f341a0db994aa6f8  # v2.1.2
+        with:
+          fail_on_error: true
+          shellcheck: true

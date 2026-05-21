@@ -1,0 +1,65 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.11.4",
+  "date": "2026-05-19",
+  "headline": "`b.audit.useStore({ record })` shadow store + WebSocket permessage-deflate bomb fix + new detectors",
+  "summary": "Operators can now register a shadow audit store that receives a copy of every chain append after the framework's tamper-evident commit. The WebSocket inflate path gains a `maxOutputLength` cap. Five new codebase-patterns detectors and a token-aware shape-matcher land for future regex-bypass-resistant detectors.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.audit.useStore({ record })` shadow store registration",
+          "body": "Registers an operator-supplied shadow store that receives a copy of every audit chain append AFTER the framework's tamper-evident chain commits. The operator's `record(row)` async function receives the fully-formed row — `{ _id, recordedAt, monotonicCounter, prevHash, rowHash, action, outcome, actorUserId, ..., metadata }` — so external destinations (AWS QLDB / Azure Confidential Ledger / Google Cloud Audit Logs / in-house WORM appliances / SIEM forwarders) see identical hashes for cross-store reconciliation. Shadow failures are drop-silent — hot-path observability sinks must not crash or stall the request that emitted them — the framework chain is authoritative and already committed; an unreachable shadow surfaces via `b.observability` as the `audit.shadow_failed` event but never crashes the request path. Composes with HIPAA §164.312(b) / PCI-DSS Req 10.5.3 (separation-of-duties retention) / SOX §404 / SEC 17a-4 WORM postures. Pass `null` or `{ record: null }` to unregister."
+        },
+        {
+          "title": "Shape-matcher substrate at `test/helpers/_shape-match.js`",
+          "body": "Test-only token-aware traversal (never ships — `test/` is absent from package.json `files:` allowlist) that tracks paren / brace / bracket depth + string / template-literal / regex / comment state. Exposes `findCalls(source, calleeRegex)` / `findEnclosingTry(source, pos)` / `aliasesOf(source, chainRegex)`. Future releases convert the highest-bypass-risk regex-only detectors to AST-aware variants using this substrate, closing the class of regex-bypass via variable renaming / parens / line splits that surface-pattern detectors miss."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "WebSocket permessage-deflate decompression-bomb amplification",
+          "body": "`lib/websocket.js` `_inflateMessage` previously called `zlib.inflateRawSync` without `maxOutputLength` — a malicious peer could ship a small compressed frame that exploded into gigabytes BEFORE the framework's post-decompression `maxMessageBytes` check ran. The inflate now passes `maxOutputLength: this.maxMessageBytes` so zlib refuses mid-decompress; same amplification class the `gunzip-without-output-size-cap` detector defends elsewhere."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "`test-promise-settimeout-sleep`",
+          "body": "Scans the `test/` tree — the first detector under the new test-scope walker — for the `await new Promise(r => setTimeout(r, N))` shape forbidden in tests. The framework's `helpers.waitUntil(predicate, opts?)` is the canonical replacement: polls the actual condition every 25ms up to a 5000ms cap, exiting early when truthy. Fast platforms finish in milliseconds; contended platforms get the full budget. The migration backlog is pre-allowlisted as a release-gate countdown."
+        },
+        {
+          "title": "`inflate-unzip-without-output-size-cap`",
+          "body": "Extends the v0.10.15 gunzip-cap detector to `zlib.inflateSync` / `inflateRawSync` / `unzipSync` / `createInflate` family. RFC 1951 deflate is the same bomb class."
+        },
+        {
+          "title": "`map-get-falsy-then-set-pre-node-26`",
+          "body": "Companion to `map-has-then-set-pre-node-26` — catches the `!M.get(k)` / `M.get(k) === undefined|null` semantically-identical variants that Node 26's `Map.prototype.getOrInsertComputed` replaces."
+        },
+        {
+          "title": "`fs-existssync-then-read-toctou`",
+          "body": "CodeQL `js/file-system-race` class — `fs.existsSync(p) + fs.readFile(p)` against the same path is symlink-swap-vulnerable. The canonical defense is `lib/atomic-file.js`'s open-by-fd-first pattern."
+        },
+        {
+          "title": "`buffer-from-string-on-auth-path`",
+          "body": "Flags `Buffer.from(String(x))` in `lib/` — auth-bearing sites become `b.safeBytes` migration targets in the next release."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "RFC 7692 §7.2.2 WebSocket permessage-deflate", "url": "https://www.rfc-editor.org/rfc/rfc7692#section-7.2.2" },
+    { "label": "HIPAA §164.312(b) Audit Controls",            "url": "https://www.law.cornell.edu/cfr/text/45/164.312" },
+    { "label": "PCI-DSS v4.0 Req 10",                          "url": "https://www.pcisecuritystandards.org/" },
+    { "label": "SEC 17a-4 WORM",                               "url": "https://www.sec.gov/files/rules/final/34-44238.pdf" },
+    { "label": "SOX §404",                                     "url": "https://www.sec.gov/about/laws/soa2002.pdf" },
+    { "label": "CVE-2025-0725",                                "url": "https://nvd.nist.gov/vuln/detail/CVE-2025-0725" },
+    { "label": "CodeQL js/file-system-race",                   "url": "https://codeql.github.com/codeql-query-help/javascript/js-file-system-race/" }
+  ]
+}

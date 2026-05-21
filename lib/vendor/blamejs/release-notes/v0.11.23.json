@@ -1,0 +1,33 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.11.23",
+  "date": "2026-05-20",
+  "headline": "`b.mail.agent.expunge` — hard EXPUNGE with legal-hold + retention-floor refusal gates",
+  "summary": "Operators (and the future IMAP EXPUNGE + JMAP Email/set destroyed wire-protocol adapters) get a single canonical path for permanent message removal that refuses to delete anything currently under legal hold or still inside the regulator-mandated retention window. The gate runs per-message; refused ids carry an explicit reason (`legal-hold` / `retention-floor` / `not-in-folder`) plus the floor + age + posture metadata that drove the refusal — wire adapters mirror those reasons to operators verbatim. The destructive SQL runs only on the surviving id set, inside a backend transaction that also bumps folder modseq + decrements quota atomically.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.mail.agent.expunge({ actor, folder, objectIds })` — hard EXPUNGE primitive",
+          "body": "Composes two refusal gates before the destructive SQL runs. (1) Legal-hold gate: any message whose `legal_hold` flag is set refuses with reason `legal-hold`. The mail-store layer surfaces the flag in per-row metadata; this layer maps it to the operator-facing refusal. (2) Retention-floor gate: under a configured compliance posture (`hipaa` / `pci-dss` / `gdpr` / `soc2`), the regulator-mandated minimum retention TTL is read from `b.retention.COMPLIANCE_RETENTION_FLOOR_MS[posture]` and any message whose age (`now - receivedAt`) is below the floor refuses with reason `retention-floor` plus `floorMs` + `ageMs` + `posture` metadata. Returns `{ deleted: <ids>, refused: [{ id, reason, ... }] }`. Audit event `mail.agent.expunge.success` carries the requested / deleted / refused counts and a reason histogram so dashboards can spot abnormal refusal patterns without parsing per-id detail."
+        },
+        {
+          "title": "`b.mailStore.create(...).hardExpunge(folder, objectIds)` — destructive SQL primitive",
+          "body": "Removes messages permanently from a folder inside a single backend transaction: deletes the message row + its flag rows, bumps the folder modseq, decrements the per-folder quota by the freed bytes / count. Returns `{ rows, deleted, refused }` where `refused` carries `{ id, reason: 'legal-hold' | 'not-in-folder' }` for each id the SQL gate refused (legal-hold is mirrored from the column; not-in-folder catches stale ids). The agent layer (`b.mail.agent.expunge`) is responsible for the retention-floor gate; this primitive is the wire-protocol-shaped backend surface."
+        },
+        {
+          "title": "`b.mailStore.create(...).fetchByObjectId` returns `legalHold: boolean`",
+          "body": "Pre-existing fetch path now consistently exposes the legal-hold flag in its return shape. Previously the field existed in the returned object via a separate path; this commit consolidates the duplicate exports into a single canonical `legalHold` boolean derived from the SQLite `legal_hold` INTEGER column."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "RFC 9051 (IMAP4rev2 — EXPUNGE semantics, §6.4.3)", "url": "https://www.rfc-editor.org/rfc/rfc9051.html" },
+    { "label": "RFC 8621 (JMAP Mail — Email/set destroyed)",        "url": "https://www.rfc-editor.org/rfc/rfc8621.html" },
+    { "label": "45 CFR §164.316 (HIPAA — retention of records)",    "url": "https://www.ecfr.gov/current/title-45/subtitle-A/subchapter-C/part-164/subpart-C/section-164.316" },
+    { "label": "PCI-DSS v4.0.1 §3.5.1.1 (retention of cardholder data)", "url": "https://www.pcisecuritystandards.org/document_library" },
+    { "label": "GDPR Art. 17 (right to erasure — operator-side accountability)", "url": "https://gdpr-info.eu/art-17-gdpr/" }
+  ]
+}

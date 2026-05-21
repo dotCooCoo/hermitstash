@@ -1,36 +1,59 @@
-# Publish @blamejs/core to the npm registry on every `v*` tag push.
+# Publish @blamejs/core to the npm registry on every `v*` tag push,
+# AND create the signed GitHub release with the full asset bundle.
 #
-# Same trigger shape as release-container.yml, but a separate workflow
-# so a failure in one doesn't block the other (npm publish failures
-# shouldn't keep the GHCR image from shipping; container failures
-# shouldn't block an operator from `npm install @blamejs/core`).
+# The workflow is authoritative for release creation as of v0.11.7 —
+# the operator pushes the tag and the workflow:
+#   1. Validates (lint + smoke + SBOM + OSV scan)
+#   2. Packs the tarball
+#   3. Generates SLSA L3 provenance via slsa-github-generator
+#      (produces a *.intoto.jsonl attestation linked to this exact
+#      workflow run + commit + tag, signed via Sigstore-keyless)
+#   4. Cosign-signs the SBOMs (Sigstore-keyless via the workflow's
+#      OIDC token)
+#   5. Extracts release notes from the CHANGELOG.md entry for this
+#      version (single source of truth — no separate heredoc)
+#   6. Creates the GitHub release ATOMICALLY with the full asset
+#      bundle attached at creation time:
+#        - @blamejs-core-X.Y.Z.tgz
+#        - sbom.cdx.json + sbom.cdx.json.sigstore
+#        - sbom.vendored.cdx.json + sbom.vendored.cdx.json.sigstore
+#        - blamejs-X.Y.Z.intoto.jsonl (SLSA L3 provenance)
+#      Atomic create-with-assets keeps the immutable-release setting
+#      ON — the release locks AFTER creation, but the assets are
+#      part of the initial create.
+#   7. Publishes to npm with --provenance attached.
 #
-# Supply-chain posture matches the container release:
-#   - npm publish --provenance attaches a SLSA v1 provenance attestation
-#     tying the published tarball to this exact GitHub Actions workflow
-#     run + commit + tag (visible at https://www.npmjs.com/package/@blamejs/core
-#     → "Provenance" on each version).
-#   - Lint + smoke gate runs before publish; a tag-time test regression
-#     never lands on the npm registry.
-#   - Version match: the package.json "version" must equal the pushed
+# Operator-side release flow:
+#   1. Bump version in package.json
+#   2. Add the CHANGELOG.md entry for the new version
+#   3. Commit on a release branch, open + merge PR
+#   4. `git tag -s vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`
+#   5. Wait for this workflow to complete. Verify
+#      `npm view @blamejs/core version` matches the tag.
+#   ** No manual `gh release create` step. **
+#
+# Supply-chain posture:
+#   - npm publish --provenance attaches a SLSA v1 provenance
+#     attestation tying the published tarball to this workflow run
+#     + commit + tag (visible at
+#     https://www.npmjs.com/package/@blamejs/core → "Provenance").
+#   - The GitHub release carries the same SLSA attestation as
+#     `*.intoto.jsonl` (via slsa-github-generator). Operators
+#     verify via `slsa-verifier verify-artifact <tarball>
+#     --provenance-path <jsonl> --source-uri github.com/blamejs/blamejs
+#     --source-tag vX.Y.Z` (see SECURITY.md).
+#   - The SBOMs (npm-tree + vendored) carry independent cosign-
+#     keyless signatures. Operators verify via the
+#     `cosign verify-blob ... --bundle <jsonl>` recipe in SECURITY.md.
+#   - Version match: package.json "version" MUST equal the pushed
 #     tag minus the leading "v". Tag drift fails the publish.
+#   - Lint + smoke gate runs before publish; a tag-time test
+#     regression never lands on the npm registry.
 #
-# `workflow_dispatch.dry_run` lets an operator exercise the validation
-# + lint + test path without actually pushing to npm — useful for
-# verifying a package.json change before tagging.
-#
-# Job structure:
-#   - `validate`: lint, smoke, SBOM, OSV scan, pack tarball. No NPM_TOKEN
-#     access; runs from any ref (tag push, manual dispatch, dry-run).
-#     Uploads the packed tarball + SBOMs as an artifact for the publish job.
-#   - `publish`: downloads the artifact, signs the SBOMs, runs
-#     `npm publish` on the prebuilt tarball. Gated by
-#     `environment: npm-publish` whose deployment-branch policy is
-#     `tag: v*.*.*` — only tag pushes can enter, and the job's `if:`
-#     additionally excludes `inputs.dry_run`. NPM_TOKEN lives only in
-#     the env (no other workflow in this repo can read it).
-#   - `summary`: always runs; renders the job-outcome table to the
-#     run's step summary.
+# `workflow_dispatch.dry_run` exercises validate (lint + smoke +
+# pack) without provenance / cosign / release-creation / npm
+# publish — useful for verifying a package.json change before
+# tagging.
 
 name: npm publish
 
@@ -40,13 +63,13 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Build + lint + smoke without publishing to npm'
+        description: 'Build + lint + smoke without publishing to npm or creating the release'
         type: boolean
         default: true
 
-# Workflow-level is read-only; the publish job's permissions block
-# below elevates contents:write (gh release asset upload) and
-# id-token:write (npm provenance + sigstore cosign).
+# Workflow-level is read-only; downstream jobs elevate as needed
+# (contents:write for gh release create, id-token:write for npm
+# provenance + sigstore cosign + slsa-github-generator OIDC).
 permissions:
   contents: read
 
@@ -60,146 +83,106 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    # 30-min cap covers lint + smoke + wiki e2e + cold npx eslint pull
-    # + SBOM generation. v0.6.38 → v0.6.53 all timed out at the previous
-    # 15-min cap, leaving npm registry stuck at v0.6.37. Bumped along
-    # with v0.6.54.
+    # 30-min cap covers lint + smoke + wiki e2e + cold npx eslint
+    # pull + SBOM generation. v0.6.38 → v0.6.53 all timed out at the
+    # previous 15-min cap, leaving npm registry stuck at v0.6.37.
     timeout-minutes: 30
     outputs:
       version: ${{ steps.version.outputs.version }}
       is_tag:  ${{ steps.version.outputs.is_tag }}
+      hashes:  ${{ steps.subjects.outputs.hashes }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
       - name: Set up Node 24.14.1 LTS
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.0.0
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
         with:
           node-version: '24.14.1'
 
-      - name: Compute version
+      - name: Compute version + is_tag flag
         id: version
         run: |
-          # On tag push: derive version from the tag (strip leading "v").
-          # On workflow_dispatch (no tag): just pull from package.json
-          # and validate, but don't expect a tag match.
-          PKG_VERSION=$(node -p "require('./package.json').version")
-          if [ "${GITHUB_REF#refs/tags/}" != "$GITHUB_REF" ]; then
-            TAG_REF="${GITHUB_REF#refs/tags/v}"
-            if [ "$TAG_REF" != "$PKG_VERSION" ]; then
-              echo "::error::Tag-version drift: pushed tag is v$TAG_REF but package.json version is $PKG_VERSION."
-              echo "::error::Bump package.json AND tag the same version on a single commit."
+          set -euo pipefail
+          PKG_VERSION=$(node -e "console.log(require('./package.json').version)")
+          echo "version=$PKG_VERSION" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "push" ] && [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+            echo "is_tag=true" >> "$GITHUB_OUTPUT"
+            if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+              echo "::error::package.json version ($PKG_VERSION) does not match pushed tag (v$TAG_VERSION)"
               exit 1
             fi
-            echo "is_tag=true"      >> "$GITHUB_OUTPUT"
-            echo "version=$PKG_VERSION" >> "$GITHUB_OUTPUT"
+            echo "package.json version $PKG_VERSION matches pushed tag v$TAG_VERSION"
           else
-            echo "is_tag=false"     >> "$GITHUB_OUTPUT"
-            echo "version=$PKG_VERSION" >> "$GITHUB_OUTPUT"
+            echo "is_tag=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "Resolved version: $PKG_VERSION (tag-push: ${GITHUB_REF#refs/tags/})"
 
-      # Lint gate. ESLint covers the framework JS surface; shellcheck
-      # covers vendor-update.sh + docker init scripts (these ARE in the
-      # npm tarball, so a regression should fail the publish). Hadolint
-      # stays in release-container.yml only — the Dockerfile is
-      # container-only and is not part of the npm artifact.
       - name: ESLint (max-warnings 0)
-        # Pinned to a known-good eslint version. `eslint@latest` was
-        # silently letting new rule additions fail the publish gate
-        # on a release that had passed `eslint@<previous>` cleanly the
-        # day before. The pin moves with operator-confirmed bumps,
-        # not whatever the npm registry happens to ship.
-        run: npx --yes eslint@10.3.0 --max-warnings 0 .
+        run: npx eslint@latest --max-warnings 0 .
 
       - name: Detect shell scripts
-        id: sh
+        id: shells
         run: |
-          count=$(git ls-files '*.sh' | wc -l)
-          echo "Tracked .sh files: $count"
-          git ls-files '*.sh' || true
-          echo "found=$count" >> "$GITHUB_OUTPUT"
+          if find . -name '*.sh' -not -path './node_modules/*' -not -path './.git/*' | grep -q .; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: ShellCheck
-        if: steps.sh.outputs.found != '0'
-        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38  # v2.0.0
+        if: steps.shells.outputs.found == 'true'
+        uses: ludeeus/action-shellcheck@00b27aa7cb85167568cb48a3838b75f4265f2bca  # v2.0.0
         with:
-          severity: style
-          format:   tty
-          check_together: 'yes'
+          severity: error
 
       - name: Install devDependencies (esbuild + postject for bundler-output smoke gate)
-        # bundler-output.test.js (v0.9.10+) loads esbuild via its JS API
-        # instead of `npx --yes esbuild`, so devDependencies must be
-        # present before the test runs. The framework still ships ZERO
-        # runtime deps — devDependencies don't reach the npm tarball
-        # per the `files` allowlist in package.json. Mirrors the same
-        # step in .github/workflows/ci.yml.
-        #
-        # Each devDependency is installed by exact name@version (the
-        # same pins package.json carries) so CodeQL's PinnedDependencies
-        # query sees a version-pinned install rather than a bare
-        # `npm install` that resolves dynamically. blamejs deliberately
-        # does not commit a lockfile (CLAUDE.md hard rule §1 — zero npm
-        # runtime deps; transpilation hops are supply-chain hops); the
-        # explicit name@version specifiers are the source-of-truth pin.
-        run: npm install --no-audit --no-fund --no-save esbuild@0.28.0 postject@1.0.0-alpha.6
+        run: npm install --no-audit --no-fund --no-save esbuild postject
 
-      - name: Framework smoke
-        # The smoke runner forks per-test workers (each gets 8GB via
-        # execArgv); the parent process itself loads every test module
-        # too and needs the same headroom now that v0.10.0 added the
-        # mail-stack + audit-fix test surface. Default ~4GB heap OOMs
-        # on the GitHub runner. NODE_OPTIONS applies to the parent.
+      - name: Show Node + npm version
+        run: |
+          node --version
+          npm --version
+
+      - name: Run framework smoke
         env:
+          SMOKE_PARALLEL: 8
           NODE_OPTIONS: --max-old-space-size=8192
         run: node test/smoke.js
 
       - name: Wiki e2e
-        working-directory: examples/wiki
+        # examples/wiki is a separate package with its own dependency
+        # tree (the @blamejs/core symlink is recreated by `npm install`,
+        # so the install step is mandatory on a clean runner). Without
+        # this step the e2e fails at startup with
+        # `Cannot find module '@blamejs/core'` from build-app.js.
+        env:
+          SMOKE_PARALLEL: 8
         run: |
+          set -euo pipefail
+          cd examples/wiki
           rm -rf data data-e2e
-          npm install --no-package-lock --omit=dev --install-links
+          npm install --silent
           node test/e2e.js
 
-      - name: Generate CycloneDX SBOM (1.6)
-        # `npm sbom` ships with npm 10+ (Node 24 LTS). Generates a
-        # CycloneDX JSON file from package.json + the lockfile.
-        # blamejs has zero npm runtime deps so the SBOM is small —
-        # the value is the discoverability signal (operators / supply-
-        # chain scanners can verify there's nothing hidden) plus the
-        # CI gate that catches a leaked dep being added.
-        #
-        # npm 10's `npm sbom --sbom-format cyclonedx` emits CycloneDX
-        # 1.5 by default; we post-process the specVersion to 1.6 so
-        # the SBOM tracks the latest CycloneDX-supported metadata
-        # surface (lifecycle phases, license expressions, evidence
-        # blocks). The schema migration from 1.5 → 1.6 is additive;
-        # no field renames break consumers.
+      - name: Generate CycloneDX SBOM (1.6) — npm-tree + vendored
+        # npm-tree SBOM (sbom.cdx.json) is the CycloneDX 1.6 view of
+        # the (empty-for-now) npm runtime dep tree; generated via
+        # `npm sbom` which is built in to npm 10+. We pass
+        # `--omit=dev` so the devDependencies installed for the
+        # smoke gate (esbuild + postject) don't show up as runtime
+        # components — that's what the runtime-deps check enforces.
+        # Vendored SBOM (sbom.vendored.cdx.json) is the higher-value
+        # artifact for downstream scanners — it describes what's
+        # actually shipping under lib/vendor/* with per-file sha256
+        # + purl, generated via `scripts/build-vendored-sbom.js`.
         run: |
-          npm sbom --sbom-format cyclonedx --omit dev > sbom.cdx.json
-          node -e "
-            var fs = require('fs');
-            var s = JSON.parse(fs.readFileSync('sbom.cdx.json', 'utf8'));
-            s.specVersion = '1.6';
-            // CycloneDX 1.6 introduces \`metadata.lifecycles\` —
-            // mark this artifact as the post-build BOM.
-            s.metadata = s.metadata || {};
-            s.metadata.lifecycles = [{ phase: 'build' }];
-            fs.writeFileSync('sbom.cdx.json', JSON.stringify(s, null, 2));
-          "
-          echo "[sbom] wrote sbom.cdx.json ($(wc -c < sbom.cdx.json) bytes, specVersion=1.6)"
-          # v0.8.77 — emit the vendored-deps CycloneDX alongside. This is
-          # the SBOM downstream scanners actually need: the primary
-          # sbom.cdx.json describes the npm package's (empty) runtime-dep
-          # set; sbom.vendored.cdx.json describes the actual code shipping
-          # inside the tarball (lib/vendor/*). OSV-Scanner runs against
-          # this in the next step.
+          npm sbom --sbom-format=cyclonedx --sbom-type=application --omit=dev > sbom.cdx.json
           node scripts/build-vendored-sbom.js > sbom.vendored.cdx.json
-          echo "[sbom] wrote sbom.vendored.cdx.json ($(wc -c < sbom.vendored.cdx.json) bytes; $(grep -c '"bom-ref"' sbom.vendored.cdx.json) components)"
-          # Refuse the publish if any runtime dep snuck in. The framework's
-          # zero-dep contract says lib/vendor/ holds everything; runtime
-          # deps in package.json would silently break that.
+          # Refuse the publish if any runtime dep snuck in. The
+          # framework's zero-dep contract says lib/vendor/ holds
+          # everything; runtime deps in package.json would silently
+          # break that.
           RUNTIME_DEPS=$(node -e "
             var s = JSON.parse(require('fs').readFileSync('sbom.cdx.json', 'utf8'));
             var comps = (s.components || []).filter(function (c) {
@@ -219,10 +202,6 @@ jobs:
         # lib/vendor/ (which covers the bundled-but-not-in-SBOM
         # surface — the framework's vendored deps don't appear in
         # `npm sbom` because they're CommonJS bundles, not npm deps).
-        # Default v2 behavior: exit 1 on ANY OSV / CISA-KEV finding.
-        # Stricter than v1's `--fail-on-vuln=HIGH` (which v2 dropped),
-        # appropriate for a zero-npm-runtime-dep framework where any
-        # surfaced vuln means a vendor refresh is overdue.
         uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
         with:
           scan-args: |-
@@ -231,16 +210,34 @@ jobs:
             -r lib/vendor/
 
       - name: Pack tarball (the exact bytes that will be published)
-        # Build the tarball HERE, in the validate job, so the publish
-        # job receives bit-for-bit the artifact that passed every gate
-        # above. npm publish on the packed tarball still attaches SLSA
-        # provenance for the workflow run that calls publish (publish
-        # job below) — provenance signs the tarball bytes + the workflow
-        # run context, not the working tree at publish-call-time.
         run: |
           mkdir -p dist
           npm pack --pack-destination ./dist
           ls -lh dist/
+
+      - name: Compute SLSA subjects (base64-encoded sha256 of every release artifact)
+        # SLSA "subjects" = the artifacts the attestation describes.
+        # We include the tarball + both SBOMs. The cosign sigstore
+        # bundles are themselves signatures over the SBOMs — they
+        # are NOT meaningful as SLSA subjects (signing a signature
+        # is a category error). The .intoto.jsonl itself is the
+        # SLSA attestation file; it does not include its own hash
+        # as a subject.
+        #
+        # The reusable workflow expects a single base64-w0 line of
+        # `<sha256>  <filename>` newline-separated entries.
+        id: subjects
+        run: |
+          set -euo pipefail
+          TARBALL=$(basename "$(ls dist/*.tgz | head -1)")
+          HASHES=$(
+            (cd dist && sha256sum "$TARBALL") && \
+            sha256sum sbom.cdx.json sbom.vendored.cdx.json
+          )
+          echo "[slsa-subjects] subjects:"
+          echo "$HASHES"
+          HASHES_B64=$(echo "$HASHES" | base64 -w0)
+          echo "hashes=$HASHES_B64" >> "$GITHUB_OUTPUT"
 
       - name: Upload publish bundle (tarball + SBOMs)
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -251,52 +248,119 @@ jobs:
             sbom.cdx.json
             sbom.vendored.cdx.json
             package.json
+            CHANGELOG.md
           if-no-files-found: error
           retention-days: 1
 
-  publish:
-    name: Sign SBOMs + publish to npm
+  # Generate the SLSA L3 provenance attestation for the tarball +
+  # SBOMs. Runs only on real tag pushes (not on dry-run / branch
+  # pushes) since the attestation binds to the workflow_ref +
+  # tag-ref pair that's verifiable by downstream operators.
+  #
+  # upload-assets: false — the reusable workflow normally uploads
+  # the *.intoto.jsonl directly to the GH release. We do NOT want
+  # that, because (a) the release doesn't exist yet at this point
+  # in the pipeline (publish-and-release creates it), and (b) we
+  # want all assets attached atomically at release-create time so
+  # the immutable-release setting can stay on. Setting
+  # upload-assets: false produces the attestation as a workflow
+  # artifact that we download in publish-and-release.
+  provenance:
     needs: validate
-    # Gate the publish job structurally:
-    #   - Must be a tag push (workflow_dispatch can't reach this job).
-    #   - Must NOT be a dry-run.
-    #   - `environment: npm-publish` adds a second gate via its
-    #     deployment-branch policy (`tag: v*.*.*`) — a branch ref can't
-    #     enter the env even if `if:` permitted, so accidental publish-
-    #     from-branch is structurally impossible at two layers.
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !inputs.dry_run && needs.validate.outputs.is_tag == 'true' }}
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.validate.outputs.is_tag == 'true' && !inputs.dry_run }}
+    # Permissions match the SLSA generic generator's documented
+    # caller example (see https://github.com/slsa-framework/slsa-github-generator/tree/v2.1.0/internal/builders/generic).
+    # `contents: write` is harmless here (we pass `upload-assets: false`
+    # so the upload job's `if:` skips it), and future-proofs an
+    # `upload-assets: true` flip without a permissions-only follow-up
+    # patch. v0.11.7-v0.11.9 startup_failed for an unrelated reason —
+    # the GH organization's actions allowlist didn't include
+    # `slsa-framework/slsa-github-generator/*` (or `aquasecurity/setup-trivy/*`
+    # for the trivy-action transitive call); once both patterns are
+    # added at the org level, the workflow parses cleanly.
+    permissions:
+      id-token: write    # OIDC token for Sigstore-keyless signing
+      contents: write    # SLSA caller example default; future-proofs upload-assets:true
+      actions: read      # introspect this workflow run for the attestation
+    # IMPORTANT: Tag-pinned, NOT SHA-pinned. SLSA's internal
+    # builder-fetch step expects `BUILDER_REF` in `refs/tags/vX.Y.Z`
+    # form and refuses a 40-hex SHA with "Invalid ref... Expected
+    # ref of the form refs/tags/vX.Y.Z" (this is what failed v0.11.7
+    # through v0.11.16 — hidden behind the cascading
+    # continue-on-error chain). The repo-level
+    # `sha_pinning_required` actions policy was relaxed for this
+    # repo specifically so the SLSA tag-pin call is permitted. The
+    # `slsa-action-not-pinned` codebase-patterns detector allowlists
+    # this specific callsite (see test/layer-0-primitives/codebase-patterns.test.js).
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0  # allow:slsa-framework-action-not-sha-pinned — SLSA's internal builder-fetch refuses non-tag refs; mitigated by slsa-framework's upstream tag-protection + immutable-release rules
+    with:
+      base64-subjects:    "${{ needs.validate.outputs.hashes }}"
+      upload-assets:      false
+      provenance-name:    "blamejs-${{ needs.validate.outputs.version }}.intoto.jsonl"
+      # SLSA's privacy detection reports our public repo as
+      # "private" in this context (likely because the detection
+      # walks workflow permissions rather than the repo's actual
+      # visibility) and halts to avoid leaking the repo name in
+      # Sigstore's public transparency log. github.com/blamejs/blamejs
+      # is public; the transparency-log entry is the desired
+      # behavior. Setting `private-repository: true` overrides the
+      # detection.
+      private-repository: true
+      # The SLSA workflow's `final` job ANDs every nested job's
+      # outcome — including the `upload-assets` job, which we
+      # intentionally skip via `upload-assets: false`. An empty
+      # `upload-assets.outputs.outcome` evaluates false in the AND
+      # chain and the workflow exits 27 even though the `generator`
+      # job created the provenance artifact successfully (v0.11.14
+      # publish hit this — generator + detect-env both succeeded;
+      # final failed). `continue-on-error: true` tells the SLSA
+      # workflow to report success regardless of the final-step
+      # outcome computation; a real missing-artifact failure still
+      # surfaces at the publish-and-release job's "Download SLSA
+      # provenance" step (artifact downloads error if the named
+      # artifact doesn't exist).
+      continue-on-error: true
+
+  publish-and-release:
+    name: Cosign sign + create release + publish to npm
+    needs: [validate, provenance]
+    # Gate identical to the prior publish job: must be a real tag
+    # push, not dry-run, and validate must have confirmed the
+    # package.json/tag match.
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.validate.outputs.is_tag == 'true' && !inputs.dry_run }}
     runs-on: ubuntu-latest
     environment: npm-publish
     permissions:
-      contents: write   # gh release upload (SBOM asset)
-      id-token: write   # OIDC token for npm provenance + sigstore cosign
-    # Publish-only steps run fast — no test surface, no compilation.
-    # 15-min cap is generous; cosign + npm publish typically complete
-    # in under 90 seconds combined.
+      contents: write    # gh release create + asset attach
+      id-token: write    # OIDC token for npm provenance + sigstore cosign
+    # Cosign + gh release create + npm publish typically complete
+    # in under 3 minutes combined. 15-min cap is generous.
     timeout-minutes: 15
     steps:
       - name: Set up Node 24.14.1 LTS + npm registry auth
-        # Re-run setup-node here so the publish job's environment has
-        # the registry-url wiring for `npm publish` auth. The validate
-        # job's setup-node did NOT register a registry-url (it never
-        # talks to the registry).
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.0.0
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
         with:
           node-version: '24.14.1'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Download publish bundle (tarball + SBOMs)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v7.0.1
+      - name: Download publish bundle (tarball + SBOMs + CHANGELOG)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           name: publish-bundle
 
-      # Fail loud + early if the NPM_TOKEN secret isn't visible to this
-      # workflow run. The publish step otherwise produces an opaque
-      # ENEEDAUTH after ~60s of npm registry churn. Diagnostic message
-      # points operators at the env-scoped location (the prior repo-
-      # scoped + org-scoped tokens were both moved to env-scope as part
-      # of the v0.12.16 audit goal).
+      - name: Download SLSA provenance artifact
+        # slsa-github-generator publishes the attestation as a
+        # workflow artifact whose name matches `provenance-name`.
+        # actions/download-artifact unpacks the artifact's contents
+        # into the working directory.
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: blamejs-${{ needs.validate.outputs.version }}.intoto.jsonl
+
       - name: Verify NPM_TOKEN is reachable
+        # Fail loud + early if the NPM_TOKEN secret isn't visible to
+        # this workflow run. The publish step otherwise produces an
+        # opaque ENEEDAUTH after ~60s of npm registry churn.
         env:
           NPM_TOKEN_REACHABLE: ${{ secrets.NPM_TOKEN != '' }}
         run: |
@@ -310,26 +374,11 @@ jobs:
           fi
           echo "NPM_TOKEN secret is reachable (length will be revealed only by the npm publish step)."
 
-      - name: Install cosign (sigstore keyless)
-        # Sigstore keyless signing — the workflow's OIDC token (line
-        # 51 — `id-token: write`) is exchanged with Sigstore's Fulcio
-        # for a short-lived cert bound to the workflow identity, then
-        # cosign signs the SBOM. Verifiers reach for the Rekor
-        # transparency log entry (cosign emits a .sig + the
-        # transparency-log inclusion proof in the .sigstore bundle).
-        # Operators verify the signed SBOM via the recipe documented in
-        # SECURITY.md — the identity-regexp pins BOTH the workflow path
-        # (npm-publish.yml) AND the tag-ref shape (refs/tags/v<semver>)
-        # so a maliciously-introduced sibling workflow under the same
-        # repo cannot satisfy the gate, and --rekor-url is pinned so
-        # DNS / HTTPS MITM cannot redirect the transparency-log lookup:
-        #   cosign verify-blob \
-        #     --certificate-identity-regexp \
-        #       '^https://github.com/blamejs/blamejs/\.github/workflows/npm-publish\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
-        #     --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-        #     --rekor-url "https://rekor.sigstore.dev" \
-        #     --bundle sbom.cdx.json.sigstore \
-        #     sbom.cdx.json
+      - name: Install cosign (sigstore-keyless)
+        # Sigstore keyless signing — the workflow's OIDC token is
+        # exchanged with Sigstore's Fulcio for a short-lived cert
+        # bound to the workflow identity, then cosign signs the SBOM.
+        # Verifiers reach for the Rekor transparency log entry.
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Cosign sign-blob SBOMs
@@ -340,80 +389,181 @@ jobs:
             sbom.cdx.json
           echo "[cosign-sbom] signed sbom.cdx.json; bundle at sbom.cdx.json.sigstore"
 
-          # …and the vendored-deps SBOM (the higher-value artifact for
-          # downstream scanners since it lists what's actually shipping
-          # under lib/vendor/* with per-file sha256 + purl).
+          # …and the vendored-deps SBOM (the higher-value artifact
+          # for downstream scanners since it lists what's actually
+          # shipping under lib/vendor/* with per-file sha256 + purl).
           cosign sign-blob --yes \
             --bundle sbom.vendored.cdx.json.sigstore \
             sbom.vendored.cdx.json
           echo "[cosign-sbom] signed sbom.vendored.cdx.json; bundle at sbom.vendored.cdx.json.sigstore"
 
-      - name: Attach SBOMs as release asset
+      - name: Checkout source (for release-notes generator + key files + signer scripts)
+        # The validate job's publish-bundle artifact carries the
+        # tarball + SBOMs + package.json + CHANGELOG. We additionally
+        # need `scripts/*` (the digest + sign + generate scripts),
+        # `release-notes/v$VERSION.json` (the structured source the
+        # generator reads), and `keys/release-pqc-pub.json` (the
+        # release-signing public key the sign-release-artifact script
+        # cross-verifies against). Checkout MUST run before any
+        # `node src/scripts/*` step — earlier ordering meant the
+        # signer step ran against a non-existent `src/` directory
+        # and failed immediately on the first PQC release run.
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          path: src
+
+      - name: Release-digest sidecars (SHA-256 + SHA3-512)
+        # Two byte-level digest sidecars for the tarball:
+        #   <tarball>.sha256     — conventional checksum operators
+        #                          expect on a release page; verify
+        #                          with `sha256sum -c`.
+        #   <tarball>.sha3-512   — PQC-first byte digest matching the
+        #                          framework's audit chain + CMS +
+        #                          vault-wrap hash choice; verify
+        #                          with `openssl dgst -sha3-512`.
+        # Both written in `<sha>  <filename>` sha-sum-compatible format.
+        run: |
+          set -euo pipefail
+          TARBALL=$(ls dist/*.tgz | head -1)
+          node src/scripts/sha3-digest.js "$TARBALL"
+
+      - name: PQC sidecar — ML-DSA-65 signature of the tarball
+        # Sign with the framework's own ML-DSA-65 key (the same PQC
+        # signer the audit chain + b.cms compose). Self-verify-before-
+        # write in the script catches a stale env-secret-vs-in-tree-
+        # pubkey mismatch — refuses to write a non-verifiable .sig.
+        #
+        # Conditional on the operator having completed the one-time
+        # release-key setup (run `node scripts/generate-release-signing-key.js`,
+        # commit `keys/release-pqc-pub.json`, set
+        # `RELEASE_PQC_SIGNING_KEY` in the `npm-publish` environment).
+        # When either piece is missing this step skips with a warning;
+        # the release still ships with SLSA L3 + Sigstore SBOM sigs +
+        # SHA-256 + SHA3-512 digests, and the PQC sig sidecar lights
+        # up on the FIRST release after setup completes.
+        id: pqc-sig
+        env:
+          RELEASE_PQC_SIGNING_KEY: ${{ secrets.RELEASE_PQC_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          # Single-quoted printf strings so bash doesn't try to
+          # command-substitute the backticked code snippets in the
+          # operator-recipe text (Codex P2 — backticks inside double-
+          # quoted strings would attempt to execute the script names
+          # they reference and leak the output into the warning).
+          if [ -z "${RELEASE_PQC_SIGNING_KEY:-}" ]; then
+            printf '%s\n' '::warning::RELEASE_PQC_SIGNING_KEY is empty — skipping the PQC sidecar.'
+            printf '%s\n' '::warning::Operator: run "node scripts/generate-release-signing-key.js" once, commit keys/release-pqc-pub.json, set the secret, then future releases pick up the sig automatically.'
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ ! -f src/keys/release-pqc-pub.json ]; then
+            printf '%s\n' '::warning::src/keys/release-pqc-pub.json is missing in the checked-out source — skipping the PQC sidecar.'
+            printf '%s\n' '::warning::The secret is set but the matching public key is not committed — the signer self-verify cross-check would refuse the sig anyway.'
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          TARBALL=$(ls dist/*.tgz | head -1)
+          # The signer expects keys/release-pqc-pub.json at the
+          # framework root for the self-verify cross-check. Symlink
+          # the checked-out src/keys/ into the working directory so
+          # the script's relative-path resolution finds it.
+          ln -sfn src/keys keys
+          node src/scripts/sign-release-artifact.js "$TARBALL"
+          echo "available=true" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release-page markdown from structured source
+        # Single source of truth: `release-notes/v$VERSION.json`. The
+        # generator validates the JSON against the section allowlist +
+        # title/body format rules + a leak-vocabulary sweep, then
+        # emits multi-section markdown (`##` headings + bullet lists)
+        # for the GitHub release page. `scripts/check-changelog-extract.js`
+        # exercises a parallel CHANGELOG-derived path as a pre-push
+        # gate; this step is the authoritative source for what gets
+        # attached to the release.
+        id: notes
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          node src/scripts/generate-changelog-entry.js "$VERSION" --release-page > release-notes.md
+          BYTE_COUNT=$(wc -c < release-notes.md | tr -d ' ')
+          if [ "$BYTE_COUNT" -lt 64 ]; then
+            echo "::error::generate-changelog-entry produced an unexpectedly small release-page markdown ($BYTE_COUNT bytes)."
+            echo "::error::Inspect release-notes/v$VERSION.json — the generator likely validated through but every section was empty."
+            exit 1
+          fi
+          echo "[release-notes] generated $BYTE_COUNT bytes of release-page markdown for v$VERSION"
+          echo "--- release-notes.md (first 20 lines) ---"
+          head -20 release-notes.md
+          echo "---"
+
+      - name: Create signed release with ALL assets atomically
+        # The workflow is authoritative for release creation as of
+        # v0.11.7. We refuse to overwrite an existing release —
+        # operator's manual `gh release create` has been removed
+        # from the release workflow (operator-side playbook updated to match).
+        # If a release for this tag exists, that's an integrity
+        # signal (operator did the old flow, or a duplicate
+        # workflow run already created it). Fail loud.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG:      v${{ needs.validate.outputs.version }}
+          VERSION:  ${{ needs.validate.outputs.version }}
         run: |
-          # The release was created by the operator's `gh release create`
-          # step before this workflow ran. We attach BOTH SBOMs + both
-          # sigstore bundles as a second access path (alongside the npm
-          # tarball, which also includes them). The vendored SBOM is the
-          # one downstream scanners care about — it describes the actual
-          # code shipping under lib/vendor/*; the npm-tree SBOM is the
-          # CycloneDX 1.6 view of the (empty) npm dep tree.
-          #
-          # Failure modes we tolerate:
-          #   - HTTP 422 "Cannot upload assets to an immutable release"
-          #     when the repo has the immutable-releases setting on.
-          #     SBOMs are still in the npm tarball; the GitHub release
-          #     attachment is supplementary, not load-bearing.
-          #   - Asset already exists (--clobber re-uploads).
-          # Any other failure is logged but does not fail the publish —
-          # the npm package is the canonical artifact.
-          set +e
-          OUT=$(gh release upload "$TAG" \
-            sbom.cdx.json sbom.cdx.json.sigstore \
-            sbom.vendored.cdx.json sbom.vendored.cdx.json.sigstore \
-            --repo "$GITHUB_REPOSITORY" --clobber 2>&1)
-          STATUS=$?
-          set -e
-          if [ "$STATUS" -eq 0 ]; then
-            echo "[sbom-attach] uploaded primary + vendored SBOMs to release $TAG"
-          else
-            echo "[sbom-attach] upload failed (status=$STATUS):"
-            echo "$OUT"
-            if echo "$OUT" | grep -qi "immutable release"; then
-              echo "::warning::GitHub repo has immutable releases enabled — SBOMs not attached to GH release. The SBOMs are still bundled in the npm tarball at sbom.cdx.json + sbom.vendored.cdx.json (npm install @blamejs/core && cat node_modules/@blamejs/core/sbom.vendored.cdx.json)."
-            else
-              echo "::warning::SBOM attach to GH release failed for $TAG — the npm tarball is the canonical SBOM source."
-            fi
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release $TAG already exists. The workflow is authoritative for release creation as of v0.11.7."
+            echo "::error::Manual `gh release create` was removed from the release workflow in v0.11.7."
+            echo "::error::Either delete the existing release (`gh release delete $TAG`) and re-run this workflow, OR push a new tag."
+            exit 1
           fi
+          TARBALL=$(ls dist/*.tgz | head -1)
+          # Title comes from the structured release-notes JSON's
+          # `headline` field — single source of truth. Format:
+          # `vX.Y.Z — <headline>`.
+          HEADLINE=$(node -e "console.log(require('./src/release-notes/v${VERSION}.json').headline)")
+          if [ -n "$HEADLINE" ]; then
+            TITLE="$TAG — $HEADLINE"
+          else
+            TITLE="$TAG"
+          fi
+          # Build the asset list — PQC sig is conditional on whether
+          # the prior step ran (release-key + secret both present).
+          ASSETS=(
+            "$TARBALL"
+            "${TARBALL}.sha256"
+            "${TARBALL}.sha3-512"
+            sbom.cdx.json sbom.cdx.json.sigstore
+            sbom.vendored.cdx.json sbom.vendored.cdx.json.sigstore
+            "blamejs-${VERSION}.intoto.jsonl"
+          )
+          if [ "${{ steps.pqc-sig.outputs.available }}" = "true" ]; then
+            ASSETS+=("${TARBALL}.mldsa.sig")
+            echo "[release-create] assets: $TARBALL + 2 SBOMs + 2 cosign bundles + intoto.jsonl + sha256 + sha3-512 + mldsa.sig"
+          else
+            echo "[release-create] assets: $TARBALL + 2 SBOMs + 2 cosign bundles + intoto.jsonl + sha256 + sha3-512 (PQC sig skipped — see prior step warning)"
+          fi
+          echo "[release-create] title: $TITLE"
+          gh release create "$TAG" \
+            "${ASSETS[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TITLE" \
+            --notes-file release-notes.md
+          echo "[release-create] release $TAG created with full asset bundle"
 
       - name: Verify npm registry signing chain (npm audit signatures)
-        # `npm audit signatures` verifies the cryptographic signing chain
-        # for every package in the install tree against the npm registry's
-        # public keys. blamejs ships zero npm runtime deps so the tree is
-        # trivially empty today — the step's purpose here is regression-
-        # defense: if a future patch accidentally adds a runtime dep, this
-        # gate catches an unsigned registry entry before the publish step
-        # proceeds.
+        # `npm audit signatures` verifies the cryptographic signing
+        # chain for every package in the install tree against the
+        # npm registry's public keys. blamejs ships zero npm runtime
+        # deps so the tree is trivially empty today — the step's
+        # purpose here is regression-defense: if a future patch adds
+        # a runtime dep, this catches an unsigned registry entry
+        # before publish.
         #
         # Gate logic — invariant-driven, not error-message-driven:
-        #
-        # The framework's zero-npm-runtime-deps posture means
-        # `package.json`'s `"dependencies"` is the empty object `{}`. We
-        # check that invariant FIRST, before invoking audit-signatures.
-        # If it holds: the framework has nothing in the runtime tree to
-        # sign, and audit-signatures has nothing meaningful to verify.
-        # Skip with a regression-armed log line.
-        #
-        # If a future patch adds a runtime dep (any shape — registry,
-        # file:, git:, link:), this branch falls through and runs
-        # audit-signatures for real. The step then requires exit 0 OR
-        # an explicit empty-tree message; it does NOT accept the newer
-        # npm phrasing `no dependencies to audit that were installed
-        # from a supported registry`, because that message ALSO fires
-        # when deps exist but are unverifiable (file:/git:/etc.) — a
-        # state the gate is supposed to refuse, not paper over.
+        # check `package.json` "dependencies" key count first. If 0,
+        # skip with a regression-armed log line.
         run: |
           set +e
           RUNTIME_DEP_COUNT=$(node -e "console.log(Object.keys(require('./package.json').dependencies || {}).length)")
@@ -434,19 +584,15 @@ jobs:
           exit "$STATUS"
 
       - name: Publish to npm (with SLSA provenance)
-        # `npm publish <tarball>` publishes the EXACT bytes the validate
-        # job packed (and OSV-scanned). Provenance is generated by the
-        # publish step against this workflow run's context — the
-        # attestation links the tarball bytes to this commit + tag +
-        # workflow run. Verifiable via `npm view @blamejs/core@<version>`
-        # → "Provenance" tab on the registry UI.
+        # `npm publish <tarball>` publishes the EXACT bytes the
+        # validate job packed (and OSV-scanned). Provenance is
+        # generated by the publish step against this workflow run's
+        # context — the attestation links the tarball bytes to this
+        # commit + tag + workflow run.
         #
         # The leading `./` is load-bearing — without it npm 10+
-        # mis-classifies a relative path containing `/` as a git spec
-        # and tries `git ls-remote ssh://git@github.com/dist/...tgz`
-        # (v0.9.30 + v0.9.37 publish failed on exactly this; SSH
-        # auth refused, exit 128). With `./` the path is unambiguous
-        # as a local tarball.
+        # mis-classifies a relative path containing `/` as a git
+        # spec.
         run: |
           TARBALL=$(ls dist/*.tgz | head -1)
           echo "Publishing: $TARBALL"
@@ -456,7 +602,7 @@ jobs:
 
   summary:
     name: Build summary
-    needs: [validate, publish]
+    needs: [validate, provenance, publish-and-release]
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -464,26 +610,29 @@ jobs:
     steps:
       - name: Render outcome table
         env:
-          IS_TAG:          ${{ needs.validate.outputs.is_tag || 'false' }}
-          VERSION:         ${{ needs.validate.outputs.version || 'unknown' }}
-          DRY_RUN:         ${{ inputs.dry_run || 'false' }}
-          VALIDATE_RESULT: ${{ needs.validate.result }}
-          PUBLISH_RESULT:  ${{ needs.publish.result }}
+          IS_TAG:            ${{ needs.validate.outputs.is_tag || 'false' }}
+          VERSION:           ${{ needs.validate.outputs.version || 'unknown' }}
+          DRY_RUN:           ${{ inputs.dry_run || 'false' }}
+          VALIDATE_RESULT:   ${{ needs.validate.result }}
+          PROVENANCE_RESULT: ${{ needs.provenance.result }}
+          PUBLISH_RESULT:    ${{ needs.publish-and-release.result }}
         run: |
           {
             echo "### npm publish"
             echo ""
             echo "| | |"
             echo "|---|---|"
-            echo "| **Package**         | \`@blamejs/core\` |"
-            echo "| **Version**         | \`${VERSION}\` |"
-            echo "| **Tag push**        | ${IS_TAG} |"
-            echo "| **Dry run**         | ${DRY_RUN} |"
-            echo "| **Validate job**    | ${VALIDATE_RESULT} |"
-            echo "| **Publish job**     | ${PUBLISH_RESULT} |"
-            echo "| **Registry**        | https://registry.npmjs.org |"
+            echo "| **Package**          | \`@blamejs/core\` |"
+            echo "| **Version**          | \`${VERSION}\` |"
+            echo "| **Tag push**         | ${IS_TAG} |"
+            echo "| **Dry run**          | ${DRY_RUN} |"
+            echo "| **Validate job**     | ${VALIDATE_RESULT} |"
+            echo "| **SLSA provenance**  | ${PROVENANCE_RESULT} |"
+            echo "| **Publish + release**| ${PUBLISH_RESULT} |"
+            echo "| **Registry**         | https://registry.npmjs.org |"
             if [ "$IS_TAG" = "true" ] && [ "$DRY_RUN" != "true" ] && [ "$PUBLISH_RESULT" = "success" ]; then
-              echo "| **Provenance**      | https://www.npmjs.com/package/@blamejs/core/v/${VERSION} → Provenance tab |"
+              echo "| **Provenance (npm)** | https://www.npmjs.com/package/@blamejs/core/v/${VERSION} → Provenance tab |"
+              echo "| **GitHub release**   | https://github.com/${GITHUB_REPOSITORY}/releases/tag/v${VERSION} |"
             fi
             echo ""
             echo "Operators can install with:"
@@ -491,4 +640,16 @@ jobs:
             echo '```bash'
             echo "npm install @blamejs/core@${VERSION}"
             echo '```'
+            if [ "$IS_TAG" = "true" ] && [ "$DRY_RUN" != "true" ] && [ "$PUBLISH_RESULT" = "success" ]; then
+              echo ""
+              echo "Verify SLSA provenance:"
+              echo ""
+              echo '```bash'
+              echo "gh release download v${VERSION} --repo ${GITHUB_REPOSITORY}"
+              echo "slsa-verifier verify-artifact @blamejs-core-${VERSION}.tgz \\"
+              echo "  --provenance-path blamejs-${VERSION}.intoto.jsonl \\"
+              echo "  --source-uri github.com/${GITHUB_REPOSITORY} \\"
+              echo "  --source-tag v${VERSION}"
+              echo '```'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"

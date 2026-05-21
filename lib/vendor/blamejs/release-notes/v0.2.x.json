@@ -1,0 +1,706 @@
+{
+  "$schema": "../scripts/release-notes-consolidated-schema.json",
+  "minor": "0.2",
+  "releases": [
+    {
+      "version": "0.2.39",
+      "date": "2026-04-28",
+      "headline": "Sweep `auditCaptured` + `fakeNow` patterns to `b.testing`",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Internal test patterns moved onto `b.testing`",
+              "body": "Existing `auditCaptured` and `fakeNow` ad-hoc test patterns across the framework are migrated to the new `b.testing` primitive so every test file uses the same shared helpers instead of rolling its own clock/audit fakes."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.38",
+      "date": "2026-04-28",
+      "headline": "`b.testing`",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.testing` primitive",
+              "body": "A shared testing primitive landed at `b.testing` that bundles the framework's recurring test helpers (deterministic clocks, audit capture, fake request/response shapes) so tests across the codebase can share them instead of each file recreating its own mocks."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.37",
+      "date": "2026-04-28",
+      "headline": "`b.notify`",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.notify` primitive",
+              "body": "Outbound notification dispatch (email, SMS gateway, webhook, push) is consolidated behind one primitive with per-channel adapters, throttling, and audit emission — applications no longer wire each transport directly."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.36",
+      "date": "2026-04-28",
+      "headline": "`b.i18n`",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.i18n` primitive",
+              "body": "Internationalization (message catalogs, locale resolution from request, pluralization, formatting) is a first-class primitive — applications stop wiring their own message-bundle loader and locale negotiator."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.35",
+      "date": "2026-04-28",
+      "headline": "`b.seeders`",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.seeders` primitive",
+              "body": "Database/storage seeders are now a first-class primitive — operators declare seed data alongside the application and the framework runs idempotent boot-time provisioning instead of bespoke per-app scripts."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.34",
+      "date": "2026-04-28",
+      "headline": "`b.cache`",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.cache` primitive",
+              "body": "A framework-native cache primitive with pluggable backends, TTL, max-bytes ceiling, and observability signals — applications stop reaching for ad-hoc Map-based caches that grow unbounded."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.33",
+      "date": "2026-04-28",
+      "headline": "Audit captures the 5 W's; success on by default when audit is wired",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Audit envelopes capture the 5 W's",
+              "body": "Every audit event now records who (actor), what (action), when (timestamp), where (request context / route), and why (outcome reason) — a uniform shape across every framework primitive that emits audit."
+            },
+            {
+              "title": "Success events on by default when audit is wired",
+              "body": "Once an audit sink is registered, the framework emits success events by default — previously success was opt-in per primitive, leaving asymmetric coverage between failure and success."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.32",
+      "date": "2026-04-28",
+      "headline": "Close api-key visibility holes",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "API-key visibility holes closed",
+              "body": "`b.apiKey` no longer leaks raw key material into log lines, error messages, or audit envelopes — the key is hashed once at issuance and only the prefix is surfaced to operator-readable output."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.31",
+      "date": "2026-04-28",
+      "headline": "`auditSuccess` split into precursor vs complete-event",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`auditSuccess` split into two distinct events",
+              "body": "What was a single `auditSuccess` is now two events — a precursor emitted when the operation begins and a complete-event emitted on successful finish — so operators can distinguish started-but-not-yet-complete work from fully completed work in the audit stream."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.30",
+      "date": "2026-04-28",
+      "headline": "`b.permissions`",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.permissions` primitive",
+              "body": "A first-class permissions primitive lets handlers declare required capabilities and the framework enforces them before the handler runs — replaces ad-hoc per-route role checks with a uniform model."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.29",
+      "date": "2026-04-28",
+      "headline": "Observability backfill across primitives",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Observability signals backfilled across the framework",
+              "body": "Primitives that did not yet emit metrics, traces, and audit events are brought up to the same observability baseline as the request lifecycle — queue, scheduler, storage, mail, websocket, and rate-limit all now surface uniform signals."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.28",
+      "date": "2026-04-28",
+      "headline": "Credential hash envelope versioning",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Versioned credential-hash envelope",
+              "body": "Stored credential hashes now carry an explicit envelope version so the framework can roll its KDF parameters or hash algorithm forward without invalidating existing credentials — verifications transparently re-hash on next login under the new parameters."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.27",
+      "date": "2026-04-28",
+      "headline": "`b.apiKey` + repo logo assets",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.apiKey` primitive",
+              "body": "API-key issuance, storage (hashed, never plaintext), rotation, and revocation are now a first-class primitive — applications stop rolling their own bearer-token table."
+            },
+            {
+              "title": "Repository logo assets",
+              "body": "Logo artwork is committed under the repository for use by downstream documentation, package registries, and operator-facing surfaces."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.26",
+      "date": "2026-04-28",
+      "headline": "`b.webhook` signing + verification",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.webhook` signing and verification",
+              "body": "Outbound webhooks are signed with a framework-issued signature header and inbound webhook handlers verify the signature before invoking the callback — replay-protected, constant-time comparison, no per-app HMAC code."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.25",
+      "date": "2026-04-28",
+      "headline": "`b.slug`",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.slug` primitive",
+              "body": "URL-safe slug generation with Unicode-aware normalization, length caps, and reserved-word avoidance — applications no longer roll their own ad-hoc lowercase-and-dash function."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.24",
+      "date": "2026-04-28",
+      "headline": "`b.retry` primitive",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.retry` primitive",
+              "body": "A composable retry primitive with exponential backoff, jitter, and a bounded attempt budget — callers wrap any async operation and get uniform retry semantics without rolling their own loop."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.23",
+      "date": "2026-04-28",
+      "headline": "Test helpers consolidate",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Shared test helpers consolidated under `test/helpers/`",
+              "body": "Common mocks (`_mockReq`, `_mockRes`, `_bodyReq`, `_bodyRes`, `_streamingRes`, `setupTestDb`, `teardownTestDb`) are consolidated so test fixtures stop rolling their own copies and instead reuse one canonical implementation."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.22",
+      "date": "2026-04-28",
+      "headline": "Input validation hardened at framework entry points",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Config-time and entry-point input validation throws on bad input",
+              "body": "Entry-point primitives such as `C.TIME.*`, `C.BYTES.*`, `protocolDispatcher.create`, and `defineClass`-built errors now throw `TypeError` on non-finite numbers, negative durations, or wrong-shape arguments so operator typos surface at boot instead of mid-request."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.21",
+      "date": "2026-04-28",
+      "headline": "`defineClass.factory` replaces per-module `_err` wrappers",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`defineClass.factory` replaces per-module `_err` wrappers",
+              "body": "Per-module error wrappers (`_err`) are replaced with a single `defineClass.factory` builder so every framework error class is constructed uniformly with a stable `.name`, `.code`, and structured `.metadata` field."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.20",
+      "date": "2026-04-28",
+      "headline": "`b.requestHelpers` + metrics label normalization",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.requestHelpers` primitive",
+              "body": "Common request-shape readers (resolveRoute, clientIp, requestId, etc.) are consolidated into `b.requestHelpers` so middleware and handlers share one defensive implementation instead of rolling their own."
+            },
+            {
+              "title": "`metrics._normalizeLabelArg`",
+              "body": "Metrics label arguments now flow through a single normalization helper so cardinality stays bounded and string/number/undefined inputs render to a consistent canonical shape."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.19",
+      "date": "2026-04-28",
+      "headline": "`audit.safeEmit` replaces per-module `_emit` wrappers",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`audit.safeEmit` consolidates per-module audit emitters",
+              "body": "Per-module `_emit` wrappers across `lib/` are replaced with a single `audit.safeEmit` entry point — drop-silent on the hot path, uniform envelope shape, one place to extend audit-sink behavior."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.18",
+      "date": "2026-04-28",
+      "headline": "`b.protocolDispatcher`",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.protocolDispatcher` primitive",
+              "body": "A protocol-aware dispatcher routes incoming requests to the matching handler family (HTTP, WebSocket, queue worker) from a single entry point, replacing ad-hoc per-protocol wiring across earlier releases."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.17",
+      "date": "2026-04-28",
+      "headline": "`b.observability.tap`",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.observability.tap` primitive",
+              "body": "A single tap point lets operators subscribe to every framework observability signal (metrics, traces, audit events) from one place instead of registering exporters against three different primitives."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.16",
+      "date": "2026-04-28",
+      "headline": "`index.js` header lists the complete public surface",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Public surface enumerated in `index.js` header",
+              "body": "The top of `index.js` now lists every public namespace the framework ships so operators reading the entry-point file see the full surface at a glance instead of having to grep `lib/`."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.15",
+      "date": "2026-04-28",
+      "headline": "Request middleware captures `statusCode` + promotes span to route template",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Request middleware captures response `statusCode`",
+              "body": "The request lifecycle middleware now records the final response status code on the audit/metric/trace surfaces so operators can correlate outcome with route + latency without instrumenting per-handler."
+            },
+            {
+              "title": "Tracing span named after route template",
+              "body": "Spans are renamed from the concrete URL to the matched route template (using `req.routePattern` from the previous release) — cardinality stays bounded and traces group meaningfully."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.14",
+      "date": "2026-04-28",
+      "headline": "Router populates `req.routePattern`",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`req.routePattern` populated by the router",
+              "body": "The router now exposes the matched route template on `req.routePattern` so downstream middleware (metrics labels, tracing span names, audit events) can group requests by template instead of by concrete URL."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.13",
+      "date": "2026-04-28",
+      "headline": "OAuth generic preset",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "OAuth generic preset",
+              "body": "`b.auth.oauth` gains a generic preset that covers any spec-compliant OAuth 2.0 / OIDC provider without a per-vendor adapter — operators supply the discovery URL and client credentials and the framework wires the rest."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.12",
+      "date": "2026-04-28",
+      "headline": "Built-in metrics + framework tracing taps",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Built-in metrics",
+              "body": "`b.metrics` ships built-in counters/gauges/histograms for every framework primitive — request latency, queue depth, scheduler fire counts, audit-sink failures — surfaced without per-app instrumentation."
+            },
+            {
+              "title": "Framework tracing taps",
+              "body": "`b.tracing` taps every framework primitive boundary so traces span the request lifecycle automatically; operators wire an exporter and get a full waterfall without per-handler code."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.11",
+      "date": "2026-04-28",
+      "headline": "Storage POST-form presigning + logger deprecation warning",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Storage POST-form policy presigning",
+              "body": "`b.storage` gains presigned HTML POST-form policies — browsers can upload directly to the bucket via a standard `<form>` POST with the framework-issued policy document, complementing the existing presigned-URL flow."
+            }
+          ]
+        },
+        {
+          "heading": "Deprecated",
+          "items": [
+            {
+              "title": "Legacy logger surface",
+              "body": "The standalone logger surface emits a deprecation warning pointing callers at `b.log`; removal is scheduled for a future minor release."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.10",
+      "date": "2026-04-28",
+      "headline": "Close api-encrypt audit gaps",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "api-encrypt audit gaps closed",
+              "body": "The `b.middleware.apiEncrypt` surface now emits audit events on every key-handling path — decrypt failures, mismatched envelope versions, and recipient-key mismatches all surface to the audit sink instead of being lost on the error path."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.9",
+      "date": "2026-04-28",
+      "headline": "Cluster-shared nonce-store + audit handler isolation",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Cluster-shared nonce-store",
+              "body": "Replay-protection nonces are now persisted in a cluster-shared store so a replayed request hitting a different worker is still rejected — single-worker memory was insufficient for multi-process deployments."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Audit handler isolation",
+              "body": "Audit-sink handlers are isolated so a faulting handler can no longer take down the request that emitted the audit event — drop-silent on hot-path observability sinks."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.8",
+      "date": "2026-04-28",
+      "headline": "End-to-end PQC payload encryption middleware",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.middleware.apiEncrypt` end-to-end PQC payload encryption",
+              "body": "Request and response bodies can now be encrypted end-to-end with the framework's PQC envelope (ML-KEM-1024 + XChaCha20-Poly1305) so payloads stay confidential even past a terminating proxy — opt-in middleware that wires into the request lifecycle without per-route changes."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.7",
+      "date": "2026-04-27",
+      "headline": "WebSocket channel/room hub with cluster pub/sub fan-out",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "WebSocket channel/room hub",
+              "body": "`b.websocket` gains a channel/room hub so clients can subscribe to named topics; broadcasts to a topic fan out across the cluster via the existing `b.pubsub` backend instead of staying pinned to the worker that owns the socket."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.6",
+      "date": "2026-04-27",
+      "headline": "`b.mail.bounce` intake primitive",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Mail-bounce intake primitive",
+              "body": "`b.mail.bounce` parses inbound DSN (Delivery Status Notification) messages and surfaces structured bounce events so callers can quarantine bad recipients without writing their own RFC 3464 parser."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.5",
+      "date": "2026-04-27",
+      "headline": "Strip narrative comments from shipped source",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Narrative comments stripped from shipped source",
+              "body": "Source comments across `lib/` are rewritten to describe behavior instead of carrying internal-process narrative — operators reading the tarball see only operator-facing prose."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.4",
+      "date": "2026-04-27",
+      "headline": "Logger folded into `b.log` + rate-limit cluster backend",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Logger folded into `b.log`",
+              "body": "The standalone logger surface is consolidated into `b.log` so the framework ships a single canonical logging primitive instead of two overlapping ones."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Cluster-shared rate-limit backend",
+              "body": "`b.rateLimit` gains a cluster-shared backend so request counters survive across worker processes — a single client cannot evade limits by hashing onto a different worker."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.3",
+      "date": "2026-04-27",
+      "headline": "Route raw time and byte literals through `C.TIME` / `C.BYTES` and type bare throws",
+      "summary": "Numeric literals representing durations and byte sizes are routed through the framework's `C.TIME.*` and `C.BYTES.*` constant tables so the operator-visible unit is named at the call site. Bare `throw new Error(...)` sites that crossed a public boundary are upgraded to typed framework error classes so callers can branch on `instanceof` rather than parsing strings.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Time and byte literals routed through `C.TIME` / `C.BYTES`",
+              "body": "Hand-rolled `* 1000` / `* 1024` arithmetic across `lib/` is replaced with named constants from the central `C.TIME` and `C.BYTES` tables. Operators reading source see `C.TIME.MINUTE` instead of `60 * 1000`, and the codebase-patterns detector that refuses raw-literal multiplication keeps the discipline in place."
+            },
+            {
+              "title": "Bare `throw new Error(...)` upgraded to typed framework errors",
+              "body": "Public-boundary throws that previously emitted plain `Error` objects now use the typed framework-error hierarchy (`TypeError` / `ValidationError` / `ConfigError` subclasses). Callers can branch on `instanceof` rather than matching message strings, and the typed errors carry a stable `name` for log-correlation."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.2",
+      "date": "2026-04-27",
+      "headline": "Scheduler + presign follow-up fixes",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Scheduler and presign gaps closed",
+              "body": "Closes residual gaps in the scheduler exactly-once contract and the storage presigned-upload helper introduced in the previous release — tightens race-window handling and corrects edge cases in the signing surface."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.1",
+      "date": "2026-04-27",
+      "headline": "Scheduler exactly-once-globally + presigned upload URLs",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Scheduler exactly-once across the cluster",
+              "body": "`b.scheduler` now guarantees exactly-once execution globally rather than per-process, so a cron-style entry fires once across the entire cluster instead of once per worker."
+            },
+            {
+              "title": "Storage presigned upload URLs",
+              "body": "`b.storage` exposes a presigning helper for direct browser-to-bucket uploads — the framework issues a short-lived signed URL the client uses without ever holding the master credential."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.0",
+      "date": "2026-04-27",
+      "headline": "Queue lease-extension + Jobs dead-letter queue",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Queue lease-extension",
+              "body": "Long-running job consumers can extend the visibility lease on an in-flight message instead of dropping it back into the queue when a single execution exceeds the original lease window."
+            },
+            {
+              "title": "Jobs dead-letter queue",
+              "body": "`b.jobs` consumers that exhaust their retry budget now route the failing envelope into a dedicated dead-letter queue for operator inspection instead of silently dropping the work."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

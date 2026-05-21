@@ -1,0 +1,17 @@
+# pinact configuration — refuses any tag-shaped `uses:` reference EXCEPT
+# the documented exception below.
+#
+# The single exception is the SLSA reusable workflow. SLSA's internal
+# builder-fetch step refuses non-tag `BUILDER_REF` values ("Invalid ref:
+# <40-hex>. Expected ref of the form refs/tags/vX.Y.Z"), so the call
+# MUST be tag-pinned. Mitigated by slsa-framework's upstream tag-
+# protection + immutable-release rules. Same suppression also appears
+# as a per-line `# allow:slsa-framework-action-not-sha-pinned` marker in
+# `.github/workflows/npm-publish.yml` for the codebase-patterns gate.
+#
+# See npm-publish.yml comment block + memory/specs/release-v0.10.19-plan.md.
+
+version: 3
+
+ignore_actions:
+  - name: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml

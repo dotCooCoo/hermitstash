@@ -1,0 +1,786 @@
+{
+  "$schema": "../scripts/release-notes-consolidated-schema.json",
+  "minor": "0.3",
+  "releases": [
+    {
+      "version": "0.3.39",
+      "date": "2026-04-29",
+      "headline": "`MIGRATING.md` generator scans `deprecate()` calls in `lib/`",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "MIGRATING.md generator",
+              "body": "A new generator walks every `deprecate()` call site in `lib/` and emits `MIGRATING.md` so operators always see the current deprecation timeline without hand-editing the doc."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.38",
+      "date": "2026-04-29",
+      "headline": "`LTS-CALENDAR.md` publishes the major-cadence and algorithm posture",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Public LTS calendar",
+              "body": "`LTS-CALENDAR.md` ships the framework's major-version cadence and the PQC-first algorithm posture so operators can plan upgrades and crypto migration windows against a published timeline."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.37",
+      "date": "2026-04-29",
+      "headline": "Bundled pure-JS mTLS engine plus vendor-update tooling",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Pure-JS mTLS engine bundled",
+              "body": "A pure-JavaScript mTLS engine ships in the framework so operators no longer pull a native-crypto dependency for client-certificate authentication."
+            },
+            {
+              "title": "`vendor-update.sh` helper",
+              "body": "A vendor-refresh script lands alongside the engine so refreshing the vendored crypto sources is a single command instead of a hand-edit walk."
+            },
+            {
+              "title": "CHANGELOG and thanks page",
+              "body": "The repository now carries a structured `CHANGELOG.md` and a thanks page acknowledging upstream contributors whose work the vendored stack composes."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.36",
+      "date": "2026-04-29",
+      "headline": "Prepack guard refuses to publish any path that matches a `.gitignore` rule",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Prepack gitignore cross-check",
+              "body": "A prepack guard now refuses to publish any path the repository's `.gitignore` would have excluded from version control, so build artefacts, `.env` files, and other sensitive bytes can't accidentally ride into the npm tarball."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.35",
+      "date": "2026-04-29",
+      "headline": "Wiki home page gains a logo hero and neon-magenta brand accents",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Wiki home hero",
+              "body": "The wiki home page now opens with a logo hero and neon-magenta brand accents so the documentation surface visually matches the rest of the framework's identity."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.34",
+      "date": "2026-04-29",
+      "headline": "Rewrite api-snapshot wiki section in plain operator voice and fix `SECURITY.md` flag",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "api-snapshot wiki section rewritten",
+              "body": "The api-snapshot section of the wiki is rewritten in plain operator voice so the surface description matches what operators actually use the snapshot for, rather than internal narrative."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`SECURITY.md` flag",
+              "body": "A flag in `SECURITY.md` that referenced the wrong primitive name is corrected so the operator hardening checklist points at the right configuration surface."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.33",
+      "date": "2026-04-29",
+      "headline": "Doc sweep folding the mtls CLI references and filling the api-snapshot wiki gap",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "mtls CLI references folded into the docs",
+              "body": "Operator-facing docs now reference the `blamejs mtls` CLI introduced in the previous release so the documentation surface and the shipped CLI surface match."
+            },
+            {
+              "title": "api-snapshot wiki gap filled",
+              "body": "The wiki gains an api-snapshot page so operators have an in-tree reference for the snapshot file used by the surface-stability check."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.32",
+      "date": "2026-04-29",
+      "headline": "`blamejs mtls` CLI plus framework posture fix on cert fingerprinting",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`blamejs mtls` CLI",
+              "body": "A new `blamejs mtls` CLI exposes `status`, `show-cert`, `init`, `issue`, and `issue-p12` subcommands so operators manage the mTLS trust store, issue client certificates, and export PKCS#12 bundles without writing custom scripts."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Cert fingerprinting posture",
+              "body": "The framework's certificate fingerprinting posture is corrected so the surface aligns with the rest of the PQC-first hashing defaults."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.31",
+      "date": "2026-04-29",
+      "headline": "Defensive `NPM_TOKEN` check in the npm-publish workflow plus committed `bin/blamejs.js` executable bit",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`NPM_TOKEN` defensive check",
+              "body": "The npm-publish workflow now refuses to run when `NPM_TOKEN` is missing instead of surfacing a confusing downstream npm error, so failures fail fast with a clear cause."
+            },
+            {
+              "title": "`bin/blamejs.js` executable bit",
+              "body": "The executable bit on `bin/blamejs.js` is committed to the tree so the CLI is directly runnable after install without a post-install chmod."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.30",
+      "date": "2026-04-29",
+      "headline": "Wiki binds to `0.0.0.0` by default so `docker -p` forwarding reaches the listener",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Wiki default bind address",
+              "body": "The wiki server now binds to `0.0.0.0` by default so `docker run -p` port forwarding actually reaches the listener; the previous loopback-only bind made the published port appear unreachable from outside the container."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.29",
+      "date": "2026-04-29",
+      "headline": "`npm-publish` workflow plus `Dockerfile` data-skeleton directory",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "npm-publish workflow",
+              "body": "A new GitHub Actions workflow publishes the framework to npm on tag push so releases land on the registry without a manual `npm publish` step."
+            },
+            {
+              "title": "Dockerfile data-skeleton directory",
+              "body": "The container image now pre-creates the data-directory skeleton so the framework's sealed-storage and audit primitives have writable paths on first boot under `--cap-drop ALL`."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.28",
+      "date": "2026-04-29",
+      "headline": "`Dockerfile` switches runtime `--chown` from name to numeric UID `65532:65532`",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Numeric UID for runtime chown",
+              "body": "The runtime container now uses the numeric UID `65532:65532` for `--chown` instead of a username, so the image runs under Kubernetes `runAsNonRoot` enforcement and other admission controllers that refuse images whose user can't be resolved to a numeric ID at admission time."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.27",
+      "date": "2026-04-29",
+      "headline": "`Dockerfile` pre-builds `public/dist` in the deps stage so the runtime container boots cleanly under `--cap-drop ALL`",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`public/dist` pre-built in deps stage",
+              "body": "The asset build moves into the deps stage so `public/dist` exists in the runtime image before boot; the previous layout tried to write build output at runtime, which fails the moment the container drops all capabilities."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.26",
+      "date": "2026-04-29",
+      "headline": "Operator-facing env-var surface, GitHub-side ops docs, and contribution standards",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Operator-facing env-var surface",
+              "body": "The full list of operator-tunable environment variables is now documented so operators can configure the framework without reading source."
+            },
+            {
+              "title": "GitHub-side ops docs",
+              "body": "The repository ships ops documentation for the GitHub-side surface (workflows, branch protection, container registry usage) so collaborators have a written reference."
+            },
+            {
+              "title": "Contribution standards",
+              "body": "Contribution standards land in the repository so external contributors have a published baseline for PR style, signed commits, and the release workflow."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.25",
+      "date": "2026-04-29",
+      "headline": "Env-var surface documented across `Dockerfile`, `docker-compose.prod`, `DEPLOY.md`, and `README`; smoke-test GHCR login fix",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Env-var surface documented",
+              "body": "The operator-tunable environment variables are documented in `Dockerfile`, `docker-compose.prod`, `DEPLOY.md`, and `README` so the same surface is visible from every operator entry point."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Smoke-test GHCR login",
+              "body": "The smoke-test workflow's GHCR login step is corrected so the post-publish smoke run can pull the just-built image."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.24",
+      "date": "2026-04-29",
+      "headline": "CI and release-container workflows gain structured output, multi-arch builds, cosign signing, and a post-publish smoke run",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Structured workflow output",
+              "body": "CI workflows now emit structured output so failures surface the failing step and command instead of a free-form log dump."
+            },
+            {
+              "title": "Multi-arch container builds",
+              "body": "The release-container workflow now builds multi-architecture images so operators on `linux/amd64` and `linux/arm64` pull from the same tag."
+            },
+            {
+              "title": "Cosign signing",
+              "body": "Published container images are signed with cosign so operators can verify the signature against the workflow's OIDC identity."
+            },
+            {
+              "title": "Post-publish smoke run",
+              "body": "A post-publish smoke run boots the freshly published image and exercises the basic framework boot path so registry-side regressions are caught before operators pull."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.23",
+      "date": "2026-04-29",
+      "headline": "`_runVault` and `_runBackup` refactored onto `b.cliHelpers`",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`_runVault` and `_runBackup` use `b.cliHelpers`",
+              "body": "The `_runVault` and `_runBackup` CLI entry points are refactored to use the `b.cliHelpers` shared primitive so all three CLI commands the helper was designed for now share a single headless-app and reporter shape."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.22",
+      "date": "2026-04-29",
+      "headline": "`blamejs api-key` CLI plus shared `b.cliHelpers` primitive",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`blamejs api-key` CLI",
+              "body": "A new `blamejs api-key` CLI manages API-key lifecycle from the command line so operators no longer need bespoke scripts to issue, rotate, or revoke keys."
+            },
+            {
+              "title": "`b.cliHelpers` shared primitive",
+              "body": "A new `b.cliHelpers` primitive captures the shared headless-app boot and reporter shape used by every framework CLI so future commands compose the helper instead of reimplementing the wrapper."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.21",
+      "date": "2026-04-29",
+      "headline": "`blamejs backup` CLI with inspect / verify / extract subcommands",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`blamejs backup` CLI",
+              "body": "A new `blamejs backup` CLI ships `inspect`, `verify`, and `extract` subcommands so operators can introspect, verify the integrity of, and selectively extract sealed backups from the command line."
+            },
+            {
+              "title": "Backup encryption format documented",
+              "body": "The backup encryption format is documented so operators have a written reference for the on-disk shape and the algorithms involved."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.20",
+      "date": "2026-04-29",
+      "headline": "Drop the Windows-flaky `audit.flush` performance assertion",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Windows-flaky `audit.flush` assertion removed",
+              "body": "A performance-budget assertion around `audit.flush` was dropping under Windows file-system jitter even when the underlying behavior was correct, so the redundant assertion is removed; the same path is covered by the audit chain's integrity test."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.19",
+      "date": "2026-04-29",
+      "headline": "Wiki docs for the unwired primitives surface",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Wiki coverage for unwired primitives",
+              "body": "The wiki now documents the framework primitives that exist in `lib/` but had not yet been written up, so the documentation surface matches what's actually shipped."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.18",
+      "date": "2026-04-29",
+      "headline": "`blamejs vault` CLI with seal / unseal / rotate / status subcommands",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`blamejs vault` CLI",
+              "body": "A new `blamejs vault` CLI ships `seal`, `unseal`, `rotate`, and `status` subcommands so operators control the framework's sealed-storage vault from the command line instead of writing one-off scripts around the underlying primitives."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.17",
+      "date": "2026-04-29",
+      "headline": "`validateOpts` extended to 15 more operator-facing primitives",
+      "summary": "Fifteen additional operator-facing factories now reject typo'd opts at boot, bringing the total coverage to roughly 39 primitives.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Boot-time opts validation for 15 more primitives",
+              "body": "`validateOpts` coverage now extends to `i18n`, `bundler`, `migrations`, `seeders`, `template`, `jobs`, `cookies`, `log`, `mtlsCa`, `staticServe`, `handlers`, `websocket`, `pqcGate`, `tracing`, and `metrics`, so a typo in an opt key now throws at boot instead of silently doing nothing. The remaining factories (`appShutdown`, `chainWriter`, `dev`, `errorPage`, `nonceStore`, `protocolDispatcher`, `render`, `session`, `pqcAgent`) are either internal-only or have a single required-key surface where typo guards add no value."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.16",
+      "date": "2026-04-29",
+      "headline": "Config validation, CSRF cookie mode, HTML balance, dynamic `Cache-Control`, URL canonicalization",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Config validation",
+              "body": "A new config-validation surface refuses typo'd or out-of-range configuration values at boot so operators catch mistakes immediately."
+            },
+            {
+              "title": "CSRF cookie mode",
+              "body": "A cookie-backed CSRF mode is now supported in addition to the header-token mode, so operators on stateless backends have a primitive that matches their session shape."
+            },
+            {
+              "title": "HTML balance check",
+              "body": "An HTML balance check protects against mismatched tag emission from templates so rendered pages can't ship with a structural defect."
+            },
+            {
+              "title": "Dynamic `Cache-Control`",
+              "body": "Dynamic `Cache-Control` selection ships so operator-rendered pages get an appropriate cache directive without per-route boilerplate."
+            },
+            {
+              "title": "URL canonicalization",
+              "body": "URL canonicalization normalizes incoming request paths so middleware and routing don't see two distinct representations of the same logical resource."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.15",
+      "date": "2026-04-29",
+      "headline": "CORS accepts `Origin: null` when `Sec-Fetch-Site` is same-origin",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "CORS handling of opaque `Origin: null`",
+              "body": "Browsers send an opaque `Origin: null` on form-navigation POSTs from a page whose response sets `Referrer-Policy: no-referrer`. The CORS check now consults the Fetch-metadata `Sec-Fetch-Site` header to disambiguate: `same-origin` or `none` accepts the request, anything else stays refused. Cross-origin posts can't bypass the check because they'd carry a non-same-origin `Sec-Fetch-Site` value."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.14",
+      "date": "2026-04-29",
+      "headline": "`Dockerfile` hotfix plus lint as a release gate",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Lint promoted to release gate",
+              "body": "Linting now blocks the release workflow so style and obvious-bug findings are caught before a publish instead of after operators pull."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`Dockerfile` hotfix",
+              "body": "A hotfix repairs the `Dockerfile` so the container builds cleanly after the previous release's changes."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.13",
+      "date": "2026-04-29",
+      "headline": "CI lint scans, Wolfi container base, two-step Trivy scan, and lint cleanup",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "CI lint scans",
+              "body": "Lint scans run on every CI build so style and obvious-bug findings surface alongside the existing smoke gate."
+            },
+            {
+              "title": "Wolfi container base",
+              "body": "The container image moves to a Wolfi base for the minimal-surface, vulnerability-tracked distro the security posture wants."
+            },
+            {
+              "title": "Two-step Trivy scan",
+              "body": "Trivy now runs as a two-step scan (filesystem then image) so vulnerabilities are caught both pre-build and post-build."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Lint cleanup",
+              "body": "The codebase is cleaned to satisfy the newly-enforced lint rules so the gate runs cleanly on every release."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.12",
+      "date": "2026-04-29",
+      "headline": "Version bump for a hotfix container-image rebuild",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Container-image rebuild",
+              "body": "This release exists to bump the version so the container image rebuilds against the latest base layers; no framework-code changes ship in this release."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.11",
+      "date": "2026-04-29",
+      "headline": "CI/CD: GitHub Actions for smoke and wiki e2e, GHCR container publish on tag, Caddy production deploy overlay",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "GitHub Actions for smoke and wiki e2e",
+              "body": "Smoke and wiki end-to-end tests now run on every push via GitHub Actions so regressions are caught before a release tag is cut."
+            },
+            {
+              "title": "GHCR container publish on tag",
+              "body": "Tagged releases now publish a container image to GHCR so operators can pull a versioned container alongside the npm tarball."
+            },
+            {
+              "title": "Caddy production deploy overlay",
+              "body": "A Caddy production deploy overlay ships so operators have a known-good reverse-proxy configuration that exercises the framework's TLS and header defaults."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.10",
+      "date": "2026-04-29",
+      "headline": "Framework correctness fixes across compression, CSP nonce, CORS, and audit",
+      "summary": "Four correctness fixes land together: compression now honors backpressure, `cspNonce` exposes a cacheable-render API, CORS rejects cross-origin requests that previously slipped through the same-origin path, and audit namespaces are now correctly threaded through.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Compression backpressure",
+              "body": "The compression middleware now honors downstream backpressure, preventing unbounded memory growth when the client consumes more slowly than the encoder produces."
+            },
+            {
+              "title": "`cspNonce` cacheable-render API",
+              "body": "`cspNonce` exposes a cacheable-render API so responses generated by a shared renderer can carry a per-request nonce without invalidating the rendered cache."
+            },
+            {
+              "title": "CORS same-origin handling",
+              "body": "Tightens the CORS middleware's same-origin path so cross-origin requests that previously slipped through under specific header shapes are now refused."
+            },
+            {
+              "title": "Audit namespaces",
+              "body": "Audit events are now correctly namespaced so per-domain audit streams stay distinct instead of folding into the global stream."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.9",
+      "date": "2026-04-28",
+      "headline": "Wiki: Docker Compose deploy",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Docker Compose deploy wiki page",
+              "body": "New wiki page describing how to stand up the framework via Docker Compose, including the recommended service layout and the env-var surface operators need to wire."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.8",
+      "date": "2026-04-28",
+      "headline": "Wiki: remaining four concern-group pages",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Remaining concern-group wiki pages",
+              "body": "Finishes the per-concern wiki coverage with the four remaining concern-group pages, completing the wiki navigation surface for all primitive domains."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.7",
+      "date": "2026-04-28",
+      "headline": "Wiki: HTTP & Middleware and Crypto & Vault pages",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "HTTP & Middleware and Crypto & Vault wiki pages",
+              "body": "New wiki content covering the HTTP request lifecycle / middleware concern group and the crypto / vault concern group so operators can navigate the primitive surface for those domains."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.6",
+      "date": "2026-04-28",
+      "headline": "Wiki: Auth & Permissions and Storage & State pages",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Auth & Permissions and Storage & State wiki pages",
+              "body": "New wiki content covering the authentication / authorization concern group and the storage / state concern group (session, db, cache, vault) so operators can navigate the primitive surface for those domains."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.5",
+      "date": "2026-04-28",
+      "headline": "Strip stale comments and template language from sources",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Source comments cleaned of stale and template language",
+              "body": "Removed leftover scaffolding comments and template prose across `lib/` so the in-source documentation reflects current behavior. No runtime behavior change."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.4",
+      "date": "2026-04-28",
+      "headline": "Wiki: Welcome and Observability pages",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Welcome and Observability wiki pages",
+              "body": "New wiki content covering the framework entry-point and the observability concern group (metrics, tracing, audit) so operators can navigate from the landing page into the observability primitive surface."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.3",
+      "date": "2026-04-28",
+      "headline": "Wiki bundler integration + admin editor enhancements",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Wiki bundler integration + admin editor enhancements",
+              "body": "The `examples/wiki` reference app gains bundler integration and admin editor improvements so operators evaluating the framework see the documentation surface render with the same wiring they would use in production."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.2",
+      "date": "2026-04-28",
+      "headline": "Wiki wires `b.notify` / `b.scheduler` / `b.apiKey` / `b.webhook`",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Wiki demonstrates notify / scheduler / apiKey / webhook composition",
+              "body": "The `examples/wiki` reference app now exercises `b.notify`, `b.scheduler`, `b.apiKey`, and `b.webhook` end-to-end so operators evaluating the framework see how these primitives compose with the rest of the request lifecycle."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.1",
+      "date": "2026-04-28",
+      "headline": "Wiki design pass",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Wiki design pass",
+              "body": "Visual and layout refinements across the `examples/wiki` reference app so the documentation surface reads cleanly and the navigation reflects the current primitive set."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.3.0",
+      "date": "2026-04-28",
+      "headline": "`examples/wiki` reference app",
+      "summary": "The framework ships with a reference wiki application under `examples/wiki` that operators can clone, run, and read to see the framework's primitives composed into a working server.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`examples/wiki` reference app",
+              "body": "A working wiki application built on the framework lands under `examples/wiki`. It composes the request lifecycle, the security defaults, the storage primitives, and the documentation surface so operators evaluating the framework see an end-to-end shape instead of isolated snippets."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

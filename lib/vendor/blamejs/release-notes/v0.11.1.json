@@ -1,0 +1,39 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.11.1",
+  "date": "2026-05-19",
+  "headline": "Integration suite hardening + live coverage for the v0.11.0 surface",
+  "summary": "`b.httpClient.request` proxy + `allowInternal` interaction is corrected; `b.mail.crypto.smime.verify` exposes a `chainVerified` boolean; new integration tests cover S/MIME signing, SAML SLO, and RFC 7592 Dynamic Client Registration Management against the live Keycloak harness.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "`b.httpClient.request` skips local SSRF DNS lookup when proxy + `allowInternal: true`",
+          "body": "The proxy resolves the destination hostname in its own network context, so requiring local resolution refused legitimate intranet / docker-service-name targets routed through the proxy. The SSRF gate still runs when `allowInternal` is false or array-form — the proxy's freedom to reach internal IPs is not a blanket license; the explicit opt-in is still required."
+        },
+        {
+          "title": "`b.mtlsCa` integration tests compose with `caKeySealedMode: \"disabled\"`",
+          "body": "Fixture purpose only. Production deployments continue to wire `opts.vault` for sealed-at-rest CA-key storage."
+        },
+        {
+          "title": "`b.mail.crypto.smime.verify` returns a `chainVerified` boolean",
+          "body": "The return shape gains a `chainVerified: boolean` field reflecting whether `opts.trustAnchorCertsPem` was supplied and the leaf-to-root chain walk completed."
+        }
+      ]
+    },
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "Live S/MIME integration test against a real X.509 chain",
+          "body": "New `test/integration/mail-crypto-smime.test.js` round-trips S/MIME sign + verify with a real X.509 chain issued by `b.mtlsCa` (CA → leaf cert → ML-DSA-65 signer), exercises tamper / wrong-key / untrusted-anchor refusal paths, and validates the `chainVerified` return field."
+        },
+        {
+          "title": "SAML SLO + RFC 7592 DCR Management coverage in federation-auth integration",
+          "body": "`test/integration/federation-auth.test.js` extends to cover SAML SLO (`buildLogoutRequest` against Keycloak's `/protocol/saml` SLO endpoint with the wire-format-parse assertion) and RFC 7592 Dynamic Client Registration Management (`registerClient` / `readClient` / `updateClient` / `deleteClient` against Keycloak's DCR endpoint)."
+        }
+      ]
+    }
+  ]
+}

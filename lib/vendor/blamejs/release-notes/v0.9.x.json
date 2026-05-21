@@ -1,0 +1,2257 @@
+{
+  "$schema": "../scripts/release-notes-consolidated-schema.json",
+  "minor": "0.9",
+  "releases": [
+    {
+      "version": "0.9.57",
+      "date": "2026-05-16",
+      "headline": "`b.mail.journal` — WORM compliance journal for inbound + outbound mail",
+      "summary": "Tamper-evident, retention-bound, legal-hold-aware copy of every message that crosses the mail boundary. Composes existing framework substrate (objectStore Object Lock, cryptoField, legalHold, retention.complianceFloor, audit-sign) — no new storage / crypto / retention vocabulary.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.mail.journal.create({ storage, vault, legalHold, db, regimes })`",
+              "body": "Returns a handle exposing `record({ direction, actorId, messageId, headers, envelope, bodyBytes })` (appends a sealed entry to the operator's WORM bucket + the local index table), `getById(journalId)` (round-trips one entry; unseal via vault), `list({ direction?, since?, until?, actorId?, limit? })` (cursor-bounded list), `expireSurface()` (entries past their retention floor AND not under legal hold — for operator audit, no auto-delete), and `setLegalHold(journalId, onHold)` (toggle hold flag)."
+            },
+            {
+              "title": "Composition over invention",
+              "body": "Composes `b.objectStore.bucketOps({ objectLockEnabled: true })` for WORM-enforced immutability at the storage layer (S3 Object Lock / Azure Immutable Blob / GCS retention-policy); `b.cryptoField.sealRow` for at-rest encryption with vault key — plaintext columns kept queryable (`journalId`, `direction`, `archivedAt`, `actorId`, `messageId`, `sizeBytes`, `regimes`, `legalHold`), everything else sealed; `b.legalHold` for exemption from retention expiry; `b.retention.complianceFloor` for per-regime windows."
+            },
+            {
+              "title": "Regime registry",
+              "body": "`sec-17a-4` / `finra-4511` / `hipaa` (6yr), `mifid-ii` (5yr), `sox` (7yr), `gdpr` (6yr UK ICO + ePrivacy guidance), `soc2` (1yr). Operator declares one or more via `regimes: [\"sec-17a-4\", \"finra-4511\"]`; the journal computes the longest floor across all declared regimes and tags every entry with `floorUntil = archivedAt + maxFloorMs`."
+            },
+            {
+              "title": "Explicit non-goals",
+              "body": "No delete surface (WORM bucket enforces immutability; operators needing GDPR Art. 17 erasure on a journaled message MUST crypto-erase via `b.cryptoField.eraseRow` — the operator's posture choice between regulatory record-keeping and right-to-be-forgotten); no automated expiry (`expireSurface()` returns the list of candidates, operators decide); no MX / submission auto-wiring (this release ships the primitive; the next release will auto-call `record()` from the MX listener + submission listener so inbound + outbound traffic journals without operator wiring)."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Threat model",
+              "body": "Tamper-evidence via WORM bucket (Object Lock makes write-once enforceable at the storage layer, not just policy); per-message encryption-at-rest via vault key; index table keyed on archivedAt + message_id for forensic query without unseal; audit emit on every record / read / list / hold-change operation routes to `b.audit.safeEmit`."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "SEC Rule 17a-4(f)",
+          "url": "https://www.ecfr.gov/current/title-17/chapter-II/part-240/section-240.17a-4"
+        },
+        {
+          "label": "FINRA Rule 4511",
+          "url": "https://www.finra.org/rules-guidance/rulebooks/finra-rules/4511"
+        },
+        {
+          "label": "MiFID II Article 16(7)",
+          "url": "https://www.esma.europa.eu/"
+        }
+      ]
+    },
+    {
+      "version": "0.9.56",
+      "date": "2026-05-16",
+      "headline": "`b.mail.deploy` operator-deployment helpers — MTA-STS / DANE / AutoConfig / AutoDiscover publish surface",
+      "summary": "Closes the publish-side of the inbound mail verifiers shipped earlier in the 0.9.x line; operators standing up a new mail deployment now have four small generators that produce RFC-shaped policy text + DNS records + client auto-discovery XML.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.mail.deploy.mtaStsPublish({ domain, mode, mxHosts, maxAgeSec, policyId? })`",
+              "body": "Generates the RFC 8461 §3.2 `/.well-known/mta-sts.txt` policy text + `_mta-sts.<domain>` TXT record advice. Wildcard `*.mx.<domain>` entries accepted per §3.2.1. `mode` constrained to `enforce` / `testing` / `none`; `maxAgeSec` capped at 1 year. Pairs with the existing inbound MTA-STS verifier on the receiving side — operators publishing the policy AND verifying inbound peers run the same vocabulary."
+            },
+            {
+              "title": "`b.mail.deploy.danePublish({ certPem, mxHost, port?, usage?, selector?, matchType? })`",
+              "body": "Generates RFC 7672 + RFC 6698 TLSA record string. Computes SHA-256 (or SHA-512) SubjectPublicKeyInfo hash from the operator-supplied PEM cert via `node:crypto.X509Certificate` + `crypto.createHash`. Defaults to DANE-EE / SPKI / SHA-256 — RFC 7672 §3.1.3 recommended posture because it survives intermediate-CA changes as long as the leaf key is stable. Refuses `matchType: 0` (exact match) to keep the record size bounded."
+            },
+            {
+              "title": "`b.mail.deploy.autoConfigXml({ domain, displayName?, imap?, pop3?, smtp?, jmap? })`",
+              "body": "Thunderbird's `autoconfig.<domain>/mail/config-v1.1.xml` payload. Outlook, Apple Mail, and Evolution read the same file when present. Every operator-supplied string XML-escaped (`&` / `<` / `>` / `\"` / `'`) so a hostile `displayName` can't inject new XML nodes."
+            },
+            {
+              "title": "`b.mail.deploy.autoDiscoverXml({ email, imap?, pop3?, smtp? })`",
+              "body": "Outlook's `autodiscover/autodiscover.xml` response shape (MS-OXDISCO + MS-OXDSCLI). Operator extracts the email from the inbound POST body via their route handler; this generator returns the response XML. Refuses CR / LF / NUL / control bytes in the email field (XML-injection class). These are text generators, not route handlers — operators wire the output into `b.staticServe` (mta-sts.txt + autoconfig.xml) or their own POST handler (autodiscover, which is request-conditional). No new network surface, no I/O — pure deterministic functions."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 8461 (MTA-STS)",
+          "url": "https://www.rfc-editor.org/rfc/rfc8461"
+        },
+        {
+          "label": "RFC 7672 (DANE for SMTP)",
+          "url": "https://www.rfc-editor.org/rfc/rfc7672"
+        },
+        {
+          "label": "RFC 6698 (TLSA records)",
+          "url": "https://www.rfc-editor.org/rfc/rfc6698"
+        }
+      ]
+    },
+    {
+      "version": "0.9.55",
+      "date": "2026-05-16",
+      "headline": "`b.safeSieve` parser + `b.mail.sieve` interpreter (RFC 5228 base grammar)",
+      "summary": "Lifts `b.mail.agent.sieve.put` from a stub and wires the RFC 5228 grammar through to the agent. Ships base-grammar coverage that handles ~80% of operator-written scripts; deferred extensions refused at parse time per RFC 5228 §3.2.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.safeSieve` — bounded RFC 5228 parser",
+              "body": "Refuses oversized scripts (64 KiB strict / 256 KiB balanced / 1 MiB permissive), block-nesting beyond `maxDepth` (32/64/128), per-string byte cap (4/16/64 KiB), string-list count cap (256/1024/4096), command-arg cap (32/64/128), elsif-chain cap (32/64/128). Refuses C0 / DEL / NUL control bytes outside string literals, bare CR / bare LF (RFC 5228 §2.1 requires CRLF), unknown capabilities at `require`, AND RFC-defined-but-not-implemented capabilities so scripts depending on `vacation` / `variables` / `imap4flags` / etc. fail at parse time instead of silently mis-executing. Three profiles + HIPAA/PCI-DSS/GDPR/SOC2 posture cascades (all map to strict). Grammar coverage: `require` / `if` / `elsif` / `else` / tests (`address` / `header` / `envelope` / `exists` / `size` / `not` / `allof` / `anyof` / `true` / `false`) / actions (`keep` / `fileinto` / `discard` / `redirect` / `stop`) / match-types (`:is` / `:contains` / `:matches`) / comparators / address-parts / string lists / quoted strings / multi-line `text:` strings with dot-stuffing / `#` and `/* */` comments / number suffixes."
+            },
+            {
+              "title": "`b.mail.sieve` — pure AST walker running under a gas counter",
+              "body": "Default 10 000 ops; cap 1 000 000. The interpreter reads only from operator-supplied `env` (`{ headers, envelope, sizeBytes, bodyBytes }`) and never mutates it; side-effects (`fileinto` / `redirect` / `discard`) surface as entries in the returned action list for the caller's delivery code to dispatch against the mail store. `b.mail.sieve.run(ast, env, { maxGas })` walks a parsed AST; `b.mail.sieve.runScript(script, env, opts)` parses + runs in one call; `b.mail.sieve.create({ profile, compliancePosture, maxGas, audit })` returns a stateful handle the JMAP `SieveScript/validate` method + MX delivery hook compose."
+            },
+            {
+              "title": "`b.mail.agent.sieve.put` wiring",
+              "body": "The agent's `sieve.put` method now parse-validates via `b.safeSieve` after the existing `b.guardMailSieve` shape check. Operator's persistence step receives a `{ ok: true, requiredCaps }` shape; scripts with unknown / unimplemented capabilities or grammar errors throw `mail-agent/sieve-parse-error` with the first issue's snippet. `agent.sieve.list` and `agent.sieve.activate` stay deferred — the operator owns the persistence layer; the next release that ships a default sieve-script store backend will light those up."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Threat-model coverage",
+              "body": "Runaway scripts defended by the gas counter (per-script cap) + per-tests cap on `allof` / `anyof` sub-count; parser-bomb defended by the depth + elsif-chain + string-list caps; SMTP-style header injection defended by the C0 / DEL / NUL refusals (Sieve scripts arrive from operator UIs that may forward operator-controlled bytes); RFC 5228 §10.1 security considerations on `redirect` defended by leaving address normalization to the operator's delivery agent (the interpreter only captures the literal address string)."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 5228 (Sieve mail filtering language)",
+          "url": "https://www.rfc-editor.org/rfc/rfc5228"
+        }
+      ]
+    },
+    {
+      "version": "0.9.54",
+      "date": "2026-05-16",
+      "headline": "`b.mail.server.jmap` JMAP Core + Mail listener (RFC 8620 + RFC 8621) + `b.guardJmap` wire-protocol validator",
+      "summary": "JMAP lands as the framework's primary mail-access protocol per the mail-stack roadmap. JSON-over-HTTP, batched, push-capable, and unlike IMAP/POP3 doesn't carry decades of stateful-protocol scar tissue. Modern mail clients (Fastmail apps, Cyrus + JMAP proxy, Stalwart-compatible MUAs) connect here.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.guardJmap` — wire-protocol validator for JMAP Core + Mail",
+              "body": "Validates `Invocation` arrays (`[method, args, callId]` per RFC 8620 §3.2), refuses back-reference pipelining past depth 8 (DoS class against the resolver), caps `using[]` capability count, request body size, per-invocation arg-size, and per-batch invocation count. Refuses any string containing C0 / DEL / NUL controls (header-injection class). JSON parsing routes through `b.safeJson` so prototype-pollution + recursion-bomb shapes refused at the parser boundary. Three profiles + HIPAA / PCI-DSS / GDPR / SOC2 posture cascades (all map to strict). Fuzz harness ships in `fuzz/guard-jmap.fuzz.js`."
+            },
+            {
+              "title": "`b.mail.server.jmap` — JMAP Core endpoint mounted as an HTTP route handler",
+              "body": "NOT a separate TCP server. Implements the Session resource (`.well-known/jmap` per RFC 8620 §2 + §6.2 — declares supported capabilities, accountId mapping, eventSource URLs, downloadUrl / uploadUrl templates), the API endpoint (POST then `methodResponses[]` per RFC 8620 §3.3 invocation pipeline), upload route (POST blob — guard-* gated by Content-Type), download route (GET sealed blob), and EventSource push (RFC 8620 §7 — `text/event-stream` SSE; opt-in WebSocket via RFC 8887)."
+            },
+            {
+              "title": "Operator-supplied `methods: { [name]: fn(args, ctx) }` registry handles per-method dispatch",
+              "body": "The listener owns request validation, back-ref resolution, accountId isolation, error mapping (RFC 8620 §3.5.2 method errors / §3.6.1 request errors), and SSE state-change notification; operators implement Email/get, Email/set, Mailbox/get, etc. against their `b.mailStore`. Per-tenant `accountId` isolation — every method invocation carries the authenticated actor's accountId; cross-account access refused at the dispatcher. Back-reference pipelining (`#prev-call-result`) resolved with depth cap. RFC 8620 §3.6.1 request errors returned as JMAP-shaped problem details, not generic HTTP 4xx bodies. What v1 does NOT ship: WebSocket push framing details (operator opts via separate WS upgrade route), `pushSubscription` storage backend (operator wires per-tenant), JMAP for Calendars / Contacts, Sieve filter management (RFC 9404), `Mailbox/changes` Tombstones beyond the 30-day window."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 8620 (JMAP Core)",
+          "url": "https://www.rfc-editor.org/rfc/rfc8620"
+        },
+        {
+          "label": "RFC 8621 (JMAP for Mail)",
+          "url": "https://www.rfc-editor.org/rfc/rfc8621"
+        }
+      ]
+    },
+    {
+      "version": "0.9.53",
+      "date": "2026-05-16",
+      "headline": "`b.mail.server.pop3` POP3 listener (RFC 1939) + `b.guardPop3Command` wire-protocol validator",
+      "summary": "POP3 listener for clients that want pure download-and-delete semantics rather than IMAP's server-side store (Thunderbird-with-POP, mutt, fetchmail, getmail, K-9 in POP mode, headless backup-fetchers).",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.guardPop3Command` — wire-protocol validator",
+              "body": "RFC 1939 + RFC 2449 CAPA + RFC 2595 STLS + RFC 5034 AUTH. Refuses bare-CR / bare-LF / NUL / C0 / DEL (smuggling defense identical to the SMTP/IMAP guards), enforces RFC 1939 §3 4-character verb shape, per-line cap (255 chars strict / 512 balanced / 1024 permissive per §3 + §4 recommendation), per-verb arg-arity. Verbs: USER / PASS / APOP / AUTH / STLS / CAPA / STAT / LIST / RETR / DELE / NOOP / RSET / TOP / UIDL / QUIT. Strict refuses USER / PASS / mech-bearing AUTH pre-TLS (RFC 2595 §2.1 + RFC 5034 §4) and refuses APOP entirely (MD5 challenge-response — broken since CVE-2007-1558). Balanced + permissive accept both with audit. Three profiles + HIPAA / PCI-DSS / GDPR / SOC2 posture cascades (all map to strict). Fuzz harness ships in `fuzz/guard-pop3-command.fuzz.js`."
+            },
+            {
+              "title": "`b.mail.server.pop3` — POP3 listener state machine",
+              "body": "AUTHORIZATION to TRANSACTION to UPDATE per RFC 1939 §3 lifecycle. Composes `b.guardPop3Command` + `b.mail.server.rateLimit` (per-IP concurrent + rate + AUTH-failure budget, default-on) + operator-supplied `b.mailStore` backend + operator-supplied SASL authenticator. STLS-injection defense per CVE-2021-33515 class — pre-handshake `lineBuffer` cleared at TLS upgrade so pipelined commands sent before STLS can't take effect after. STLS state gating per RFC 2595 §4 — STLS refused outside AUTHORIZATION so a TLS re-key can't land mid-session on top of established mailbox state. RFC 1939 §3 dot-stuffing on RETR / TOP — every line beginning with `.` in the message body emits as `..` on the wire so the multi-line terminator stays unambiguous. RFC 2449 CAPA advertises AUTH=<mech> only for operator-wired mechanisms (no hardcoded `AUTH=PLAIN`)."
+            },
+            {
+              "title": "Audit lifecycle",
+              "body": "`mail.server.pop3.{connect, auth_attempt, auth_success, auth_failed, auth_refused_cleartext, transaction_start, retr, top, dele, rset, quit, stls_handshake_failed, stls_upgraded, listening, closed, socket_error, handler_threw}`. What v1 does NOT ship: APOP server (refused under strict; balanced + permissive accept but operator wires the shared-secret check), RFC 5034 SASL response framing for multi-step mechanisms (operator-supplied authenticator returns `{ pending, challenge }` per the same shape as IMAP/SMTP submission), draft-melnikov-pop3-mime-imap-uidplus cross-protocol UID alignment, RFC 2595 §5 `PIPELINING` capability (not in CAPA — RFC 1939's response shape doesn't carry length so pipelining can't be safely parsed by the client without out-of-band info)."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 1939 (POP3)",
+          "url": "https://www.rfc-editor.org/rfc/rfc1939"
+        },
+        {
+          "label": "RFC 2595 (STLS)",
+          "url": "https://www.rfc-editor.org/rfc/rfc2595"
+        },
+        {
+          "label": "RFC 5034 (POP3 SASL)",
+          "url": "https://www.rfc-editor.org/rfc/rfc5034"
+        }
+      ]
+    },
+    {
+      "version": "0.9.52",
+      "date": "2026-05-16",
+      "headline": "`b.mail.create` recipient + sender `b.guardDomain` hardening (default-on)",
+      "summary": "Symmetric to the inbound listener wiring shipped earlier — every outbound `mail.send({ to, cc, bcc, from })` now routes the domain part of each address through `b.guardDomain.validate` by default.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Outbound `mail.send` addresses gate through `b.guardDomain` by default",
+              "body": "Defends CVE-2017-5469-class IDN homograph spoofs, RFC 6761 special-use domain names in production sends, RFC 1035 §2.3.4 label-length violations, and CVE-2021-22931-class bare-IP-as-domain (DNS-rebinding allowlist-bypass). RFC 5321 §4.1.3 address-literal form skipped (bracket-syntax already constrains). EAI (RFC 6531) recipients get RFC 5891 ToASCII conversion before validation so `<x@münchen.example>` passes the gate as `xn--mnchen-3ya.example`. Operator opt-outs: `b.mail.create({ guardDomain: false })` skips; `b.mail.create({ guardDomain: { profile: \"permissive\" } })` relaxes. Default profile mirrors `b.mail.create({ profile })` if set, else strict."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "CVE-2017-5469 (Punycode display)",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2017-5469"
+        },
+        {
+          "label": "RFC 6761 (special-use domain names)",
+          "url": "https://www.rfc-editor.org/rfc/rfc6761"
+        }
+      ]
+    },
+    {
+      "version": "0.9.50",
+      "date": "2026-05-16",
+      "headline": "Mail-deployment helpers — 0xE1 envelope migration path + `b.mail.dkim.bootstrap` + `b.mail.server.tls.context`",
+      "summary": "Three operator-facing primitives that unblock deployment workflows for legacy envelope migration, turnkey DKIM keypair issuance, and TLS context reload.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.crypto.decrypt(ct, keys, { allowLegacy: true })`",
+              "body": "Pre-v1 the envelope magic byte was bumped from 0xE1 to 0xE2 to enforce a NIST SP 800-56C r2 §4.1 FixedInfo / RFC 9180 §5.1 suite-binding KDF input. 0xE1 envelopes lack this binding; default behavior is hard-refusal with a clear migration message. Operators with at-rest data sealed pre-bump pass `{ allowLegacy: true }` as the third arg to read the old envelope, then re-seal via `b.crypto.encrypt` to migrate. Each legacy decrypt emits a `system.crypto.decrypt.allow_legacy` audit event so the migration window is visible in the audit log. The audit emits `outcome: \"success\"` only after a successful return + `outcome: \"failure\"` on throw — corrupted blobs / wrong keys / unsupported KEMs surface honestly in the audit chain."
+            },
+            {
+              "title": "`b.mail.dkim.bootstrap({ domain, selector, algorithm? })`",
+              "body": "Turnkey DKIM keypair + DNS TXT record + ready-to-use signer for operators deploying outbound mail. Returns `{ privateKeyPem, publicKeyPem, dnsName, dnsTxtValue, dnsRecord, signer() }`. Default algorithm is `ed25519-sha256` (RFC 8463 §2); operators with receivers that don't support Ed25519 pass `algorithm: \"rsa-sha256\"` (RFC 6376, default 2048-bit per RFC 8301 §3.1 guidance; refused < 1024). `algorithm: \"dual\"` mints both keypairs and the signer emits two DKIM-Signature headers per RFC 8463 §3 dual-signing pattern for max receiver compat. DNS TXT records that exceed 255 octets are split per RFC 1035 §3.3.14."
+            },
+            {
+              "title": "`b.mail.server.tls.context({ certFile, keyFile, vault?, watch? })`",
+              "body": "Operator-UX helper for the `tlsContext` opt that `b.mail.server.mx` + `b.mail.server.submission` require at create-time (no implicit plaintext mode). Three things every deployment needed and was reinventing: sealed-key unwrap (operators passing `vault: b.vault` get unsealing for `b.vault.sealPemFile`-stored keys), cert-rotation in-process reload (`watch: true` polls mtimes every 30s, builds a fresh `SecureContext` on change, fires `onReload` listeners + emits `mail.server.tls.context_reloaded` audit; mid-rotation read failures keep the prior good context live + emit a `reload_failed` audit), and boot-fail surface (missing/unreadable file, unsealable key, mismatched cert/key, bad PEM — all typed `MailServerTlsError` codes). ACME provisioning stays in `b.acme` (RFC 8555 + RFC 9773 ARI); this primitive just loads what's on disk and reloads when it changes. `b.mail.server.mx`'s `tlsContext`-required error message now points operators at `b.mail.server.tls.context` + `b.acme` so the boot dead-end becomes a one-line fix."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 8463 (Ed25519 in DKIM)",
+          "url": "https://www.rfc-editor.org/rfc/rfc8463"
+        },
+        {
+          "label": "RFC 6376 (DKIM Signatures)",
+          "url": "https://www.rfc-editor.org/rfc/rfc6376"
+        },
+        {
+          "label": "RFC 9180 §5.1 (HPKE KDF inputs)",
+          "url": "https://www.rfc-editor.org/rfc/rfc9180#section-5.1"
+        }
+      ]
+    },
+    {
+      "version": "0.9.49",
+      "date": "2026-05-16",
+      "headline": "`b.mail.server.imap` IMAP4rev2 listener (RFC 9051) + `b.guardImapCommand` wire-protocol validator",
+      "summary": "Modern MUAs (Thunderbird, Apple Mail, mutt, K-9, FairEmail) connect here to read + manage messages without operators running dovecot/cyrus alongside.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.guardImapCommand` — wire-protocol validator for IMAP4rev2",
+              "body": "RFC 9051 (August 2021; obsoletes RFC 3501). Refuses bare-CR/LF/NUL/C0/DEL outside literals (smuggling defense analogous to SMTP), enforces RFC 9051 §2.2.2 literal framing (mid-line `{n}` openers refused via `detectLiteralSmuggling`; LITERAL+ per RFC 7888 refused pre-AUTH per §1), per-verb shape, line cap (8 KiB strict / 16 KiB balanced / 64 KiB permissive), literal cap (64 MiB strict / 128 MiB balanced / 256 MiB permissive). Strict + balanced + permissive profiles + HIPAA/PCI-DSS/GDPR/SOC2 compliance postures (all map to strict)."
+            },
+            {
+              "title": "`b.mail.server.imap` — IMAP4rev2 listener state machine",
+              "body": "NOT-AUTHENTICATED to STARTTLS to AUTH to SELECTED to LOGOUT. Commands: CAPABILITY / NOOP / LOGOUT / ID / STARTTLS / AUTHENTICATE / LOGIN (refused under strict per RFC 9051 §6.3.4) / ENABLE / SELECT / EXAMINE / LIST / STATUS / NAMESPACE / APPEND (incl. zero-byte literals `{0}` per RFC 9051 §6.3.12) / CHECK / CLOSE / UNSELECT / EXPUNGE / FETCH / STORE / UID FETCH/STORE (with `useUid: true` thread to mailStore per RFC 9051 §6.4.9) / IDLE + DONE (RFC 2177; 29-min bandwidth timeout per §3). CAPABILITY advertises AUTH=<mech> only for operator-wired mechanisms."
+            },
+            {
+              "title": "STARTTLS-injection + literal-injection + mailbox-traversal defenses",
+              "body": "STARTTLS-injection defense per CVE-2021-33515 class — pre-handshake receive buffer cleared at TLS upgrade so pipelined commands sent before TLS can't take effect after. Literal-injection defense per CVE-2018-19518. Mailbox-name traversal refusal. Per-connection state lives on the `state` object so concurrent connections don't clobber. Composes `b.guardImapCommand` + `b.mail.server.rateLimit` (per-IP concurrent + rate + AUTH-failure budget, default-on) + operator-supplied `b.mailStore` backend + operator-supplied SASL authenticator. What v1 does NOT ship: SEARCH expressions (operator wires `mailStore.search`), NOTIFY (RFC 5465), METADATA (RFC 5464), CATENATE (RFC 4469), URLAUTH (RFC 4467), IMAPSIEVE (RFC 6785), COMPRESS=DEFLATE (RFC 4978; CRIME-class), CONDSTORE/QRESYNC per-FETCH delta."
+            }
+          ]
+        },
+        {
+          "heading": "Detectors",
+          "items": [
+            {
+              "title": "Two new detectors for IMAP-specific footguns",
+              "body": "`literalSize > 0` zero-rejection footgun + hardcoded SASL mech in caps array. Both shapes were caught during review; the detectors prevent reappearance across listeners."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 9051 (IMAP4rev2)",
+          "url": "https://www.rfc-editor.org/rfc/rfc9051"
+        },
+        {
+          "label": "CVE-2018-19518 (IMAP literal injection)",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2018-19518"
+        }
+      ]
+    },
+    {
+      "version": "0.9.47",
+      "date": "2026-05-15",
+      "headline": "`b.mail.server.submission` outbound SMTP submission listener + per-IP DoS defenses + `b.guardDomain` wiring on mail-listener domain crossings",
+      "summary": "Outbound submission listener for port 587 (explicit STARTTLS) or port 465 (implicit TLS per RFC 8314). Per-IP rate / concurrency / AUTH-failure budgets default-on as belt-and-suspenders to kernel/proxy limits. Domain-shape guard wired into every domain crossing in both mail listeners.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.mail.server.submission` — outbound SMTP submission listener",
+              "body": "Where the MX listener accepts inbound mail from the internet, this listener accepts outbound mail from authenticated MUAs / app-side mail-senders on port 587 or 465. Composes the framework's existing primitives: `b.guardSmtpCommand` for wire-protocol shape + smuggling defense, `b.safeSmtp` for DATA-body parsing, the operator's SASL authenticator for credentials, and an operator-supplied `agent.handoff` for outbound routing through `b.mail.send`. Inherits MX listener's SMTP-smuggling defense (CVE-2023-51764 / -51765 / -51766 / 2024-32178 / RFC 5321 §2.3.8) and STARTTLS-injection defense (CVE-2021-38371 Exim, CVE-2021-33515 Dovecot)."
+            },
+            {
+              "title": "Authentication discipline — AUTH required, AUTH-needs-TLS, implicit-TLS, identity binding, recipient policy",
+              "body": "AUTH required before MAIL FROM under strict + balanced profiles (RFC 6409 §3); pre-STARTTLS AUTH refused with 538 5.7.11 under strict + balanced (RFC 4954 §4); permissive opts down for legacy operator-acknowledged downgrade. Operator-supplied `auth.verify(mechanism, credentials)` async predicate decides the credential check; multi-step SASL mechanisms (SCRAM-SHA-256, GS2-* family) supported via `{ pending: true, challenge }` return shape per RFC 4954 §4. Implicit-TLS mode (`implicitTls: true` to port 465 per RFC 8314 §3.3) wraps every connection in TLS from the SYN. Identity binding under strict — `MAIL FROM:<x@y>` MUST match an entry in the authenticated actor's mailbox set; refused with 553 5.7.1. Recipient policy hook (`opts.recipientPolicy`) wires per-RCPT decisions (block destination / outbound budget / deny list); refusal returns 550 5.7.1, policy-engine failure returns 451 4.7.1 (transient)."
+            },
+            {
+              "title": "`b.mail.server.rateLimit` — per-IP DoS defense wired into both listeners",
+              "body": "Per-IP concurrent connection cap (`maxConcurrentConnectionsPerIp`, default 10) — a single hostile peer cannot open thousands of TCP slots and starve legitimate senders. Per-IP connection rate (`connectionsPerIpPerMinute`, default 60). Per-IP AUTH-failure budget (`authFailuresPerIpPer15Min`, default 10; submission listener only) — credential-stuffing class. Slow-loris / `minBytesPerSecond` floor (default 100 bytes/sec) on the DATA-body phase complements `idleTimeoutMs`. Refused connections receive `421 4.7.0 Too many connections from your IP`. Operators pass `rateLimit: false` to disable for tests, a shared handle via `b.mail.server.rateLimit.create({...})` to share one budget across multiple listeners, or an opts object to override defaults."
+            },
+            {
+              "title": "`b.guardDomain` wiring on every mail-listener domain crossing",
+              "body": "HELO / EHLO greeting, MAIL FROM domain, RCPT TO domain, and operator-supplied `opts.localDomains` all route through `b.guardDomain.validate` (default-on; opt-out via `guardDomain: false`). Defends CVE-2017-5469-class IDN homograph spoofs, refuses RFC 6761 special-use domain names in production (`.localhost`, `.test`, `.invalid`, `.example`), enforces RFC 1035 §2.3.4 label-length caps, and refuses bare IPv4/IPv6 as a domain (CVE-2021-22931 class allowlist-bypass via DNS rebinding). RFC 5321 §4.1.3 address literals (`[1.2.3.4]` / `[IPv6:...]`) skip guardDomain — already constrained by `b.guardSmtpCommand`'s bracket-syntax validator. `opts.localDomains` is pre-validated at `create()` time so an operator who typed an IDN homograph into their allowlist gets a `mail-server-mx/bad-local-domain` boot failure instead of a silently-weakened gate."
+            },
+            {
+              "title": "`b.selfUpdate.compareTags(a, b)`",
+              "body": "The internal `_compareTags` helper (used by `b.selfUpdate.poll` / `pickRelease`) is now part of the public API. Returns `-1` / `0` / `+1`. Strips a leading `v` / `V`, then walks dot-separated components: numeric pairs compared numerically, non-numeric components (release suffixes) fall back to lexicographic compare. Follows SemVer 2.0.0 §11 precedence for the numeric prefix; pre-release identifier comparison is lexicographic rather than the full SemVer-mandated alphanumeric rule."
+            },
+            {
+              "title": "`b.metrics.snapshot.render({ format: \"prometheus\" })` field-type metadata",
+              "body": "Previously every numeric field rendered as `# TYPE <name> gauge` regardless of name, which broke `rate()` queries against counter-shaped series. The renderer now auto-detects per the Prometheus naming convention + OpenMetrics 1.0.0 §6.2: field names ending in `_total` render as `counter`; everything else renders as `gauge`. Operators with metrics that don't fit the convention opt the right type via `opts.fieldTypes: { fieldName: \"counter\" | \"gauge\" }`. Behavior change for operators scraping a long-running deployment — `rate(*_total[5m])` queries start returning correct answers once the new types reach the scrape target."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "RCPT TO cap-check counts in-flight async verdicts",
+              "body": "When `opts.recipientPolicy` is async, the recipient-limit guard ran before the policy promise resolved and the accepted recipient was appended later. Under SMTP PIPELINING (RFC 2920) each new RCPT TO saw the same `state.rcpts.length == 0` (prior commands hadn't pushed yet), so the cap-check passed for every command and `state.rcpts` grew past `maxRcptsPerMessage` once all verdicts resolved. Fix: track in-flight verdicts in `state.rcptsPending`; cap-check counts BOTH committed AND in-flight against `maxRcptsPerMessage`; defense-in-depth re-check inside the `.then()` before push. `_resetTransaction` zeroes the pending counter."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 6409 (Message Submission)",
+          "url": "https://www.rfc-editor.org/rfc/rfc6409"
+        },
+        {
+          "label": "RFC 4954 (SMTP AUTH)",
+          "url": "https://www.rfc-editor.org/rfc/rfc4954"
+        },
+        {
+          "label": "RFC 8314 (Cleartext deprecation)",
+          "url": "https://www.rfc-editor.org/rfc/rfc8314"
+        }
+      ]
+    },
+    {
+      "version": "0.9.46",
+      "date": "2026-05-15",
+      "headline": "`b.mail.server.mx` — inbound SMTP / MX listener + `b.safeSmtp` parser + `b.guardSmtpCommand.detectBodySmuggling`",
+      "summary": "First framework-native mail listener — drives the RFC 5321 CONNECT then EHLO then [STARTTLS then EHLO] then MAIL then RCPT then DATA then DATA-body then QUIT state machine. Composes the existing mail-gate substrates (helo / rbl / greylist / guardEnvelope / dmarc / safeMime / guardEmail / guardSmtpCommand / mail.agent).",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.safeSmtp.findDotTerminator(buf)` + `b.safeSmtp.dotUnstuff(buf)`",
+              "body": "Wire-protocol parsing extracted to a reusable safe module — where the body terminator is, how to reverse dot-stuffing per RFC 5321 §4.5.2. Same primitives ship for the upcoming submission / IMAP / JMAP listeners and for any operator-side tooling that needs to parse SMTP bytes (proxies, log analyzers, test fixtures) without booting a full server."
+            },
+            {
+              "title": "`b.guardSmtpCommand.detectBodySmuggling(buf)`",
+              "body": "Wire-protocol security gate for CVE-2023-51764 / CVE-2023-51765 / CVE-2023-51766 / CVE-2024-32178 bare-LF dot-terminator detection. The DATA body's `\\r\\n.\\r\\n` terminator is matched on canonical CRLF only; bare-LF dot-terminators are detected and refused with 554 5.7.0."
+            },
+            {
+              "title": "`b.mail.server.mx` — inbound SMTP / MX listener",
+              "body": "Composes the existing mail-gate substrates into one operator-facing inbound listener. Defenses baked in: open-relay default-deny via `localDomains` allowlist (RCPT TO non-local refused with 550 5.7.1 unless `relayAllowedFor: [{ cidr, scope }]` opts the destination in explicitly); STARTTLS-injection defense (CVE-2021-38371 Exim, CVE-2021-33515 Dovecot — command buffer + body collector cleared at upgrade time so pre-handshake pipelined commands can't take effect post-handshake); TLS posture (`tlsContext` is required — no implicit plaintext-only mode); resource exhaustion (per-command line cap default 1 KiB, DATA body cap default 50 MiB per RFC 5321 §4.5.3.1.7, per-recipient cap default 100 per RFC 5321 §4.5.3.1.8, idle timeout default 5 minutes per RFC 5321 §4.5.3.2.7). RFC 1870 §3 SIZE param parsed at MAIL FROM time + refused with 552 5.3.4 if oversize. RFC 2920 PIPELINING + RFC 6152 8BITMIME + RFC 2034 ENHANCEDSTATUSCODES advertised in EHLO capabilities. RFC 3463 enhanced status codes embedded in every reply. RFC 6531 SMTPUTF8 / RFC 5891 IDN deliberately NOT advertised until the operator's downstream accepts Unicode mailbox-local-part bytes."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Audit lifecycle",
+              "body": "`mail.server.mx.{connect,helo,mail_from,rcpt_to,data_accepted,data_refused,delivered,tls_handshake_failed,smtp_smuggling_detected,relay_refused,listening,closed,handler_threw,socket_error}`. What v1 does NOT ship: AUTH / submission auth (port-587 listener is its own slice), Sieve filtering (composes via `b.mail.agent` at delivery), outbound DSN generation (deferred to submission slice), 8BITMIME / SMTPUTF8 transcoding (advertised but parser-agnostic)."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 5321 (SMTP)",
+          "url": "https://www.rfc-editor.org/rfc/rfc5321"
+        },
+        {
+          "label": "CVE-2023-51764 (Postfix SMTP smuggling)",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2023-51764"
+        }
+      ]
+    },
+    {
+      "version": "0.9.45",
+      "date": "2026-05-15",
+      "headline": "`b.crypto.toBase64Url` / `fromBase64Url` helpers + lib-wide `.replace(/X+$/, ...)` ReDoS-shape sweep",
+      "summary": "The trailing-greedy regex base64url-by-hand pattern was duplicated across nine framework call sites. The trailing `/=+$/` regex is polynomial-ReDoS-shaped per CodeQL `js/polynomial-redos`. Both directions now route through linear-time helpers.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.crypto.toBase64Url(buf)` / `fromBase64Url(s)`",
+              "body": "Buffer / Uint8Array / string to RFC 4648 §5 base64url string via Node's built-in `\"base64url\"` encoding (linear time, no regex backtracking surface), and the inverse decoder."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Nine-site sweep across JWT / DPoP / OAuth / SD-JWT VC / DoH / GCS service-account JWT / pagination cursors",
+              "body": "Every site now consumes the helpers; the symmetric `_b64urlDecode` 5-site sweep follows the same shape (one validated typed-error guard then `bCrypto.fromBase64Url`). `lib/argon2-builtin.js` retains its own `_b64NoPad` helper (PHC strings use standard base64 alphabet `+/` not url-safe `-_`); converted from `.replace(/=+$/, \"\")` to a linear `charCodeAt`+`slice` loop."
+            }
+          ]
+        },
+        {
+          "heading": "Detectors",
+          "items": [
+            {
+              "title": "`inline-base64url-three-replace` + `mountinfo-options-bind-check`",
+              "body": "Any future site that reaches for either pattern trips the gate at n=1. KNOWN_CLUSTERS entry added for the JWT-family verification cluster (`dpop.verify` / `jwt._requireNumericDate` / `oauth.verifyBackchannelLogoutToken`) that surfaced after the redos sweep shifted line offsets; structurally distinct RFC primitives (RFC 9449 DPoP / RFC 7519 JWT / OIDC Back-Channel Logout) sharing a replayStore.checkAndInsert + numeric-date-bound shingle."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 4648 §5 (base64url)",
+          "url": "https://www.rfc-editor.org/rfc/rfc4648#section-5"
+        },
+        {
+          "label": "CodeQL js/polynomial-redos",
+          "url": "https://codeql.github.com/codeql-query-help/javascript/js-polynomial-redos/"
+        }
+      ]
+    },
+    {
+      "version": "0.9.44",
+      "date": "2026-05-15",
+      "headline": "`b.storage.chunkScratch` resumable-chunked-upload primitive + `b.agent.tenant` cryptoField adoption helper",
+      "summary": "Two operator-deployment primitives that close gaps every consumer was reinventing.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.storage.chunkScratch(opts?)` — resumable chunked upload primitive",
+              "body": "Operators handling large file uploads (multipart-form / tus / S3-multipart-style flows) have reinvented the per-assembly directory layout + atomic finalize + GC of partial assemblies pattern. This primitive owns it once. Returns a handle with 10 lifecycle methods: `saveChunk` (per-chunk `maxChunkBytes` cap default 16 MiB; envelope-encrypted via the framework vault), `getChunk`, `chunkExists`, `listChunks` (sorted indices), `countChunks`, `removeChunk`, `assemble` (monotonic 0..N-1 index check; refuses on gap or expectedTotal mismatch), `removeAssembly`, `listAssemblies`, `listStaleAssemblies({ olderThanMs })` + `gc({ olderThanMs })` for partial uploads abandoned mid-stream (default stale window 24h). `assemblyId` shape is validated to refuse path-traversal (`..`), slash / backslash, NUL / C0 / DEL, dot-prefix, and oversize (>128 bytes). Backend is the operator-configured `b.storage` backend (no new backend concept). Audit events: `system.storage.chunk_scratch.chunk_saved` / `assembled` / `removed` / `gc`. Wire-protocol reference: tus.io v1.0.0, RFC 9110 §14.4 Content-Range, draft-ietf-httpbis-resumable-upload-08. Threat-model: CVE-2018-1000656-class path-traversal in upload paths defended via the assemblyId validator; storage exhaustion from abandoned uploads defended via the GC primitive; chunk-out-of-order replay defended via `assemble`'s monotonic index check."
+            },
+            {
+              "title": "`b.agent.tenant` cryptoField adoption helper",
+              "body": "`sealField(tenantId, table, field, plaintext)` / `unsealField(...)` / `sealRowForTenant(tenantId, table, row)` / `unsealRowForTenant(tenantId, table, row)`. `b.cryptoField.sealRow` uses the singleton vault keypair — every tenant's sealed data decrypts under the same framework key, which fails the cross-tenant cryptographic isolation that HIPAA §164.312(a)(2)(iv) Encryption-at-rest, GDPR data-residency-per-tenant, and PCI scope-isolation deployments require. The adoption helper derives a per-tenant 32-byte AEAD key via `b.crypto.namespaceHash(\"agent.tenant.derive.cryptoField:<table>\", tenantId)` (NIST SP 800-108 r1 §5.1 KDF-in-Counter-mode shape using SHA3-512) and routes each sealed field through `b.crypto.encryptPacked` (XChaCha20-Poly1305 per draft-irtf-cfrg-xchacha-03; 24-byte nonce making random-nonce generation safe at framework scale) with AAD-bound context (`tenantId|table|field`) per RFC 8439 §2.5 so a ciphertext from tenant A literally cannot decrypt as tenant B's row — even with the wrong tenantId the Poly1305 tag check fails. Threat-model coverage: cross-tenant data exposure class (CVE-2019-19528 was an early multi-tenant example where shared encryption keys allowed cross-tenant decrypt with DB access; this primitive's AAD-binding + per-tenant key derivation defends the class by construction). Ciphertext shape: `\"tnt-v1:\" + base64(packed)`, distinguishable from `vault.seal`-sealed cells (which start with `\"vault:\"`) so a storage layer can mix both. `sealRowForTenant` adopts the existing `b.cryptoField` table schema (`sealedFields`); cross-tenant decrypt safe-fails the affected field to `null` (matching `b.cryptoField.unsealRow`'s posture)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.43",
+      "date": "2026-05-15",
+      "headline": "`b.testHarness.start` + `b.middleware.composePipeline` + `b.watcher` `mode: \"auto\"`",
+      "summary": "Three downstream-consumer DX primitives that close operator-friction gaps.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.testHarness.start(opts?)` — isolated-boot helper",
+              "body": "Collapses the ~20-line mkdtemp + env-var setup + vault.init + teardown pattern every consumer was reinventing in `tests/helpers/`. Returns a handle exposing `{ dataDir, dbPath, vaultDir, env, stop() }`. Generates a mkdtemp-based isolated dataDir under `os.tmpdir()` with `b.crypto.generateToken(4)` random suffix, sets `<prefix>_DATA_DIR` / `_DB_PATH` / `_VAULT_DIR` env vars, optionally awaits `b.vault.init` in plaintext mode. Concurrent harnesses with `initVault: true` share the process-global vault state via internal reference counting; the last `stop()` releases vault."
+            },
+            {
+              "title": "`b.middleware.composePipeline(entries, opts?)` — order-aware middleware composer",
+              "body": "Canonical-position registry for 14 framework middlewares (`requestId=5` / `apiEncrypt=10` / `bodyParser=20` / `cspNonce=22` / `securityHeaders=25` / `csrf=30` / `idempotency=30` / `fetchMetadata=32` / `rateLimit=40` / `botGuard=42` / `requireAuth=50` / `attachUser=52` / `handler=60` / `errorHandler=90`). Conflict detection at registration time refuses duplicate names, duplicate explicit-position values, and non-monotonic positions. Strict mode (`opts.strict: true`) refuses canonical-name position mismatches; default `false` runs but emits `system.middleware.compose.canonical_mismatch` audit. Sync throws inside middleware propagate to `finalNext`. Boot-time `system.middleware.compose.pipeline_built` audit lists final ordered entries."
+            },
+            {
+              "title": "`b.watcher.create({ root, mode: \"auto\", ... })` — Docker bind-mount fallback",
+              "body": "Inside a Linux container with a host bind-mount, `fs.watch` returns no events across gRPC-FUSE / VirtioFS / 9p / NFS / CIFS / vboxsf boundaries; `mode: \"auto\"` reads `/proc/self/mountinfo`, finds the mount carrying the watcher root, and falls back to `mode: \"poll\"` when the fstype is non-inotify OR when `/.dockerenv` is present AND mountinfo field 4 (root within source filesystem) is `!= \"/\"` (bind-mount signature — the kernel exposes the bound source path in this field; regular mounts always carry `/`). Native Linux mounts + non-Linux hosts (FSEvents / ReadDirectoryChangesW) keep `mode: \"fs\"`. The chosen backend + reason emits as `watcher.mode_auto_decision` on the audit chain. `mode: \"fs\"` (default) and `mode: \"poll\"` (explicit) unchanged; `mode: \"auto\"` is opt-in."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.42",
+      "date": "2026-05-15",
+      "headline": "`b.middleware.idempotencyKey` `bodyFingerprint` hook + misordered-mount detector",
+      "summary": "Adds an operator-supplied body-extractor hook for the idempotency middleware so canonicalized payloads don't trip the same-key-different-body refusal, plus audit signals when the middleware is mounted before the body parser.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`opts.bodyFingerprint: (req) => Buffer|string|object|null`",
+              "body": "Lets operators supply a custom body extractor instead of relying on the default `req._rawBody || req.body` lookup; useful when the parsed-body shape needs canonicalization (sorted keys, stripped metadata) before the fingerprint hash so retry-with-equivalent-payload doesn't trip the §4.3 same-key-different-body refusal. Hook return is normalized to Buffer (Buffer passthrough; string to UTF-8 bytes; object/array via `JSON.stringify` to bytes; null/undefined to empty fingerprint). Throws inside the hook emit `idempotency.body_fingerprint_failed` audit (warning) and treat the body as empty."
+            },
+            {
+              "title": "Mount-order constraint and audit signal",
+              "body": "Idempotency must run AFTER body-parser; the hook reads request state at the moment idempotency executes, so a misordered mount silently degrades the fingerprint to method+path. `b.middleware.composePipeline` places bodyParser=20 / idempotency=30 by default. Body-bearing methods (POST/PUT/PATCH) that arrive without parsed-body OR raw-body data now emit `idempotency.empty_body_fingerprint` audit (warning) carrying `hasRawBody` / `hasParsedBody` / `hasFingerprintHook` so a misconfigured pipeline is detectable from audit logs."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.41",
+      "date": "2026-05-15",
+      "headline": "Operator-friction ergonomic helpers — `b.storage.listBackends` rootDir + `b.problemDetails.send` shortcut",
+      "summary": "Three small additive surfaces, no behavior change for existing callers.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.storage.listBackends()` surfaces `rootDir` for local-protocol backends",
+              "body": "Sourced from the live backend (with config-reload propagation) so downstream path-traversal guards + scratch-dir derivation read the canonical path directly from the framework instead of re-deriving from operator-supplied opts. Remote protocols (sigv4 / gcs / azure-blob / http-put) don't carry a rootDir; the field stays absent for those."
+            },
+            {
+              "title": "`b.problemDetails.send(res, fields)` — bare wire-shape emit shortcut",
+              "body": "Lets routes migrate incrementally from inline `res.status(400).json({ error: ... })` to RFC 9457 problem-details without restructuring the handler around an error throw. Equivalent to `respond(res, create(fields))` in one call; same `application/problem+json` content type + `Cache-Control: no-store`."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`b.mail.send` CR/LF/NUL refusal confirmed already in place",
+              "body": "At `lib/mail.js:275` / `:309` / `:1808` per RFC 5321 §2.3.8 + RFC 5322 §3.2.5 header-injection defense — operators with inline `validateEmailAddr` wrappers can retire them. No new API, just confirmation that the existing primitive already covers the wire-protocol injection class (CVE-2026-32178 .NET System.Net.Mail header injection defended at the framework boundary)."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 9457 (Problem Details for HTTP APIs)",
+          "url": "https://www.rfc-editor.org/rfc/rfc9457"
+        }
+      ]
+    },
+    {
+      "version": "0.9.40",
+      "date": "2026-05-15",
+      "headline": "`b.guardListId` — RFC 2919 List-Id header validator",
+      "summary": "Companion to the List-Unsubscribe validator; gates outbound mailing-list mail so the List-Id carries a well-formed identifier downstream filters + bulk-sender pipelines reliably route on.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.guardListId.validate(headerValue, opts?)`",
+              "body": "Parses bracketed (`<my-list.example.com>`), phrase-prefixed (`My Newsletter <my-list.example.com>`), and bare-identifier forms per RFC 2919 §2. Returns `{ action, listId, label, namespace, phrase, reason }`. Action one of `accept` / `refuse`."
+            },
+            {
+              "title": "RFC 2919 §3 caps + ABNF",
+              "body": "list-id capped at 255 octets; header value capped at RFC 5322 §2.1.1 line cap (998 bytes); per-label shape per RFC 5322 §3.2.3 dot-atom-text."
+            },
+            {
+              "title": "Phrase-smuggling defense + CRLF/NUL/C0/DEL refusal",
+              "body": "Phrase MUST NOT contain `<` / `>` (would smuggle a second bracketed identifier through the parser). Trailing content after `>` refused. Nested or unmatched brackets refused. Header-injection defense per RFC 5322 §3.2.5 + CVE-2026-32178 wire-protocol surface class."
+            },
+            {
+              "title": "`localhost` namespace + FQDN enforcement",
+              "body": "Strict requires the recommended 32-hex random component in the `localhost` namespace label (the RFC's SHOULD becomes operator-strict for HIPAA / PCI / GDPR / SOC2 postures); balanced / permissive accept without. FQDN namespace enforced under strict / balanced — list-id with single-label namespace refused unless permissive. Heuristic label / namespace split — last 2 dot-segments become namespace; consumers needing PSL-accurate org-domain extraction compose `b.publicSuffix.organizationalDomain`. Three profiles + posture cascade (`hipaa` / `pci-dss` / `gdpr` / `soc2` map to strict). Fuzz harness ships in `fuzz/guard-list-id.fuzz.js`. Registered as standalone guard with `KIND=\"list-id\"`. Threat-model: List-Id forging (RFC 2919 §8 explicitly notes the identifier is NOT an authentication signal; operators wanting authentication compose `b.mail.auth.dmarc` / `arc.verify`), bulk-sender bucket-drop (Gmail 2024 keys on List-Id presence for Precedence: list / 5000+ daily-send mail)."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 2919 (List-Id)",
+          "url": "https://www.rfc-editor.org/rfc/rfc2919"
+        }
+      ]
+    },
+    {
+      "version": "0.9.39",
+      "date": "2026-05-15",
+      "headline": "`b.guardListUnsubscribe` — RFC 2369 + RFC 8058 List-Unsubscribe / List-Unsubscribe-Post validator",
+      "summary": "Gates the outbound submission path so messages carrying a List-Id (or any mailing-list shape) emit headers Gmail / Yahoo / Outlook one-click unsubscribe machinery actually accepts.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.guardListUnsubscribe.validate({ listUnsubscribe, listUnsubscribePost }, opts?)`",
+              "body": "Returns `{ action, reason, uris, hasHttpsUri, hasMailtoUri, postHeaderOk, oneClickReady }`."
+            },
+            {
+              "title": "Gmail / Yahoo bulk-sender 2024 enforcement",
+              "body": "Under strict requires at least one `https://` URI in the header (mailto: alone refused) + the paired `List-Unsubscribe-Post: List-Unsubscribe=One-Click` value EXACTLY (case-sensitive — Gmail silently fails one-click on mixed-case variants)."
+            },
+            {
+              "title": "Always-refused schemes",
+              "body": "`javascript:` / `data:` / `file:` / `vbscript:` / `blob:` refused regardless of profile (XSS / file-read class in mail-client rendering). `http://` refused under strict / balanced — one-click endpoint MUST be TLS per RFC 8058 §2. Permissive accepts http for audit-only legacy use."
+            },
+            {
+              "title": "Header-injection defense + bounded surface",
+              "body": "CRLF, NUL, C0 controls, DEL refused at validate time (RFC 5322 §3.2.5). Per-URI byte cap (2 KiB strict / 4 KiB permissive), URI-count cap (4 / 8 / 16), header total byte cap (4 / 4 / 8 KiB). RFC 3986 §3.1 scheme shape; RFC 2369 §3.1 angle-bracket URI list. HTTPS URIs validated through `b.safeUrl.parse` with the framework's HTTPS allowlist. Three profiles + posture cascade (`hipaa` / `pci-dss` / `gdpr` / `soc2` map to strict). Fuzz harness ships in `fuzz/guard-list-unsubscribe.fuzz.js`. Registered as a standalone guard with KIND=\"list-unsubscribe\". Threat-model coverage: unsubscribe-link injection via machine-generated newsletter templates, open-redirect via List-Unsubscribe (operator validates target host downstream via own safeRedirect allowlist)."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 2369 (List-Unsubscribe header)",
+          "url": "https://www.rfc-editor.org/rfc/rfc2369"
+        },
+        {
+          "label": "RFC 8058 (One-Click)",
+          "url": "https://www.rfc-editor.org/rfc/rfc8058"
+        }
+      ]
+    },
+    {
+      "version": "0.9.38",
+      "date": "2026-05-15",
+      "headline": "Republish — prefix npm tarball path with `./` so npm doesn't mis-classify it as a git spec",
+      "summary": "Two prior publish workflow runs both failed at exit 128 — npm 10+ interprets a relative tarball path containing `/` (`dist/blamejs-core-0.9.X.tgz`) as a git spec and attempts `git ls-remote ssh://git@github.com/dist/...tgz`, which the runner's SSH credentials can't auth against. v0.9.29 through v0.9.37 never reached npm as a result; v0.9.28 remained the latest published version.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`./` prefix on the tarball path in `npm-publish.yml`",
+              "body": "No operator-facing primitive change vs the previous release — operators upgrading from v0.9.28 see the full bundled surface delivered by the in-between releases: agent.trace + agent.snapshot, safeDns + network.dns.resolver, guardSmtpCommand, mail.rbl, mail.greylist + lib/ip-utils, mail.helo, guardEnvelope, guardDsn."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.37",
+      "date": "2026-05-15",
+      "headline": "`b.guardDsn` — RFC 3464 Delivery Status Notification parser",
+      "summary": "Reads the `message/delivery-status` MIME-part body bounces / delayed-delivery notices / successful-delivery confirmations carry and surfaces the per-recipient action + RFC 3463 enhanced status code so operator-side delivery-failure routing reads one shape regardless of MTA wording.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.guardDsn.parse(deliveryStatusBody, opts?)`",
+              "body": "Returns `{ perMessage: { reportingMta, originalEnvelopeId?, arrivalDate?, receivedFromMta? }, perRecipients: [{ finalRecipient, action, status, statusClass, diagnosticCode? }, ...], worstStatusClass, action }`."
+            },
+            {
+              "title": "RFC 3464 mandatory-field enforcement",
+              "body": "Reporting-MTA required per §2.2.2; per-recipient Final-Recipient (§2.3.2), Action (§2.3.3) from `{ failed | delayed | delivered | relayed | expanded }` vocabulary, and Status (§2.3.4) in RFC 3463 `D.D.D` form all required. Missing-field surfaces as a typed error (`guard-dsn/missing-{reporting-mta|final-recipient|action|status}`)."
+            },
+            {
+              "title": "RFC 3463 status-class verdict — `2.x.y` deliver / `4.x.y` retry / `5.x.y` invalidate",
+              "body": "First digit drives routing. Worst class across recipients wins so a single permanent failure in a multi-recipient bounce flips `action: invalidate`."
+            },
+            {
+              "title": "Defenses — bounded body cap + recipient cap + header-line cap + CRLF/NUL/C0/DEL refusal",
+              "body": "Bounded body cap (256 KiB strict / 1 MiB balanced / 4 MiB permissive), per-DSN recipient cap (256 / 1024 / 4096), RFC 5322 §2.1.1 header-line cap (998 bytes), CRLF / NUL / C0 / DEL refusal for header-injection defense (CVE-2026-32178 .NET System.Net.Mail class on the inbound parse path). RFC 5322 §2.2 continuation lines: values can wrap onto subsequent lines starting with whitespace; parser folds correctly. `rfc822;` address-type prefix stripped per RFC 3464 §2.3.2 so consumers see canonical mailbox form. Three profiles + posture cascade (`hipaa` / `pci-dss` / `gdpr` / `soc2` map to strict). Fuzz harness ships in `fuzz/guard-dsn.fuzz.js`."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 3464 (DSN format)",
+          "url": "https://www.rfc-editor.org/rfc/rfc3464"
+        },
+        {
+          "label": "RFC 3463 (enhanced status codes)",
+          "url": "https://www.rfc-editor.org/rfc/rfc3463"
+        }
+      ]
+    },
+    {
+      "version": "0.9.36",
+      "date": "2026-05-15",
+      "headline": "`b.guardEnvelope` — RFC 7489 §3.1 DMARC Identifier Alignment validator",
+      "summary": "Focused gate exposing the From-header-vs-SPF/DKIM alignment primitive so the MX listener can short-circuit on alignment fail before the full DMARC TXT lookup, and operator middleware can reuse alignment without dragging in the full DMARC orchestrator.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.guardEnvelope.check(ctx, opts?)`",
+              "body": "ctx carries `fromHeaderDomain` + `spfResult: { result, domain }` + `dkimResults: [{ result, signingDomain }]`. Returns `{ spf, dkim, aligned, action }` — `aligned: true` when at least one of SPF/DKIM is identifier-aligned (RFC 7489 §3.1: From-domain matches SPF MailFrom OR DKIM d= under chosen mode)."
+            },
+            {
+              "title": "Strict vs relaxed match (RFC 7489 §3.1.1 / §3.1.2)",
+              "body": "Strict requires exact FQDN match, relaxed (RFC 7489 §6.2 default) requires same organizational domain via `b.publicSuffix.organizationalDomain` (Public Suffix List). Per-call override via `spfMode: strict | relaxed` + `dkimMode`."
+            },
+            {
+              "title": "Verdict shape — per-signature visibility",
+              "body": "`spf: { aligned, mode, domain, fromDomain, spfPass }`, `dkim: [<verdict>...]` (one per signature so multi-signer messages with mixed pass/fail are visible), `aligned: bool` (any-of), `action: accept | refuse`. Strict + balanced profiles refuse on alignment fail; permissive computes alignment but always accepts (operator score-tags downstream)."
+            },
+            {
+              "title": "Threat-model — envelope-vs-header spoofing + public-suffix confusion",
+              "body": "`MAIL FROM:<service@aws-bounces.com>` passes SPF for aws-bounces.com but `From: payments@your-bank.example` — refused under strict. Attacker can't claim `co.uk` as an org domain because PSL classifies it as a public suffix; `victim.co.uk` vs `attacker.co.uk` have different effective org domains. Same-org-different-subdomain attack under strict mode (operator opts to relaxed for legitimate cross-subdomain mail). Posture cascades (`hipaa` / `pci-dss` / `gdpr` / `soc2` map to strict). Fuzz harness ships in `fuzz/guard-envelope.fuzz.js`. Registered as a standalone guard via `KIND: \"envelope-alignment\"` and NAME: \"envelope\"."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 7489 (DMARC)",
+          "url": "https://www.rfc-editor.org/rfc/rfc7489"
+        }
+      ]
+    },
+    {
+      "version": "0.9.35",
+      "date": "2026-05-15",
+      "headline": "`b.mail.helo` — RFC 5321 §4.1.1.1 HELO/EHLO validation + RFC 8601 §2.7.6 FCrDNS verifier",
+      "summary": "Substrate for the upcoming MX listener's EHLO boundary. Composes the validating DNS resolver for forward-confirmed reverse-DNS.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.mail.helo.evaluate({ ip, claimedName, resolver }, opts?)`",
+              "body": "Returns `{ action, shape, fcrdns, genericRdns, reason }`. Action one of `accept` / `reject-shape` / `soft-fail-fcrdns` / `match-self-refused` / `literal-mismatch`."
+            },
+            {
+              "title": "Shape gate — RFC 5321 §2.3.5 LDH labels",
+              "body": "FQDN required under strict (operator opts down to permissive); bare host refused; localhost / localhost.localdomain refused per RFC 6761 §6.3; oversize past RFC 1035 §2.3.4 cap refused."
+            },
+            {
+              "title": "Address-literal handling (RFC 5321 §4.1.3)",
+              "body": "`[1.2.3.4]` IPv4 and `[IPv6:2001:db8::1]` IPv6 accepted when matches the connection IP, refused otherwise. IPv6 compare uses `ipUtils.expandIpv6Hex` canonical form so a literal in expanded notation matches a compressed connection-IP representation."
+            },
+            {
+              "title": "FCrDNS check (RFC 8601 §2.7.6 / RFC 1912 §2.1)",
+              "body": "When resolver supplied, queries PTR for connection IP (in-addr.arpa for IPv4, ip6.arpa for IPv6), then A/AAAA for each PTR result; verdict requires at least one forward IP equals the connection IP. Verdict surfaces `fcrdns: { rdnsNames, forwardIps, matchedIp }` so operator audit pipelines see exactly why FCrDNS passed/failed."
+            },
+            {
+              "title": "Generic-rDNS heuristic + HELO-self spoofing defense",
+              "body": "Ships pattern list for consumer-ISP dynamic-pool naming (`dynamic`, `dial-?up`, `dsl`, `cable`, `pool[-_]`, `ppp[0-9]`, `broadband`, IPv4-in-name). Operator extends per-deployment via `genericRdnsPatterns: [<regex>...]`. Verdict flags `genericRdns: true` for MX policy to layer with RBL + greylist. Operator-supplied `selfNames: [...]` list refuses peers claiming our own MX hostnames (`match-self-refused`)."
+            },
+            {
+              "title": "Per-profile FCrDNS enforcement",
+              "body": "`strict` requires FCrDNS for both v4 + v6, `balanced` requires v4 only (consumer IPv6 PTR records are spotty across ISPs and over-rejecting hurts legitimate cloud / VPS senders), `permissive` skips FCrDNS entirely. Posture cascades (`hipaa` / `pci-dss` / `gdpr` / `soc2` map to strict). Threat-model: HELO spoofing (selfNames defense), botnet residential-IP class (generic-rDNS + RBL composition), DNS poisoning of PTR (inherits resolver's safeDns caps + AD-bit surface + CVE coverage)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.34",
+      "date": "2026-05-15",
+      "headline": "`b.mail.greylist` — RFC 6647 SMTP greylisting + IPv6-expansion helper extracted to `lib/ip-utils.js`",
+      "summary": "Greylisting primitive that the MX listener composes, with GDPR-grade triplet hashing and a shared IPv6-expansion helper extracted from three inlined copies.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.mail.greylist.create({ profile, posture, store, minDelayMs, whitelistTtlMs, maxEntries, allowedSources, audit })`",
+              "body": "Facade with `.check({ ip, mailFrom, rcptTo, now? })` returning a verdict (`defer` / `accept` / `accept-first-pass`) and `.gc({ olderThanMs })` for retention. RFC 6647 §4.4 recommended triplet (IP + RFC 5321 MailFrom + first RcptTo) with CIDR aggregation per profile (default /24 IPv4, /64 IPv6 — matches retry-cluster behavior of Gmail / Outlook / AWS SES). RFC 6647 §4.5 retry window (default minDelayMs = 5 min) + whitelist TTL (default 36 days). Operator returns SMTP `451 4.7.1` on defer; legitimate MTAs retry and pass through."
+            },
+            {
+              "title": "Privacy by construction — namespace-hashed triplet",
+              "body": "GDPR Art. 5(1)(c) data-minimization: triplet is namespace-hashed (`b.crypto.namespaceHash(\"mail.greylist\", ...)` sha3-512) so the on-disk key is unlinkable to the PII triplet; operator dumps of the greylist table never leak sender/recipient pairs."
+            },
+            {
+              "title": "Pluggable backend + allowed-source bypass + whitelist-TTL re-greylisting",
+              "body": "`{ get, put, delete, gc }` interface. In-memory default for single-process MX; operator wires sqlite-backed or external DB for multi-process MX fleets so a retry landing on a different process sees the first-attempt fingerprint. `allowedSources: [ip, ...]` skips greylisting per RFC 6647 §6.2 (listservs, transactional partners, healthcare 2FA, etc.). RFC 6647 §4.5: when a previously-passed fingerprint exceeds its TTL without recent traffic, the next attempt is deferred again and a fresh fingerprint planted."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Shared IPv6 expansion extracted to `lib/ip-utils.js`",
+              "body": "Replaces 3 inlined implementations (`lib/mail-auth.js` `_ipv6Expand`, `lib/mail-rbl.js` `_expandIpv6`, `lib/mail-greylist.js` `_expandIpv6`). The shared helper handles RFC 4291 §2.5.5.2 IPv4-in-IPv6 dual-stack form (`::ffff:1.2.3.4`) which the per-module copies were inconsistent on. mail-auth keeps an `expandIpv6Groups` view (returns 8 x uint16 for SPF / DMARC bitwise CIDR eval); mail-rbl and mail-greylist use the `expandIpv6Hex` view (returns the 32-hex-char canonical form for RFC 5782 §2.4 reverse-DNS construction and CIDR aggregation respectively). Three profiles + posture cascades (`hipaa` / `pci-dss` / `gdpr` / `soc2` map to strict). Threat-model coverage: snowshoe + single-attempt botnet flood, fingerprint-store poisoning (operator-supplied IPs hashed before storage; `maxEntries` cap with FIFO eviction), CIDR-aggregation bypass."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 6647 (SMTP greylisting)",
+          "url": "https://www.rfc-editor.org/rfc/rfc6647"
+        }
+      ]
+    },
+    {
+      "version": "0.9.33",
+      "date": "2026-05-15",
+      "headline": "`b.mail.rbl` — RFC 5782 DNSBL + DNSWL query primitive composing the validating resolver",
+      "summary": "Substrate for the upcoming MX listener's IP-reputation check on every accepted connection + the submission listener's outbound-rate / spam-source list.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.mail.rbl.create({ resolver, blocklists, allowlists, profile, posture, withReason, audit })`",
+              "body": "Facade over `b.network.dns.resolver`. Surface: `instance.query(ip, qopts)` for IP-based lookups, `instance.queryDomain(domain, qopts)` for domain blocklists (Spamhaus DBL / SURBL pattern). Returns `{ listed, allowed, neutral, errors }` so MX policy code reads one shape regardless of which list fired."
+            },
+            {
+              "title": "`b.mail.rbl.reverseIp(ip)` — pure helper for the RFC 5782 reverse-DNS construction",
+              "body": "IPv4 octets reversed (§2.1, `192.0.2.99` becomes `99.2.0.192`), IPv6 nibble-reversed across all 128 bits (§2.4). Handles compressed `::` notation per RFC 4291 §2.2."
+            },
+            {
+              "title": "A-record return surface + TXT-reason lazy fetch + NXDOMAIN-means-not-listed",
+              "body": "Exposes raw `127.0.0.x` semantic byte so operator MX policy can inspect sub-list codes (Spamhaus convention: `.2` SBL, `.4` XBL, etc.). RFC 5782 §2.1 explicitly forbids treating these as routable addresses. Opt-in TXT-reason fetch via `{ withReason: true }` so operators can render the listing reason back to the peer via SMTP 550 message. NXDOMAIN is treated as the neutral verdict per RFC 5782 §2.1.1, not an error."
+            },
+            {
+              "title": "DoS-by-list defense — per-list concurrency cap + timeout",
+              "body": "Default 8 concurrent in strict; per-list timeout default 5s strict / 10s balanced / 20s permissive — a slow upstream list can't stall the MX listener. Three profiles + posture cascades (`hipaa` / `pci-dss` / `gdpr` / `soc2` map to strict). Threat-model inherits the resolver's CVE coverage (CVE-2008-1447 Kaminsky, CVE-2022-3204 NRDelegationAttack, CVE-2023-50387 / CVE-2023-50868 KeyTrap + NSEC3-encloser, CVE-2024-1737 BIND9 large-RRset)."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 5782 (DNSBL / DNSWL)",
+          "url": "https://www.rfc-editor.org/rfc/rfc5782"
+        }
+      ]
+    },
+    {
+      "version": "0.9.32",
+      "date": "2026-05-15",
+      "headline": "`b.guardSmtpCommand` — SMTP command-line validator with bare-CR / bare-LF smuggling defense + per-verb shape + RFC 5321 caps",
+      "summary": "Gates every SMTP command verb the framework's MX and submission listeners will accept. Refuses bare CR / bare LF anywhere in a command per RFC 5321 §2.3.8 — defends the 2023/2024 SMTP-smuggling CVE family at the wire-protocol surface.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Smuggling defense at the command-line level",
+              "body": "Refuses bare `\\r` or `\\n` anywhere in a command (RFC 5321 §2.3.8); defends CVE-2023-51764 (Postfix), CVE-2023-51765 (Sendmail), CVE-2023-51766 (Exim), and CVE-2026-32178 (.NET `System.Net.Mail` SMTP header injection). Operators with peers that legitimately speak bare-LF (rare; legacy Sendmail-to-Sendmail) opt down to the `permissive` profile with audit emit per accepted bare-LF line."
+            },
+            {
+              "title": "STARTTLS command-buffer defense",
+              "body": "Refuses trailing payload on `STARTTLS` lines (defends CVE-2021-38371 Exim STARTTLS response injection and CVE-2021-33515 Dovecot lib-smtp STARTTLS command injection at the per-line shape; the stateful buffer-drain check is the listener's responsibility and lands with the MX release)."
+            },
+            {
+              "title": "Per-verb argument shape — `EHLO` / `HELO` / `MAIL FROM` / `RCPT TO` / `BDAT` / `AUTH` / zero-arg verbs",
+              "body": "RFC 5321 §3 / §4.1: `EHLO` / `HELO` require exactly one domain or address-literal arg (`[IPv6:...]` form per RFC 5321 §4.1.3); `MAIL FROM:<reverse-path>` + `RCPT TO:<forward-path>` with optional ESMTP extension params per RFC 5321 §4.1.1.11; `BDAT <chunk-size> [LAST]` per RFC 3030 CHUNKING; `AUTH <SASL-mech> [<initial-response>]` per RFC 4954 with RFC 4422 mechanism-name charset; zero-arg verbs (`DATA` / `RSET` / `QUIT` / `STARTTLS`) refused with any trailing args."
+            },
+            {
+              "title": "Byte caps + NUL/C0/DEL refusal",
+              "body": "Command line capped at 512 bytes per RFC 5321 §4.5.3.1.1 (strict); SMTPUTF8 / EAI peers (RFC 6531) routed through `balanced` profile with 1024-byte cap. Forward / reverse path 256 bytes, domain 255 bytes (RFC 1035 §2.3.4), local-part 64 bytes (RFC 5321 §4.5.3.1.1). Every byte below `0x20` and `0x7f` refused; non-ASCII refused under `strict` (SMTPUTF8 must be negotiated by peer before relaxing). Three profiles + posture cascades (`hipaa` / `pci-dss` / `gdpr` / `soc2`) all map to `strict`. Registers in `b.guardAll.allGuards()`'s `STANDALONE_GUARDS`. Fuzz harness ships in `fuzz/guard-smtp-command.fuzz.js`."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 5321 §2.3.8 (CR / LF separation)",
+          "url": "https://www.rfc-editor.org/rfc/rfc5321#section-2.3.8"
+        },
+        {
+          "label": "CVE-2023-51764 (Postfix SMTP smuggling)",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2023-51764"
+        }
+      ]
+    },
+    {
+      "version": "0.9.31",
+      "date": "2026-05-15",
+      "headline": "`b.safeDns` + `b.network.dns.resolver` — bounded DNS-response parser and validating stub resolver",
+      "summary": "Substrate for every framework consumer that walks the DNS (DKIM TXT lookup, MTA-STS verify, DANE TLSA, BIMI / VMC discovery, SVCB / HTTPS records, RBL queries, AutoConfig / AutoDiscover, MX / submission).",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.safeDns.parseResponse(buf, opts?)` — pure-functional DNS wire-format parser",
+              "body": "Caps every dimension an attacker can grow: response bytes (4 KiB strict default), label count per name, compression-pointer chain depth (RFC 1035 §4.1.4 loop defense), CNAME chain depth, per-section RR count (answer 64 / authority 32 / additional 32), TXT rdata total length, EDNS0 advertised buffer (RFC 6891 §6.1.3). Type decoders for A / AAAA / CNAME / NS / PTR / MX / TXT / SOA / SRV / DS / DNSKEY / RRSIG / TLSA. AAAA renders in canonical RFC 5952 form with longest-zero-run compression, single-zero-group preservation, and IPv4-mapped (`::ffff:n.n.n.n`) handling."
+            },
+            {
+              "title": "`b.network.dns.resolver.create({ profile, posture, maxTtlMs, minTtlMs, serveStale, transport, audit })`",
+              "body": "Validating stub resolver. Every query parses through `b.safeDns`; cache keyed on `{ name, type }` with TTL = min across answer RRs (RFC 2181 §5.2), clamped to `[minTtlMs, maxTtlMs]`."
+            },
+            {
+              "title": "Serve-stale on upstream failure or malformed response (RFC 8767)",
+              "body": "Operator-configurable stale window (default 6h; RFC 8767 §6 caps at 7 days). Returned entries carry `{ stale: true, fromCache: true }`."
+            },
+            {
+              "title": "CNAME chain following with depth cap",
+              "body": "`followCnames(name, type, opts)` — per-hop depth check through `b.safeDns.checkCnameChainDepth` (default cap 8, matching BIND9's canonical-name-translation cap; RFC 1912 §2.4 chain-loop defense)."
+            },
+            {
+              "title": "AD-bit surface (RFC 4035 §3.2.3)",
+              "body": "Every response surfaces `{ validated: <AD-bit> }`. Per-call `validate: true` refuses responses with AD=0. Full local RRSIG verification deferred to operator-supplied validating recursive (Unbound / BIND9 / Knot) — root trust anchor management (RFC 5011 lifecycle) doesn't belong in a stub."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "CVE coverage at parse-time bounds",
+              "body": "CVE-2008-1447 (Kaminsky cache-poisoning — bounded parse + random query ID + DoH TLS transport); CVE-2022-3204 (NRDelegationAttack — RR caps on authority + additional); CVE-2023-50387 / CVE-2023-50868 (KeyTrap / NSEC3-encloser — DNSKEY+RRSIG+NSEC3 counts bounded at parse time); CVE-2024-1737 (BIND9 large-RRset resource exhaustion). Three profiles (`strict` / `balanced` / `permissive`); posture cascades (`hipaa` / `pci-dss` / `gdpr` / `soc2`) all map to strict — DNS is critical-path substrate, no posture loosens it. QNAME minimization (RFC 9156) deliberately not in the stub — the operator's upstream recursive does QNAME-min."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 1035 (DNS wire format)",
+          "url": "https://www.rfc-editor.org/rfc/rfc1035"
+        },
+        {
+          "label": "RFC 8767 (serve-stale)",
+          "url": "https://www.rfc-editor.org/rfc/rfc8767"
+        },
+        {
+          "label": "RFC 4035 §3.2.3 (DNSSEC AD bit)",
+          "url": "https://www.rfc-editor.org/rfc/rfc4035#section-3.2.3"
+        }
+      ]
+    },
+    {
+      "version": "0.9.30",
+      "date": "2026-05-14",
+      "headline": "`b.agent.snapshot` — drain then snapshot in-flight state; restart then restore and resume",
+      "summary": "Closes the agent + orchestration substrate playbook — every primitive is now operationally durable across deploys + crashes. Mail-stack DNS resolver resumes next.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.agent.snapshot.create({ orchestrator, backend, audit, policy })`",
+              "body": "Facade. Surface: `takeSnapshot(opts)`, `persist(snap)`, `loadLatest({ tenantId })`, `loadById(id)`, `restore(snap, { allowSchemaVersionMismatch, refuseOnTopologyChange })`, `list({ tenantId, sinceMs })`, `gc({ olderThanMs })`."
+            },
+            {
+              "title": "Snapshot envelope shape",
+              "body": "Carries `snapshotId` + `takenAt` + `frameworkVersion` + `schemaVersion` (currently 1) + `tenantId` + `orchestratorState` (agents / elections / consumers) + `inFlight` (streams / sagas / outboxJobs / busSubscribers / pendingDeliveries) + `idempotencyCache` (hot subset). Pluggable backend via `{ put, get, list, delete }` interface; operator wires durable storage (sqlite / object-store / external)."
+            },
+            {
+              "title": "Cluster topology change handling — re-shard-and-resume default",
+              "body": "Restore audit emits `agent.snapshot.topology-change` at HEIGHTENED severity carrying snapshot consumer count vs current, reshardedShards (set diff of topic names), affectedInFlight count, affectedSagas + affectedStreams counts so operator monitoring pipelines see exactly what changed across the deploy. Opt-in refuse via `restoreOpts.refuseOnTopologyChange` for strict-topology operators."
+            },
+            {
+              "title": "Schema-version mismatch refused by default",
+              "body": "Operator opts in via `restoreOpts.allowSchemaVersionMismatch` for explicit major-version migrations."
+            },
+            {
+              "title": "`b.guardSnapshotEnvelope`",
+              "body": "Envelope shape validator. Refuses missing `snapshotId` / `takenAt` / `frameworkVersion` / `orchestratorState` / `inFlight`, bad `schemaVersion` (non-integer / non-positive), oversize (default 50 MiB / 200 MiB / 1 GiB per profile), in-flight count cap (default 65536 strict). Audit lifecycle: `agent.snapshot.taken` / `persisted` / `restored` / `topology-change` / `gc`. Fuzz harness ships in `fuzz/guard-snapshot-envelope.fuzz.js`."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.29",
+      "date": "2026-05-14",
+      "headline": "`b.agent.trace` — distributed tracing through every agent boundary",
+      "summary": "Composes `b.tracing` (W3C trace context). Cross-process trace continuity without per-handler wiring; operators get a full waterfall across hosts.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.agent.trace.create({ tracing, audit, sampleRate, perMethod })`",
+              "body": "Facade. Surface: `startSpan(name, opts)`, `injectIntoEnvelope(envelope, span)`, `extractFromEnvelope(envelope)`, `recordResult(span, result, error?)`, `shouldSample(method)`, `formatAttributes(info)`."
+            },
+            {
+              "title": "W3C Trace Context propagation across queue / event-bus / sub-agent boundaries",
+              "body": "`injectIntoEnvelope` adds `_trace: { traceparent, tracestate }` to envelopes; `extractFromEnvelope` parses + validates the incoming envelope's trace context via `b.guardTraceContext`."
+            },
+            {
+              "title": "Per-method sampling",
+              "body": "Global `sampleRate` (0..1) + `perMethod` override; useful for high-volume operators that want full traces for `send` but 10% for `fetch`."
+            },
+            {
+              "title": "Span attribute formatter",
+              "body": "`formatAttributes({ method, dispatchMode, tenantId, postureSet, shard, resultStatus, elapsedMs })` produces W3C-compliant span attributes (`agent.method`, `agent.tenant_id`, `agent.posture` as JSON-array, etc.) so OpenTelemetry exporters render the agent waterfall consistently across all observability stacks."
+            },
+            {
+              "title": "`b.guardTraceContext`",
+              "body": "W3C Trace Context shape validator. Refuses traceparent of wrong length (W3C §3.2.1 requires exactly 55 chars), non-hex chars, all-zero trace-id (§3.2.2.3) / span-id (§3.2.2.4), version `ff` (W3C-forbidden), version not in profile allowlist, oversized tracestate, too many tracestate entries. Length-bound before regex test so hostile input can't burn regex-engine CPU. Fuzz harness ships in `fuzz/guard-trace-context.fuzz.js`."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "W3C Trace Context Level 2",
+          "url": "https://www.w3.org/TR/trace-context-2/"
+        }
+      ]
+    },
+    {
+      "version": "0.9.28",
+      "date": "2026-05-14",
+      "headline": "`b.agent.postureChain` — set-based compliance posture propagated across every agent boundary",
+      "summary": "Compliance regimes (HIPAA / PCI-DSS / GDPR / SOC2) protect DIFFERENT regulated-data classes — they're orthogonal, not a linear lattice. Set semantics match how real-world regulations actually overlap (a clinic that processes payment cards operates under BOTH HIPAA + PCI).",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.agent.postureChain.create({ audit })`",
+              "body": "Facade with `isSubset(targetSet, sourceSet)` (the core check: target.set superset-of source.set), `union(...sets)`, `canDelegate(sourceSet, targetSet, methodName)`, `appendHop(envelope, hopName)`, `validate(envelope, agentPostureSet)`, `declareRegime(name)`, `REGIMES` (frozen array)."
+            },
+            {
+              "title": "Cross-boundary downgrade refusal",
+              "body": "`validate(envelope, agentPostureSet)` throws `agent-posture-chain/downgrade-refused` when the target (agent) posture set is missing any regime the source (envelope) carries. Audit emit at HEIGHTENED with the missing regime list + chain trail so operator review pipelines surface every downgrade attempt."
+            },
+            {
+              "title": "Hop trail tracking with recursion guard",
+              "body": "`appendHop(envelope, hopName)` immutably extends `{ chainTrail, enteredAt, hopCount }`. Hop count caps at default 16 — defends infinite recursion across agent delegation. Per-hop timestamps must be monotonic non-negative numbers (guard rejects non-monotonic, length mismatches, etc.)."
+            },
+            {
+              "title": "`b.guardPostureChain`",
+              "body": "Envelope shape validator. Refuses oversized hop trail (cap = 16 hops strict), non-ASCII hop names (operator-greppable), C0 / DEL forbidden, duplicate hops in trail (recursion guard), duplicate regimes in `postureSet`, non-monotonic `enteredAt` timestamps, `enteredAt` length mismatch with `chainTrail`. Built-in regimes: HIPAA, PCI-DSS, GDPR, SOC2. Operator declares custom regimes via `chain.declareRegime(\"healthcare-tier-1\")`; duplicate declarations refused. Empty source subset-of any target — unscoped calls flow freely. Fuzz harness ships in `fuzz/guard-posture-chain.fuzz.js`."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.27",
+      "date": "2026-05-14",
+      "headline": "`b.agent.saga` — multi-step coordination with compensation cascade",
+      "summary": "Exactly-once via the framework's outbox + idempotency primitives; reverse-order compensations on failure; survives orchestrator restart via persisted saga state.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.agent.saga.create({ name, steps, audit })`",
+              "body": "Every step has `{ name, run: async (ctx, state) => {}, compensate?: async (ctx, state) => {} }`. `saga.run(ctx, initialState, opts)` walks steps in order; each `run` mutates the shared `state` object. On step throw the framework fires every previously-completed step's `compensate` in REVERSE order (steps that hadn't completed aren't compensated)."
+            },
+            {
+              "title": "Compensation failure semantics",
+              "body": "A compensate that throws emits `agent.saga.compensation_failed` audit at CRITICAL severity, halts further compensations, and the saga's final error message carries both the original step failure + the compensation failure so operator alert pipelines see the full context."
+            },
+            {
+              "title": "No saga-level retry — composition discipline",
+              "body": "Saga's value-add is COMPENSATION, not retry. Step.run wraps `b.retry` if needed (with the idempotency substrate available, internal retry inside step.run is side-effect-safe). Keeps the saga primitive focused on the coordination contract."
+            },
+            {
+              "title": "Audit lifecycle",
+              "body": "`agent.saga.started` / `step_started` / `step_completed` / `step_failed` / `compensation_started` / `compensation_completed` / `compensation_failed` / `failed` / `completed`. Each event carries `sagaId` + `name` + `stepName` + `stepIndex` for operator dashboards."
+            },
+            {
+              "title": "`b.guardSagaConfig`",
+              "body": "Saga-creation config validator. Refuses empty steps array, duplicate step names, non-function `run`, non-function `compensate` (when provided), non-ASCII saga name, oversized step count (default 32). Ships profile + posture vocabulary uniform with rest of guard family. Fuzz harness ships in `fuzz/guard-saga-config.fuzz.js`."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.26",
+      "date": "2026-05-14",
+      "headline": "`b.agent.tenant` — multi-tenant isolation as a first-class primitive",
+      "summary": "Replaces the per-operator wiring of `actor.tenantId === registeredTenant` (which tends to leak across handlers) with one centralized scope. Archive-default destroy semantics match SEC 17a-4, FINRA 4511, HIPAA, and MiFID II retention obligations; crypto-erasure requires explicit step-up + dual-control.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.agent.tenant.create({ backend, audit, permissions })`",
+              "body": "Facade with `register(tenantId, { posture, archivePolicy, metadata })`, `unregister(tenantId, opts)`, `lookup(tenantId)`, `list({})`, `check(actor, agentTenantId)`, `derivedKey(tenantId, purpose)`, `auditFor(tenantId)`, `listArchived()`. Pluggable backend; in-memory default."
+            },
+            {
+              "title": "Cross-tenant gate (`check`)",
+              "body": "Refuses calls where `actor.tenantId !== agentTenantId` unless the actor holds `framework-cross-tenant-admin` scope (every cross-tenant access by an admin emits `agent.tenant.cross_tenant_access` audit at HEIGHTENED severity for operator review)."
+            },
+            {
+              "title": "Per-tenant derived keys + per-tenant audit",
+              "body": "`derivedKey` composes `b.crypto.namespaceHash` for deterministic per-tenant key derivation from `purpose` + `tenantId`. Cross-tenant decrypt refused at the vault boundary by construction — each tenant's seal-key derivation differs, so even with disk access an attacker can't cross-decrypt. `auditFor` returns an audit wrapper that auto-tags every emit with `metadata.tenantId` so each tenant's audit trail is independently filterable."
+            },
+            {
+              "title": "Archive-default destroy semantics",
+              "body": "`unregister(tenantId)` archives by default (retention-safe, matches SEC 17a-4 6yr / FINRA 4511 / HIPAA §164.530(j) / MiFID II Art 16(7) compliance needs). Destruction requires explicit `{ destroy: true, stepUpToken, dualControlApprover, reason, actor }` — four preconditions all required together. The framework validates the SHAPE; the operator's step-up middleware + dual-control middleware grants the actual tokens upstream. Missing any precondition refuses with a specific `agent-tenant/destroy-requires-step-up` / `-dual-control` / `-reason` / `-actor` code so operators see exactly what's missing."
+            },
+            {
+              "title": "`b.guardTenantId`",
+              "body": "Tenant-id shape validator. Refuses non-ASCII (operator-greppable in audit logs across stack boundaries), path-traversal (`..` / `/` / `\\` / NUL / C0 / DEL), oversized (default 64 bytes), reserved `ROOT` / `FRAMEWORK` / `*`, leading `.`. Posture vocabulary uniform (`strict` / `balanced` / `permissive` profiles; hipaa / pci-dss / gdpr / soc2 postures pin strict). Fuzz harness ships in `fuzz/guard-tenant-id.fuzz.js`."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.25",
+      "date": "2026-05-14",
+      "headline": "`b.agent.eventBus` — typed cross-agent publish/subscribe with schema enforcement and cross-tenant subscribe refusal",
+      "summary": "Substrate for every agent-to-agent reaction (`mail.scan.malware-detected` refuses source at MX, `mail.crypto.key-rotated` invalidates vault recipient cache, `ai.classify.prompt-injection-detected` quarantines the agent).",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.agent.eventBus.create({ pubsub, audit, permissions })`",
+              "body": "Facade over operator-supplied `b.pubsub` (or any `{ publish, subscribe, unsubscribe }`-shaped backend). Surface: `registerTopic(name, { schema, posture, permissions, tenantScope })`, `publish(name, payload, { actor })`, `subscribe(name, handler, { actor })` returns unsubscribe fn, `listTopics({ actor })`."
+            },
+            {
+              "title": "Topic registration with schema",
+              "body": "Declared at boot via flat key->type map (`string` / `number` / `boolean` / `integer` / `isoDateTime` / `array` / `object`; suffix `?` marks optional). Unknown topics refuse publish + subscribe so typos fail loudly. Duplicate registration refused (operator must `unregister` first when the surface gains that surface in a later substrate release)."
+            },
+            {
+              "title": "Schema enforcement at every boundary + permission gating + cross-tenant isolation",
+              "body": "Every payload validated against schema before `pubsub.publish` AND at each delivery (subscriber-side re-validation defends in-flight tampering). `permissions.publish` + `permissions.subscribe` per-topic scope arrays; `b.permissions.check(actor, scope)` on every publish + subscribe call. `tenantScope: true` topics carry the publisher's `tenantId` in the wire envelope; subscriber's actor must declare a matching tenantId or the event is silently dropped at delivery with `agent.event_bus.cross_tenant_drop` audit."
+            },
+            {
+              "title": "`b.guardEventBusTopic` + `b.guardEventBusPayload`",
+              "body": "Topic-name validator refuses dot-count < 3 (operators use `<domain>.<source>.<event>` shape), oversized (default 128 bytes), non-ASCII, reserved `framework.*` prefix, path-traversal shapes, slash, backslash, C0 / DEL. Payload validator bounded byte cap (default 64 KiB — events are metadata, not bulk data; publishers reference bulk data via `b.objectStore` IDs); type-check cascade refuses non-finite numbers, malformed ISO-8601 dateTime (length-bound to 64 chars before regex test so a hostile input can't burn regex-engine CPU), missing required fields, unknown fields (schemas must be exhaustive). Fuzz harnesses ship in `fuzz/guard-event-bus-topic.fuzz.js` + `fuzz/guard-event-bus-payload.fuzz.js`."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Shared agent-audit helper extracted to `lib/agent-audit.js`",
+              "body": "Factored out the identical `_safeAudit` wrapper that the orchestrator, idempotency, stream, and eventBus substrate modules carried inline. The four agent substrate modules now compose `agentAudit.safeAudit`."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.24",
+      "date": "2026-05-14",
+      "headline": "`b.agent.stream` — async-iterable variants for agent methods that yield N rows",
+      "summary": "Cursor-backed delivery with built-in backpressure for the agent substrate. JMAP `Email/queryChanges` against million-message mailboxes returns an array today (OOM on client + agent before the response ships); this primitive lets handlers yield rows one at a time without buffering the full result.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.agent.stream.create({ openCursor, cursorOpts, batchSize, orchestrator, actor, kind, audit })`",
+              "body": "Returns an object implementing `[Symbol.asyncIterator]` so operators write `for await (var row of stream) { ... }`. Operator supplies an `openCursor(cursorOpts)` factory returning a cursor with `fetchBatch(batchSize) -> { rows, nextCursor, done }` + optional `close()` + optional `lastSeenCursor()`."
+            },
+            {
+              "title": "Backpressure built-in",
+              "body": "Async-generator semantics; each `next()` call yields one row from an in-memory batch buffer; the cursor only refetches when the buffer drains. Pulling slowly applies backpressure to the store side; a slow client can't OOM the server."
+            },
+            {
+              "title": "Auto cursor close on every exit path",
+              "body": "Consumer `break` calls iterator `.return()`, consumer `throw` calls `.throw()`, natural exhaustion calls `.next()` until done — all three close the cursor via `try`/`finally`-style `_closeOnce` and emit `agent.stream.closed` audit with reason (`exhausted` / `consumer-break` / `consumer-throw` / `drain` / `error`)."
+            },
+            {
+              "title": "Drain marker on orchestrator drain",
+              "body": "When orchestrator drain fires mid-stream, the next `next()` call returns ONE final `{ _drainMarker: true, lastSeenCursor: <opaque>, reason: \"drain\" }` row + closes the cursor. Clients reconnecting via JMAP-WebSocket / IMAP NOTIFY pass `lastSeenCursor` back to resume from the same position against the new agent post-deploy. Composes the orchestrator's `registerStream` / `unregisterStream` / `isDraining` hooks."
+            },
+            {
+              "title": "`b.guardStreamArgs`",
+              "body": "Validates `b.agent.stream.create` opts. Refuses non-integer `batchSize`, batchSize out of `[1, 1024]` strict-profile range, empty `kind` string, function / regex / Buffer / `__proto__` keys inside `cursorOpts` (structured-clone-unsafe). Ships strict / balanced / permissive profiles + hipaa / pci-dss / gdpr / soc2 postures. Fuzz harness ships in `fuzz/guard-stream-args.fuzz.js`."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 8620 §5.5 (JMAP Core — position-paginated responses)",
+          "url": "https://www.rfc-editor.org/rfc/rfc8620#section-5.5"
+        }
+      ]
+    },
+    {
+      "version": "0.9.23",
+      "date": "2026-05-14",
+      "headline": "CodeQL alert sweep — 30 closures across 6 rule classes + wiki @primitive validator extracted into static gates",
+      "summary": "Regression cleanup of the earlier CodeQL batch — the framework-wide require-binding rename shifted line numbers and the suppression comments stopped tracking. Plus the wiki primitive validator now runs at static-gate time so the same nit class is caught pre-push instead of after a ~90s wiki-e2e cycle.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`js/file-system-race` (10 sites)",
+              "body": "`lib/atomic-file.js:_readSyncCore` migrated from `statSync`+`readFileSync` to the canonical TOCTOU-safe-read scaffold (open fd then `fstatSync` then `readSync` loop then `closeSync` in finally; ENOENT now surfaces from `openSync`); `lib/restore-rollback.js` marker write switched to `openSync(..., \"wx\", 0o600)` + `writeSync` + `fsyncSync` + EEXIST tolerance; `lib/network-tls.js` new `_readPathFile` fd-based reader; `lib/backup/bundle.js` fd-narrowed read with short-read detection; `lib/static.js` content-safety gate converted to `fsp.open` filehandle pattern; `lib/vault/seal-pem-file.js`, `lib/atomic-file.js:fsyncDir`, `test/30-chain.js`, `examples/wiki/test/validate-{env,cli}-snapshot.js`, `examples/wiki/lib/source-doc-parser.js` got suppression refresh OR fd-narrowed refactor per shape."
+            },
+            {
+              "title": "`js/insecure-temporary-file` (6 sites)",
+              "body": "`lib/mtls-ca.js` new `_writeExclusive` helper using `openSync(..., \"wx\", mode)` + `writeSync` + `fsyncSync`; `lib/vault/rotate.js` + `lib/http-client.js` got suppression refresh pointing at the operator-supplied stagingDir / 64-bit CSPRNG suffix defenses."
+            },
+            {
+              "title": "`js/path-injection` (2 sites in `lib/static.js`)",
+              "body": "Suppression refresh pointing at the upstream `_resolveSafe` sandbox check (lexical resolve + `startsWith(rootResolved + sep)` + realpath escape guard + guardFilename gate)."
+            },
+            {
+              "title": "`js/remote-property-injection` (7 sites)",
+              "body": "`lib/middleware/csrf-protect.js` cookie-parse output + `lib/websocket.js` `_parseExtensionHeader` params switched to `Object.create(null)` so attacker-controlled keys have no prototype chain to pollute; `lib/middleware/body-parser.js` multipart fields got suppression refresh pointing at the POISONED_KEYS gate; `test/40-consumers.js` + `test/00-primitives.js` test fixtures suppressed with `test/` scope justification."
+            },
+            {
+              "title": "`PinnedDependenciesID` (2 workflow files)",
+              "body": "Every `uses:` line was already SHA-pinned; the remaining alerts pointed at the `npm install --no-audit --no-fund` step in `.github/workflows/npm-publish.yml` + `ci.yml`. Added explicit `name@version` specifiers (esbuild + postject, mirroring `package.json`'s exact pins) so CodeQL recognizes the install as pinned without committing a lockfile (which the framework's zero-npm-runtime-deps posture forbids — vendored stack only)."
+            },
+            {
+              "title": "`js/regex/missing-regexp-anchor` (1 site)",
+              "body": "`scripts/build-vendored-sbom.js` host-extractor regex anchored to `^https?://github.com/` so an attacker-controlled `entry.source` containing `github.com` as a path or query substring can't misdirect purl dispatch into the github branch."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Wiki @primitive validator extracted into static gates",
+              "body": "`examples/wiki/lib/source-comment-block-validator.js` (shared engine, pure module, no side effects) + `scripts/validate-source-comment-blocks.js` (framework-level standalone wrapper, runs in 419-466ms, no `@blamejs/core` / vault / DB / network dependencies). Existing wiki-e2e gate refactored to delegate to the shared engine; CI invocation unchanged. The release workflow's static-gate step now lists `node scripts/validate-source-comment-blocks.js` after `codebase-patterns.test.js`. Each suppression comment references the active defense by file:line so future CodeQL re-runs OR future readers know which suppression applies."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.22",
+      "date": "2026-05-14",
+      "headline": "`b.agent.idempotency` — cross-dispatch idempotency keys at every consumer boundary",
+      "summary": "Second agent-substrate primitive. Provides JMAP retry-safe semantics from day one — operator-supplied keys are namespace-hashed before disk, replay counts are audited, and reuse with different args refuses via a request-fingerprint check.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.agent.idempotency.create({ store, audit, ttlMs, maxResultBytes, fingerprintArgs })`",
+              "body": "Pluggable backing store via `{ get, put, delete, gc }`; in-memory default for single-process deployments, operator wires durable backends (sqlite-backed adapter or external). Surface: `instance.get(method, actorId, key)` returns cached envelope `{ result, firstAt, lastReplayedAt, replayCount, requestFingerprint }` or null; `instance.put(method, actorId, key, result, { args, requestFingerprint })` serializes via `b.safeJson.stringify`, persists with TTL, and refuses key-reuse-different-args via the request-fingerprint (sha3-512 of args sans key); `instance.invalidate(method, actorId, key)` is the saga-compensation escape hatch; `instance.gc({ olderThanMs })` for periodic cleanup."
+            },
+            {
+              "title": "Keys hashed at the boundary",
+              "body": "Operator-supplied keys never reach disk in raw form — namespace-hashed via `b.crypto.namespaceHash(\"agent.idempotency\", method + \"\\0\" + actorId + \"\\0\" + key)`. Cross-actor + cross-method isolation by construction: an attacker can't replay another actor's mutation by guessing the key."
+            },
+            {
+              "title": "Replay tracking + audit emit",
+              "body": "Every cache hit increments `replayCount` and bumps `lastReplayedAt`; audit emits `agent.idempotency.replay` with the truncated actor-id hash + first/replay timestamps so operator pipelines surface retry storms."
+            },
+            {
+              "title": "`b.guardIdempotencyKey` — operator-supplied key shape validator",
+              "body": "Refuses oversized (default 256 bytes), control chars (C0/NUL/DEL — defends audit-log injection), slash + backslash (defends operators routing keys through filesystem paths), path-traversal (`..`), non-ASCII under strict (operator-greppable in audit logs across stack boundaries; permissive opts down for legacy Unicode tenant IDs). Fuzz harness in `fuzz/guard-idempotency-key.fuzz.js`."
+            },
+            {
+              "title": "`test/helpers/json-round-trip.js` — JSON round-trip test helper",
+              "body": "New `assertJsonRoundTrip(shape, label)` catches the bug class Codex flagged on PR #51 (v0.9.21 `register()` stored an agent function ref on the backend row, lost in DB/JSON serialization). Refuses on function fields, Buffer fields, Date objects, Symbol keys, BigInt values, non-finite numbers, and cycles. Applied retroactively to the v0.9.21 agent-orchestrator backend row in a regression test."
+            },
+            {
+              "title": "Result size cap (default 1 MiB)",
+              "body": "Refuses with `agent-idempotency/result-too-big` so operators discover OOM-prone result shapes locally instead of at runtime. ClusterFuzzLite matrix entries added."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 8620 JMAP Core (idempotency)",
+          "url": "https://www.rfc-editor.org/rfc/rfc8620.html"
+        }
+      ]
+    },
+    {
+      "version": "0.9.21",
+      "date": "2026-05-14",
+      "headline": "`b.agent.orchestrator` — framework-level supervisor for every agent blamejs ships",
+      "summary": "First of the agent/orchestration substrate primitives built before the mail-stack resumes. Provides a registry, sharded-topic dispatch, leader election, drain coordination, and a health aggregator — but does NOT supervise OS processes; spawn / restart-on-crash / pod scheduling stay with pm2 / systemd / k8s / Nomad.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.agent.orchestrator.create(opts)` — registry + dispatch + election + drain + health",
+              "body": "Facade with `register(name, agent, opts)` / `lookup(name)` / `unregister(name)` / `list({ kind, tenantId })` registry; `spawnConsumers({ agent, queue, shards, taskTopic, maxConcurrency })` for sharded-topic dispatch (FNV-1a consistent-hash via `b.agent.orchestrator.shardFor(key, shards)`; per-shard topic suffix `<base>.<shard>`); `elect({ resource })` composing `b.cluster` DB-row leader election (returns `{ isLeader, fencingToken, leaderId }` — single-process deployments get a trivial-leader, cluster deployments delegate); `drain({ timeoutMs })` stopping every spawned consumer and audit-emitting elapsed/count; `health()` aggregating per-agent + per-consumer + per-election state into one shape ready for `b.middleware.healthcheck`."
+            },
+            {
+              "title": "Pluggable backend — `{ get, set, delete, list }`",
+              "body": "In-memory default ships for single-process deployments; operator wires `b.config.loadDbBacked`-shaped or external for restart-survival of the registry state."
+            },
+            {
+              "title": "`b.guardAgentRegistry` — registry-op shape validator",
+              "body": "Refuses non-ASCII agent names (NFC + ASCII-only — operator-greppable in audit logs), path-traversal shapes (`..` / `/` / `\\` / NUL / C0 / DEL), oversized (default 64 bytes), reserved `FRAMEWORK.*` / `ROOT.*` prefix, duplicate-on-register, register without `agentKind`. Ships `strict` / `balanced` / `permissive` profiles and `hipaa` / `pci-dss` / `gdpr` / `soc2` postures (all pin strict). Fuzz harness in `fuzz/guard-agent-registry.fuzz.js`."
+            },
+            {
+              "title": "Drain auto-wires into `b.appShutdown`",
+              "body": "When operator supplies an `appShutdown` instance, SIGTERM delivers a clean drain of all spawned consumers and stream-registry signal before the process exits."
+            },
+            {
+              "title": "Stream-registry hooks — `registerStream` / `unregisterStream` / `isDraining`",
+              "body": "Substrate for the upcoming `b.agent.stream` async-iterable variants so they can check the drain flag and emit drain-markers cleanly across deploys."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "FNV-1a hash",
+          "url": "https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function"
+        }
+      ]
+    },
+    {
+      "version": "0.9.20",
+      "date": "2026-05-14",
+      "headline": "`b.mail.agent` — the standardization contract for every mail protocol blamejs ships",
+      "summary": "Every above-the-wire mail surface (JMAP, IMAP, POP3, ManageSieve, MX listener, submission) translates protocol calls into `agent.X(args)`. RBAC, posture enforcement, audit emission, dispatch, and worker isolation are owned at the agent.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.mail.agent.create` — facade with 23 methods",
+              "body": "Read surface (`search` / `fetch` / `thread` / `folders` / `quota`) backed by v0.9.19 `b.mailStore` and runs immediately. Move surface (`move` / `flag` / `delete`) backed by the new `mailStore.moveMessages` substrate; soft-delete moves to Trash and tags `\\Deleted` (hard expunge wires later with retention-floor enforcement). Write surface (`compose` / `send` / `reply` / `forward`), Sieve (`sieve.list/put/activate`), identity (`identity.set` / `vacation.set`), MDN (`mdn.send/parse/allowList`), regulated export, and migration `import` throw `mail-agent/not-implemented` with a `wiredAt` tag naming the release that lights them up — defer-with-condition for v1-defensible scope."
+            },
+            {
+              "title": "Dispatch contract — `local` / `queue` / `auto`",
+              "body": "`local` runs every method in-process. `queue` publishes envelopes to `mail.agent.tasks` via `b.queue.enqueue`; an `agent.consumer({ agent, queue })` running in a dedicated process or replicas across hosts pulls and executes. Posture metadata travels with each envelope; the consumer re-validates against its own posture before unseal so no posture downgrade survives the queue boundary. `auto` routes fast-path ops (`fetch` / `folders` / `flag` / `quota`) locally and heavy ops (`search` / `export`) to queue/workerPool when configured."
+            },
+            {
+              "title": "Worker isolation",
+              "body": "`dispatch.workerPool` (composes `b.workerPool`) validated at create-time. The agent reserves `vaultKeyDelivery: \"in-worker\"` default vs `\"main-only\"` (posture-conditional — HIPAA/PCI/GDPR default to main-only when the worker-script path wires at the Sieve slice)."
+            },
+            {
+              "title": "`b.mail.agent.consumer` — queue-side facade for multi-host load-spreading",
+              "body": "Carries its own `store` and re-validates posture at the boundary so a misconfigured consumer can't observe sealed data above its posture set."
+            },
+            {
+              "title": "Five new guards through `b.gateContract`",
+              "body": "`b.guardMailQuery` (search/fetch filter shape: bounded depth/keys/array-length, function/regex/Buffer/cycle refusal, `__proto__` key refusal, projection-column allowlist via `FILTERABLE_COLUMNS`, posture-required actor fields HIPAA->`purposeOfUse` / PCI->`pciScope` / GDPR->`lawfulBasis`); `b.guardMailCompose` (identity-vs-From alignment, recipient deduplication, attachment-byte cap default 25 MiB, body shape — exactly one of text/html unless `allowMultipartAlternative`, C0 control-char refusal in headers); `b.guardMailReply` (References-chain cap default 100 defends infinite-loop forwards, In-Reply-To continuity per RFC 5322 §3.6.4 — last References must match In-Reply-To, quoted-original byte cap, forwarded-attachment cardinality cap); `b.guardMailMove` (system-folder allowlist for INBOX/Sent/Drafts/Trash/Junk/Archive, admin-scope or `allowedFolders` gate for arbitrary destinations, path-traversal refusal, slash refusal — IMAP `.` hierarchy separator only); `b.guardMailSieve` (pre-parser shape: script-byte cap default 64 KiB, line-count cap defends one-byte-line bombs, name shape — path-traversal / slash / backslash refusal, actor-ownership check). Each ships `strict` / `balanced` / `permissive` profiles and `hipaa` / `pci-dss` / `gdpr` / `soc2` postures (all pin strict)."
+            },
+            {
+              "title": "`b.mailStore.moveMessages(fromFolder, toFolder, objectIds)`",
+              "body": "Per IMAP4rev2 §6.6.2, both folders bump modseq on move; agent.move composes this. Fuzz harnesses ship for every new guard, and the v0.9.19 substrates (`safe-mime` / `guard-message-id`) are now wired into the ClusterFuzzLite matrix."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 5322 Internet Message Format",
+          "url": "https://www.rfc-editor.org/rfc/rfc5322.html"
+        },
+        {
+          "label": "RFC 9051 IMAP4rev2",
+          "url": "https://www.rfc-editor.org/rfc/rfc9051.html"
+        },
+        {
+          "label": "RFC 8620 JMAP Core",
+          "url": "https://www.rfc-editor.org/rfc/rfc8620.html"
+        },
+        {
+          "label": "RFC 8621 JMAP Mail",
+          "url": "https://www.rfc-editor.org/rfc/rfc8621.html"
+        }
+      ]
+    },
+    {
+      "version": "0.9.19",
+      "date": "2026-05-14",
+      "headline": "First mail-stack substrates — `b.mailStore` + `b.safeMime` + `b.guardMessageId`",
+      "summary": "Byte-level mail-store foundation that every above-the-wire mail primitive composes. Ships a bounded RFC 5322 / MIME parser, a Message-Id header-injection gate, and a sealed-by-default mail store with per-folder CONDSTORE modseq counters and JMAP cross-protocol object identifiers.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.safeMime` — bounded RFC 5322 / 2045 / 2046 / 2047 / EAI MIME parser",
+              "body": "Caps every dimension an attacker can grow: total parts (default 64), nesting depth (default 16), boundary length (default 70 per RFC 2046 §5.1.1), header bytes (default 64 KiB), header line (default 998 per RFC 5322 §2.1.1), body bytes (default 25 MiB), message bytes (default 50 MiB). Charset and transfer-encoding allowlists. Surface: `parse(bytes, opts) -> tree`, `walk(tree, visitor)`, `findFirst(tree, predicate)`, `extractText(tree, opts)` (RFC 2046 §5.1.4 last-wins for `multipart/alternative`), `extractAttachments(tree, opts)`. Includes RFC 2047 Q+B encoded-word decoding and RFC 2231 charset'lang'value filename decoding. Throws `safe-mime/<code>` on every cap exceeded, malformed boundary, unknown charset/CTE, or control chars in headers. Defends CVE-2024-39929 (Exim MIME parser) and CVE-2025-30258 (gnumail truncated-MIME-tree class). Fuzz harness in `fuzz/safe-mime.fuzz.js`."
+            },
+            {
+              "title": "`b.guardMessageId` — RFC 5322 §3.6.4 Message-Id validator",
+              "body": "Gates Message-Id / In-Reply-To / References at the mail-store append boundary and at future MX inbound + submission outbound paths. Refuses oversized (>998 bytes), bare CR/LF/NUL/C0/DEL (defends `From:` / `Bcc:` smuggling via folded continuation), unbracketed under strict, empty value, missing `@`, nested angle brackets, bidi codepoints (CVE-2021-42574 RTLO class in mail-header context). Profiles `strict` / `balanced` / `permissive`; postures `hipaa` / `pci-dss` / `gdpr` / `soc2` all pin strict. Surface: `validate(value, opts)`, `validateList(value, opts)` with References-chain cap = 100, `compliancePosture(posture)`. Fuzz harness in `fuzz/guard-message-id.fuzz.js`."
+            },
+            {
+              "title": "`b.mailStore` — byte-level sealed mail-store substrate",
+              "body": "Pluggable backend (sqlite default; operator wires `b.externalDb` Postgres or any `{ prepare(sql) -> { run, get, all } }`-shaped object). Surface: `create(opts)` returning `{ appendMessage, fetchByObjectId, queryByModseq, setFlags, createFolder, listFolders, threadFor, quota, setLegalHold }`. Sealed by default via `b.cryptoField.sealRow` — `subject` / `from_addr` / `to_addrs` / `body_text` / `body_html` route through a vault-managed AEAD envelope on insert + unseal on fetch. Plaintext (forensic-queryable without unsealing): `objectid`, `modseq`, `internal_date`, `received_at`, `size_bytes`, `flags`, `legal_hold`, `from_hash`, `message_id_hash`. Per-folder monotonic `modseq` counter (RFC 7162 CONDSTORE substrate); per-message `objectid` (RFC 8474 JMAP cross-protocol identity). Threading at append time via In-Reply-To + References chain walk. Quota substrate per folder; legal-hold composes existing `b.legalHold`. Schema bootstraps with six IMAP4rev2 default folders (INBOX / Sent / Drafts / Trash / Junk / Archive) and JMAP role mapping. Append composes `b.safeMime.parse` (bounded inbound) and `b.guardMessageId.validate` (header-injection gate)."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 5322 Internet Message Format",
+          "url": "https://www.rfc-editor.org/rfc/rfc5322.html"
+        },
+        {
+          "label": "RFC 2045 MIME Part One",
+          "url": "https://www.rfc-editor.org/rfc/rfc2045.html"
+        },
+        {
+          "label": "RFC 2046 MIME Part Two",
+          "url": "https://www.rfc-editor.org/rfc/rfc2046.html"
+        },
+        {
+          "label": "RFC 2047 MIME encoded-words",
+          "url": "https://www.rfc-editor.org/rfc/rfc2047.html"
+        },
+        {
+          "label": "RFC 2231 MIME parameter values",
+          "url": "https://www.rfc-editor.org/rfc/rfc2231.html"
+        },
+        {
+          "label": "RFC 7162 IMAP CONDSTORE / QRESYNC",
+          "url": "https://www.rfc-editor.org/rfc/rfc7162.html"
+        },
+        {
+          "label": "RFC 8474 JMAP object identifiers",
+          "url": "https://www.rfc-editor.org/rfc/rfc8474.html"
+        },
+        {
+          "label": "CVE-2024-39929 Exim MIME parser",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-39929"
+        },
+        {
+          "label": "CVE-2025-30258 gnumail",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2025-30258"
+        },
+        {
+          "label": "CVE-2021-42574 RTLO trojan source",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2021-42574"
+        }
+      ]
+    },
+    {
+      "version": "0.9.18",
+      "date": "2026-05-14",
+      "headline": "CodeQL alert sweep — 18 closures across 4 rule classes + SECURITY.md hardening checklist + MIGRATING.md out-of-band breaks",
+      "summary": "Pre-existing CodeQL security findings on `main` accumulated over many releases, surfaced explicitly when the previous rename sweep changed line content. This release closes them all.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`js/file-system-race` (6 sites)",
+              "body": "TOCTOU between `fs.existsSync()` / `fs.statSync()` and a subsequent file op. Fixed via the framework's canonical TOCTOU-safe-read scaffold (open fd first then `fstatSync` then `readSync` loop then `closeSync` in `finally`) at `lib/atomic-file.js` (`_readSyncCore`), `lib/restore-rollback.js` (marker write switched to exclusive-create `wx` + EEXIST-tolerant), `lib/network-tls.js` (`_readPathFile` extraction with per-file ENOENT tolerance), `lib/backup/bundle.js` (open-fd-first plus required-vs-skip branch routing), `lib/static.js` (request-serve hot path narrowed to single fd). `lib/vault/seal-pem-file.js` retained as-is with a CodeQL suppression — the site has an in-line `lstat.ino === fstat.ino` inode-equality defense that refuses with `seal-pem-file/toctou-detected` if an attacker swaps the file between `lstat` and `open`."
+            },
+            {
+              "title": "`js/insecure-temporary-file` (6 sites)",
+              "body": "Predictable temp paths. `lib/vault/rotate.js` now uses `mkdtempSync` for a per-rotation random scratch dir + plain filenames inside (replaces the predictable `_blamejs_rotate.tmp.db` / `_blamejs_verify.tmp.db` paths in `stagingDir`). `lib/mtls-ca.js` switched to exclusive-create `openSync(..., \"wx\", 0o600)` + `writeSync` + `fsyncSync` so an attacker pre-creating the path is refused at `EEXIST`. `lib/atomic-file.js` (`fsyncDir`), `lib/vault/rotate.js` (`_fsyncFileByPath`), `lib/http-client.js` (atomic tmp path) retained as-is with suppressions — `dirPath` / `p` are operator-supplied framework data paths (not `os.tmpdir`-reachable), and `tmpPath` carries 16 hex chars of crypto-random suffix."
+            },
+            {
+              "title": "`js/path-injection` (2 sites in `lib/static.js`)",
+              "body": "`nodeFs.createReadStream(absPath)` in `_readMeta` and the request-serve hot path. Suppression comments added referencing the upstream `_resolveSafe` lexical-resolve + `startsWith(rootResolved + nodePath.sep)` + realpath escape check — `absPath` is sandbox-validated against `root` before reaching these lines."
+            },
+            {
+              "title": "`js/remote-property-injection` (4 sites)",
+              "body": "`lib/websocket.js` (`ext.params: {}` to `Object.create(null)`), `lib/middleware/csrf-protect.js` (`var out = {}` to `Object.create(null)` for cookie-parse output). `lib/middleware/body-parser.js` (multipart `fields[currentField] = ...`) retained as-is with suppression — `currentField` is gated upstream by `POISONED_KEYS = new Set([\"__proto__\", \"constructor\", \"prototype\"])` refusing the field BEFORE assignment with a 400 BodyParserError."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "SECURITY.md hardening checklist gains 5 lines",
+              "body": "Covers `b.middleware.idempotencyKey.dbStore` (hash + seal defaults), `b.metrics.snapshot` (out-of-process metrics export), `b.selfUpdate.standaloneVerifier` (zero-dep install-pipeline verifier), `b.pqcAgent.reload` (TLS-posture refresh without restart), `b.crypto.hashFilesParallel` (parallel SBOM/integrity-sweep hashing)."
+            },
+            {
+              "title": "MIGRATING.md — Out-of-band breaking changes section",
+              "body": "The previous release's dbStore schema break is the first entry; `scripts/gen-migrating.js` extended with an `OUT_OF_BAND_BREAKS` table so future schema/on-disk format breaks land in MIGRATING.md without operators needing to grep CHANGELOG."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.17",
+      "date": "2026-05-14",
+      "headline": "`node:` prefix consistency + internal-binding leak prevention — two new detectors + 192-site cleanup",
+      "summary": "Two enforceable invariants the prior release's detectors didn't cover.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Every `require()` of a Node built-in uses the `node:` prefix",
+              "body": "153 `require()` rewrites across 79 framework files. Three reasons: (a) userland packages on npm CAN be named after built-ins, so without the `node:` prefix a typo or `npm install` accident could shadow the built-in; (b) the prefix is a clearer at-a-glance signal that the dependency is on Node, not on a userland module; (c) bundler / SEA static-trace passes treat `node:` prefix as an unambiguous Node-builtin marker."
+            },
+            {
+              "title": "Two follow-on require-binding canonicalizations",
+              "body": "`lib/ws-client.js` now destructures `var { EventEmitter } = require(\"node:events\")` (was binding the entire `events` module to a class-shaped name) and `lib/process-spawn.js` renames inline `nodeChild` to `childProcess` (matches the module-level `childProcess` lazyRequire in `lib/dev.js`)."
+            }
+          ]
+        },
+        {
+          "heading": "Detectors",
+          "items": [
+            {
+              "title": "`node-builtin-prefix`",
+              "body": "Refuses `require(\"<X>\")` of a Node built-in (`fs`, `path`, `crypto`, `stream`, `tls`, `url`, `os`, `net`, `http`, `http2`, `https`, `zlib`, `dgram`, `events`, `child_process`, `readline`, etc.) without the `node:` prefix. Skips JSDoc `@example` block continuation lines (`*`-prefixed), so operator-facing examples that show `var fs = require(\"fs\")` aren't rewritten — operators write their own bindings however they prefer."
+            },
+            {
+              "title": "`internal-binding-in-prose`",
+              "body": "Internal binding names (`nodeFs` / `nodePath` / `nodeCrypto` / `nodeStream` / `nodeTls` / `nodeUrl` / `bCrypto` / `retryHelper`) must NOT appear in operator-facing surface: JSDoc/comment continuation lines or string literals (error messages, audit metadata). Operators see the public API name (`path` / `fs` / `crypto` / `retry` / etc.), never the framework's internal alias. 39 prose-leak fixes across 16 files."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.16",
+      "date": "2026-05-14",
+      "headline": "Operator-facing prose cleanup + `require-binding-name` detector covers `lazyRequire` + `dbStore` seal round-trip test",
+      "summary": "Three classes of follow-up to the previous release's framework-wide rename sweep.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Operator-facing prose leaks in JSDoc + error messages",
+              "body": "The previous release's mechanical rename pattern `<OLD>.` to `<NEW>.` also caught occurrences inside JSDoc `@opts` comments and error-message string literals, so operators reading `b.keychain.create(opts)` saw `// absolute nodePath; required if file fallback may engage` instead of `// absolute path`. Fixed in `lib/db.js` (stream-limit error), `lib/keychain.js` (fallback-file error + 3 JSDoc lines), `lib/restore-bundle.js` (staging-dir error), `lib/watcher.js` (fs.watch failure error). Operators see plain English; internal binding names stay internal."
+            },
+            {
+              "title": "`require-binding-name` detector extended to cover `lazyRequire`",
+              "body": "The previous detector only matched plain `var X = require(\"M\")` and missed the framework's `var X = lazyRequire(function () { return require(\"M\"); })` pattern (used to break load cycles). 34 additional inconsistencies surfaced (`auditFwk` / `auditMod` / `auditModule` / `lazyAudit` to `audit`, `crypto` / `fwCrypto` to `bCrypto`, `dbMod` / `dbModule` to `db`, etc.) — every minority site renamed per the same canonical-name map."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`dbStore` seal round-trip test with vault initialized",
+              "body": "The previous test suite covered seal-falls-back-when-vault-not-ready and cross-process-sealed-row-preserved, but did NOT exercise the actual default-on seal/unseal path because the test environment didn't `b.vault.init(...)`. New `testDbStoreSealRoundTripWithVault` bootstraps a plaintext vault, builds a dbStore with `seal: true`, writes a record + reads it back, and asserts (a) `headers` + `body` columns carry the `vault:` envelope on disk, (b) the round-trip restores the original values, and (c) `status_code` stays plaintext so forensic SELECTs still work without unsealing."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.15",
+      "date": "2026-05-13",
+      "headline": "`dbStore` hashes keys + seals body/headers by default + framework-wide `require()` binding-name consistency",
+      "summary": "Closes two operator-surfaced gaps: PII leaking through plaintext idempotency-key columns and inconsistent require-binding names across the lib. The `tableName` column schema changes between releases.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`b.middleware.idempotencyKey.dbStore` — keys hashed + body/headers sealed by default",
+              "body": "Operator-supplied idempotency keys sometimes carry PII (order numbers, emails, vendor prefixes); the `k` column previously stored them raw, leaving every DB dump as a PII surface. Now sha3-512 namespace-hashes the key via `b.crypto.namespaceHash(\"idempotency-key\", key)` before insert/lookup — round-trips are transparent (operators still pass raw keys), but the DB never sees the original. The schema also splits the previous single-`v` JSON-envelope column into discrete `fingerprint` / `status_code` / `headers` / `body` / `expires_at` columns; `headers` + `body` are sealed via `b.cryptoField.sealRow` (vault-managed AEAD envelope) when vault is initialized, so a DB dump leaks neither cached response bodies nor headers. Non-sealed columns stay forensic-queryable. Both defaults are operator-opt-out via `opts.hashKeys: false` and `opts.seal: false`; the seal path silently falls back to plaintext + emits an `idempotency.seal_skipped_no_vault` audit warning on first use when vault isn't ready, so test fixtures and boot scripts still work."
+            },
+            {
+              "title": "Framework-wide `require()` binding-name consistency sweep",
+              "body": "184 require-binding renames across 108 framework files. Node built-ins get a `node<X>` prefix (`nodeFs` / `nodePath` / `nodeCrypto` / `nodeStream` / `nodeTls` / `nodeUrl`) so a local var named `fs` / `path` / `crypto` can never shadow them; the framework's own `lib/crypto.js` binds as `bCrypto` (matches the `b.crypto` public-namespace shape and doesn't shadow node:crypto). Modules without a declared canonical fall back to majority-wins (most-sites name wins, alphabetical tiebreak). Fix is rename, not allowlist — every minority site was updated. `b.graphqlFederation` internal `_timingSafeEqual` now routes through `b.crypto.timingSafeEqual` (was re-implementing the length-tolerant wrapper inline)."
+            }
+          ]
+        },
+        {
+          "heading": "Detectors",
+          "items": [
+            {
+              "title": "`require-binding-name`",
+              "body": "Enforces consistent `var X = require(\"M\")` names framework-wide via a `CANONICAL_REQUIRE_BINDINGS` map. Inconsistent names made `grep` across the lib unreliable and let reviewers miss shadowing bugs (`var crypto = require(\"crypto\")` collides with the framework's own `b.crypto`)."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Schema break — drop any existing `dbStore` table before upgrading",
+              "body": "v0.9.15's split columns are incompatible with the previous single-`v` column. Operators run `DROP TABLE <tableName>;` (or pick a fresh `tableName`) before upgrading. Pre-v1 framework breaks across patch versions for security correctness."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.14",
+      "date": "2026-05-13",
+      "headline": "`safeSql.quoteIdentifier` adopted framework-wide + raw-SQL-identifier detector + bundled republish of v0.9.13 surface",
+      "summary": "A reviewer-flagged race in `dbStore.get` surfaced a wider gap — multiple framework primitives concatenated SQL identifiers raw. This release routes every such site through the existing `b.safeSql.quoteIdentifier`, adds a detector that seals the bug class, and re-ships the v0.9.13 surface plus three additional primitives that the previous publish's smoke gate prevented from reaching npm.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`dbStore.get` expired-row cleanup scoped by observed `expires_at`",
+              "body": "Previously the expired-row cleanup was an unconditional `DELETE WHERE k = ?` between SELECT and DELETE — in a multi-process deployment another process could upsert the same key in the race window, and the unconditional delete would erase the fresh row. Fix: scope the delete by the observed `expires_at`."
+            },
+            {
+              "title": "Every `db.prepare(\"CREATE TABLE \" + tableName + ...)` site routes through `b.safeSql.quoteIdentifier`",
+              "body": "Sites refactored: `lib/audit.js` segregation-of-duties trigger DDL, `lib/dsr.js` ticket store, `lib/inbox.js` message-receive table, `lib/middleware/idempotency-key.js` dbStore, `lib/vault/rotate.js` column-rotation DDL."
+            },
+            {
+              "title": "Bounded JSON parse for two file/DB-backed primitives",
+              "body": "`b.metrics.snapshot.read` and `b.middleware.idempotencyKey.dbStore.get` previously used bare `JSON.parse` with `allow:bare-json-parse` markers; both are read by processes separate from where they were written (CLI/sidecar reads daemon-written snapshot; multi-process fleet shares DB) where a hostile or misbehaving writer could plant a multi-GB value and OOM the reader. Both now route through `b.safeJson.parse(raw, { maxBytes: 4 MiB })`."
+            },
+            {
+              "title": "`b.apiSnapshot.read` now passes `maxBytes: 64 MiB` to `safeJson.parse`",
+              "body": "The framework-generated snapshot file outgrew safeJson's 1 MiB default."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.crypto.hashFilesParallel(filePaths, opts?)`",
+              "body": "Parallel multi-digest hashing for many files in a single read pass per file. Worker-pool concurrency cap (default `min(8, paths.length)`, 1..256), operator-tunable `algorithms` list (default `[\"sha256\", \"sha3-512\"]`), optional `onProgress(completed, total)` callback (throws swallowed). Returns rows in the same order as input. The common consumer-side reason to reach for this is SBOM regeneration / vendor-data integrity sweeps / release-asset bundling — situations where N files each need both SHA-256 and SHA-3-512 digests."
+            },
+            {
+              "title": "`b.pqcAgent.reload()` — TLS-posture refresh without restart",
+              "body": "Tear down the lazily-built default agent and reset to null so the next `b.pqcAgent.agent` access rebuilds against current TLS posture + `b.network.tls.applyToContext` output. Long-running daemons that rotate the framework's TLS posture (TLS-pinset reload, certificate-pinset refresh, `C.TLS_GROUP_PREFERENCE` update behind a feature flag) need a way to re-source the outbound `https.Agent` without forking a new process. `reload()` calls `.destroy()` on the existing default agent (Node closes idle keep-alive sockets, lets in-flight sockets complete) then nulls the cache. Agents handed out via explicit `b.pqcAgent.create()` are unaffected. Returns `{ destroyed: boolean }`."
+            },
+            {
+              "title": "`b.middleware.idempotencyKey.dbStore({ db, tableName?, init? })`",
+              "body": "Persistent-backed store for the `idempotencyKey` middleware. Same three-method interface as `memoryStore` (`get` / `set` / `delete`) but stores records in any sqlite-shaped database (`{ prepare(sql) -> { run, get, all } }`) — the framework's internal `b.db`, an operator-supplied better-sqlite3 instance, or a custom adapter. Use this when (a) multiple processes share the request-handling fleet so retries can land on a different process than the original, (b) the daemon may restart between original and retry, or (c) audit / compliance review needs to walk historic idempotency-cache decisions. TTL is lazily enforced at read time; `set()` upserts on conflict so concurrent retries on different processes don't error. The `tableName` is validated via `b.safeSql.validateIdentifier` (ASCII identifier shape, 63-char cap, no reserved words)."
+            }
+          ]
+        },
+        {
+          "heading": "Detectors",
+          "items": [
+            {
+              "title": "`raw-sql-identifier-interpolation`",
+              "body": "Seals the bug class — refuses raw identifier concatenation into SQL strings. Variables whose names signal already-quoted identifiers (`q<X>` / `Q_<X>` / `quoted<X>` prefix) are skipped so future primitives that use the helper read naturally."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Operators jump from v0.9.12 directly to v0.9.14",
+              "body": "The previous release's npm-publish workflow failed at the wiki-e2e gate (a reviewer fix removed the `opts` parameter from `b.selfUpdate.standaloneVerifier.verify` but the `@signature` JSDoc still declared four arguments). v0.9.13's git tag and GitHub release reached operators but the npm tarball did not. v0.9.14 carries the entire v0.9.13 shipped surface plus the three additional primitives above."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.13",
+      "date": "2026-05-13",
+      "headline": "Circuit-breaker opts-shape fix + `b.selfUpdate.standaloneVerifier` + `b.metrics.snapshot` + `b.retry.withBreaker`",
+      "summary": "Two existing-primitive fixes plus three new operator-facing primitives.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`b.circuitBreaker.create({...})` accepts the documented opts-object call shape",
+              "body": "The factory was rejecting the documented call shape with `name must be a non-empty string, got object` — every consumer following the docstring hit a hard error. The factory now reads `opts.name` (defaulting to empty string) and forwards to the internal `CircuitBreaker(name, opts)` constructor."
+            },
+            {
+              "title": "Circuit-breaker open-circuit error code documented to match runtime",
+              "body": "The open-circuit error code was documented as `retry/circuit-open` but the runtime threw `CIRCUIT_OPEN`. The docstring is corrected to match the runtime; an alias rename will follow with a deprecation cycle in a future minor."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.selfUpdate.standaloneVerifier` — zero-dep verifier for install-pipeline contexts",
+              "body": "For contexts that run BEFORE the framework is installed (Dockerfile build stages, `install.sh`, `update.sh`, SEA-bundle verification at deploy time). Surface: `verify(assetPath, sigPath, pubkeyPem, opts?)` returns `{ ok, sha3_512, sha256, alg }`. Streams the asset in 64 KiB chunks through SHA-256 + SHA-3-512 + the signature verifier in parallel — multi-GB SEA bundles don't OOM the install runner. Supports ECDSA P-384 (both IEEE-P1363 96-byte and DER encodings), Ed25519, and ML-DSA-87. Detects signature format from length so `verifier.verify(...)` runs exactly once (calling it twice returns stale state and silently passes tampered assets). Module is hermetic: `node:crypto` + `node:fs` only, no framework imports. Operators copy the file via `cp \"$(node -p \"require('@blamejs/core').selfUpdate.standaloneVerifier.path\")\" install/standalone-verifier.js` into version control on their side."
+            },
+            {
+              "title": "`b.metrics.snapshot` — out-of-process metrics export for long-running daemons",
+              "body": "`startWriter({ path, intervalMs, fields })` atomically flushes a JSON snapshot (first flush synchronous so the file exists by return-time; subsequent flushes on the interval with `.unref()`; `stop()` clears + final-flushes). `read(path)` parses with shape validation (`writtenAt` + `fields`). `render(snap, { format, prefix })` produces operator-readable text or Prometheus 0.0.4 exposition (gauge metrics, prefixed; only finite numeric scalars with prom-compatible names emit; invalid-name / non-numeric / non-finite fields skipped silently). Lets a CLI process scrape a daemon's live metrics without opening an HTTP port."
+            },
+            {
+              "title": "`b.retry.withBreaker(fn, { retry, breaker })` — composition primitive",
+              "body": "Collapses the two-line wrapper every consumer rolls: `breaker.wrap(() => retry.withRetry(fn, opts.retry))`. One breaker call per retry loop (the retry budget is INSIDE the breaker's accounting, so a single transient burst doesn't open the breaker spuriously). Throws on non-function `fn` or breaker without `.wrap`."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.12",
+      "date": "2026-05-13",
+      "headline": "Republish of v0.9.10 / v0.9.11 — `npm audit signatures` grep widened for newer npm phrasing",
+      "summary": "The publish workflow's `Verify npm registry signing chain` step treats an empty-tree result as success (the framework's zero-runtime-deps posture means `npm audit signatures --omit dev` finds nothing to audit). The exact phrasing has drifted across npm versions; the shell guard's grep only matched the older phrasing, so the previous publish failed at the audit-signatures gate.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Audit-signatures empty-tree guard accepts both npm phrasings",
+              "body": "Older npm prints `found no installed dependencies to audit`; newer npm prints `found no dependencies to audit that were installed from a supported registry`. The grep is now `no (installed )?dependencies to audit` — covers both known empty-tree variants. Functionally identical to the v0.9.10 intended surface. Operators stuck at v0.9.9 (because v0.9.10 + v0.9.11 never reached the npm registry) jump directly to v0.9.12."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.11",
+      "date": "2026-05-13",
+      "headline": "Republish of v0.9.10 — `npm-publish.yml` installs devDependencies before smoke",
+      "summary": "The previous release's tag was pushed and the GitHub release published, but `npm-publish.yml`'s Framework-smoke step ran `node test/smoke.js` without first running `npm install`. The new bundler-output gate requires `esbuild` (a devDependency); the publish workflow failed at the smoke step before reaching publish, so the npm tarball was never published.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`npm install --no-audit --no-fund` runs before smoke in `npm-publish.yml`",
+              "body": "Mirrors the same fix already present in `.github/workflows/ci.yml`. Operators consuming via `npm install @blamejs/core` should pull v0.9.11; functionally identical to the intended v0.9.10 surface. Zero runtime deps invariant preserved."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.10",
+      "date": "2026-05-13",
+      "headline": "Bundler-output integration gate — bundles + SEA produced and exercised in smoke",
+      "summary": "Adds `test/layer-5-integration/bundler-output.test.js`. Bundles the framework via `esbuild --bundle --platform=node` (also `--minify`), runs the bundled consumer, and asserts the four-layer vendor-data integrity surface (dual-hash + SLH-DSA signature + canary) survives bundling.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "esbuild bundle gate + byte-search sentinel",
+              "body": "The PSL canary roundtrips through `b.publicSuffix.isPublicSuffix(...)` after bundle exec — proves the `.data.js` payloads physically reached the bundle bytes, not just the runtime require shape. Plus a byte-search sentinel that greps the produced bundle for the canary tokens directly (defense-in-depth, independent failure mode from the runtime path)."
+            },
+            {
+              "title": "SEA gate (Linux + Node >= 22)",
+              "body": "Runs `--experimental-sea-config` + `postject` to produce an actual single-executable binary and runs it. The whole class of bugs — dynamic-require breaks bundling, SEA `assets` map missing, esbuild static-trace failures — is now smoke-gated. The previous release's defect produced bundles that exited with `vendor-data/module-missing` on first vendor-data access; this gate's `BUNDLE-OK psl=co.uk entries=3` stdout-check would have refused that exit at smoke time."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.9",
+      "date": "2026-05-13",
+      "headline": "`b.vendorData` — replace dynamic `require(variable)` with static literal-string requires so bundlers work",
+      "summary": "The previous release looked up each `.data.js` module via `require(entry.module)` where `entry.module` was read from a frozen lookup table — a dynamic require, opaque to every bundler's static-analysis pass. esbuild, webpack, ncc, rollup, pkg, nexe, Bun's bundler, and Deno's bundler trace `require(\"./literal\")` calls only. The three payload modules never made it into SEA / pkg / esbuild bundles; consumers saw `vendor-data/module-missing` at boot.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Static literal-string `require` for every vendor-data payload module",
+              "body": "Replaces the lookup table with a `_MODULES` map whose three values are each a top-level `var X = require(\"./vendor/<name>.data\")` — literal string, statically traceable. Net surface change: zero (the public `b.vendorData.get` / `getAsString` / `verifyAll` / `inventory` shape is identical); the fix is internal-only. Operators upgrade if they bundle the framework via SEA / esbuild / pkg / Bun-compile — direct `node` consumers were unaffected (Node's runtime require always resolves dynamic strings correctly)."
+            }
+          ]
+        },
+        {
+          "heading": "Detectors",
+          "items": [
+            {
+              "title": "`no-dynamic-requires` — refuses `require(variable)` in `lib/`",
+              "body": "Any future site that reaches for a dynamic require trips the gate at n=1. Legitimate operator-extensibility points (`b.cli`, migrations, seeders) carry an explicit `allow:dynamic-require` marker with rationale."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.8",
+      "date": "2026-05-13",
+      "headline": "`b.vendorData` — packaging-mode-invariant signed loader for vendored data files",
+      "summary": "Plaintext vendor data files (Public Suffix List, common-passwords list, BIMI trust anchors) are now loaded via inline base64 modules with four orthogonal integrity checks. Eliminates the `__dirname`-relative `fs.readFileSync` paths that broke under SEA, pkg, nexe, esbuild, Bun compile, Deno compile, and AWS Lambda layer bundling.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.vendorData.get(name)` / `getAsString(name)` / `verifyAll()` / `inventory()`",
+              "body": "`get` returns the verified Buffer; `getAsString` returns UTF-8 string; `verifyAll` runs all four integrity layers across every registered vendor data file and is invoked at framework boot; `inventory` returns per-file metadata (name, source, fetchedAt, sha256, sha3_512, signedBy, canary, byteLength, description) for compliance reporting + SBOM emission."
+            },
+            {
+              "title": "Four orthogonal integrity checks on every load",
+              "body": "SHA-256 + SHA3-512 + SLH-DSA-SHAKE-256f signature against the maintainer's pinned public key (`lib/vendor/.vendor-data-pubkey`) + in-payload canary entry that the parsed structure must surface. Tamper at any layer throws `VendorDataError` at module-load — fail-fast rather than first-request-touches-PSL surprise. Adds a fourth orthogonal trust root alongside SSH-signed release tags, SLSA L3 npm provenance, and Sigstore-keyless SBOM signatures."
+            },
+            {
+              "title": "Migrated call sites — PSL, common-passwords, BIMI trust anchors",
+              "body": "`b.publicSuffix` (PSL load), `b.auth.password._loadBundledCommon` (common-passwords), `b.mail.bimi` (trust anchors) now route through `b.vendorData` — removes any downstream consumer's need to patch the loader for SEA / bundler builds."
+            },
+            {
+              "title": "Maintainer signing infrastructure + new scripts",
+              "body": "Vendor data files are signed at refresh time by a maintainer-held SLH-DSA-SHAKE-256f keypair (private key stays in `.keys/` and is never committed; public key ships in `lib/vendor/.vendor-data-pubkey` in every npm tarball). `scripts/vendor-data-keygen.js` (one-time keypair generation) + `scripts/vendor-data-gen.js` (generator invoked by `scripts/vendor-update.sh --refresh-data`). MANIFEST.json gains per-vendor-data `runtime_artifact` + `integrity_layers` + dual-file `hashes`."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.7",
+      "date": "2026-05-13",
+      "headline": "SECURITY.md release-tag verification recipe + signed-tag invariant from v0.9.7",
+      "summary": "Documentation-only release. SECURITY.md gains a section on verifying release authenticity independently of GitHub's UI, and every release tag from this point forward is an annotated SSH-signed tag enforced by repository ruleset.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "SECURITY.md — `Verifying release authenticity` section",
+              "body": "Documents how operators verify a release tag's authenticity independently of GitHub's UI. The maintainer Ed25519 SSH signing key fingerprint (`SHA256:5oF/XWhFpMde9TRfEX2GAHiApAq/MXOS4vti5zQbD7g`) is published alongside the public-key retrieval URL (`https://github.com/dotCooCoo.keys`) and a `git tag -v` recipe that bypasses the `Verified` badge."
+            },
+            {
+              "title": "Signed-tag invariant from v0.9.7 onward",
+              "body": "Every release tag is an annotated SSH-signed tag; the repository's `release-tags` ruleset's `required_signatures` rule refuses any unsigned or lightweight tag push at the server side. Earlier tags (v0.9.6 and prior) remain as lightweight commits and don't verify via `git tag -v`; they continue to verify via the SLSA L3 npm provenance + Sigstore-keyless SBOM signatures already attached to those releases (the `cosign verify-blob` recipe is in the same SECURITY.md section)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.6",
+      "date": "2026-05-12",
+      "headline": "`b.vex` OASIS CSAF 2.1 VEX statements + 25 new compliance postures",
+      "summary": "Adds a vendor-side VEX emitter for the OASIS Common Security Advisory Framework profile, plus 25 framework / sectoral / supply-chain compliance postures wired through `b.compliance.KNOWN_POSTURES` with matching cascade defaults.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.vex.statement({ cveId, status, productIds, justification?, impactStatement?, references?, firstReleased?, lastUpdated? })`",
+              "body": "Builds an OASIS CSAF 2.1 §3.2.3 vulnerability statement with `product_status` keyed by status enum (`known_not_affected` / `affected` / `fixed` / `under_investigation`), `flags[].label` for §3.2.2.7 justifications (`component_not_present` / `vulnerable_code_not_present` / `vulnerable_code_not_in_execute_path` / `vulnerable_code_cannot_be_controlled_by_adversary` / `inline_mitigations_already_exist`), and `notes[].text` for impact narrative. Refuses missing CVE/CWE id, malformed CVE shape, unknown status, missing productIds, and `known_not_affected` without justification."
+            },
+            {
+              "title": "`b.vex.document({ documentId, title, publisher, trackingId, trackingVersion, currentReleaseDate, initialReleaseDate, statements, tlp? })`",
+              "body": "Assembles the §3.2 CSAF document envelope with category `csaf_vex`, csaf_version `2.1`, publisher category `vendor`, tracking status `final`, and `distribution.tlp.label` from the TLP 2.0 vocabulary (`CLEAR` / `GREEN` / `AMBER` / `AMBER+STRICT` / `RED`; default `CLEAR`; refuses non-TLP labels). `cwes` is a list per §3.2.3.4; CWE alone is no longer accepted as a vulnerability identity per §3.2.3.2 (operator supplies `cveId` or `ids[]: [{ systemName, text }]` per §3.2.3.5). Public opt name is `cweId` to mirror `cveId`."
+            },
+            {
+              "title": "`b.vex.serialize(doc)`",
+              "body": "Routes through `b.canonicalJson.stringify` for byte-stable sorted-key output then re-indents at 2 spaces for human-diffable artifacts. Exports `STATUS_VALUES` / `JUSTIFICATION_VALUES` / `TLP_LABELS` / `CSAF_VERSION` / `VexError`."
+            },
+            {
+              "title": "Compliance posture catalog gains 25 entries in `b.compliance.KNOWN_POSTURES`",
+              "body": "With matching `POSTURE_DEFAULTS` cascade entries: `nist-800-53` (NIST SP 800-53 Rev 5 control catalog), `nist-ai-rmf-1.0` (NIST AI Risk Management Framework 1.0), `iso-42001-2023` (AI management systems), `iso-23894-2023` (AI risk management guidance), `owasp-llm-top-10-2025` (LLM application risk catalog), `owasp-asvs-v5.0` (Application Security Verification Standard v5.0), `nist-800-218-ssdf` (Secure Software Development Framework), `nist-800-82-r3` (industrial control systems), `nist-800-63b-rev4` (digital identity authenticator guidance), `iec-62443-3-3` (industrial security), `fedramp-rev5-moderate` (federal cloud baseline), `hipaa-security-rule` (45 CFR §164.302-318 administrative + technical safeguards), `hitrust-csf-v11.4`, `nerc-cip-007-6` (bulk electric system cyber asset security), `psd2-rts-sca`, `swift-cscf-v2026`, `slsa-v1.0-build-l3`, `vex-csaf-2.1`, `cyclonedx-v1.6`, `spdx-v3.0`, `owasp-wstg-v5`, `ptes`, `nist-800-115`, `cwe-top-25-2024`, `cis-controls-v8`, `cmmc-2.0-level-2`. Each cascade entry encodes the regime's data-tier mandate (encrypted backups + signed audit chain + TLS 1.3 minimum + vacuum-after-erase where applicable)."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "OASIS CSAF 2.1 (Common Security Advisory Framework)",
+          "url": "https://docs.oasis-open.org/csaf/csaf/v2.1/"
+        },
+        {
+          "label": "FIRST TLP 2.0 (Traffic Light Protocol)",
+          "url": "https://www.first.org/tlp/"
+        },
+        {
+          "label": "NIST SP 800-53 Rev 5",
+          "url": "https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final"
+        }
+      ]
+    },
+    {
+      "version": "0.9.5",
+      "date": "2026-05-12",
+      "headline": "Fix-up for v0.9.3 + v0.9.4 — reachable opts, correct check-and-insert contract, CIBA interval-state leak",
+      "summary": "Five reachability and contract bugs reported on the previous two releases.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`b.middleware.dpop` `trustForwardedHeaders` reachable in validateOpts whitelist",
+              "body": "The v0.9.4 X-Forwarded-* trust gate added the option to `_reconstructHtu` but the `create()` validateOpts whitelist still rejected unknown keys. Operators behind a trusted reverse proxy got `unknown-option` instead of the documented opt-in, leaving valid DPoP proofs failing htu matching. The whitelist now includes `trustForwardedHeaders`."
+            },
+            {
+              "title": "`b.auth.jwt.verifyExternal` `allowKidlessJwks` reachable in validateOpts whitelist",
+              "body": "Same shape as the dpop fix, fixed the same way."
+            },
+            {
+              "title": "OAuth `allowKidlessJwks` now threads through token-exchange flows",
+              "body": "Previously the opt was per-`verifyIdToken`-call, but `_normalizeTokens()` (called from `exchangeCode` / `pollDeviceCode` / `exchangeToken` / `refreshAccessToken`) passed a reduced `{ nonce, skipNonceCheck }` shape that dropped the operator opt. Surface promoted to client-level: pass `b.auth.oauth.create({ allowKidlessJwks: true })` once and it threads through every code path that lands on the verifier. The per-call `vopts.allowKidlessJwks` continues to work for direct `verifyIdToken` callers."
+            },
+            {
+              "title": "`b.auth.oauth.refreshAccessToken` `checkAndInsert` return-value contract aligned",
+              "body": "Previously interpreted `true` as already-seen but the framework-wide `checkAndInsert` contract (`b.nonceStore`, `b.auth.jwt`) is the opposite: `true` = unseen-and-now-inserted (first sighting), `false` = already-present (replay). Operators reusing an existing `b.nonceStore`-style backend got every first refresh attempt rejected as token theft, breaking normal refresh flows. The handler now normalizes `inserted === false` to `alreadySeen = true`, consistent with the rest of the framework."
+            },
+            {
+              "title": "`b.auth.ciba` `_intervalState` memory leak on error paths",
+              "body": "Previously entries were only deleted on successful token issuance; denied / expired auth requests, and ping/push delivery modes that never call `pollToken` successfully, left permanent entries causing unbounded growth in long-running processes. Now entries carry an `expireAtMs` derived from the IdP-supplied `expires_in` of the auth_req_id, and an opportunistic sweep runs on every `_registerInitialInterval` call (no separate timer needed). Terminal CIBA errors (`expired_token` / `access_denied` / `invalid_grant` / `transaction_failed`) also delete the entry immediately on the error path."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.9.4",
+      "date": "2026-05-12",
+      "headline": "Auth hardening — kid-less JWKS refusal, OCSP nonce CT compare, OAuth scope strict-split, DPoP `X-Forwarded-Proto` trust gate",
+      "summary": "Closes the remaining medium-tier findings from the federation-auth audit follow-through.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`b.auth.oauth.verifyIdToken` + `b.auth.jwt.verifyExternal` refuse kid-less JWKS lookup",
+              "body": "Previously both verifiers fell back to `keys[0]` when the token carried NO `kid` and the JWKS had exactly one key. This is a latent vector during JWKS rotation: an attacker shipping a kid-less token gets the lone-key path during the window the rotated-out key is still cached at the IdP but the rotated-in key is already published. Every modern IdP includes `kid`; the framework now refuses kid-less tokens unconditionally. Operators with non-conforming IdPs that genuinely emit kid-less tokens opt out via `vopts.allowKidlessJwks: true`."
+            },
+            {
+              "title": "`b.network.tls` OCSP nonce constant-time compare",
+              "body": "`evaluateOcspResponse`'s `expectedNonce` match migrated from `Buffer.equals` to `b.crypto.timingSafeEqual` for module-wide consistency with the Merkle-root / NTS-cookie / cert-fingerprint paths that already use `timingSafeEqual`."
+            },
+            {
+              "title": "`b.auth.oauth` scope strict whitespace split",
+              "body": "RFC 6749 §3.3 says `scope` is space-separated, ONLY `U+0020`. Previously `raw.scope.split(/\\s+/)` matched U+0085 NEL, U+00A0 NBSP, etc., so a hostile AS returning `scope: \"admin<NEL>read\"` would surface as `[\"admin\", \"read\"]` and the operator's scope allowlist saw two distinct scopes. Now splits on single-space only; empty pieces filtered out."
+            },
+            {
+              "title": "`b.middleware.dpop` `X-Forwarded-*` trust gate",
+              "body": "`_reconstructHtu` previously read `X-Forwarded-Proto` / `X-Forwarded-Host` unconditionally; an attacker who can hit the origin directly while spoofing `X-Forwarded-Proto: https` could trick the middleware into building an `https` htu that the DPoP proof was signed for, when the origin is actually serving HTTP (RFC 9449 §4.3 says the htu MUST be the absolute URL the request was sent to). The default now derives proto/host from the socket; operators with a confirmed-trusted front proxy opt in via `opts.trustForwardedHeaders: true`."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 6749 §3.3 (OAuth scope)",
+          "url": "https://www.rfc-editor.org/rfc/rfc6749#section-3.3"
+        },
+        {
+          "label": "RFC 9449 §4.3 (DPoP htu)",
+          "url": "https://www.rfc-editor.org/rfc/rfc9449#section-4.3"
+        }
+      ]
+    },
+    {
+      "version": "0.9.3",
+      "date": "2026-05-11",
+      "headline": "Auth hardening — OAuth refresh atomic check-and-insert + OID4VCI/OID4VP/CIBA constant-time + slow_down honoring",
+      "summary": "Continues the federation-auth audit follow-through with OAuth one-time-use refresh tokens, verifiable-credential constant-time compares, and CIBA back-off bookkeeping.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.auth.oauth.refreshAccessToken` atomic check-and-insert",
+              "body": "New `ropts.checkAndInsert(token, expireAtMs)` callback contract replaces the previous `ropts.seen(token)` check-then-act race. Two concurrent refresh requests on the same event-loop tick could both see `seen === false` and both POST to the token endpoint, neither flagging the replay; the new contract requires an atomic test-and-set (Redis SETNX, DB INSERT ON CONFLICT) and is the OAuth 2.1 §6.1 / RFC 9700 §4.13 one-time-use defense surfacing the actual race window. Legacy `seen` callback continues to work for backwards-compat with operator code; the docstring documents the race + recommends migration to `checkAndInsert`."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`b.auth.oid4vci` constant-time compares",
+              "body": "Pre-auth `tx_code` hash compare (was `!==` on sha3 hex) and proof-JWT `c_nonce` compare (was `!==` on attacker-supplied wallet payload) both route through `b.crypto.timingSafeEqual`."
+            },
+            {
+              "title": "`b.auth.oid4vp` per-presentation `vct` enforcement",
+              "body": "DCQL filters with 2+ `vct_values` entries previously bypassed vct validation entirely (the framework only set `expectedVct` when the filter pinned to a single value). Verifier now validates the presented vct against the DCQL filter list manually when length > 1; refuses with `vp_token['<id>'][<n>] vct '<presented>' is not in DCQL vct_values [...]` on over-disclosure."
+            },
+            {
+              "title": "`b.auth.ciba` slow_down honoring + back-off bookkeeping",
+              "body": "CIBA §11.3 requires the client to increase its polling interval by at least 5s on every `slow_down` response. Previously the framework client never bumped, leaving operators to do their own interval bookkeeping. Now `pollToken()` tracks per-`authReqId` interval state internally (Map keyed by authReqId, seeded from `startAuthentication`'s response, cleared on token issuance), bumps by `max(5s, IdP-suggested interval) <= MAX_INTERVAL_SEC` on every slow_down, and attaches the next-suggested interval to the thrown `auth-ciba/slow_down` error as `err.nextIntervalSec` so operators read a spec-correct back-off without manual bookkeeping."
+            },
+            {
+              "title": "`b.auth.ciba` notification-token entropy",
+              "body": "`clientNotificationToken` now refuses < 32 chars per CIBA §7.1.2's opaque-hard-to-guess requirement. Previously a 4-char token passed."
+            },
+            {
+              "title": "`b.auth.ciba.parseNotification` constant-time compare",
+              "body": "Bearer-token hash compare migrated from `!==` to `b.crypto.timingSafeEqual` (both sides are fixed-width sha3-512 hex strings; defense-in-depth even though equal-length JS string compare is already widely understood as constant-time on V8)."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 9700 §4.13 (OAuth security BCP — refresh token rotation)",
+          "url": "https://www.rfc-editor.org/rfc/rfc9700.html"
+        },
+        {
+          "label": "OpenID CIBA Core 1.0 §11.3 (token polling)",
+          "url": "https://openid.net/specs/openid-client-initiated-backchannel-authentication-core-1_0.html"
+        }
+      ]
+    },
+    {
+      "version": "0.9.2",
+      "date": "2026-05-11",
+      "headline": "Auth hardening — WebAuthn counter regression, multi-origin passkey, MDS3 fail-closed, AAL3 user-verification gate",
+      "summary": "Continues the federation-auth audit follow-through with six targeted fixes across `b.auth.passkey`, `b.auth.aal`, and `b.auth.fidoMds3`.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`b.auth.passkey.verifyAuthentication` counter-regression bypass",
+              "body": "The wrapper previously coerced `opts.credential.counter || 0`, silently zeroing an `undefined` / `null` / `NaN` counter and defeating CTAP 2.1 clone-detection on credentials whose stored counter was > 0. An operator deserializing the credential from a column that lost the counter would unknowingly accept a cloned authenticator. The wrapper now refuses `undefined` / `null` (operators MUST persist whatever the vendor returned at registration; first-time-stored credentials carry counter:0 explicitly) and rejects any non-integer / non-finite / negative value with `auth-passkey/bad-counter`."
+            },
+            {
+              "title": "`b.auth.passkey` prototype-pollution in `ALLOWED_MEDIATION` lookup",
+              "body": "Lookup changed from `{...}[opts.mediation]` to `hasOwnProperty.call(ALLOWED_MEDIATION, opts.mediation)` with a null-prototype map. Pre-fix a caller passing `mediation: \"__proto__\"` / `\"constructor\"` truthy-matched an inherited Object.prototype property and slipped past the allowlist into `generateAuthenticationOptions`."
+            },
+            {
+              "title": "`b.auth.aal.fromMethods` user-verification requirement for AAL3",
+              "body": "Per NIST SP 800-63-4 §5.1.7, WebAuthn / passkey satisfies AAL3 (MF-CRYPT) only when user verification was performed on the assertion. Previously `fromMethods({ webauthn: true })` returned `AAL3` unconditionally; operators using `userVerification: \"preferred\"` whose authenticator skipped UV landed in AAL3 despite not satisfying the spec's MF requirement. The caller now passes `uv: true` (sourced from the vendor's authData UV bit) to claim AAL3 with webauthn alone; without `uv`, webauthn alone caps at AAL2 (SF-CRYPT). Combination paths (`webauthn + password` / `webauthn + pin`) reach AAL3 regardless of UV (the memorized secret provides the second factor independently)."
+            },
+            {
+              "title": "`b.auth.fidoMds3.verifyAuthenticator` fail-closed default for unknown AAGUIDs",
+              "body": "Previously unknown AAGUIDs returned `{ ok: true, reason: \"aaguid-not-in-blob\" }`, silently trusting any authenticator the metadata service hadn't yet listed (rogue / pre-certification / fake hardware). Now fails closed by default; operators wanting the legacy fail-open behavior (test fixtures, pre-certification pilot rollouts) pass `opts.allowUnknownAaguid: true` explicitly."
+            },
+            {
+              "title": "`b.auth.fidoMds3.parseBlob` stale-BLOB refusal",
+              "body": "Refuses BLOB payloads whose `nextUpdate` is already in the past (FIDO MDS3 §3.1.7). Previously staleness was floored to `MIN_CACHE_TTL_MS` but the BLOB was still served, letting an attacker pin operators to a revoked-authenticator-list-frozen-at-X by serving an ancient signed-but-expired BLOB."
+            },
+            {
+              "title": "`b.auth.fidoMds3.REFUSE_STATUS` adds `ATTESTATION_KEY_COMPROMISE`",
+              "body": "Per FIDO MDS3 §3.1.4. Previously this status was silently accepted; manufacturer batch-signing-key compromise affects every credential attested under that key."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.auth.passkey` multi-origin support",
+              "body": "`expectedOrigin` now accepts `string` OR `string[]` on both `verifyRegistration` and `verifyAuthentication`. Previously the wrapper enforced a single string only, blocking multi-origin deployments (web + admin-subdomain) from sharing one verifier; SimpleWebAuthn natively supports arrays."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "NIST SP 800-63-4 §5.1.7 (AAL definitions)",
+          "url": "https://csrc.nist.gov/pubs/sp/800/63/4/2pd"
+        },
+        {
+          "label": "FIDO Metadata Service v3.0",
+          "url": "https://fidoalliance.org/specs/mds/fido-metadata-service-v3.0-ps-20210518.html"
+        }
+      ]
+    },
+    {
+      "version": "0.9.1",
+      "date": "2026-05-11",
+      "headline": "Federation auth hardening — SAML SP / OIDC federation / SD-JWT VC / OAuth ID-token verifier",
+      "summary": "Closes the highest-severity SAML, OIDC federation, SD-JWT VC, and OAuth findings from the 2026-05-11 federation auth review. XML attribute / element escaping for the SAML SP, JWK alg/kty cross-check for OIDC federation entity statements, claim-shadowing and disclosure-replay defenses for SD-JWT VC, and crit-header refusal plus constant-time compares for the OAuth ID-token verifier.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.xmlC14n.escapeAttrValue(s)` / `escapeText(s)`",
+              "body": "Newly exported XML escapers (RFC 3741 §1.3.x compliant). Available for any operator emitting XML alongside the framework's own SAML / canonicalization paths."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "SAML SP `buildAuthnRequest` + `.metadata` operator-input XML escaping",
+              "body": "Every operator-supplied URL / ID interpolated into the emitted XML now routes through `b.xmlC14n.escapeAttrValue` / `escapeText`. A `\"` or `<` in `idpSsoUrl` / `assertionConsumerServiceUrl` / `entityId` / `nameIdFormat` previously broke out of attribute / element context and produced unsigned-XML breakout into the IdP redirect."
+            },
+            {
+              "title": "SAML SP `verifyResponse` constant-time digest compares",
+              "body": "Digest compare on `Reference DigestValue` and `SubjectConfirmation InResponseTo` migrated from `Buffer.compare` / `!==` to `b.crypto.timingSafeEqual`."
+            },
+            {
+              "title": "SAML XSW defense — single-child cardinality assertion",
+              "body": "Refuses Response payloads that carry duplicate `<Status>`, `<StatusCode>`, `<Assertion>`, `<Subject>`, or `<NameID>` children. XML signature wrapping attacks ferry an unsigned sibling next to a signed element and exploit first-match parsers; the verifier now asserts single-child cardinality on every security-critical element via `_findAllChildren(...).length === 1`."
+            },
+            {
+              "title": "`b.auth.openidFederation.verifyEntityStatement` alg/kty cross-check",
+              "body": "JWK key-type cross-checked against the JWS `alg` header BEFORE `createPublicKey` runs. An attacker-controlled entity-config declaring `alg: \"ES256\"` while supplying an RSA JWK previously loaded through Node's silent algorithm-vs-key coercion path. Now refuses with `auth-openid-federation/alg-kty-mismatch` for any `alg=ES*` not paired with `kty=EC`, `alg=PS*`/`RS*` not paired with `RSA`, or `alg=EdDSA` not paired with `OKP`."
+            },
+            {
+              "title": "`b.auth.openidFederation.buildTrustChain` error-masking removed",
+              "body": "Trust-chain ascent previously swallowed every per-authority failure via `catch (_e) {}` and continued to the next `authority_hint`. Signature-failure errors from one authority no longer mask; the chain now refuses on cryptographic refusal (`bad-jwk`, `alg-kty-mismatch`, `bad-signature`, `signature-failed`). Network / 404 / iss-sub-mismatch errors still continue to the next hint but are collected and surfaced in the `no-ascent` failure shape."
+            },
+            {
+              "title": "SD-JWT VC `_sd_alg` default switched to `sha-256`",
+              "body": "Per IETF SD-JWT VC draft §4.1.1, the default `_sd_alg` is `sha-256`. The prior default of `sha3-512` broke verification against spec-conformant issuers when the issuer omitted `_sd_alg`."
+            },
+            {
+              "title": "SD-JWT VC disclosure-replay defense",
+              "body": "Every disclosure digest tracked in a Set; second occurrence of the same digest refuses with `auth-sd-jwt-vc/disclosure-replay`."
+            },
+            {
+              "title": "SD-JWT VC claim-shadowing defense",
+              "body": "Holder-supplied disclosures whose name collides with an issuer-signed top-level claim (`iss`, `sub`, `aud`, `iat`, `nbf`, `exp`, `jti`, `vct`, `cnf`, `_sd`, `_sd_alg`, `status`) refuse with `auth-sd-jwt-vc/protected-claim-shadow` instead of silently overwriting the signed value."
+            },
+            {
+              "title": "SD-JWT VC KB-JWT `sd_hash` uses declared `_sd_alg`",
+              "body": "Previously hardcoded sha256, breaking against issuers using sha3-512. `sd_hash` compare also routed through `b.crypto.timingSafeEqual`."
+            },
+            {
+              "title": "OAuth `verifyIdToken` crash hardening",
+              "body": "`createPublicKey + verify` wrapped in try/catch — previously panicked on key/sig shape mismatch (e.g. ES256 sig against an RS256 key returned by a buggy IdP with duplicate kids), bubbling a raw `Error` to the operator's handler instead of an `OAuthError`."
+            },
+            {
+              "title": "OAuth `verifyIdToken` `crit` header refusal",
+              "body": "Per RFC 7515 §4.1.11, every sibling verifier (`b.auth.jwt`, `b.auth.jwt.verifyExternal`, `b.auth.dpop`) refuses unknown crit extensions. `verifyIdToken` previously silently ignored, letting an attacker-controlled OP ship critical extensions the verifier doesn't understand."
+            },
+            {
+              "title": "OAuth `verifyIdToken` constant-time state / nonce compares",
+              "body": "`state` and `nonce` claim compares routed through `b.crypto.timingSafeEqual`. These are CSRF / replay tokens compared against attacker-controlled callback / payload data."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 7515 JSON Web Signature",
+          "url": "https://www.rfc-editor.org/rfc/rfc7515.html"
+        },
+        {
+          "label": "OASIS SAML 2.0 Core",
+          "url": "https://docs.oasis-open.org/security/saml/v2.0/saml-core-2.0-os.pdf"
+        },
+        {
+          "label": "OpenID Federation 1.0",
+          "url": "https://openid.net/specs/openid-federation-1_0.html"
+        },
+        {
+          "label": "IETF SD-JWT-based Verifiable Credentials",
+          "url": "https://datatracker.ietf.org/doc/draft-ietf-oauth-sd-jwt-vc/"
+        }
+      ]
+    },
+    {
+      "version": "0.9.0",
+      "date": "2026-05-11",
+      "headline": "Three new RFC primitives + `b.structuredFields` shared substrate + structured-fields hardening",
+      "summary": "Minor release. Consolidates the quote-aware top-level splitter, control-byte refusal scan, and sf-string unquote used by every RFC 8941 / RFC 9110 / RFC 9111 / RFC 9213 / RFC 9421 / RFC 6266 / RFC 6265 / RFC 6455 parser into a shared `b.structuredFields` module. Closes eight structured-fields bug-class sites, adds three new RFC primitives (CDN cache-control, UA client hints, DNSSEC algorithm classifier), and lands five codebase-patterns detectors so the same shapes can't drift back in. Operators upgrade `0.8.90` → `0.9.0`; v0.8.91 was never tagged.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.structuredFields` shared substrate",
+              "body": "Exports `splitTopLevel(s, sep)` (quote-aware top-level splitter), `refuseControlBytes` / `containsControlBytes` (raw-value control-byte refusal scan), and `unquoteSfString` (sf-string unquote). Replaces the per-file open-coded copies that were drifting site-by-site across the RFC 8941 / RFC 9110 / RFC 9111 / RFC 9213 / RFC 9421 / RFC 6266 / RFC 6265 / RFC 6455 parsers."
+            },
+            {
+              "title": "`b.cdnCacheControl` (RFC 9213)",
+              "body": "Directive list builder + parser shared across `Cache-Control`, `CDN-Cache-Control`, `Surrogate-Control`, and the operator-specific `Cloudflare-` / `Vercel-` / `Fastly-` / `Akamai-` / `Netlify-CDN-Cache-Control` variants. `build({...})` emits the directive list string (numeric directives non-negative-integer-only; refuses Infinity / NaN / floats / negatives; full RFC 9111 boolean directive set; `extensions` for non-standard directives with RFC 7234 §5.2 token-shape enforcement); refuses `public + private` conflict per RFC 9111 §5.2.2.5/§5.2.2.6. `parse(headerValue)` decodes any targeted header into `{ public, private, noStore, maxAge, sMaxAge, ..., directives, fields }` with qualified-form support (`private=\"Authorization\"` flag stays enabled, field-name list under `.fields[camel]` per RFC 9111 §5.2.2.4 / §5.2.2.6), bare `max-stale` parses as `Infinity` per RFC 9111 §5.2.1.2, and a quote-aware top-level `,` splitter. `isTargetedHeader(name)` + curated `TARGETED_HEADERS` allowlist."
+            },
+            {
+              "title": "`b.clientHints` (W3C UA Client Hints)",
+              "body": "Sec-CH-UA-* request-header family parser per W3C UA Client Hints + IETF draft-davidben-http-client-hint-reliability. `parse(req.headers)` returns `{ brands, mobile, platform, platformVersion, arch, bitness, model, fullVersionList, wow64, formFactors, raw }`; quote-aware splitters at brand-list and brand-member-parameter level (RFC 8941 §4.1.1.4 parameter values may be sf-string); refuses control characters in any Sec-CH-* value. `acceptList(hintNames)` builds `Accept-CH` with typo-defense (unknown hint name throws `client-hints/unknown-hint`); dedupes case-variant duplicates; canonicalizes to W3C mixed-case spelling. `KNOWN_HINTS` exports the well-known 22-name list."
+            },
+            {
+              "title": "`b.network.dns.classifyDnskeyAlgorithm` / `classifyDsDigestType`",
+              "body": "RFC 9905 DNSSEC SHA-1 deprecation classifier. Covers every IANA-assigned DNSKEY algorithm (including PRIVATEDNS/PRIVATEOID/INDIRECT/Reserved entries) and RFC 9558 §3 DS digest types 5 (GOST R 34.11-2012) + 6 (SM3). Operators auditing inbound DNSSEC chain-of-trust evidence refuse validations where `deprecated === true`."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`b.middleware.bodyParser` Content-Type / Content-Disposition quoted-parameter handling",
+              "body": "RFC 9110 Content-Type / RFC 6266 Content-Disposition parameters can carry quoted-string values (`boundary=\"foo;bar\"` / `filename=\"weird;name.txt\"`); bare `.split(\";\")` previously sliced through quoted semicolons and corrupted multipart boundaries. `_contentType` and `_parseHeaderParams` now route through the quote-aware splitter."
+            },
+            {
+              "title": "`b.requestHelpers.parseListHeader({ strictToken: true })` trim-before-validate",
+              "body": "Control-byte scan now runs on the RAW value before `.trim()` so a leading `\\n<token>` no longer slips past `RFC_9110_TOKEN_RE`. Used by webhook signature parsing and WS subprotocol negotiation."
+            },
+            {
+              "title": "`b.middleware.tusUpload._parseChecksumHeader` trim-before-validate",
+              "body": "Same shape as the request-helpers fix — control-byte refusal scan runs on the RAW value before trim strips leading/trailing C0/DEL bytes."
+            },
+            {
+              "title": "`b.httpClient.cache._parseCacheControl` quote-aware comma split",
+              "body": "RFC 9111 §5.2 + RFC 9110 §5.6.4 directive values may be quoted-string; the parser now uses the shared quote-aware top-level `,` splitter."
+            },
+            {
+              "title": "`b.httpClient.cookieJar._parseSetCookie` quote-aware semicolon split",
+              "body": "Defends RFC 7230 quoted-string attribute values (`SameSite=\"Strict\"` from interop-imperfect upstreams) against bare `.split(\";\")` corruption."
+            },
+            {
+              "title": "`b.websocket._parseExtensionHeader` quote-aware splits",
+              "body": "Quote-aware `;` and `,` splitters defend RFC 6455 §9.1 + RFC 7230 token-or-quoted-string parameter values against forward-compat extensions shipping quoted params."
+            },
+            {
+              "title": "`b.aiPref.parseHeader` control-byte refusal on raw value",
+              "body": "Refusal scan added on the RAW value before split + trim so leading/trailing control bytes can no longer slip past the validator."
+            },
+            {
+              "title": "`b.auth.stepUp.parseChallenge` trim-before-validate",
+              "body": "Same trim-before-validate fix as the rest of the structured-fields parsers; returns `null` per defensive-reader contract instead of throwing."
+            },
+            {
+              "title": "`b.logStream.init({ minLevel })` boot-time vocabulary validation",
+              "body": "Validates the level vocabulary at config time so a typo'd `\"infos\"` (which previously produced `LEVEL_PRIORITY[\"infos\"] === undefined` and silently dropped every log record) throws at boot."
+            },
+            {
+              "title": "`b.crypto.httpSig` RFC 9421 Signature-Input parameter parser",
+              "body": "Now uses the shared quote-aware `;` splitter so RFC 8941 §3.1.2 sf-string parameter values parse correctly."
+            },
+            {
+              "title": "`b.security.assertProductionPosture({ minTlsVersion })` vocabulary validation",
+              "body": "Validates `minTlsVersion` against the canonical TLS vocabulary BEFORE the rank comparison. A typo previously silently passed because `indexOf` returned `-1` — same bug shape as the v0.8.88 `b.auth.fal.meets` fix."
+            }
+          ]
+        },
+        {
+          "heading": "Detectors",
+          "items": [
+            {
+              "title": "`trim-before-validate`",
+              "body": "Refuses any RFC structured-fields parser that runs control-byte validation AFTER `.trim()` strips leading/trailing C0/DEL bytes. Catches both the `charCodeAt` codepoint-loop shape AND the `<NAME>_RE.test(<trimmed>)` grammar-regex shape."
+            },
+            {
+              "title": "`enum-rank-without-validation`",
+              "body": "Refuses `_rankFn(X) >= _rankFn(Y)` arithmetic comparisons without a preceding `isValid*` / `KNOWN_*` membership check on both inputs. Catches the `b.auth.fal.meets` bug shape where `indexOf` returning `-1` for an unknown value silently passed rank checks."
+            },
+            {
+              "title": "`bool-string-coerce-shape`",
+              "body": "Refuses boolean directive parsing that uses `val === \"\" || val === \"true\"` coercion. Catches the `b.cdnCacheControl.parse` qualified-form bug shape."
+            },
+            {
+              "title": "`bare-split-on-quoted-header`",
+              "body": "RFC structured-fields parsers in files that also handle sf-string unquote regex must use `b.structuredFields.splitTopLevel`, not bare `.split(\",\")` / `.split(\";\")`. Inline `allow:bare-split-on-quoted-header` markers added across `mail-auth.js` (DKIM / DMARC / ARC tag-list grammar — token-only), `network-smtp-policy.js` (TLS-RPT — token-only), `middleware/scim-server.js` (RFC 7644 §3.9 SCIM attribute paths), `http-client-cache.js` (RFC 9110 §12.5.5 Vary field-names), `http-message-signature.js` (RFC 9421 component-id covered list), `middleware/body-parser.js` (RFC 9112 §6.1 Transfer-Encoding token-only), each citing the controlling RFC clause showing why quoted-string is not a legal value in that grammar."
+            },
+            {
+              "title": "`scoped-context-binding-unused`",
+              "body": "Scope-named factory bindings (`forwarderDomain` / `realm` / `origin` / `audience` / `issuer`) captured in the factory must be compared against the inbound value's embedded scope in the `verify` / `reverse` / `decode` path. Catches the v0.8.89 SRS forwarder-domain bug shape."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 8941 Structured Field Values",
+          "url": "https://www.rfc-editor.org/rfc/rfc8941.html"
+        },
+        {
+          "label": "RFC 9111 HTTP Caching",
+          "url": "https://www.rfc-editor.org/rfc/rfc9111.html"
+        },
+        {
+          "label": "RFC 9213 Targeted HTTP Cache Control",
+          "url": "https://www.rfc-editor.org/rfc/rfc9213.html"
+        },
+        {
+          "label": "RFC 9905 DNSSEC SHA-1 deprecation",
+          "url": "https://www.rfc-editor.org/rfc/rfc9905.html"
+        },
+        {
+          "label": "W3C UA Client Hints",
+          "url": "https://wicg.github.io/ua-client-hints/"
+        }
+      ]
+    }
+  ]
+}

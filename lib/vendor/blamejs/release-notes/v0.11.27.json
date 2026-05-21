@@ -1,0 +1,49 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.11.27",
+  "date": "2026-05-20",
+  "headline": "IMAP CONDSTORE (RFC 7162) — modseq-aware FETCH + STORE on `b.mail.server.imap`",
+  "summary": "The IMAP listener advertises and honours the CONDSTORE extension. Clients that issue `ENABLE CONDSTORE` get MODSEQ attributes in every untagged FETCH response; FETCH parses the `(CHANGEDSINCE <modseq>)` modifier and forwards it to the operator's backend so the backend can prune unchanged rows server-side; STORE parses the `(UNCHANGEDSINCE <modseq>)` conditional-update modifier and surfaces the backend's MODIFIED conflict set in the tagged OK response (`OK [MODIFIED <set>] STORE completed`). The backend interface picks up four new opts on the existing `fetchRange` / `storeFlags` calls: `changedSince`, `includeVanished`, `includeModseq`, `unchangedSince`. Backends MAY return modseq on each row; the listener injects `MODSEQ (<n>)` into the payload when present and CONDSTORE is enabled. QRESYNC (RFC 7162 §3.2) is deferred — accepted in ENABLE but no vanished-set surface is exposed yet.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "CAPABILITY advertises `CONDSTORE` unconditionally",
+          "body": "Per RFC 7162 §3 servers advertise CONDSTORE; clients ENABLE before relying on MODSEQ in untagged FETCH responses. The advertisement is unconditional (state-independent) so clients that issue CAPABILITY pre-LOGIN see CONDSTORE in the same untagged-response shape they'll see post-LOGIN. The old SELECT-side `HIGHESTMODSEQ` emission keeps working."
+        },
+        {
+          "title": "`ENABLE CONDSTORE` handler flips `state.enabledCondStore`",
+          "body": "Replaces the no-op `OK ENABLED` shortcut with a real handler that parses the requested capability set, flips `state.enabledCondStore = true` on CONDSTORE, and replies with `ENABLED CONDSTORE` + `OK ENABLE completed`. Unknown extensions are silently ignored per RFC 5161 §3.1. QRESYNC is recognised but accepted only when a v1+ backend exposes the vanished-set surface."
+        },
+        {
+          "title": "FETCH parses `(CHANGEDSINCE <modseq>)` + injects MODSEQ in responses",
+          "body": "When the FETCH args carry a trailing `(CHANGEDSINCE <n>)` modifier (RFC 7162 §3.1.4) the listener strips it from the fetch-att spec and forwards `opts.changedSince` to `mailStore.fetchRange`. The backend can prune unchanged messages server-side. When CONDSTORE is enabled (or the client explicitly requested MODSEQ as a fetch-att), each untagged FETCH response includes `MODSEQ (<n>)` — synthesised from `row.modseq` if the backend supplies it and the payload doesn't already contain it. Also recognises the QRESYNC `VANISHED` modifier (flag forwarded as `opts.includeVanished`); the vanished-set emission is the backend's responsibility for now."
+        },
+        {
+          "title": "STORE parses `(UNCHANGEDSINCE <modseq>)` + emits `[MODIFIED <set>]` on conflict",
+          "body": "Per RFC 7162 §3.1.3 the conditional STORE refuses to update messages whose modseq advanced past `unchangedSince` since the client last fetched. The listener parses the modifier between the seq-set and the FLAGS op, forwards `opts.unchangedSince` to `mailStore.storeFlags`, and accepts either the legacy `rows: [...]` shape or a structured `{ rows, modified }` shape. When `modified` is non-empty, the tagged response carries `OK [MODIFIED <set>] STORE completed` so the client knows which messages need re-fetching before retry. Untagged FETCH responses also include `MODSEQ (<n>)` when STORE accepted updates under CONDSTORE."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Modifier parsing is bounded + non-greedy",
+          "body": "The CHANGEDSINCE / UNCHANGEDSINCE matchers use `[^)]*` rather than `.*` so a malformed modifier can't consume the entire fetch-att spec. Both modifiers parse `\\d+` only — non-integer / negative / Infinity values are silently dropped (the modifier becomes a no-op), so a client cannot ride the modifier to inject arbitrary fragments into the backend opts."
+        },
+        {
+          "title": "Modseq attribute is opt-in",
+          "body": "MODSEQ injection into untagged FETCH responses ONLY happens when (a) CONDSTORE is enabled OR (b) the client's fetch-att spec contains the `MODSEQ` keyword. Pre-CONDSTORE clients see exactly the responses they saw before this release. The IMAP wire-format compatibility line is unchanged for the IMAP4rev1 / IMAP4rev2 cohorts that never issue `ENABLE CONDSTORE`."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "RFC 7162 (IMAP4 CONDSTORE / QRESYNC)",        "url": "https://www.rfc-editor.org/rfc/rfc7162.html" },
+    { "label": "RFC 9051 (IMAP4rev2)",                        "url": "https://www.rfc-editor.org/rfc/rfc9051.html" },
+    { "label": "RFC 5161 (IMAP ENABLE Extension)",            "url": "https://www.rfc-editor.org/rfc/rfc5161.html" },
+    { "label": "RFC 4315 (IMAP UIDPLUS Extension)",           "url": "https://www.rfc-editor.org/rfc/rfc4315.html" }
+  ]
+}

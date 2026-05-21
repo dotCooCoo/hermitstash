@@ -1,0 +1,1798 @@
+{
+  "$schema": "../scripts/release-notes-consolidated-schema.json",
+  "minor": "0.1",
+  "releases": [
+    {
+      "version": "0.1.111",
+      "date": "2026-04-27",
+      "headline": "Modular per-file test layout",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Modular per-file test layout",
+              "body": "Modular per-file test layout."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.110",
+      "date": "2026-04-27",
+      "headline": "Session.rotate + migrations advisory lock",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Session.rotate + migrations advisory lock",
+              "body": "Session.rotate + migrations advisory lock."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.109",
+      "date": "2026-04-27",
+      "headline": "Auth.oauth: OAuth 2 / OIDC client",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Auth.oauth: OAuth 2 / OIDC client",
+              "body": "Auth.oauth: OAuth 2 / OIDC client."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.108",
+      "date": "2026-04-27",
+      "headline": "App-shutdown: graceful-shutdown orchestrator",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "App-shutdown: graceful-shutdown orchestrator",
+              "body": "App-shutdown: graceful-shutdown orchestrator."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.107",
+      "date": "2026-04-27",
+      "headline": "Tracing: OpenTelemetry seam",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Tracing: OpenTelemetry seam",
+              "body": "Tracing: OpenTelemetry seam."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.106",
+      "date": "2026-04-27",
+      "headline": "Metrics: Prometheus-format counters/gauges/histograms",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Metrics: Prometheus-format counters/gauges/histograms",
+              "body": "Metrics: Prometheus-format counters/gauges/histograms."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.105",
+      "date": "2026-04-27",
+      "headline": "Csp-nonce middleware + render integration",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Csp-nonce middleware + render integration",
+              "body": "Csp-nonce middleware + render integration."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.104",
+      "date": "2026-04-27",
+      "headline": "Pagination: cursor + offset helpers",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Pagination: cursor + offset helpers",
+              "body": "Pagination: cursor + offset helpers."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.103",
+      "date": "2026-04-27",
+      "headline": "Compression middleware",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Compression middleware",
+              "body": "Compression middleware."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.102",
+      "date": "2026-04-27",
+      "headline": "Health endpoint primitive",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Health endpoint primitive",
+              "body": "Health endpoint primitive."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.101",
+      "date": "2026-04-27",
+      "headline": "Body-parser middleware",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Body-parser middleware",
+              "body": "Body-parser middleware."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.100",
+      "date": "2026-04-27",
+      "headline": "Safe-schema: declarative input validator",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Safe-schema: declarative input validator",
+              "body": "Safe-schema: declarative input validator."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.99",
+      "date": "2026-04-27",
+      "headline": "Events: breach-detection signal bus (audit-tools slice B)",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Events: breach-detection signal bus (audit-tools slice B)",
+              "body": "Events: breach-detection signal bus (audit-tools slice B)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.98",
+      "date": "2026-04-27",
+      "headline": "Audit-tools (slice A): archive + export + verify-bundle + purge",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Audit-tools (slice A): archive + export + verify-bundle + purge",
+              "body": "Audit-tools (slice A): archive + export + verify-bundle + purge."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.97",
+      "date": "2026-04-27",
+      "headline": "Backup: encrypted-at-rest support — db.flushToDisk + recommendedFiles",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Backup: encrypted-at-rest support — db.flushToDisk + recommendedFiles",
+              "body": "Backup: encrypted-at-rest support — db.flushToDisk + recommendedFiles."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.96",
+      "date": "2026-04-27",
+      "headline": "Folder-level adjustments + DeprecateError rename",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Folder-level adjustments + DeprecateError rename",
+              "body": "Folder-level adjustments + DeprecateError rename."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.95",
+      "date": "2026-04-27",
+      "headline": "Standardize require ordering across major lib files",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Standardize require ordering across major lib files",
+              "body": "Standardize require ordering across major lib files."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.94",
+      "date": "2026-04-27",
+      "headline": "Rename import bindings, public namespace, error classes",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Rename import bindings, public namespace, error classes",
+              "body": "Rename import bindings, public namespace, error classes."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.93",
+      "date": "2026-04-27",
+      "headline": "Rename libs to prefix-grouped names",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Rename libs to prefix-grouped names",
+              "body": "Rename libs to prefix-grouped names."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.92",
+      "date": "2026-04-27",
+      "headline": "Lift duplicated helpers + frameworkError.defineClass",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Lift duplicated helpers + frameworkError.defineClass",
+              "body": "Lift duplicated helpers + frameworkError.defineClass."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.91",
+      "date": "2026-04-27",
+      "headline": "Api-snapshot: public API surface walker + breaking-change detectorb",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Api-snapshot: public API surface walker + breaking-change detectorb",
+              "body": "Api-snapshot: public API surface walker + breaking-change detectorb."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.90",
+      "date": "2026-04-27",
+      "headline": "Deprecate: runtime deprecation API for the LTS contracta",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Deprecate: runtime deprecation API for the LTS contracta",
+              "body": "Deprecate: runtime deprecation API for the LTS contracta."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.89",
+      "date": "2026-04-27",
+      "headline": "Restore + restore-rollback: storage-backed restore + atomic swap — complete",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Restore + restore-rollback: storage-backed restore + atomic swap — complete",
+              "body": "Restore + restore-rollback: storage-backed restore + atomic swap — complete."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.88",
+      "date": "2026-04-27",
+      "headline": "Backup: orchestration with pluggable storage + retentiond",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Backup: orchestration with pluggable storage + retentiond",
+              "body": "Backup: orchestration with pluggable storage + retentiond."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.87",
+      "date": "2026-04-27",
+      "headline": "Restore-bundle: extract encrypted bundle to stagingc",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Restore-bundle: extract encrypted bundle to stagingc",
+              "body": "Restore-bundle: extract encrypted bundle to stagingc."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.86",
+      "date": "2026-04-27",
+      "headline": "Backup-bundle: produce an encrypted backup bundle on diskb",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Backup-bundle: produce an encrypted backup bundle on diskb",
+              "body": "Backup-bundle: produce an encrypted backup bundle on diskb."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.85",
+      "date": "2026-04-27",
+      "headline": "Backup-manifest: bundle schema + validate/parse/serializea",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Backup-manifest: bundle schema + validate/parse/serializea",
+              "body": "Backup-manifest: bundle schema + validate/parse/serializea."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.84",
+      "date": "2026-04-27",
+      "headline": "Backup-crypto: Argon2id KDF + XChaCha20-Poly1305 for backup files",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Backup-crypto: Argon2id KDF + XChaCha20-Poly1305 for backup files",
+              "body": "Backup-crypto: Argon2id KDF + XChaCha20-Poly1305 for backup files."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.83",
+      "date": "2026-04-27",
+      "headline": "Mtls-ca: CA file management with engine-pluggable issuance",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Mtls-ca: CA file management with engine-pluggable issuance",
+              "body": "Mtls-ca: CA file management with engine-pluggable issuance."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.82",
+      "date": "2026-04-27",
+      "headline": "Vault-passphrase-ops: seal/unseal/rotate operator primitives",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Vault-passphrase-ops: seal/unseal/rotate operator primitives",
+              "body": "Vault-passphrase-ops: seal/unseal/rotate operator primitives."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.81",
+      "date": "2026-04-27",
+      "headline": "Vault-rotate.rotate: full rotation pipeline",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Vault-rotate.rotate: full rotation pipeline",
+              "body": "Vault-rotate.rotate: full rotation pipeline."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.80",
+      "date": "2026-04-27",
+      "headline": "Vault-rotate (diagnostics): schema-drift + round-trip verify",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Vault-rotate (diagnostics): schema-drift + round-trip verify",
+              "body": "Vault-rotate (diagnostics): schema-drift + round-trip verify."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.79",
+      "date": "2026-04-27",
+      "headline": "Drop SecP256r1MLKEM768 from default TLS group preference",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Drop SecP256r1MLKEM768 from default TLS group preference",
+              "body": "Drop SecP256r1MLKEM768 from default TLS group preference."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.78",
+      "date": "2026-04-27",
+      "headline": "Pqc-agent: locked-posture HTTPS agent + http-client refactor",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Pqc-agent: locked-posture HTTPS agent + http-client refactor",
+              "body": "Pqc-agent: locked-posture HTTPS agent + http-client refactor."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.77",
+      "date": "2026-04-27",
+      "headline": "Pqc-gate: TCP-level PQC enforcement on ClientHello",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Pqc-gate: TCP-level PQC enforcement on ClientHello",
+              "body": "Pqc-gate: TCP-level PQC enforcement on ClientHello."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.76",
+      "date": "2026-04-27",
+      "headline": "Bundler: content-hashed asset pipeline + manifest — complete",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Bundler: content-hashed asset pipeline + manifest — complete",
+              "body": "Bundler: content-hashed asset pipeline + manifest — complete."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.75",
+      "date": "2026-04-27",
+      "headline": "Dev: file-watch + child-process restart engine",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Dev: file-watch + child-process restart engine",
+              "body": "Dev: file-watch + child-process restart engine."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.74",
+      "date": "2026-04-27",
+      "headline": "Cli: bin/blamejs + migrate up/down/status",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Cli: bin/blamejs + migrate up/down/status",
+              "body": "Cli: bin/blamejs + migrate up/down/status."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.73",
+      "date": "2026-04-27",
+      "headline": "Migrations: public up/down/status runner",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Migrations: public up/down/status runner",
+              "body": "Migrations: public up/down/status runner."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.72",
+      "date": "2026-04-27",
+      "headline": "Cookies: parse/serialize + sealed-value access gate",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Cookies: parse/serialize + sealed-value access gate",
+              "body": "Cookies: parse/serialize + sealed-value access gate."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.71",
+      "date": "2026-04-27",
+      "headline": "Errors-page: rich dev page + safe prod page; middleware shim",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Errors-page: rich dev page + safe prod page; middleware shim",
+              "body": "Errors-page: rich dev page + safe prod page; middleware shim."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.70",
+      "date": "2026-04-27",
+      "headline": "Log: structured JSON logging with request-id correlation",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Log: structured JSON logging with request-id correlation",
+              "body": "Log: structured JSON logging with request-id correlation."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.69",
+      "date": "2026-04-27",
+      "headline": "Scheduler: cron + interval over jobs/queue",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Scheduler: cron + interval over jobs/queue",
+              "body": "Scheduler: cron + interval over jobs/queue."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.68",
+      "date": "2026-04-27",
+      "headline": "Mail: generalize http transport, demote resend to thin preset",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Mail: generalize http transport, demote resend to thin preset",
+              "body": "Mail: generalize http transport, demote resend to thin preset."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.67",
+      "date": "2026-04-27",
+      "headline": "Mail: contract + console/memory/smtp/resend transports",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Mail: contract + console/memory/smtp/resend transports",
+              "body": "Mail: contract + console/memory/smtp/resend transports."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.66",
+      "date": "2026-04-26",
+      "headline": "Jobs (define + enqueue + in-process worker) + createApp wiring",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Jobs (define + enqueue + in-process worker) + createApp wiring",
+              "body": "Jobs (define + enqueue + in-process worker) + createApp wiring."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.65",
+      "date": "2026-04-26",
+      "headline": "CreateApp factory",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "CreateApp factory",
+              "body": "CreateApp factory."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.64",
+      "date": "2026-04-26",
+      "headline": "Forms + csrfProtect",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Forms + csrfProtect",
+              "body": "Forms + csrfProtect."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.63",
+      "date": "2026-04-26",
+      "headline": "StaticServe: file serving + ETag + SRI integrity",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "StaticServe: file serving + ETag + SRI integrity",
+              "body": "StaticServe: file serving + ETag + SRI integrity."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.62",
+      "date": "2026-04-26",
+      "headline": "Render: HTTP response helpers",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Render: HTTP response helpers",
+              "body": "Render: HTTP response helpers."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.61",
+      "date": "2026-04-26",
+      "headline": "Template engine (eval-free interpreter)",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Template engine (eval-free interpreter)",
+              "body": "Template engine (eval-free interpreter)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.60",
+      "date": "2026-04-26",
+      "headline": "Auth.jwt with SLH-DSA-SHAKE-256f default",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Auth.jwt with SLH-DSA-SHAKE-256f default",
+              "body": "Auth.jwt with SLH-DSA-SHAKE-256f default."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.59",
+      "date": "2026-04-26",
+      "headline": "Middleware.attachUser + middleware.requireAuth",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Middleware.attachUser + middleware.requireAuth",
+              "body": "Middleware.attachUser + middleware.requireAuth."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.58",
+      "date": "2026-04-26",
+      "headline": "Auth.passkey (WebAuthn / FIDO2)",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Auth.passkey (WebAuthn / FIDO2)",
+              "body": "Auth.passkey (WebAuthn / FIDO2)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.57",
+      "date": "2026-04-26",
+      "headline": "TOTP defaults match spec",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "TOTP defaults match spec",
+              "body": "TOTP defaults match spec (HMAC-SHA512 / 128-byte secret / 8 digits / 30s) + crypto.random truncation fix."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.56",
+      "date": "2026-04-26",
+      "headline": "Auth.totp: flip default to HMAC-SHA512, drop SHA-1 support",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Auth.totp: flip default to HMAC-SHA512, drop SHA-1 support",
+              "body": "Auth.totp: flip default to HMAC-SHA512, drop SHA-1 support."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.55",
+      "date": "2026-04-26",
+      "headline": "Auth.totp / lib/totp.js (RFC 6238)",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Auth.totp / lib/totp.js (RFC 6238)",
+              "body": "Auth.totp / lib/totp.js (RFC 6238)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.54",
+      "date": "2026-04-26",
+      "headline": "Audit-sign algorithm-agility + flip default to SLH-DSA-SHAKE-256f",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Audit-sign algorithm-agility + flip default to SLH-DSA-SHAKE-256f",
+              "body": "Audit-sign algorithm-agility + flip default to SLH-DSA-SHAKE-256f."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.53",
+      "date": "2026-04-26",
+      "headline": "Auth.password (Argon2id)",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Auth.password (Argon2id)",
+              "body": "Auth.password (Argon2id)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.52",
+      "date": "2026-04-26",
+      "headline": "Consent_log integrity parity with audit_log",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Consent_log integrity parity with audit_log",
+              "body": "Consent_log integrity parity with audit_log."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.51",
+      "date": "2026-04-26",
+      "headline": "Queue jobs move to external-db in cluster mode",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Queue jobs move to external-db in cluster mode",
+              "body": "Queue jobs move to external-db in cluster mode."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.50",
+      "date": "2026-04-26",
+      "headline": "Sessions move to external-db in cluster mode",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Sessions move to external-db in cluster mode",
+              "body": "Sessions move to external-db in cluster mode."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.49",
+      "date": "2026-04-26",
+      "headline": "Boot-time vault-key consistency check",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Boot-time vault-key consistency check",
+              "body": "Boot-time vault-key consistency check."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.48",
+      "date": "2026-04-26",
+      "headline": "Boot-time audit-tip rollback detection in cluster mode",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Boot-time audit-tip rollback detection in cluster mode",
+              "body": "Boot-time audit-tip rollback detection in cluster mode."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.47",
+      "date": "2026-04-26",
+      "headline": "Fix handlers.drain unbounded loop on recursive emit (cluster-mode audit hang)",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Fix handlers.drain unbounded loop on recursive emit (cluster-mode audit hang)",
+              "body": "Fix handlers.drain unbounded loop on recursive emit (cluster-mode audit hang)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.46",
+      "date": "2026-04-26",
+      "headline": "Cluster-mode audit-tip fencing-token guard",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Cluster-mode audit-tip fencing-token guard",
+              "body": "Cluster-mode audit-tip fencing-token guard."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.45",
+      "date": "2026-04-26",
+      "headline": "Cluster discovery surface for service-mesh / load-balancer routing",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Cluster discovery surface for service-mesh / load-balancer routing",
+              "body": "Cluster discovery surface for service-mesh / load-balancer routing."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.44",
+      "date": "2026-04-26",
+      "headline": "Repeating-pattern sweep: sleep + withTimeoutSignal + auth-header + listenOnRandomPort",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Repeating-pattern sweep",
+              "body": "Repeating-pattern sweep: sleep + withTimeoutSignal + auth-header + listenOnRandomPort."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.43",
+      "date": "2026-04-26",
+      "headline": "Url-safe protocol validator at outbound boundary",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Url-safe protocol validator at outbound boundary",
+              "body": "Url-safe protocol validator at outbound boundary."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.42",
+      "date": "2026-04-26",
+      "headline": "Router.closeWebSockets + activeWebSockets",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Router.closeWebSockets + activeWebSockets",
+              "body": "Router.closeWebSockets + activeWebSockets."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.41",
+      "date": "2026-04-26",
+      "headline": "Smoke runner gains groups + fixtures + per-test timing",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Smoke runner gains groups + fixtures + per-test timing",
+              "body": "Smoke runner gains groups + fixtures + per-test timing."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.40",
+      "date": "2026-04-26",
+      "headline": "Router.ws integration + WebSocket lifecycle redesign",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Router.ws integration + WebSocket lifecycle redesign",
+              "body": "Router.ws integration + WebSocket lifecycle redesign."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.39",
+      "date": "2026-04-26",
+      "headline": "H2 WebSocket (RFC 8441 Extended CONNECT) added to websocket.js",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "H2 WebSocket (RFC 8441 Extended CONNECT) added to websocket.js",
+              "body": "H2 WebSocket (RFC 8441 Extended CONNECT) added to websocket.js."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.38",
+      "date": "2026-04-26",
+      "headline": "Lib/websocket.js (RFC 6455 server primitive)",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Lib/websocket.js (RFC 6455 server primitive)",
+              "body": "Lib/websocket.js (RFC 6455 server primitive)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.37",
+      "date": "2026-04-26",
+      "headline": "AtomicFile.listDir primitive with adoption across affected lib sites",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "AtomicFile.listDir primitive with adoption across affected lib sites",
+              "body": "AtomicFile.listDir primitive with adoption across affected lib sites."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.36",
+      "date": "2026-04-26",
+      "headline": "TestConstantsReferenceIntegrity uses framework primitives",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "TestConstantsReferenceIntegrity uses framework primitives",
+              "body": "TestConstantsReferenceIntegrity uses framework primitives."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.35",
+      "date": "2026-04-26",
+      "headline": "Fix stale C.TIME.FIVE_MIN refs + add integrity test",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Fix stale C.TIME.FIVE_MIN refs + add integrity test",
+              "body": "Fix stale C.TIME.FIVE_MIN refs + add integrity test."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.34",
+      "date": "2026-04-26",
+      "headline": "Document h3-ready transport cache + TLS session resumption stance",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Document h3-ready transport cache + TLS session resumption stance",
+              "body": "Document h3-ready transport cache + TLS session resumption stance."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.33",
+      "date": "2026-04-26",
+      "headline": "HTTP/2 backend behind same httpClient.request surface",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "HTTP/2 backend behind same httpClient.request surface",
+              "body": "HTTP/2 backend behind same httpClient.request surface."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.32",
+      "date": "2026-04-26",
+      "headline": "Http-client primitive (h1 baseline) with adoption across affected adapters",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Http-client primitive (h1 baseline) with adoption across affected adapters",
+              "body": "Http-client primitive (h1 baseline) with adoption across affected adapters."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.31",
+      "date": "2026-04-26",
+      "headline": "Logger primitive + sweep log/logErr/console sites",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Logger primitive + sweep log/logErr/console sites",
+              "body": "Logger primitive + sweep log/logErr/console sites."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.30",
+      "date": "2026-04-26",
+      "headline": "Framework-error base class + sweep operational _err factories",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Framework-error base class + sweep operational _err factories",
+              "body": "Framework-error base class + sweep operational _err factories."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.29",
+      "date": "2026-04-26",
+      "headline": "Lazy-require primitive with adoption across affected modules",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Lazy-require primitive with adoption across affected modules",
+              "body": "Lazy-require primitive with adoption across affected modules."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.28",
+      "date": "2026-04-26",
+      "headline": "Adopt bufferSafe.secureZero in passphrase + key-wrap paths",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Adopt bufferSafe.secureZero in passphrase + key-wrap paths",
+              "body": "Adopt bufferSafe.secureZero in passphrase + key-wrap paths."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.27",
+      "date": "2026-04-26",
+      "headline": "BufferSafe primitive + sweep parsers/atomic-file/object-store",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "BufferSafe primitive + sweep parsers/atomic-file/object-store",
+              "body": "BufferSafe primitive + sweep parsers/atomic-file/object-store."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.26",
+      "date": "2026-04-26",
+      "headline": "EnvSafe.readVar primitive + sweep direct process.env reads",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "EnvSafe.readVar primitive + sweep direct process.env reads",
+              "body": "EnvSafe.readVar primitive + sweep direct process.env reads."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.25",
+      "date": "2026-04-26",
+      "headline": "Dedup audit-sign passphrase logic into passphrase-source",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Dedup audit-sign passphrase logic into passphrase-source",
+              "body": "Dedup audit-sign passphrase logic into passphrase-source."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.24",
+      "date": "2026-04-26",
+      "headline": "Layer 5 extraction + smoke.js as pure orchestrator",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Layer 5 extraction + smoke.js as pure orchestrator",
+              "body": "Layer 5 extraction + smoke.js as pure orchestrator."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.23",
+      "date": "2026-04-26",
+      "headline": "Layer 4 extraction: consumer modules → 40-consumers.js",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Layer 4 extraction: consumer modules → 40-consumers.js",
+              "body": "Layer 4 extraction: consumer modules → 40-consumers.js."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.22",
+      "date": "2026-04-26",
+      "headline": "Layer 3 extraction: chain-writing modules → 30-chain.js",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Layer 3 extraction: chain-writing modules → 30-chain.js",
+              "body": "Layer 3 extraction: chain-writing modules → 30-chain.js."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.21",
+      "date": "2026-04-26",
+      "headline": "Layer 2 extraction: db + framework-schema → 20-db.js",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Layer 2 extraction: db + framework-schema → 20-db.js",
+              "body": "Layer 2 extraction: db + framework-schema → 20-db.js."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.20",
+      "date": "2026-04-26",
+      "headline": "Layer 1 extraction: vault + cluster + framework-schema → 10-state.js",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Layer 1 extraction: vault + cluster + framework-schema → 10-state.js",
+              "body": "Layer 1 extraction: vault + cluster + framework-schema → 10-state.js."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.19",
+      "date": "2026-04-26",
+      "headline": "Layer 0 extraction: atomic-file + parsers + redact → 00-primitives.js",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Layer 0 extraction: atomic-file + parsers + redact → 00-primitives.js",
+              "body": "Layer 0 extraction: atomic-file + parsers + redact → 00-primitives.js."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.18",
+      "date": "2026-04-26",
+      "headline": "Layer 0 extraction: json-safe tests → 00-primitives.js",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Layer 0 extraction: json-safe tests → 00-primitives.js",
+              "body": "Layer 0 extraction: json-safe tests → 00-primitives.js."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.17",
+      "date": "2026-04-26",
+      "headline": "Layer 0 extraction: async-safe + handlers tests → 00-primitives.js",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Layer 0 extraction: async-safe + handlers tests → 00-primitives.js",
+              "body": "Layer 0 extraction: async-safe + handlers tests → 00-primitives.js."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.16",
+      "date": "2026-04-26",
+      "headline": "First Layer 0 extraction (sql-safe + chain-writer → 00-primitives.js)",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "First Layer 0 extraction (sql-safe + chain-writer → 00-primitives.js)",
+              "body": "First Layer 0 extraction (sql-safe + chain-writer → 00-primitives.js)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.15",
+      "date": "2026-04-26",
+      "headline": "Extract test/_helpers.js (foundation for layer-file split)",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Extract test/_helpers.js (foundation for layer-file split)",
+              "body": "Extract test/_helpers.js (foundation for layer-file split)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.14",
+      "date": "2026-04-26",
+      "headline": "Smoke runner reordered by dependency layer (primitives first, consumers last)",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Smoke runner reordered by dependency layer (primitives first, consumers last)",
+              "body": "Smoke runner reordered by dependency layer (primitives first, consumers last)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.13",
+      "date": "2026-04-26",
+      "headline": "Sql-safe + chain-writer primitives; consent gets the audit Mutex fix as a side effect of consolidation",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Sql-safe + chain-writer primitives; consent gets the audit Mutex fix as a sid",
+              "body": "Sql-safe + chain-writer primitives; consent gets the audit Mutex fix as a side effect of consolidation."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.12",
+      "date": "2026-04-26",
+      "headline": "Async-safe + handlers hardening",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Async-safe + handlers hardening",
+              "body": "Async-safe + handlers hardening: AbortSignal, Once.reset, isRetryable override, timer-unref bug fix, full primitive test coverage."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.11",
+      "date": "2026-04-26",
+      "headline": "Handlers primitive replaces fire-and-forget audit emission",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Handlers primitive replaces fire-and-forget audit emission",
+              "body": "Handlers primitive replaces fire-and-forget audit emission."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.10",
+      "date": "2026-04-26",
+      "headline": "Async-safe library + audit dispatch via cluster-storage",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Async-safe library + audit dispatch via cluster-storage",
+              "body": "Async-safe library + audit dispatch via cluster-storage."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.9",
+      "date": "2026-04-26",
+      "headline": "Cluster storage step 2: SQL dispatcher (lib/cluster-storage.js)",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Cluster storage step 2: SQL dispatcher (lib/cluster-storage.js)",
+              "body": "Cluster storage step 2: SQL dispatcher (lib/cluster-storage.js)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.8",
+      "date": "2026-04-26",
+      "headline": "Cluster storage step 1: framework-state schema for external-db",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Cluster storage step 1: framework-state schema for external-db",
+              "body": "Cluster storage step 1: framework-state schema for external-db."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.7",
+      "date": "2026-04-26",
+      "headline": "Update .env safe loader (lib/parsers/env-safe.js)",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Update .env safe loader (lib/parsers/env-safe.js)",
+              "body": ".env safe loader (lib/parsers/env-safe.js)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.6",
+      "date": "2026-04-26",
+      "headline": "YAML 1.2 safe-subset parser (lib/parsers/yaml-safe.js)",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "YAML 1.2 safe-subset parser (lib/parsers/yaml-safe.js)",
+              "body": "YAML 1.2 safe-subset parser (lib/parsers/yaml-safe.js)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.5",
+      "date": "2026-04-26",
+      "headline": "TOML 1.0 safe parser (lib/parsers/toml-safe.js)",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "TOML 1.0 safe parser (lib/parsers/toml-safe.js)",
+              "body": "TOML 1.0 safe parser (lib/parsers/toml-safe.js)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.4",
+      "date": "2026-04-26",
+      "headline": "Xml-safe parser adopted in object-store list responses",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Xml-safe parser adopted in object-store list responses",
+              "body": "Xml-safe parser adopted in object-store list responses."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.3",
+      "date": "2026-04-26",
+      "headline": "AtomicFile.readSync for sync init paths",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "AtomicFile.readSync for sync init paths",
+              "body": "AtomicFile.readSync for sync init paths."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.2",
+      "date": "2026-04-26",
+      "headline": "Rename b.json public API to b.jsonSafe",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Rename b.json public API to b.jsonSafe",
+              "body": "Rename b.json public API to b.jsonSafe."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.1",
+      "date": "2026-04-26",
+      "headline": "Rename HA → cluster (no cryptic acronyms in framework names)",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Rename HA → cluster (no cryptic acronyms in framework names)",
+              "body": "Rename HA → cluster (no cryptic acronyms in framework names)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.1.0",
+      "date": "2026-04-26",
+      "headline": "HA write-side gates wired across framework subsystems",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "HA write-side gates wired across framework subsystems",
+              "body": "HA write-side gates wired across framework subsystems."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

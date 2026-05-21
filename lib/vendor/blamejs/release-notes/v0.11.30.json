@@ -1,0 +1,53 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.11.30",
+  "date": "2026-05-21",
+  "headline": "JMAP blob upload + download handlers on `b.mail.server.jmap` (RFC 8620 §6)",
+  "summary": "The JMAP listener now exposes turnkey HTTP handlers for blob upload (`POST /jmap/upload/{accountId}`) and blob download (`GET /jmap/download/{accountId}/{blobId}/{name}`). Upload streams the request body into `b.safeBuffer.boundedChunkCollector` (default cap 50 MiB; operator-tunable via `opts.maxBlobBytes`), then calls the operator backend's `mailStore.uploadBlob(actor, accountId, contentType, bytes) → { blobId, type?, size? }` and returns the JSON descriptor clients pass to subsequent `Email/set` / `Email/import` calls. Download walks the operator backend's `mailStore.downloadBlob(actor, accountId, blobId) → { bytes, type }` and pipes the bytes through with the right `Content-Type` + `Content-Disposition` headers. Both handlers refuse 503 when the corresponding backend hook is missing — never silent OK.\n\nEmailSubmission (RFC 8621 §7) was already in the JMAP method catalogue at `lib/mail-server-registry.js`; operators wire `EmailSubmission/get` / `EmailSubmission/set` through the existing `opts.methods` dispatch and compose `b.mail.send.deliver` (shipped v0.11.24) for the actual outbound send. No additional framework wiring is required.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`uploadHandler(req, res)` — POST `/jmap/upload/{accountId}`",
+          "body": "Streams the request body through `b.safeBuffer.boundedChunkCollector` so a runaway upload refuses with `413 maxSizeUpload` instead of OOM'ing the process. Default cap 50 MiB; tune via `b.mail.server.jmap.create({ maxBlobBytes })`. The `accountId` path segment is identifier-shape-validated (`/^[A-Za-z0-9_-]{1,64}$/`) — path-traversal shapes are refused at the boundary. Calls `mailStore.uploadBlob(actor, accountId, contentType, bytes) → { blobId, type?, size? }`; the listener echoes `accountId` + `blobId` + `type` + `size` back as a `201 Created` JSON response per RFC 8620 §6.1."
+        },
+        {
+          "title": "`downloadHandler(req, res)` — GET `/jmap/download/{accountId}/{blobId}/{name}`",
+          "body": "Parses the path's `accountId` / `blobId` / `name` segments + optional `?accept=<type>` query, calls `mailStore.downloadBlob(actor, accountId, blobId) → { bytes, type } | Buffer | null`, and pipes the bytes through with `Content-Type` (backend-supplied OR query-`accept` OR `application/octet-stream` fallback) + `Content-Length` + `Content-Disposition: attachment; filename=\"<safe-name>\"` (only when the filename matches the safe `[A-Za-z0-9._-]{1,200}` shape — anti header-injection). Missing blob → `404 invalidArguments`."
+        },
+        {
+          "title": "Both handlers exposed on the listener handle",
+          "body": "`b.mail.server.jmap.create(opts)` returns `{ apiHandler, sessionHandler, discoveryHandler, eventSourceHandler, uploadHandler, downloadHandler, MailServerJmapError }`. Operators mount each at the path their HTTP router exposes; the `session.uploadUrl` / `session.downloadUrl` already advertise the canonical paths."
+        },
+        {
+          "title": "EmailSubmission methods continue through the existing dispatch path",
+          "body": "RFC 8621 §7 — `EmailSubmission/get` / `EmailSubmission/changes` / `EmailSubmission/query` / `EmailSubmission/queryChanges` / `EmailSubmission/set` are already in the JMAP method catalogue at `lib/mail-server-registry.js`. Operators wire them through `b.mail.server.jmap.create({ methods: { 'EmailSubmission/set': async function (actor, args) { ... b.mail.send.deliver(...) ... } } })`. No additional framework wiring is required for v0.11.30; the substrate composition (JMAP method → `b.mail.send.deliver` → SMTP MX → DSN) was already complete after v0.11.24."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "AccountId path-traversal refusal at the boundary",
+          "body": "Both handlers validate the `accountId` URL segment against `/^[A-Za-z0-9_-]{1,64}$/`. URL-encoded path-traversal payloads (`%2E%2E%2F`, `..%2F`, `/`) refuse with `400 invalidArguments` before any backend call. Operator-side validation in `mailStore.uploadBlob` / `mailStore.downloadBlob` is a defense-in-depth second layer."
+        },
+        {
+          "title": "Upload size cap via `safeBuffer.boundedChunkCollector` (cap-bounded)",
+          "body": "Replaces the prior hand-rolled `Buffer.concat(chunks, received)` shape with the framework's bounded-collector primitive. The collector throws `mail-server-jmap/blob-too-large` on overflow; the handler converts it into a `413 maxSizeUpload` JSON error per RFC 8620 §6.1. A misbehaving client cannot stream a multi-gigabyte payload past the limit — the collector enforces the cap byte-by-byte."
+        },
+        {
+          "title": "`Content-Disposition` filename is identifier-shape only",
+          "body": "Download responses only set the `Content-Disposition` header when the URL's `name` segment matches `/^[A-Za-z0-9._-]{1,200}$/`. Filenames with `;` / `\"` / CRLF cannot be smuggled into the header — RFC 6266 §4.3 + CVE-2023-46604-class header-injection defense."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "RFC 8620 (JMAP Core — §6 Blob upload/download)",         "url": "https://www.rfc-editor.org/rfc/rfc8620.html" },
+    { "label": "RFC 8621 (JMAP Mail — §7 EmailSubmission)",              "url": "https://www.rfc-editor.org/rfc/rfc8621.html" },
+    { "label": "RFC 6266 (Content-Disposition in HTTP)",                  "url": "https://www.rfc-editor.org/rfc/rfc6266.html" },
+    { "label": "RFC 5987 (Encoding-aware filename* parameter)",          "url": "https://www.rfc-editor.org/rfc/rfc5987.html" }
+  ]
+}
