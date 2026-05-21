@@ -297,20 +297,72 @@ jobs:
           scanners: 'vuln,secret,misconfig'
           ignore-unfixed: true
 
-      - name: Generate SHA3-512 digest
+      - name: Save image tarball + write SHA-256 + SHA3-512 sidecars
         if: ${{ !inputs.dry_run }}
         id: sha3
         run: |
           set -euo pipefail
           docker pull ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
-          HASH=$(docker save ${{ env.IMAGE }}@${{ steps.build.outputs.digest }} | openssl dgst -sha3-512 | awk '{print $NF}')
-          echo "SHA3-512: $HASH"
+          mkdir -p artifacts
+          TARBALL="artifacts/hermitstash-v${{ steps.version.outputs.version }}.image.tar"
+          docker save ${{ env.IMAGE }}@${{ steps.build.outputs.digest }} -o "$TARBALL"
+          node scripts/sha3-digest.js "$TARBALL"
+          # Surface the SHA3-512 in the step summary (matches the prior
+          # release surface — operators that scraped that line stay
+          # green).
+          HASH=$(awk '{print $1}' "${TARBALL}.sha3-512")
           echo "sha3=$HASH" >> "$GITHUB_OUTPUT"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "#### SHA3-512" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo "$HASH" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+          {
+            echo ""
+            echo "#### SHA3-512"
+            echo '```'
+            echo "$HASH"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Sign image tarball with ML-DSA-65 (PQC sidecar)
+        # Conditional on the operator having completed the one-time
+        # release-key setup (run scripts/generate-release-signing-key.js,
+        # commit keys/release-pqc-pub.json, set RELEASE_PQC_SIGNING_KEY
+        # in the release environment). When either piece is missing
+        # the step skips with a warning; the release still ships with
+        # cosign image sig + SBOM + SHA-256 + SHA3-512 sidecars, and
+        # the PQC sig sidecar lights up on the FIRST release after
+        # setup completes.
+        if: ${{ !inputs.dry_run }}
+        id: pqc_sig
+        env:
+          RELEASE_PQC_SIGNING_KEY: ${{ secrets.RELEASE_PQC_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RELEASE_PQC_SIGNING_KEY:-}" ]; then
+            printf '%s\n' '::warning::RELEASE_PQC_SIGNING_KEY is empty — skipping the PQC sidecar.'
+            printf '%s\n' '::warning::Operator: run "node scripts/generate-release-signing-key.js" once, commit keys/release-pqc-pub.json, set the secret in the release environment, then future releases pick up the sig automatically.'
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ ! -f keys/release-pqc-pub.json ]; then
+            printf '%s\n' '::warning::keys/release-pqc-pub.json is missing in-tree — skipping the PQC sidecar.'
+            printf '%s\n' '::warning::The secret is set but the matching public key is not committed — the signer self-verify cross-check would refuse the sig anyway.'
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          node scripts/sign-release-artifact.js "${{ steps.sha3.outputs.tarball }}"
+          echo "available=true" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release asset bundle (for the release job)
+        if: ${{ !inputs.dry_run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: |
+            artifacts/hermitstash-v${{ steps.version.outputs.version }}.image.tar.sha256
+            artifacts/hermitstash-v${{ steps.version.outputs.version }}.image.tar.sha3-512
+            artifacts/hermitstash-v${{ steps.version.outputs.version }}.image.tar.mldsa.sig
+            artifacts/hermitstash-v${{ steps.version.outputs.version }}.vex.json
+          if-no-files-found: ignore
+          retention-days: 1
 
       - name: Build summary
         run: |
@@ -501,3 +553,135 @@ jobs:
       - name: Cleanup
         if: always()
         run: docker rm -f smoke-test 2>/dev/null || true
+
+  # SLSA L3 provenance for the OCI image. Runs only on real tag pushes
+  # (not dry-run / branch pushes) because the attestation binds to the
+  # workflow_ref + tag-ref pair that's verifiable by downstream
+  # operators. The container generator publishes the attestation to
+  # the OCI registry directly (cosign-keyless via the workflow's OIDC
+  # token); operators verify with
+  # `slsa-verifier verify-image ghcr.io/dotcoocoo/hermitstash@<digest>`.
+  provenance:
+    needs: build-and-push
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !inputs.dry_run }}
+    permissions:
+      id-token: write    # OIDC token for Sigstore-keyless signing
+      contents: read
+      packages: write    # push the provenance attestation to GHCR
+      actions: read      # introspect this workflow run for the attestation
+    # Tag-pinned (not SHA-pinned) — the SLSA internal builder-fetch
+    # step expects `BUILDER_REF` in `refs/tags/vX.Y.Z` form and refuses
+    # a 40-hex SHA. See blamejs upstream npm-publish.yml for the same
+    # constraint + the GH organization actions-allowlist pattern that
+    # has to include `slsa-framework/slsa-github-generator/*`.
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.1.0
+    with:
+      image: ghcr.io/dotcoocoo/hermitstash
+      digest: ${{ needs.build-and-push.outputs.digest }}
+      registry-username: ${{ github.actor }}
+    secrets:
+      registry-password: ${{ secrets.GITHUB_TOKEN }}
+
+  # Create the signed GitHub Release atomically with all assets
+  # attached at creation time. Runs only on real tag pushes after the
+  # smoke test passes and the SLSA provenance lands in the registry.
+  release:
+    needs: [build-and-push, smoke-test, provenance]
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write    # gh release create + asset attach
+      packages: read     # docker pull from GHCR
+    steps:
+      - name: Checkout source (for release-notes generator + key files)
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.14.1
+
+      - name: Download release asset bundle (from build-and-push)
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: artifacts
+
+      - name: Resolve version from constants.js
+        id: version
+        run: |
+          VERSION=$(node -e "console.log(require('./lib/constants').version)")
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release-page markdown from structured source
+        # Single source of truth: release-notes/v$VERSION.json. The
+        # generator validates the JSON against the section allowlist +
+        # title/body format rules + a leak-vocabulary sweep, then emits
+        # multi-section markdown (`##` headings + bullet lists) for
+        # the GitHub release page. scripts/check-changelog-extract.js
+        # exercises a parallel CHANGELOG-derived path as a pre-push
+        # gate; this step is the authoritative source for what gets
+        # attached to the release.
+        id: notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          node scripts/generate-changelog-entry.js "$VERSION" --release-page > release-notes.md
+          BYTE_COUNT=$(wc -c < release-notes.md | tr -d ' ')
+          if [ "$BYTE_COUNT" -lt 64 ]; then
+            echo "::error::generate-changelog-entry produced an unexpectedly small release-page markdown ($BYTE_COUNT bytes)."
+            echo "::error::Inspect release-notes/v$VERSION.json — the generator likely validated through but every section was empty."
+            exit 1
+          fi
+          echo "[release-notes] generated $BYTE_COUNT bytes of release-page markdown for v$VERSION"
+          echo "--- release-notes.md (first 20 lines) ---"
+          head -20 release-notes.md
+          echo "---"
+
+      - name: Create signed release with ALL assets atomically
+        # Refuses to overwrite an existing release — the workflow is
+        # authoritative for release creation. If a release for this
+        # tag already exists, that's an integrity signal (operator did
+        # a manual `gh release create`, or a duplicate workflow run
+        # already created it). Fail loud.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG:      v${{ steps.version.outputs.version }}
+          VERSION:  ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release $TAG already exists. The workflow is authoritative for release creation."
+            echo "::error::Either delete the existing release (gh release delete $TAG) and re-run, OR push a new tag."
+            exit 1
+          fi
+          # Title comes from the structured release-notes JSON's
+          # `headline` field — single source of truth.
+          HEADLINE=$(node -e "console.log(require('./release-notes/v${VERSION}.json').headline)")
+          if [ -n "$HEADLINE" ]; then
+            TITLE="$TAG — $HEADLINE"
+          else
+            TITLE="$TAG"
+          fi
+          # Build the asset list — every file is optional via the `[ -f ]`
+          # gate so the release create runs cleanly even when the PQC
+          # sidecar or VEX is absent.
+          ASSETS=()
+          for F in \
+            "artifacts/hermitstash-v${VERSION}.image.tar.sha256" \
+            "artifacts/hermitstash-v${VERSION}.image.tar.sha3-512" \
+            "artifacts/hermitstash-v${VERSION}.image.tar.mldsa.sig" \
+            "artifacts/hermitstash-v${VERSION}.vex.json"; do
+            if [ -f "$F" ]; then ASSETS+=("$F"); fi
+          done
+          echo "[release-create] title: $TITLE"
+          echo "[release-create] assets:"
+          for A in "${ASSETS[@]}"; do echo "  - $A"; done
+          gh release create "$TAG" \
+            "${ASSETS[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TITLE" \
+            --notes-file release-notes.md
+          echo "[release-create] release $TAG created with full asset bundle"

@@ -964,20 +964,63 @@ git fetch --tags
 git tag --verify vX.Y.Z
 ```
 
-Container images carry a CSAF 2.1 VEX attestation when the release includes
-CVE assessments (e.g. "transitively pulled CVE-2026-XXXXX is not affected
-because the vulnerable code path isn't reachable"). Inspect with:
+The `.github/workflows/sha-to-tag-verify.yml` gate refuses tag pushes whose
+commit SHA is not on `main`'s first-parent history, was not merged via a
+pull request, or whose tag object is not annotated + SSH-signed against the
+maintainer key. The gate runs server-side independently of the GitHub edge
+ruleset, defending against the tag-mutation class (CVE-2025-30066) and
+source-side malicious-publish (TanStack 2025-05-11 class).
+
+Each release attaches a fixed asset bundle to the GitHub Release page,
+created atomically by the workflow at tag-push time:
+
+| File | Purpose | Verify with |
+|------|---------|-------------|
+| `hermitstash-vX.Y.Z.image.tar.sha256` | SHA-256 of the saved image | `sha256sum -c <file>` |
+| `hermitstash-vX.Y.Z.image.tar.sha3-512` | SHA3-512 of the saved image | `openssl dgst -sha3-512 <tarball>` |
+| `hermitstash-vX.Y.Z.image.tar.mldsa.sig` | ML-DSA-65 PQC signature over the image bytes | see below |
+| `hermitstash-vX.Y.Z.vex.json` | CSAF 2.1 VEX document | attached when CVE assessments exist |
+
+The OCI image itself carries SLSA L3 provenance (via the SLSA generic
+container generator) plus a Sigstore-keyless cosign signature. Verify both
+with:
 
 ```bash
-cosign verify-attestation \
+slsa-verifier verify-image ghcr.io/dotcoocoo/hermitstash@<digest> \
+  --source-uri github.com/dotCooCoo/hermitstash \
+  --source-tag vX.Y.Z
+
+cosign verify ghcr.io/dotcoocoo/hermitstash@<digest> \
   --certificate-identity-regexp 'https://github.com/dotCooCoo/hermitstash/' \
-  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-  --type 'https://docs.oasis-open.org/csaf/csaf-vex/v2.1/' \
-  ghcr.io/dotcoocoo/hermitstash:vX.Y.Z
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
 ```
 
-When `vex/statements.json` has no entries the attestation is omitted — most
-releases will fall into that bucket.
+To verify the ML-DSA-65 signature, fetch the release-signing public key
+from `keys/release-pqc-pub.json` in the repo, then verify against the
+saved-image bytes. The public-key file is committed in-tree and signed via
+the commit signature chain, so the trust root is the maintainer's SSH
+signing key (same as for tag verification). When `vex/statements.json` has
+no entries the VEX attestation is omitted — most releases will fall into
+that bucket.
+
+#### One-time release-signing key setup (maintainer only)
+
+The release workflow looks for `RELEASE_PQC_SIGNING_KEY` in its `release`
+environment. To generate the keypair:
+
+```bash
+node scripts/generate-release-signing-key.js
+# Writes keys/release-pqc-pub.json (commit this file).
+# Prints the private key — set as the env secret:
+gh secret set RELEASE_PQC_SIGNING_KEY --env release \
+  --repo dotCooCoo/hermitstash --body "<paste>"
+```
+
+The signer self-verifies against the in-tree public key before writing
+the `.mldsa.sig` sidecar, refusing to ship an unverifiable signature when
+the secret drifts from the committed pubkey. The workflow gracefully
+skips the sidecar with a warning when either piece is missing — the
+release still ships with the L3 + cosign + digest sidecars + VEX.
 
 ### Boot-time clock check
 

@@ -4875,6 +4875,99 @@ function testGitleaksTrippingPatternsAllowlisted() {
     bad);
 }
 
+// ---- Pattern: dense wildcard runs in lib/ ----
+//
+// class: dense-wildcard
+//
+// CVE-2026-4923 — multi-wildcard route / glob patterns compile to
+// catastrophic-backtracking regex on engines that fold `*` into a
+// regex alternation. Detector refuses any line in lib/ that carries
+// 4+ consecutive `*` outside comments. The regex is the bare run with
+// no surrounding string-literal anchors so the matcher itself cannot
+// catastrophic-backtrack on long lines.
+function testNoDenseWildcardRunsInLib() {
+  var matches = _scan(/\*{4,}/);
+  matches = _filterMarkers(matches, "dense-wildcard");
+  _report("no source line carries 4+ consecutive '*' (CVE-2026-4923 " +
+          "/ CVE-2026-33671 / CVE-2026-26996 wildcard-amplification class)",
+    matches);
+}
+
+// ---- Pattern: uncapped Object.fromEntries(URLSearchParams) ----
+//
+// class: uncapped-searchparams-object
+//
+// CVE-2026-21717 — V8 HashDoS via integer-shaped query keys. A
+// request to `/?0=&1=&2=&...` flushed through
+// `Object.fromEntries(searchParams)` builds an object whose hidden-
+// class transitions degrade to O(n^2). Cap key count before walking.
+function testNoUncappedSearchParamsObject() {
+  var matches = _scan(/Object\.fromEntries\([^)]*searchParams/);
+  matches = _filterMarkers(matches, "uncapped-searchparams-object");
+  _report("Object.fromEntries(searchParams) must enforce a key cap " +
+          "(CVE-2026-21717 V8 HashDoS class)",
+    matches);
+}
+
+// ---- Pattern: hex SHA/HMAC compare with === / !== ----
+//
+// class: hex-sha-compare-equals
+//
+// CVE-2026-21713 — HMAC / signature / MAC verify paths MUST route
+// through timingSafeEqual. Match identifier-name pairs where at least
+// one side carries an auth-verification semantic (`hmac*Hex` /
+// `mac*Hex` / `tagHex` / `signature*Hex`). Bare `digestHex ===
+// otherDigest` (config-drift / snapshot integrity) is NOT an
+// attacker-influenced compare and stays out of scope.
+function testNoHexShaCompareEquals() {
+  var matches = _scan(
+    /\b(hmac\w*|mac\w*|signature\w*|sigVerify\w*)Hex\s*(===|!==)\s*\w+/i);
+  matches = matches.concat(_scan(
+    /\b\w+Hex\s*(===|!==)\s*(hmac\w*Hex|mac\w*Hex|signature\w*Hex|sigVerify\w*Hex)/i));
+  matches = _filterMarkers(matches, "hex-sha-compare-equals");
+  matches = _filterMarkers(matches, "raw-hash-compare");
+  _report("hex HMAC / MAC / signature compared with timingSafeEqual " +
+          "(CVE-2026-21713 — memcmp leaks per-byte timing)",
+    matches);
+}
+
+// ---- Pattern: inline require() inside deferred callbacks ----
+//
+// class: inline-require-in-deferred
+//
+// CRYPTO-15 — require() inside setImmediate / process.nextTick /
+// setTimeout / queueMicrotask defeats Node's module-resolution cache
+// for the first execution and ties module load to scheduler timing
+// (a slow-start defer can race the first hot-path request that
+// expects the module already resident). Lift the require() to a
+// top-of-file `lazyRequire` shape.
+function testNoInlineRequireInDeferred() {
+  var files = _libFiles();
+  var bad = [];
+  var re = /(?:setImmediate|process\.nextTick|setTimeout|queueMicrotask)\s*\([^)]*?\brequire\(["']\.\.?\//;
+  for (var i = 0; i < files.length; i++) {
+    var content;
+    try { content = fs.readFileSync(files[i], "utf8"); }
+    catch (_e) { continue; }
+    var lines = content.split(/\r?\n/);
+    for (var j = 0; j < lines.length; j++) {
+      var window = (lines[j] || "") + " " + (lines[j + 1] || "") + " " + (lines[j + 2] || "");
+      if (/^\s*(\/\/|\*|\/\*)/.test(lines[j])) continue;
+      if (re.test(window) && /\brequire\(["']\.\.?\//.test(window)) {
+        bad.push({
+          file:    _relPath(files[i]),
+          line:    j + 1,
+          content: lines[j].trim(),
+        });
+      }
+    }
+  }
+  bad = _filterMarkers(bad, "inline-require-in-deferred");
+  _report("require() inside setImmediate / process.nextTick / queueMicrotask " +
+          "lifts to a top-of-file lazyRequire (CRYPTO-15)",
+    bad);
+}
+
 function testKnownAntipatterns() {
   // class: known-antipattern
   // Fires at n=1 — any file matching a registered antipattern (and not
@@ -4972,6 +5065,10 @@ async function run() {
   testNoBareCommaSplitOnQuotedHeader();
   testScopedContextBindingUsed();
   testGitleaksTrippingPatternsAllowlisted();
+  testNoDenseWildcardRunsInLib();
+  testNoUncappedSearchParamsObject();
+  testNoHexShaCompareEquals();
+  testNoInlineRequireInDeferred();
   testKnownAntipatterns();
 
   // Final cumulative assertion — every detector is a hard gate.
