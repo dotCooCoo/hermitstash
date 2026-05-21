@@ -181,10 +181,29 @@ jobs:
           grep -q '"AGPL-3.0-or-later"' package.json || { echo "::error::package.json license is not AGPL-3.0-or-later"; exit 1; }
           echo "License check passed"
 
-      - name: Get version from constants.js
+      - name: Resolve version + cross-check tag vs constants.js
+        # Tag pushes derive version from the ref (`refs/tags/vX.Y.Z` →
+        # `X.Y.Z`) which is bulletproof. Workflow-dispatch (manual)
+        # falls back to `lib/constants.js` since there's no tag context.
+        # In both cases we cross-check the two sources match; a drift
+        # between the tag and constants.js fails loud (v1.11.7 shipped
+        # with `vdev` filenames because the prior shape swallowed a
+        # `node` error and silently fell back to "dev").
         id: version
         run: |
-          VERSION=$(node -e "console.log(require('./lib/constants').version)" 2>/dev/null || echo "dev")
+          set -euo pipefail
+          CONSTANTS_VERSION=$(node -e "console.log(require('./lib/constants').version)")
+          if [[ "${GITHUB_REF:-}" == refs/tags/v* ]]; then
+            TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+            if [ "$TAG_VERSION" != "$CONSTANTS_VERSION" ]; then
+              echo "::error::tag ${GITHUB_REF} → $TAG_VERSION but lib/constants.js → $CONSTANTS_VERSION (mismatch)"
+              echo "::error::bump BOTH lib/constants.js and package.json before tag-push"
+              exit 1
+            fi
+            VERSION="$TAG_VERSION"
+          else
+            VERSION="$CONSTANTS_VERSION"
+          fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Version: ${VERSION}"
 

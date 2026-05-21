@@ -1,12 +1,18 @@
-# Tag-push integrity gate. Runs on every `v*` tag push and refuses to
-# let the publish workflow start if the tag's commit SHA isn't on
-# main's first-parent history OR wasn't the result of a merged PR.
+# Tag-push integrity gate. Runs on every `v*` tag push and verifies
+# the tag's commit SHA is on main's first-parent history AND the tag
+# object itself is annotated + SSH-signed against the maintainer key.
 #
 # Defends against the tag-mutation class (CVE-2025-30066:
 # `tj-actions/changed-files` retroactive tag rewrite, 23,000+ affected
 # repos, March 2025) and the source-side-malicious-publish class
 # (TanStack 2025-05-11: 84 `@tanstack/*` versions published with valid
 # SLSA L3 provenance because the source side was compromised).
+#
+# The PR-merge requirement common to PR-flow projects does NOT apply
+# here: the public repo is sync-mirrored from the private repo
+# (scripts/sync-to-public.sh), and both repos accept direct
+# maintainer pushes to main (no PR squash-merge flow). The
+# signed-tag + first-parent invariants remain meaningful gates.
 #
 # Operators verifying release integrity locally run the same chain
 # via the recipe in README.md → "Verifying release authenticity".
@@ -77,19 +83,12 @@ jobs:
           fi
           echo "::notice::on first-parent main: OK"
 
-          # 3. Confirm the commit was merged via a PR (squash-merge
-          #    SHA appears once on first-parent; refuses on direct
-          #    push to main).
-          PR=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${SHA}/pulls" --jq '.[0].number' 2>/dev/null || true)
-          if [ -z "$PR" ] || [ "$PR" = "null" ]; then
-            echo "::error::tag $TAG points at $SHA which was NOT merged via a PR"
-            echo "::error::direct push to main bypasses the required-checks ruleset"
-            echo "::error::the publish workflow refuses to proceed; rebuild the change as a PR + merge + re-tag"
-            exit 1
-          fi
-          echo "::notice::merged via PR #${PR}: OK"
+          # PR-merge check intentionally omitted — see the file's
+          # header comment. HS uses direct-to-main pushes on both
+          # repos; a PR-merge requirement would always fail here
+          # without adding integrity value.
 
-          # 4. Confirm the tag itself is annotated AND SSH-signed.
+          # 3. Confirm the tag itself is annotated AND SSH-signed.
           #    `git cat-file -t` only distinguishes lightweight vs
           #    annotated; `git tag -v` is the one that walks the
           #    SSH-signature chain against the maintainer's
@@ -120,7 +119,7 @@ jobs:
           fi
           echo "::notice::annotated + SSH-signed tag: OK"
 
-          # 5. Emit the verified chain to the step summary for
+          # 4. Emit the verified chain to the step summary for
           #    operator visibility (release-page footer cross-
           #    reference).
           {
@@ -130,7 +129,6 @@ jobs:
             echo "|---|---|"
             echo "| Tag | \`${TAG}\` |"
             echo "| Tag commit SHA | \`${SHA}\` |"
-            echo "| Merged via | PR #${PR} |"
             echo "| Tag object type | annotated + SSH-signed |"
-            echo "| Verdict | PASS — tag SHA is on main's first-parent + result of a PR merge + signature verified against maintainer key |"
+            echo "| Verdict | PASS — tag SHA is on main's first-parent + signature verified against maintainer key |"
           } >> "$GITHUB_STEP_SUMMARY"
