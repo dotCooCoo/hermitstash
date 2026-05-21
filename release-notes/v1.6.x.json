@@ -1,0 +1,218 @@
+{
+  "minor": "1.6",
+  "releases": [
+    {
+      "version": "1.6.3",
+      "date": "2026-04-18",
+      "headline": "Accessibility, cookie policy, and landing-page updates",
+      "summary": "Improves keyboard and screen-reader accessibility across interactive elements, updates the cookie policy to cover optional analytics scripts admins may enable, and refreshes the landing page with current deployment platforms and feature surfaces.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Keyboard focus rings on interactive elements",
+              "body": "`:focus-visible` styles are now applied across buttons, links, and form controls so keyboard users have a consistent focus indicator on every interactive surface."
+            },
+            {
+              "title": "`aria-label` on the logged-out theme toggle",
+              "body": "The theme toggle in the logged-out header was previously unlabeled for assistive tech; it now exposes a descriptive accessible name."
+            },
+            {
+              "title": "`aria-hidden` on the decorative scroll progress indicator",
+              "body": "Marks the scroll progress bar as decorative so screen readers do not announce its constantly-changing percentage value."
+            },
+            {
+              "title": "Deployment platform grid on the landing page",
+              "body": "Surfaces Kubernetes, Podman, Proxmox/LXD, Terraform, Ansible, and Ubuntu/Debian as first-class install paths alongside the existing Docker option."
+            },
+            {
+              "title": "Upload Limits and Admin Overview cards in the Customer Stash section",
+              "body": "Two new feature cards explain configurable upload caps and the admin overview dashboard so prospective operators see those capabilities before installing."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Cookie policy covers optional analytics scripts",
+              "body": "Updated to account for the optional Plausible, Umami, and Matomo integrations admins can enable on public pages, including the cookies (or lack thereof) each one sets."
+            },
+            {
+              "title": "Application-layer crypto claim clarified",
+              "body": "The landing-page crypto claim now specifies application-layer encryption explicitly so it is not read as a claim about the TLS cipher suites, which use standard transport algorithms."
+            },
+            {
+              "title": "Settings count updated from 40+ to 70+",
+              "body": "Reflects the actual size of the admin settings surface after the v1.6.0 schema work."
+            },
+            {
+              "title": "Landing-page button styles aligned",
+              "body": "The bottom GitHub call-to-action button now matches the hero button style for visual consistency."
+            }
+          ]
+        },
+        {
+          "heading": "Removed",
+          "items": [
+            {
+              "title": "Redundant Desktop Sync card in How It Works",
+              "body": "The dedicated Desktop Sync section already covers this capability in depth, so the duplicate card was removed to reduce repetition."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.6.2",
+      "date": "2026-04-18",
+      "headline": "Ownership-check fixes on drop/finalize and sync/rename",
+      "summary": "Closes two ownership-bypass paths: drop/finalize now verifies the requesting user owns the bundle before accepting the finalize token, and sync/rename no longer treats anonymous bundles as unowned-and-therefore-writable.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "`drop/finalize` enforces bundle ownership",
+              "body": "Previously any API key with upload scope could finalize a bundle if it possessed the cryptographic finalize token. The route now requires the bundle's `ownerId` to match the authenticated user, providing defense-in-depth on top of token possession."
+            },
+            {
+              "title": "`sync/rename` null-ownerId bypass closed",
+              "body": "Anonymous bundles (where `ownerId` is `null`) were skipping the ownership check because the guard used short-circuit evaluation (`ownerId && ...`). The condition is now `!ownerId || ...`, so the route rejects rename attempts against anonymous bundles regardless of which API key issues the request."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.6.1",
+      "date": "2026-04-18",
+      "headline": "Deployment scripts and self-hosting platform submissions",
+      "summary": "Adds seven first-class deployment paths with ready-to-run scripts and submits HermitStash templates to six self-hosting marketplaces so operators can install from their native app stores.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Ubuntu/Debian native installer",
+              "body": "One-liner `curl ... | sudo bash` installs Node.js 24, configures tmpfs, and registers a systemd unit for native (non-container) deployments."
+            },
+            {
+              "title": "Terraform module for DigitalOcean",
+              "body": "Provisions a droplet, firewall rules, and optional DNS records for a turn-key cloud deployment."
+            },
+            {
+              "title": "Ansible playbook",
+              "body": "Supports both Docker-based and native deployment modes against existing inventories."
+            },
+            {
+              "title": "Proxmox LXC template",
+              "body": "Builds an unprivileged Debian 12 container with Docker installed, suitable for Proxmox homelab setups."
+            },
+            {
+              "title": "LXD / Incus deployment",
+              "body": "Auto-detects whether LXD or Incus is present on the host and configures nested Docker accordingly."
+            },
+            {
+              "title": "Podman deployment",
+              "body": "Supports rootless and rootful Podman, applies SELinux `:Z` volume relabeling, and generates a systemd unit for managed startup."
+            },
+            {
+              "title": "Hardened systemd unit",
+              "body": "Ships a service file with `NoNewPrivileges`, `ProtectSystem=strict`, and related sandboxing directives for native deployments."
+            },
+            {
+              "title": "Self-hosting platform templates",
+              "body": "HermitStash templates submitted to Umbrel, Cosmos Cloud, CapRover, Coolify, Portainer, and Unraid. A custom Runtipi app store is published at https://github.com/dotCooCoo/runtipi-appstore."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "OCI `image.url` label points to https://hermitstash.com",
+              "body": "Updates the container image metadata so registry UIs link to the project site rather than the previous placeholder URL."
+            },
+            {
+              "title": "README documents all deployment configurations",
+              "body": "Each of the seven new deployment paths is documented with prerequisites, install commands, and post-install verification steps."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.6.0",
+      "date": "2026-04-18",
+      "headline": "AGPL-3.0 relicense, Docker multi-arch images, settings schema, security fixes",
+      "summary": "Relicenses the project from MIT to AGPL-3.0-or-later, ships signed multi-architecture container images on GHCR with SBOM and provenance attestations, introduces a type-safe schema for all 74 admin settings, and closes an IDOR in the sync-rename path.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Multi-architecture container images on GHCR",
+              "body": "`ghcr.io/dotcoocoo/hermitstash:1.6.0` ships for `linux/amd64` and `linux/arm64`, with OCI labels, cosign signatures, SBOM and provenance attestations, Trivy scanning, and a SHA3-512 digest in the build summary. A post-publish smoke test exercises health check, non-root execution, version reporting, security headers, and graceful shutdown."
+            },
+            {
+              "title": "`/dev/shm` runtime usage monitor",
+              "body": "Warns at 75% utilisation and errors at 90% so operators using tmpfs-backed scratch storage see exhaustion before uploads start failing."
+            },
+            {
+              "title": "`lib/settings-schema.js` — typed admin settings",
+              "body": "Provides type-safe sanitisation and validation for all 74 admin settings, replacing ad-hoc per-route parsing."
+            },
+            {
+              "title": "`config.onReset()` registry",
+              "body": "Cached clients (S3, mail, webhook signers, etc.) auto-invalidate when an operator updates settings, eliminating the class of stale-client bugs that surfaced as `SignatureDoesNotMatch` after S3 credential rotation."
+            },
+            {
+              "title": "`SecP384r1MLKEM1024` as top TLS group preference",
+              "body": "Level 5 post-quantum hybrid group is now offered ahead of `X25519MLKEM768`. Preference order is centralised in `lib/constants.js` so future upgrades are a one-line change."
+            },
+            {
+              "title": "Pre-built image compose file and platform manifests",
+              "body": "Adds `docker-compose.image.yml`, a full Kubernetes manifest (namespace, PVCs, deployment, service, ingress template), an Unraid Community Applications template, and a platform deployment guide in the README covering Coolify, Portainer, Synology, QNAP, and TrueNAS."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "License relicensed to AGPL-3.0-or-later",
+              "body": "All repositories in the project move from MIT to AGPL-3.0-or-later. Downstream redistributors and network-service operators must comply with the AGPL's source-availability requirements."
+            },
+            {
+              "title": "Config values trimmed on load and save",
+              "body": "Whitespace around configuration values is stripped at both ingestion and persistence to prevent trailing-whitespace DNS and authentication failures that previously presented as opaque connection errors."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "`/sync/rename` IDOR fixed",
+              "body": "Any API key could previously rename files in any bundle regardless of ownership. The route now enforces bundle ownership before applying the rename."
+            },
+            {
+              "title": "HSTS preload directive added",
+              "body": "The `Strict-Transport-Security` header now includes `preload`, allowing the deployment to be submitted to the browser preload list."
+            },
+            {
+              "title": "`ARGON2_FAST` startup warning",
+              "body": "When the fast (test-only) Argon2id parameters are active in a production-shaped startup, a warning is emitted so the weakened cost is not silently in effect."
+            },
+            {
+              "title": "Per-chunk size limit on chunked uploads",
+              "body": "Each individual upload chunk is now bounded, closing a memory-pressure vector where a single oversized chunk could be accepted within an otherwise compliant overall upload."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

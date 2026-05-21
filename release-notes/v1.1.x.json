@@ -1,0 +1,127 @@
+{
+  "minor": "1.1",
+  "releases": [
+    {
+      "version": "1.1.0",
+      "date": "2026-04-11",
+      "headline": "Customer Stash, Security Hardening, and Vault Fixes",
+      "summary": "Introduces branded upload portals, fixes a router middleware regression that broke uploads since v1.0.2, expands field-level encryption to 15 tables, and resolves four vault rotation bugs.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Customer Stash branded upload portals",
+              "body": "New `/stash/:slug` route serves custom-branded upload pages with per-page title, instructions, accent color, and logo. Each page supports its own upload constraints (max file size, max files, default expiry, allowed extensions), optional password protection with Argon2 hashing and rate-limited unlock, a simplified upload form, and per-page stats (bundle count, total bytes). Admin panel offers full CRUD, logo upload, and purge. Slugs are encrypted with a derived hash index for zero-plaintext lookups, and reserved-slug validation is generated from the live route table."
+            },
+            {
+              "title": "Magic-byte content validation",
+              "body": "Uploaded files are verified against the claimed extension using 15 format signatures (PNG, JPG, GIF, WebP, BMP, ICO, TIFF, PDF, ZIP, RAR, 7Z, GZ, BZ2, OLE2, SVG). Files whose bytes do not match the extension are rejected, blocking disguised executables."
+            },
+            {
+              "title": "Per-IP storage quota for anonymous uploads",
+              "body": "Configurable byte cap enforced over a 24-hour rolling window for anonymous uploaders. Prevents a single IP from exhausting disk via the public drop route."
+            },
+            {
+              "title": "API key scope enforcement on drop routes",
+              "body": "All drop routes now require `requireScope(\"upload\")`. API keys without the upload scope are rejected at the middleware layer."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Field-level encryption expanded to 15 tables",
+              "body": "Sealed-field coverage grows from 7 tables to 15. Newly encrypted fields include passwordHash, authType, TOTP secrets, vault keys, webhook secrets, credential metadata, and invite tokens."
+            },
+            {
+              "title": "`isPrivateHost` returns a uniform shape",
+              "body": "All return paths now produce `{ blocked, address, family }` so SSRF callers can branch on a single object shape instead of distinguishing booleans from objects."
+            },
+            {
+              "title": "DB backup serves encrypted-at-rest copy",
+              "body": "When an encrypted-at-rest database file is available the backup endpoint serves it directly rather than re-encrypting on demand. The ciphertext leaves the server in the same form it sits on disk."
+            },
+            {
+              "title": "UI refresh across admin and drop surfaces",
+              "body": "User-management buttons gained icons and color coding, the Danger Zone was redesigned with a card layout, the Customer Stash admin panel uses a sectioned form, the drop page logo has an animated glow, stash mode drops step numbers and name/email fields, the reverse-proxy config block is collapsed by default, and the GitHub and Support links use shimmer animations."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Router middleware regression breaking all uploads",
+              "body": "The custom router invoked route-level middleware as `(req, res)` with no `next` callback, producing `TypeError: next is not a function` on every upload since v1.0.2 and surfacing as upload 500 errors. The router now detects 3-arg handlers and passes a real `next` callback."
+            },
+            {
+              "title": "Vault enable flow now uses ML-KEM-1024",
+              "body": "The enable flow had drifted from the rotation flow; both now use ML-KEM-1024, aligning with FIPS 203 and matching the on-disk envelope produced by rotation."
+            },
+            {
+              "title": "Vault rotation correctness",
+              "body": "Four rotation bugs resolved: base64url encoding on the seed transport, 64-byte seed generation, server-side seed validation, and zero-padded seed expansion. Without these, rotated vaults could produce keys that failed to decrypt previously sealed material."
+            },
+            {
+              "title": "Vault file download seed expansion",
+              "body": "`expandSeed` now zero-pads to match the dashboard enable flow. Files written by the enable flow are decryptable by the download path again."
+            },
+            {
+              "title": "PDF magic-byte detection per Adobe spec",
+              "body": "Detection scans the first 1024 bytes for `%PDF-` rather than only the first four, correctly handling files with a BOM or leading whitespace as the Adobe spec allows."
+            },
+            {
+              "title": "ZIP detection accepts OOXML variants",
+              "body": "All PK signature variants are accepted so `.docx`, `.xlsx`, and `.pptx` uploads pass content validation."
+            },
+            {
+              "title": "Stash stats decrement on every delete path",
+              "body": "Bundle and file deletion now adjust per-stash bundle count and total bytes across all four delete paths. Previously some paths left the counters stale."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "SSRF coverage for the full CGNAT range",
+              "body": "The check for `100.64.0.0/10` now uses a numeric comparison so the entire carrier-grade NAT range is blocked, not just the prefixes that happened to match the prior string test."
+            },
+            {
+              "title": "Webhook DNS pinning closes a TOCTOU rebind",
+              "body": "The resolved IP from the SSRF check is reused for the outbound connection so a hostile DNS server cannot rebind between resolution and connect."
+            },
+            {
+              "title": "CORS wildcard no longer advertises credentials",
+              "body": "When the configured origin is `*`, the response omits `Access-Control-Allow-Credentials`. This restores compliance with the Fetch spec, which forbids that combination."
+            },
+            {
+              "title": "Vault files blocked from public share routes",
+              "body": "Public share routes refuse to serve vault file paths so unauthenticated callers cannot fetch sealed ciphertext through the share surface."
+            },
+            {
+              "title": "Admin logo upload validates image magic bytes",
+              "body": "Uploaded logos must match an image signature; non-image content is rejected before it reaches disk."
+            },
+            {
+              "title": "Customer Stash hardening",
+              "body": "Password-session check enforced on every upload route under `/stash/:slug`, accentColor is hex-validated, logoUrl is scheme-validated, and the per-user storage quota is enforced on the stash path."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "FIPS 203 (ML-KEM)",
+          "url": "https://csrc.nist.gov/pubs/fips/203/final"
+        },
+        {
+          "label": "RFC 9106 (Argon2)",
+          "url": "https://datatracker.ietf.org/doc/rfc9106/"
+        }
+      ]
+    }
+  ]
+}

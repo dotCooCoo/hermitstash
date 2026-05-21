@@ -1,0 +1,220 @@
+{
+  "minor": "1.0",
+  "releases": [
+    {
+      "version": "1.0.4",
+      "date": "2026-04-11",
+      "headline": "Upload content validation and per-IP storage quota",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Magic-byte content validation on upload",
+              "body": "Uploaded files are now verified against their claimed extension using file-header signatures across 15 formats: PNG, JPG, GIF, WebP, BMP, ICO, TIFF, PDF, ZIP, RAR, 7Z, GZ, BZ2, OLE2 (legacy Office), and SVG. A `.jpg` file containing an executable payload is rejected. OOXML formats (`.docx` / `.xlsx` / `.pptx`) are correctly accepted as ZIP containers, and text formats (`.txt`, `.csv`, `.rtf`) skip validation since they have no reliable magic bytes."
+            },
+            {
+              "title": "Per-IP storage quota for anonymous uploads",
+              "body": "New `publicIpQuotaBytes` setting (Admin > Uploads tab, default disabled) caps the total bytes an anonymous IP may upload within a 24-hour rolling window. Prevents a single source IP from consuming unlimited disk space through public drops. Logged-in users continue to use the existing per-user quota."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Admin logo upload reuses the shared content-type detector",
+              "body": "Refactored the admin logo upload path to call the shared `detectContentType()` from the upload validator instead of carrying a local duplicate of the magic-byte table."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.0.3",
+      "date": "2026-04-11",
+      "headline": "Vault consistency on ML-KEM-1024 and public-share isolation",
+      "summary": "Vault enable and vault rotation now both use ML-KEM-1024 with 64-byte FIPS 203 seeds. Vault-encrypted files are no longer reachable through public bundle share routes.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Vault files blocked from public share routes",
+              "body": "`lookupFile()` now rejects vault-encrypted files, preventing unauthenticated access to vault ciphertext via `/s/:shareId/download`. Vault files are reachable only through authenticated `/vault/` routes."
+            },
+            {
+              "title": "Admin CSV export omits vault file metadata",
+              "body": "Vault file filenames and sizes are no longer included in the admin file export, since the operator should not be able to enumerate vault contents from the admin surface."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Vault enable upgraded to ML-KEM-1024",
+              "body": "The dashboard `enableVault()` flow now uses ML-KEM-1024 to match the rotation flow and FIPS 203. Previously it used ML-KEM-768, leaving enable and rotation on different algorithms."
+            },
+            {
+              "title": "Vault enable generates 64-byte seeds",
+              "body": "Seed generation now produces the 64-byte `d||z` form required by FIPS 203. Previously generated 32 bytes with zero-padding, mismatching the rotation flow."
+            },
+            {
+              "title": "Stale crypto labels in the UI",
+              "body": "Updated all UI references from \"ML-KEM-768\" to \"ML-KEM-1024\" and from \"AES-256-GCM\" to \"XChaCha20-Poly1305\" across the dashboard, upload page, vault share page, and route comments."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Compatibility notes for existing vaults",
+              "body": "Existing vaults created with ML-KEM-768 continue to work — `decryptFile()` auto-detects the algorithm by encapsulated key size, and `unlockPasskeyGated()` derives both ML-KEM-768 and ML-KEM-1024 keys. Vault files remain intentionally separate from bundles: they cannot be organized into bundles or accessed via bundle share links, since only the vault owner holds the decryption key."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.0.2",
+      "date": "2026-04-11",
+      "headline": "Security hardening across API keys, SSRF, webhooks, and CORS",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "API key scope enforcement on upload routes",
+              "body": "`requireScope()` is now wired into `/drop/init`, `/drop/file`, `/drop/chunk`, and `/drop/finalize`. API keys without the `upload` scope are rejected at the route boundary."
+            },
+            {
+              "title": "API key permission validation",
+              "body": "Key creation now validates permissions against the canonical scope enum (`admin`, `upload`, `read`, `webhook`). Arbitrary permission strings are rejected at issuance time."
+            },
+            {
+              "title": "SSRF coverage for the full CGNAT range",
+              "body": "Replaced the incomplete string-prefix match for RFC 6598 (100.64.0.0/10) with a proper numeric range check. The previous logic missed 100.80.x.x through 100.127.x.x, leaving part of the CGNAT block reachable from outbound requests."
+            },
+            {
+              "title": "Webhook DNS pinning",
+              "body": "The IP resolved during SSRF validation is now pinned via the `lookup` option on `https.request()`, closing the DNS TOCTOU / rebinding window between the validation check and the outbound connection."
+            },
+            {
+              "title": "CORS wildcard no longer paired with credentials",
+              "body": "A wildcard (`*`) `Access-Control-Allow-Origin` no longer emits `Access-Control-Allow-Credentials: true`. Credentialed CORS now requires explicitly listed origins, matching the Fetch spec."
+            },
+            {
+              "title": "DB backup serves the encrypted-at-rest file",
+              "body": "The backup endpoint now serves the `.db.enc` file when present, instead of looking for a plaintext `.db` that does not exist in encrypted-at-rest deployments."
+            },
+            {
+              "title": "Origin policy warning when `rpOrigin` is unconfigured",
+              "body": "A security warning is now logged when `rpOrigin` is not configured and the policy falls back to localhost in production, so operators notice the misconfiguration before a passkey verification fails."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.0.1",
+      "date": "2026-04-10",
+      "headline": "Vault rotation fixes and landing-page polish",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Vault passkey rotation",
+              "body": "Three bugs prevented vault key rotation from completing. The WebAuthn assertion was encoded with standard base64 rather than base64url (server-side verification failed); ML-KEM seed generation produced 32 bytes instead of the 64 bytes required by FIPS 203; and server-side validation rejected the corrected 64-byte seeds."
+            },
+            {
+              "title": "Vault file download after rotation",
+              "body": "Existing vault files could not be decrypted because `expandSeed` used SHA-512 instead of zero-padding, which mismatched the original key derivation used by the enable flow."
+            },
+            {
+              "title": "README share-ID bit length",
+              "body": "Documentation incorrectly described share IDs as 128-bit. The code generates 32-byte SHA3-derived IDs (256-bit) — README now reflects that."
+            },
+            {
+              "title": "README logo URL",
+              "body": "Switched the logo reference to an absolute `raw.githubusercontent.com` URL so it renders correctly from mirrors and package pages."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Ko-fi donation link",
+              "body": "Added a Ko-fi link in the README \"A final note\" section and registered it as the GitHub Sponsors / funding button on the repository."
+            },
+            {
+              "title": "Maintainer support setting",
+              "body": "New opt-in admin toggle (Branding tab, off by default) that surfaces a \"Support HermitStash\" link in the navbar, landing page, and footer with animated gradient text."
+            },
+            {
+              "title": "GitHub button on landing-page hero",
+              "body": "Landing page hero now includes a GitHub call-to-action with a shimmer animation alongside the existing primary action."
+            },
+            {
+              "title": "Landing-page tagline line break",
+              "body": "Inserted a line break between \"Stash it quietly.\" and \"Share it instantly.\" so the tagline reads as two lines on all viewports."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Repository hygiene",
+              "body": "Disabled Wiki and Projects on the GitHub repository, added 10 discoverability topics, and enabled Dependabot vulnerability alerts."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.0.0",
+      "date": "2026-04-10",
+      "headline": "Initial release — post-quantum encrypted self-hosted file sharing",
+      "summary": "First public release of HermitStash, a self-hosted file-sharing server with post-quantum cryptography from the ground up and zero npm runtime dependencies.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "ML-KEM-1024 + P-384 hybrid key encapsulation",
+              "body": "Hybrid KEM combining FIPS 203 ML-KEM-1024 with NIST P-384 ECDH, paired with XChaCha20-Poly1305 for symmetric encryption of all stored data."
+            },
+            {
+              "title": "Zero plaintext on disk",
+              "body": "All database fields are vault-sealed; IP addresses are stored as SHA3 hashes. Only counters, status enums, timestamps, and FK IDs remain raw."
+            },
+            {
+              "title": "Zero npm runtime dependencies",
+              "body": "All cryptographic primitives are vendored into the repository. No package downloads are required to run the server."
+            },
+            {
+              "title": "Passkey / WebAuthn login with PRF-based vault",
+              "body": "Zero-knowledge vault keyed by the WebAuthn PRF extension. The server never sees the vault encryption key in plaintext."
+            },
+            {
+              "title": "Chunked uploads with pause / resume",
+              "body": "Large transfers can be paused and resumed; the drop UI supports folder drag-and-drop for whole-tree uploads."
+            },
+            {
+              "title": "Teams, audit log, webhooks, and API keys",
+              "body": "Operator surface includes multi-user team management, an immutable audit log, outbound webhook delivery, and scoped API key issuance."
+            },
+            {
+              "title": "One-command deploy",
+              "body": "Run `node server.js` directly or use the published Docker image. No build pipeline, no compilation, no external service dependencies."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1014 @@
+{
+  "minor": "1.9",
+  "releases": [
+    {
+      "version": "1.9.39",
+      "date": "2026-05-11",
+      "headline": "Incorporate blamejs lint gates + clear 236 codebase-pattern violations",
+      "summary": "Two test files from the framework's own `test/layer-0-primitives/` now run against HermitStash's code: `tests/lint/codebase-patterns.test.js` (17 detector classes for code-shape bug patterns) and `tests/lint/test-coverage.test.js` (scans the ~50 framework primitives HS references). The initial run flagged 236 violations across `lib/`; this release clears all of them to zero.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Vendored lint gates from blamejs",
+              "body": "`tests/lint/codebase-patterns.test.js` detects raw byte / time literals, JSON.parse on operator input, inline require, process.exit in `lib/`, empty catch, raw outbound HTTP, and 11 other shapes. `tests/lint/test-coverage.test.js` maps each transitively-tested primitive to the HS-side wrapper module + integration test that exercises it. Both gates are green (47 + 1 checks)."
+            },
+            {
+              "title": "`C.BYTES.{bytes, kib, mib, gib}` helpers",
+              "body": "Adopted across crypto / DB / S3 / session modules. `b.crypto.generateBytes/generateToken` calls now route byte counts through `C.BYTES.bytes(N)` so the unit is visible at the call site."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "All 236 codebase-pattern violations cleared",
+              "body": "Category totals: 82 raw byte literals, 22 raw time literals, 30 `process.env` reads, 27 `JSON.parse` on operator input, 20 inline `require()`, 19 `process.exit` in `lib/`, 11 `console.*` in `lib/`, 10 empty `catch (_e) {}`, 4 raw outbound HTTP, 3 open-coded lazy-require, 3 `new URL()`, 2 hand-rolled chunks-array, 2 `req.socket.remoteAddress`, 1 `Buffer.from(string)`, 1 `setInterval` unref, 1 `nodeCrypto.randomBytes(n).toString`, 1 `x-forwarded-for` direct read — all now zero."
+            },
+            {
+              "title": "`C.TIME` switched to function-style helpers",
+              "body": "`C.TIME` re-exports blamejs's `{seconds, minutes, hours, days, weeks}(n)` helpers; the named-constant aliases (`C.TIME.ONE_HOUR` etc.) are retired. 93 call sites swept to the function form so the unit reads at the call site instead of in a lookup table."
+            },
+            {
+              "title": "`lib/config.js` routes through `b.config.create()`",
+              "body": "Settings load path now uses a permissive `record(string)` schema, env baseline = `process.env`, synchronous DB overlay via `vault.unseal` per row. `onReset` is driven by `cfg.subscribe`; `updateSettings` calls `_syncHydrateFromDb()` after each DB write to fan changes through `cfg.value` into the live exported config object."
+            },
+            {
+              "title": "`lib/rate-limit.js` IP extraction delegates to `lib/client-ip.js`",
+              "body": "Drops the 22-line duplicated XFF / trustProxy IP-extraction logic in favor of a 2-line delegation."
+            },
+            {
+              "title": "Framework adoption sweep",
+              "body": "`b.lazyRequire` replaces hand-rolled lazy-require patterns in 8 modules. `b.safeJson.parse` / `b.safeUrl.parse` / `b.safeEnv.readVar` adopted everywhere operator input lands. `b.httpClient.request` replaces raw `https.request` in `lib/email.js`, `lib/google-auth.js`, `lib/github-badges.js`. File-level allow-file headers on 11 inherently-protocol modules (`lib/crypto.js`, `lib/pqc-gate.js`, `lib/email.js`, `lib/settings-schema.js`, `lib/totp.js`, etc.) document where the literal IS the spec."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.9.37",
+      "date": "2026-05-11",
+      "headline": "Rate-limit monkey-patch retired, blamejs 0.8.77",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Rate-limit registry no longer monkey-patches the framework",
+              "body": "`lib/rate-limit.js` previously monkey-patched `b.middleware.rateLimit` to maintain its own `_registeredInstances` array. blamejs 0.8.77 added a module-level registry of its own (`b.middleware._modules.rateLimit.{instances, resetAll}`), so the wrap is dead weight. `lib/rate-limit.js` (162 → 125 LOC) drops the factory wrap, drops the local array, keeps `resetAllInstances()` as a thin alias that calls `b.middleware._modules.rateLimit.resetAll()`. No cross-cutting wrap of vendored code; the framework owns the registry, HS calls in."
+            },
+            {
+              "title": "Vendored blamejs 0.8.76 → 0.8.77",
+              "body": "Adds `b.middleware._modules.rateLimit.{instances,resetAll}` (used directly in the monkey-patch retirement), promotes `b.cryptoField.sealDoc` / `unsealDoc` to public (unblocks the sync test-helpers refactor in `hermitstash-sync` v0.6.24), adds `b.config.loadDbBacked({ transformValue })` (transform hook for unsealing rows before schema validation), plus an OAuth resource-server primitive, SCIM 2.0, ACME completeness pass, and 10 new audit clusters."
+            },
+            {
+              "title": "Companion `hermitstash-sync` v0.6.24 sends honest headers",
+              "body": "`lib/http-client.js` now sends `Accept-Language` + `Sec-Fetch-Mode: cors` + `Sec-Fetch-Dest: empty` on every HTTP call. Honest descriptors of what the sync client is doing (CORS-style API calls, no preferred locale, XHR-shaped fetch), not browser-fingerprint lies. Required so content-negotiating endpoints (e.g. `GET /b/:shareId` with `Accept: application/json` for bundle metadata) survive the upstream bot-guard tightening."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.9.36",
+      "date": "2026-05-11",
+      "headline": "Vendored blamejs refresh (0.8.68 → 0.8.76) + fuzz-Dockerfile exclusion",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Vendored blamejs 0.8.68 → 0.8.76",
+              "body": "Routine upstream refresh of `lib/vendor/blamejs/` picking up eight patch versions: rate-limit middleware tightening + framework internals (0.8.69 – 0.8.73), line-ending fix on `*.sh` to unblock OSS-Fuzz build (0.8.74), drops OSV-Scanner v2's removed `--fail-on-vuln` flag (0.8.75), renames SBOM to `sbom.cdx.json` for OSV-Scanner v2 (0.8.76). No server-side code changes required."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Trivy HIGH on upstream fuzzing-CI Dockerfiles",
+              "body": "v1.9.35 failed the release gate on two HIGH-severity Dockerfile misconfigs: `lib/vendor/blamejs/.clusterfuzzlite/Dockerfile` (DS-0002 no USER directive) and `lib/vendor/blamejs/oss-fuzz/projects/blamejs/Dockerfile` (DS-0002 no USER directive). Both are upstream fuzzing-CI subtrees that have no business being in the deployed image. The fix filters the directories at vendor-extract time so they never enter the snapshot: `scripts/vendor-update.sh` extends the `tar --exclude` list with `.clusterfuzzlite` and `oss-fuzz`. The plain `lib/vendor/blamejs/fuzz/` directory (fuzz target `.js` files + seed corpora, no Dockerfiles) stays — it is JS source under the same license and produces no scanner findings."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.9.34",
+      "date": "2026-05-11",
+      "headline": "CORS + bot-guard wrappers, mechanical cleanups",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`middleware/cors.js` (38 → 30 LOC)",
+              "body": "Wraps `b.middleware.cors` with `config.corsOrigins` and `getOrigin()` as `siteOrigin`. Rebuilds on `config.onReset` so admin-UI CORS changes apply without restart."
+            },
+            {
+              "title": "`middleware/bot-guard.js` (126 → 28 LOC)",
+              "body": "Wraps `b.middleware.botGuard`. The framework adds a User-Agent regex check (`curl`, `wget`, `python-requests`, `axios`, `Go-http-client`, `node-fetch`, `okhttp`, `java`, `libwww-perl`, `Ruby`, `Apache-HttpClient`) that the hand-rolled version did not have. `skipPaths` covers Bearer-authed APIs and public upload endpoints; HTML page routes (`/`, `/b/`, `/s/`, `/auth/login`, `/auth/register`) are still fingerprinted."
+            },
+            {
+              "title": "Inline `b.crypto.sha3Hash()` in `routes/stash.js`",
+              "body": "Drops the `var sha3 = ...` alias in favor of inline calls."
+            },
+            {
+              "title": "CSRF 403 path uses `res.status(403).json(...)`",
+              "body": "`routes/auth.js` now uses the response helper instead of raw `writeHead` + `JSON.stringify`."
+            },
+            {
+              "title": "Constant helpers replace raw literals",
+              "body": "`routes/admin.js` — `DISK_USAGE_TTL_MS` uses `C.TIME.FIVE_MIN`. `server-main.js` — `fs.watchFile` interval uses `C.TIME.ONE_MIN`. `scripts/vault-key-rotate.js` — ageDays divisor uses `C.TIME.ONE_DAY`."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Companion `hermitstash-sync` v0.6.23 wrong primitive name",
+              "body": "`lib/http-client.js` called `b.crypto.random(N).toString('hex')` — that function does not exist in blamejs (it is `b.crypto.generateToken(N)`). Latent since v0.6.x; surfaced once the docker-e2e suite started exercising the real production upload path."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.9.33",
+      "date": "2026-05-10",
+      "headline": "Stash-bound sync — upload and download paths",
+      "summary": "Closes several latent gaps in the stash-bound sync auth surface, surfaced by exercising the full production enrollment flow end-to-end.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`/drop/file|chunk|finalize` rejected stash-owned bundles",
+              "body": "Sync clients whose API key is bound to the stash (`boundStashId === bundle.stashId`) are now allowed; per-stash caps and access checks still apply for everyone else, so the test-stash-drop-bypass invariant stands. The stash-key bypass mirrors the WebSocket upgrade handler's existing posture."
+            },
+            {
+              "title": "`enforceBundleOwnership` 403'd every stash sync client",
+              "body": "Bundles created via `/stash/:slug/init` have `ownerId=null` because they are public-stash bundles, so the owner gate failed for any sync operation. Stash-bound keys now pass when `bundle.stashId === apiKey.boundStashId`, same logic as the WebSocket upgrade."
+            },
+            {
+              "title": "Sync download fell through to marketing HTML",
+              "body": "The sync client's download URL hit a 404 → marketing HTML, surfacing as `Download failed: HTTP 404` in container logs. New `GET /files/:fileId/download` in `routes/files.js` mirrors `/s/:shareId/download` (decrypted stream out, no download counter) but auths via sync-guards (Bearer + cert binding) and accepts either `_id` or `shareId` so it tolerates a long-standing event-shape inconsistency between realtime emit and catch-up replay."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`SYNC_ENROLL_MAX` env var",
+              "body": "`POST /sync/enroll` rate limit was hardcoded at 5/5min. Now operator-tunable; default unchanged. Multi-device fleet rollouts and parallel test runners legitimately need more without weakening the security floor — codes are 64-bit one-time-use 1h-expiry, so the brute-force ceiling is cosmically out of reach at any reasonable cap."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.9.32",
+      "date": "2026-05-10",
+      "headline": "Shields.io-style navbar badges with live GitHub data",
+      "summary": "Replaces the flat icon + plain version pill with three two-tone shield-style badges (label half + value half), matching the look readers expect from GitHub README badges.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Three two-tone navbar pills",
+              "body": "`github | ★ N` links to the repo and shows live stargazer count with a gold-star + GitHub-blue accent. `release | v1.9.32` is purple normally and turns amber + pulses if a newer GitHub release exists upstream, so an operator running an older patch sees a visible nudge in their own navbar. `built on | blamejs` uses a slate accent with the blamejs logo inline. Mobile collapses the label half, leaving compact value-only round pills."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`lib/github-badges.js`",
+              "body": "Lazy in-memory cache (1h TTL) for stargazer count + latest release tag. Synchronous read for template render; refresh fires-and-forgets so a slow GitHub API response never blocks a page. Outbound fetch is bounded with a 5s `AbortController` and falls back to the previous snapshot on failure (offline / rate-limited / DNS), so air-gapped operators see icon-only pills after the first failed attempt. `middleware/send.js` surfaces `brand.github = badges.read()` to the template — no client-side JS, purely server-rendered."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.9.31",
+      "date": "2026-05-10",
+      "headline": "Canonical PEM cert fingerprint + navbar maintainer badges",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Sync clients sometimes rejected at the WebSocket binding check",
+              "body": "Certificates issued by `b.mtlsCa.generateClientCert` were occasionally rejected at the WebSocket binding check with HTTP 403. Root cause: blamejs's PEM encoder produces no trailing newline, while the request-time PEM reconstruction (DER → base64 → wrap → BEGIN/END) included one. The two byte sequences hashed differently, so `apiKey.certFingerprint` (issuance) and `peerCertFingerprintSha3` (verification) disagreed. `lib/cert-utils.js` now exposes `canonicalCertPem()` + `certFingerprintSha3()` that strip headers/whitespace, round-trip through DER, and emit a single canonical form. All issuance sites and the peer-cert verifier in `middleware/sync-guards.js` route through the helper."
+            },
+            {
+              "title": "Nested `{{> partial}}` includes were left literal",
+              "body": "`lib/template.js` now resolves `{{> partial}}` includes recursively (bounded at 16 passes). Previously a partial including another partial was left literal, breaking `{{ }}` parsing downstream."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Navbar maintainer-support pills",
+              "body": "When `showMaintainerSupport` is enabled in admin settings, the navbar renders three additional pills alongside the existing Shop / Support links: a GitHub icon linking to the repository, a version pill linking to release notes for the running version, and a blamejs logo linking to blamejs.com."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.9.30",
+      "date": "2026-05-10",
+      "headline": "Maximize blamejs security defaults across headers, CSRF, and session",
+      "summary": "HermitStash now accepts blamejs's strictest header defaults instead of overriding them with weaker hand-rolled values. Two HS-specific concerns remain (CSP composition for hot-reloadable analytics + Google OAuth domains; HSTS gated on HTTPS) — every other security header flows through `b.middleware.securityHeaders` at the framework's OWASP-aligned default.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Security headers tightened to framework defaults",
+              "body": "`Strict-Transport-Security` goes from `max-age=31536000` (1 year) to `max-age=63072000` (2 years, hstspreload.org policy). `Referrer-Policy` goes from `strict-origin-when-cross-origin` to `no-referrer`. `Permissions-Policy` expands from 3-feature deny to 27-feature deny covering every Privacy-Sandbox surface. `Document-Policy: document-write=?0, unsized-media=?0, oversized-images=?0`, `Origin-Agent-Cluster: ?1`, and `X-DNS-Prefetch-Control: off` are now sent."
+            },
+            {
+              "title": "CSRF now uses `b.middleware.csrfProtect`",
+              "body": "`app/security/csrf-policy.js` (111 LOC) wraps the framework primitive with `tokenLookup: req => req.session._csrf` for session-stored mode. The wrapper still owns the exempt-path list, the JSON-content-type carve-out (api-encrypt's session key is the implicit CSRF), the Bearer-skip path, and lazy session-token generation. `validateToken()` helper is preserved for `routes/auth.js`'s `POST /auth/logout` that does its own body parsing inside a `req.on(\"end\")` handler."
+            },
+            {
+              "title": "`/admin/users/{suspend,delete}` now actually clear sessions",
+              "body": "`clearSessionsForUser(target._id)` was being called without `await` on both routes. The handler returned 200 to the admin while the destroy was still in flight, meaning the suspended user's other browser tabs could complete an in-flight request before the row was deleted. Both routes are now async and await the destroy call. Suspend means logged out NOW."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Session cookie format aligned with the framework",
+              "body": "`lib/session.js` dropped the `vault:` prefix strip from cookie values. The framework emits `vault:<base64>`-prefixed tokens; HS no longer rewrites them on the way out or in. Saves the 7-byte rewrite in exchange for byte-identity with framework-emitted cookies."
+            },
+            {
+              "title": "New session env-var knobs",
+              "body": "`SESSION_FINGERPRINT_FIELDS` (CSV) overrides the hardcoded `[\"clientIpPrefix\", \"userAgent\"]`. `SESSION_ABSOLUTE_TIMEOUT_MS` overrides the hardcoded `0` (disabled). Operators behind carrier-grade NAT or wanting a tighter absolute cap can now tune without code changes."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Analytics CSP domain override was ignored",
+              "body": "The override path in admin → Branding → Analytics CSP Domains was not being honored. The settings store persists `type: \"list\"` fields as JS arrays, but `resolveAnalyticsDomains` was calling `.split(\",\")` on the raw value — which throws on arrays, falling through to the auto-extract path that scans the analytics script HTML. Now handles both array and string shapes. Operators using umami / Plausible / any analytics that loads from a domain not visible in the script src tag can now allow-list it manually."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Every browser session is invalidated on upgrade",
+              "body": "The cookie format change means pre-v1.9.30 cookies fail `b.session.verify` cleanly on first request after upgrade (the payload does not carry the `vault:` prefix the framework expects). Affected users re-authenticate. Second invalidation in two patches is acceptable given the framework-shape consolidation."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.9.29",
+      "date": "2026-05-10",
+      "headline": "`b.session` migration + integration suite cleanup",
+      "summary": "Session storage now sits on top of `b.session` end-to-end. The hand-rolled tmpfs SQLite + cookie-sealing + IP-subnet binding code has been replaced by a thin facade over the framework primitives. Every existing session is invalidated once on upgrade — the pre-v1.9.29 `sessions` table (raw-sid PK) is incompatible with the new `_blamejs_sessions` schema (sha3-hashed sid PK), so every user re-authenticates on the first request after the upgrade boot.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Vendored blamejs 0.8.59 → 0.8.68",
+              "body": "Adds `b.session.updateData` (the load-bearing piece — without it, the server cannot persist mid-request `req.session.*` mutations without rotating the sid), watcher polling primitive staged for the next sync release, schemaless-document opts on `b.db.collection`, anonymous session userId support, plus 25+ smaller primitives."
+            },
+            {
+              "title": "`lib/session.js` replaced with a framework facade",
+              "body": "Calls `b.session.{create, verify, destroy, destroyAllForUser, touch, rotate, updateData}` backed by `b.session.stores.localDbThin({ file: tmpfsPath })`. Cookie wire format unchanged (HS strips the `vault:` envelope prefix; `b.session` produces it; we restore on read). Anonymous pre-login sessions get `userId: \"anon:<random>\"` and rotate to a real userId via destroy + create on `req.regenerateSession({ userId })`."
+            },
+            {
+              "title": "`lib/vault.js` mirrors passphrase env-vars into `b.vault`",
+              "body": "Calls `b.vault.init({ dataDir, mode })` after HS's wrapped/plaintext flow loads keys, with `BLAMEJS_VAULT_PASSPHRASE_*` env vars mirrored from `VAULT_PASSPHRASE_*` before either layer reads them (the safe-env reader strips on read; the mirror has to copy before HS consumes the source). `b.vault` seals/unseals against the same keypair HS uses without re-prompting the operator."
+            },
+            {
+              "title": "Session-touching service paths became async",
+              "body": "`sessionService.{loginUser, start2faPending, complete2fa, logoutUser, revokeAll, revokeUser}` and `req.regenerateSession` are now async. `res.end` is wrapped to await `b.session.updateData` + `.touch` before calling `origEnd`, so the next request's `verify()` sees the persisted state instead of racing with fire-and-forget writes."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`routes/webhooks.js` 500'd on every POST",
+              "body": "`parseJson` was removed in the v1.9.26 migration but the import wasn't updated; every webhook POST threw 500. Switched to `b.parsers.json`. Restores 6 admin-api webhook CRUD tests."
+            },
+            {
+              "title": "`users.totpAlgorithm` column was never created",
+              "body": "The column landed in COLUMNS + field-crypto seal lists in v1.9.11 but the schema migration (`ALTER TABLE users ADD COLUMN totpAlgorithm TEXT`) was missed, so `/2fa/confirm` threw `no such column: totpAlgorithm` the first time a user enabled SHA-512 TOTP on a freshly-bootstrapped DB. Restores 10 two-factor tests."
+            },
+            {
+              "title": "`scripts/vault-key-rotate.js` failed against 0xE2 envelopes",
+              "body": "Rewired to `b.crypto.{decrypt,decryptPacked}`. The legacy 0xE1 envelope from `lib/crypto.js` predates the FixedInfo KDF binding; current writers produce 0xE2 envelopes that the rotate tool's 0xE1-only path rejected. Restores 4 vault-rotate-e2e tests."
+            },
+            {
+              "title": "`/sync/enroll` returned null bundleId for stash-bound enrollments",
+              "body": "`server-main.js` now resolves `stash.syncBundleId` when the enrollment row's `bundleId` is null but `stashId` is set. `routes/stash.js`'s sync-token issuer has always left `bundleId: null` because the bundle binding lives on the customer_stash row; clients redeeming stash-bound enrollments were getting `bundleId: null` and bouncing on `bundleId or shareId is required` in `saveSyncConfig`."
+            },
+            {
+              "title": "Browser `/drop/init` was intercepted by sync apiEncrypt",
+              "body": "Rolled-in v1.9.28 fix: browser `/drop/init` goes through legacy api-encrypt — fixed the v1.9.15 – v1.9.27 regression where blamejs apiEncrypt intercepted browser uploads and returned 400 `encrypted-payload-required`. `tests/helpers/test-server.js` now mirrors `server-main.js`'s blamejs-apiEncrypt wiring exactly, so the test divergence that hid the regression is closed."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "All sessions invalidated once on upgrade",
+              "body": "Every user re-authenticates on the first request after the upgrade boot. No pre-v1 compat shim — the cookie format and the underlying session table both change. Plan the upgrade for a low-traffic window if a clean re-auth wave is disruptive."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.9.27",
+      "date": "2026-05-10",
+      "headline": "Deep blamejs migration sweep",
+      "summary": "HermitStash internals are now built on the blamejs framework primitives end-to-end. The largest single migration since blamejs was first vendored — vault, scheduler, mtls-ca, multipart, S3, TOTP, backup, CSRF, router, sanitize, api-crypto, body parsing, rate limits, time/byte constants, and timing-safe comparisons all route through `b.*` instead of HermitStash-local equivalents. Operator-facing surface (config keys, envelope format, on-disk layout, REST endpoints, sync protocol) is unchanged.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Vendored blamejs 0.8.43 → 0.8.59",
+              "body": "Absolute paths in `mtlsCa.opts.paths`, S3 presign `responseHeaders`, FixedInfo envelope binding, hybrid backup runner, `b.parsers.{json,multipart}` POISONED_KEYS / RFC 5987 / RFC 9112 obs-fold / HPE_* defenses, `b.cryptoField` schema, `b.scheduler.create` singleton, `b.objectStore.buildBackend` SigV4."
+            },
+            {
+              "title": "Core modules route through `b.*` primitives",
+              "body": "`lib/scheduler.js` and `lib/mtls-ca.js` become singleton bootstrap wrappers around `b.scheduler.create` / `b.mtlsCa.create`. `lib/vault.js` uses `b.crypto` envelope + `b.vaultWrap` orchestration. `lib/multipart.js` is now a `b.parsers.multipart` adapter. `lib/s3-client.js` calls `b.objectStore.buildBackend`. `lib/totp.js` uses `b.auth.totp` (SHA-512 path; legacy SHA-1 verify branch retained). `lib/backup.js` and `lib/restore-worker.js` use `b.backup.runInWorker`. `lib/field-crypto.js` invokes `b.cryptoField.register` explicitly instead of relying on a `require` side effect."
+            },
+            {
+              "title": "`scripts/vendor-update.sh` blamejs case",
+              "body": "Shallow git clone of the release tag from `github.com/blamejs/blamejs` (no local-sibling pull). Filters reference material and Windows-mangled paths from the extract. The manifest records both `version` and `tag` for CI freshness gates."
+            },
+            {
+              "title": "Removed dead local modules",
+              "body": "`lib/http-utils.js`, `lib/ip-quota.js`, `lib/pqc-agent.js`, `lib/vault-rotate.js`, `lib/ws.js`, `lib/zip.js`. Surface preserved through `b.*` equivalents."
+            },
+            {
+              "title": "`scripts/vendor-update.sh` lint fix (was v1.9.26)",
+              "body": "Drops an unused `AUTH_HEADER` in the blamejs case (ShellCheck SC2034 was breaking the lint gate; the actual GitHub auth runs inside the inline node script via `process.env.GITHUB_TOKEN`)."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`routes/admin.js` missing `C` binding",
+              "body": "Had to bind `var C = require(\"../lib/constants\")` so the file's many `C.PATHS.*` / `C.CA_GENERATION` references resolve. Without the binding, the regen route threw `ReferenceError: C is not defined` on every call. Caught during E2E."
+            },
+            {
+              "title": "WebSocket `readyState` comparison was numeric",
+              "body": "`lib/sync-registry.js` and `server-main.js` switched to `ws.readyState === \"open\"`. `b.websocket` exposes `readyState` as a string (`\"open\" | \"closing\" | \"closed\"`); the numeric `1` from the npm `ws` package never matched, so `listSyncConnections()` always returned `[]` and CA rotation broadcast never reached connected sync clients."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "No operator action required",
+              "body": "PQC, envelope versions, REST endpoints, sync protocol, and on-disk file layout all unchanged. Pull the new image and restart."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.9.19",
+      "date": "2026-05-07",
+      "headline": "Boot-time envelope auto-migrate + `vault.seal` swap to blamejs",
+      "summary": "Operator-visible deliverable: zero-touch envelope migration at boot. Pull the new image, restart, and the on-disk format conversion happens in-process before the server accepts requests.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Auto-migrate 0xE1 → 0xE2 at boot",
+              "body": "First boot detects 0xE1 sealed data and converts it in place, logging per-file and per-table progress. Worst-case migration time is roughly 3 minutes for ~100k sealed cells; typical small deployments measure in seconds. Crash recovery via marker file at `data/envelope-migration.marker` — a killed migration resumes from the last completed step on next boot. Subsequent boots no-op (the probe short-circuits)."
+            },
+            {
+              "title": "`lib/legacy-envelope-migrate.js`",
+              "body": "New module shared by both the boot shim (`server.js`) and the operator CLI (`scripts/envelope-migrate-0xE1-to-0xE2.js`). Migration logic is independent of `lib/vault`'s swap state and uses `lib/crypto.decrypt` directly for 0xE1 reads."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`vault.seal` / `vault.unseal` produce blamejs 0xE2 envelopes",
+              "body": "`lib/vault.js` now emits blamejs's NIST SP 800-56C r2 / RFC 9180 FixedInfo-bound envelope (SHAKE256 absorbs the suite-id label, the 4-byte envelope header binds as AAD on every XChaCha20-Poly1305 encrypt). `vault.unseal` dispatches on the envelope magic byte — `0xE2` decrypts via blamejs, `0xE1` falls through to the legacy decrypt path as a transitional fallback during the boot-time migration window when `lib/db` loads `db.key.enc` before auto-migrate has run. The `0xE1` branch becomes dead code after migration and is removed in v1.9.20+."
+            },
+            {
+              "title": "`lib/passphrase-source.js` wraps `b.vaultPassphraseSource`",
+              "body": "Routes the HermitStash env-var names (`VAULT_PASSPHRASE`, `VAULT_PASSPHRASE_FILE`, `VAULT_PASSPHRASE_SOURCE`) through the framework primitive via the `envVars` option. Eight call sites preserved unchanged."
+            },
+            {
+              "title": "Vendored blamejs bumped to 0.8.43",
+              "body": "Picks up upstream's USER-directive fix on the example wiki Dockerfile."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Fresh-install boot ran auto-migrate against a 0xE2 database",
+              "body": "`isAlreadyMigrated()` now returns true on fresh installs (no `db.key.enc` on disk yet), so the auto-migrate hook does not run against a freshly-seeded 0xE2 database. This was the regression that blocked v1.9.18 from publishing."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Raise health-check timeouts for the first boot of v1.9.19",
+              "body": "Container orchestrators with strict startup health-check timeouts should raise the probe timeout to 5 minutes for the first boot. Subsequent boots no-op."
+            },
+            {
+              "title": "Standalone CLI is still available for manual control",
+              "body": "Operators who prefer to dry-run before committing can still stop the container, run `node scripts/envelope-migrate-0xE1-to-0xE2.js` (dry-run) or `--apply`, then start the container — auto-migrate will detect the 0xE2 state and no-op."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.9.17",
+      "date": "2026-05-07",
+      "headline": "Vendored blamejs refresh 0.8.4 → 0.8.42 + envelope migration tool",
+      "summary": "Vendored blamejs jumps 38 patches, closing the three remaining framework gaps blocking the wider migration arc. Ships an operator-run envelope migration tool that converts the on-disk sealed format from the legacy 0xE1 envelope to blamejs's 0xE2 envelope. v1.9.17 itself reads and writes the legacy format unchanged — the tool only becomes required before upgrading to v1.9.18 or later.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Vendored blamejs 0.8.4 → 0.8.42",
+              "body": "Closes the three remaining framework gaps that were blocking the broader migration: `b.resourceAccessLock`, `b.config.loadDbBacked` (DB-backed hot-reload with sensitive masking), `b.backup.runInWorker` — all delivered in 0.8.41. Net: zero outstanding blamejs gaps."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`scripts/envelope-migrate-0xE1-to-0xE2.js`",
+              "body": "Operator-run one-shot conversion of every `vault:`-prefixed sealed value from HermitStash's 0xE1 envelope to blamejs 0.8.41+'s 0xE2 envelope (NIST SP 800-56C r2 / RFC 9180 FixedInfo binding via SHAKE256, 4-byte envelope header AAD-bound on every XChaCha20-Poly1305 encrypt). Crash-safe via marker file at `data/envelope-migration.marker`; refuses to re-run on already-migrated data."
+            },
+            {
+              "title": "`.dockerignore` excludes upstream blamejs reference material",
+              "body": "Excludes `lib/vendor/blamejs/{examples,test,docs,scripts,.github}/` and CHANGELOG / README / SECURITY markdown. The skipped content is upstream blamejs reference material (including an example Dockerfile lacking a `USER` directive that Trivy flagged as DS-0002 HIGH on v1.9.16). The image is roughly 15 MB smaller and Trivy now scans only the runtime surface."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Run the migration tool before upgrading past v1.9.17",
+              "body": "Stop the container, dry-run the script (`node scripts/envelope-migrate-0xE1-to-0xE2.js`), apply (`--apply`), then upgrade to v1.9.18 or later. The tool enforces step ordering: probe `data/db.key.enc` and bail early if already 0xE2, cache `dbKey` in memory before re-seal, migrate sealed PEM files, migrate every `vault:`-prefixed DB cell, migrate `db.key.enc` last."
+            },
+            {
+              "title": "v1.9.17 itself runs on existing 0xE1 data unchanged",
+              "body": "Operators not yet upgrading to v1.9.18 or later do not need to run the tool. v1.9.17 reads and writes the same 0xE1 envelope as every prior v1.9.x. The tool ships early so the maintenance window can be planned."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "NIST SP 800-56C r2",
+          "url": "https://csrc.nist.gov/publications/detail/sp/800-56c/rev-2/final"
+        },
+        {
+          "label": "RFC 9180 (HPKE)",
+          "url": "https://datatracker.ietf.org/doc/rfc9180/"
+        }
+      ]
+    },
+    {
+      "version": "1.9.15",
+      "date": "2026-05-07",
+      "headline": "`b.apiEncrypt` for sync write paths",
+      "summary": "Replaces a legacy ECIES handshake that had been silently dead code on the sync path with blamejs's per-session apiEncrypt. Pairs with hermitstash-sync v0.5.4 — both must upgrade together.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`GET /.well-known/blamejs-pubkey`",
+              "body": "Plain-JSON keypair advertisement (`{publicKey, ecPublicKey, kemId, cipherId, kdfId}`). No auth, fetched once at sync-client construction, cached client-side."
+            },
+            {
+              "title": "`DELETE /files/:fileId`",
+              "body": "Sync file delete. `requireSyncAuth` enforces scope and cert binding; bundle binding and ownership are checked inline (the server resolves the bundle from `fileId`)."
+            },
+            {
+              "title": "`lib/api-encrypt-keypair.js`",
+              "body": "Vault-sealed at-rest keypair (ML-KEM-1024 + P-384 ECDH hybrid). Generated once at first boot, registered with `vault-rotate.js` so a full vault key rotation re-seals it."
+            },
+            {
+              "title": "Router gains DELETE and PUT methods",
+              "body": "Previously GET/POST only. The methods are wired through the existing middleware chain with no special-case routing."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Sync write paths were undecryptable",
+              "body": "The legacy `_e/_t` envelope only ever decrypted on cookie-authenticated browser clients (the session apiKey was delivered via HTML template embedding). Sync / Bearer-authenticated clients never read templates and never received the key, so `getBundleMetadata`'s `_sessionKey` stayed null, the encrypted response was never decryptable, and sync-engine's `_initialSync` silently degraded to WebSocket catch-up. `deleteFile` and `renameFile` loud-failed at the session-key-required throw. blamejs apiEncrypt replaces the broken-on-arrival path for write JSON, and Bearer-authenticated callers now skip legacy api-encrypt so non-encrypted sync paths return plaintext directly."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Upgrade server and sync client in lockstep",
+              "body": "Server v1.9.15 with hermitstash-sync v0.5.4. No DB migration; the keypair is generated automatically at first boot. Existing vault rotation tooling re-seals the new keypair file because it is registered in `lib/vault-rotate.js`'s `VAULT_SEALED_FILES`."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.9.13",
+      "date": "2026-05-06",
+      "headline": "WebSocket handshake GUID fixed to RFC 6455",
+      "summary": "`lib/ws.js` had been computing `Sec-WebSocket-Accept` with `258EAFA5-E914-47DA-95CA-5AB5DC11CE46` since the WebSocket layer was first written. The actual RFC 6455 §1.3 GUID is `258EAFA5-E914-47DA-95CA-C5AB0DC85B11`. The mismatch never surfaced in production because the only consumers of `/sync/ws` are the operator-controlled `hermitstash-sync` clients, which carried a matching override. Standards-compliant browsers or any third-party WebSocket client hitting `/sync/ws` would have failed handshake.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "WebSocket handshake now uses the RFC 6455 GUID",
+              "body": "`lib/ws.js` corrected; verified against the RFC 6455 §1.3 worked example (`key = \"dGhlIHNhbXBsZSBub25jZQ==\"` → `accept = \"s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\"`). Anonymous browser-only deployments are unaffected — the server's WebSocket endpoint is sync-only and browsers do not hit it."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Lockstep upgrade with hermitstash-sync",
+              "body": "Upgrade the server and the sync client at the same time: server to `ghcr.io/dotcoocoo/hermitstash:1.9.13`, sync client to its matching release (which drops the old `handshakeGuid` override and uses the framework default). Mismatched versions will fail handshake in either direction. Roll back to `:1.9.12` if the sync client cannot be upgraded immediately."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 6455 §1.3",
+          "url": "https://datatracker.ietf.org/doc/html/rfc6455#section-1.3"
+        }
+      ]
+    },
+    {
+      "version": "1.9.12",
+      "date": "2026-05-06",
+      "headline": "Vendor blamejs as single framework + drop native argon2 binding",
+      "summary": "Server-side crypto and identity dependencies now ship as a single vendored framework — blamejs 0.8.0 — at `lib/vendor/blamejs/`. Argon2id moves off the native binding to Node 24+'s built-in `crypto.argon2`. No wire-protocol, data-at-rest, or public-surface changes.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Five vendored packages collapse into one framework",
+              "body": "The five individually-vendored packages (`@noble/ciphers`, `@noble/post-quantum`, `@simplewebauthn/server`, `@peculiar/x509` + `pkijs`, `@ranisalt/argon2` + 8-platform native prebuilds) now live inside blamejs's own vendor tree. What this repo maintains in `MANIFEST.json` collapses from five top-level entries to one, with the transitive set listed under `packages.blamejs.components` so Trivy and Grype still resolve CVEs against nested deps."
+            },
+            {
+              "title": "Argon2id runs through Node 24+'s built-in `crypto.argon2`",
+              "body": "The vendored `@ranisalt/argon2` binding (873 KB across 8 platform prebuilds) is gone, replaced by blamejs's `lib/argon2-builtin.js` wrapper around the built-in API. PHC format is identical (`$argon2id$v=19$m=N,t=N,p=N$salt$hash`); existing stored password hashes verify cleanly. No data migration required. This removes the only native code from the server vendor surface."
+            },
+            {
+              "title": "Browser bundles keep individual vendoring",
+              "body": "`public/js/noble-*` bundles still ship individually — blamejs does not provide browser builds yet."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Pull the new image and restart",
+              "body": "Pull `ghcr.io/dotcoocoo/hermitstash:1.9.12` (or `:1.9` / `:1` / `:latest`), restart, done. Existing data is unchanged. Source builds need Node 24+ for `crypto.argon2`; this is already the floor for the PQC primitives, so it is not a new requirement."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.9.11",
+      "date": "2026-04-27",
+      "headline": "TOTP modernization — HMAC-SHA-512, 128-byte secret, 8-digit codes",
+      "summary": "New 2FA enrollments use the strongest standardized RFC 6238 variant: HMAC-SHA-512, with a 128-byte secret sized to the HMAC block size (every byte contributes without pre-hash) and 8-digit codes. The previous default (HMAC-SHA-1, 20-byte secret, 6-digit codes) was the broad-interop choice, not the strongest spec-allowed configuration.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "New 2FA enrollments use SHA-512 + 128-byte secret + 8-digit codes",
+              "body": "Existing rows have NULL `totpAlgorithm` and continue to verify on the legacy SHA-1 path until forced re-enrollment completes. Backup codes are algorithm-independent (SHA3-hashed hex tokens) and keep working across the boundary."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Forced re-enrollment for legacy SHA-1 users",
+              "body": "Every existing TOTP user is gated through a one-time re-pair on next login: sign in with password, enter the existing 6-digit SHA-1 code (still verifies), server detects the legacy algorithm and sets `req.session.requiresTotpReEnroll`, user generates a new SHA-512 secret + backup codes, scans / manually enters into their authenticator, confirms. Old secret is atomically replaced; normal navigation resumes."
+            },
+            {
+              "title": "`users.totpAlgorithm` schema column",
+              "body": "Schema migration runs automatically on first boot (`ALTER TABLE users ADD COLUMN totpAlgorithm TEXT`). No data loss; existing rows have NULL, treated as legacy SHA-1."
+            },
+            {
+              "title": "`/2fa/re-enroll` routes + middleware guard",
+              "body": "New endpoints in `routes/two-factor.js`; `server-main.js` guards every navigation while `requiresTotpReEnroll` is set on the session. `views/re-enroll.html` is the forced re-pair page."
+            },
+            {
+              "title": "SLH-DSA-SHAKE-256f default for new signing keys",
+              "body": "`generateSigningKeyPair()` now defaults to SLH-DSA-SHAKE-256f. ML-DSA-87 stays verifiable — `sign` / `verify` auto-detect from key PEM, so any persisted ML-DSA-87 keys keep working without a code branch."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`random(n > 64)` silently truncated to 64 bytes",
+              "body": "`lib/crypto.js random()` post-hashed the OS RNG through SHA3-512 + `subarray(0, n)`. SHA3-512 has a fixed 64-byte digest, so `random(128)` silently returned 64 bytes. No existing caller exceeded 32 bytes, so the bug was invisible until the new 128-byte TOTP secret exercised it. `random()` now uses SHAKE256 (FIPS 202 XOF, arbitrary output length) — same defense-in-depth wrapper, no silent cap."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Confirm authenticator-app support before upgrading",
+              "body": "Verify the authenticator app handles 8-digit / SHA-512 / 128-byte secrets. The major modern apps do — 1Password, Bitwarden, Aegis, Ente Auth, Raivo. Some older Google Authenticator versions and legacy hardware tokens may not. Users on incompatible apps can use a backup code to log in once, then re-pair to a compatible app."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 6238",
+          "url": "https://datatracker.ietf.org/doc/rfc6238/"
+        },
+        {
+          "label": "FIPS 202 (SHA-3 + SHAKE)",
+          "url": "https://csrc.nist.gov/publications/detail/fips/202/final"
+        },
+        {
+          "label": "FIPS 205 (SLH-DSA)",
+          "url": "https://csrc.nist.gov/publications/detail/fips/205/final"
+        }
+      ]
+    },
+    {
+      "version": "1.9.6",
+      "date": "2026-04-22",
+      "headline": "Admin UI seal-script wizards",
+      "summary": "Enable or disable the three sealable layers (vault passphrase wrapping, mTLS CA key sealing, TLS server key sealing) directly from the admin Security tab instead of `docker exec`-ing into the container to run CLI scripts.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Vault-passphrase-enable wizard",
+              "body": "Four-step wizard: pick deployment style, copy-paste an env-var snippet tailored to Docker Compose + Secrets / Compose + .env / Kubernetes / systemd, complete a three-checkbox acknowledgment, then enter the passphrase. The wizard intentionally does NOT write the operator's `.env` / Docker secret / Kubernetes Secret — those live on the host outside the container's mount, and dropping the passphrase somewhere writable by the server would defeat the wrapping threat model. If the env-var step is skipped, the next restart fails explicitly with `passphrase rejected` rather than silently breaking."
+            },
+            {
+              "title": "CA and TLS sealing one-screen wizards",
+              "body": "Single-screen confirmations for CA key sealing and TLS server key sealing. No operator-side env config needed for these two — the keypair becomes self-contained against the vault key."
+            },
+            {
+              "title": "New audit-log actions",
+              "body": "`vault_passphrase_enabled`, `vault_passphrase_disabled`, `ca_key_sealed`, `ca_key_unsealed`, `tls_key_sealed`, `tls_key_unsealed` — every sealable-layer state change leaves an audit record."
+            },
+            {
+              "title": "Shared `lib/vault-passphrase-ops.js`",
+              "body": "Single module backing both the CLI scripts and the admin-UI routes, so the two surfaces cannot drift in behavior."
+            },
+            {
+              "title": "Sixteen E2E tests for the new routes",
+              "body": "Cover the six new `/admin/security/*` endpoints plus the admin gate, the concurrency lock, and the followUp response shape."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.9.5",
+      "date": "2026-04-22",
+      "headline": "Security admin tab + CI matrix + env-var masking fix",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "New Security admin tab",
+              "body": "Read-only status of every security-related setting in one view: vault key passphrase wrapping, mTLS CA private key sealing, TLS server private key sealing, mTLS enforcement strictness, TLS / HTTPS configuration. Each row shows a status indicator, the current effective value (masked for sensitive bits), an explanation of what the setting does, and operator guidance for the right configuration. Read-only by design — boot-time secrets must come from the environment, never the admin UI."
+            },
+            {
+              "title": "CI smoke-test matrix [plaintext, wrapped]",
+              "body": "`.github/workflows/docker-publish.yml` smoke-test job now runs once per matrix axis. The wrapped axis injects `VAULT_PASSPHRASE_MODE=required` plus a test passphrase plus `ARGON2_FAST=1`, and asserts `vault.key.sealed` exists post-boot. Catches wrapped-mode regressions of the v1.9.2 shape before release."
+            },
+            {
+              "title": "Commented `*_SEALED` blocks in Docker compose files",
+              "body": "All three compose variants (`docker-compose.yml`, `docker-compose.image.yml`, `docker-compose.coolify.yml`) gain commented blocks for `CA_KEY_SEALED`, `TLS_KEY_SEALED`, `ENFORCE_MTLS_STRICT` with inline explanation. Defaults stay off for backwards compat; new installs see the env vars in their compose file with pointers to the seal / unseal scripts."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`backupPassphraseHash` was leaking in Environment Overrides",
+              "body": "The admin Environment Overrides surface displayed the Argon2 PHC string for `backupPassphraseHash`, enabling offline brute-force against the password. Added to the `sensitiveKeys` set. A regression test now auto-catches future omissions: any new sensitive env var added to `settingsMap` without a matching `sensitiveKeys` entry fails the test."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Documented two env-var conventions",
+              "body": "README surfaces both styles in use so operators do not trip on the inconsistency: tristate `*_MODE` / `*_SEALED` (`auto` / `required` / `disabled`) for newer settings, and binary `ENFORCE_MTLS_STRICT` (`true` / `false` / unset) for the legacy mTLS-strict flag."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.9.4",
+      "date": "2026-04-22",
+      "headline": "PEM at-rest sealing + backup UX hardening",
+      "summary": "Closes the disk-snapshot threat for the last two long-lived plaintext PEM files (CA root key and TLS server key), fixes a silent backup-passphrase-clearing bug, and adds a search spinner to the audit log view.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`CA_KEY_SEALED=required` (opt-in)",
+              "body": "Uses `data/ca.key.sealed` instead of plaintext `data/ca.key`. The mTLS CA root key is vault-sealed if the operator opts in. New tools: `ca-key-seal.js`, `ca-key-unseal.js`."
+            },
+            {
+              "title": "`TLS_KEY_SEALED=required` (opt-in)",
+              "body": "Uses `data/tls/privkey.pem.sealed`. ACME-friendly — the cert watcher polls every minute and auto-seals plaintext renewals that certbot / acme.sh drop into `tls/`. ACME hooks need no changes. SIGHUP (or `scripts/tls-key-seal.js --reload`) triggers immediate `setSecureContext` reload. New tools: `tls-key-seal.js`, `tls-key-unseal.js`."
+            },
+            {
+              "title": "Backup diagnostic surfaces",
+              "body": "New `BACKUP_SKIPPED` audit action, `lastBackupAttempt` setting written on every misconfig-skip, `getBackupStatus()` exposes the blocked-reason, and the admin UI Backup section displays `\"backups are silently skipping because: $reason\"` when misconfigured instead of a bare \"No backups found\" message."
+            },
+            {
+              "title": "Audit log search spinner",
+              "body": "`views/admin-audit.html` shows a spinner near the search input on fetch start and hides it on resolve / reject. A monotonic in-flight token prevents a slow sealed-column search from rendering over a faster newer one when the operator types quickly."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Backup passphrase silently cleared on settings edit",
+              "body": "`lib/config.js getSettings()` did not mask-and-return `backup.passphrase` the way it did for every other sensitive field. Editing any backup setting (schedule, timezone, retention, S3 endpoint) without re-typing the passphrase blanked it, after which scheduled backups silently skipped on every tick with only a stderr log line. The validator now refuses `backupEnabled=true` save without an existing or new passphrase."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Vault key rotation now re-seals CA and TLS PEMs",
+              "body": "Full vault key rotation (from v1.9.3) re-seals `ca.key.sealed` and `tls/privkey.pem.sealed` against the new keypair as part of the same atomic operation."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Re-enter backup passphrase after upgrade if affected",
+              "body": "If the deployment upgraded from v1.9.0 – v1.9.3 and `BACKUP_PASSPHRASE` may have been silently cleared, re-enter the passphrase once in the admin Backup section after upgrading."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.9.3",
+      "date": "2026-04-22",
+      "headline": "Full vault key rotation",
+      "summary": "Closes the remaining at-rest threat-model gap: when the vault keypair itself is compromised (not just the passphrase), operators can now generate a new ML-KEM-1024 + P-384 hybrid keypair and re-encrypt every sealed value in the data directory in a single offline operation.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`scripts/vault-key-rotate.js`",
+              "body": "Rotates every sealed column in every DB table, every per-file XChaCha20 key index in `files.encryptionKey`, `data/db.key.enc` (which wraps the SQLite file encryption key), and `data/vault.key` or `data/vault.key.sealed`. Stop the server first; supports `--dry-run` for everything except the final swap."
+            },
+            {
+              "title": "`scripts/vault-key-verify.js`",
+              "body": "Read-only verifier that samples sealed columns and confirms they decrypt with the current vault key. Safe to run against a live server."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Staging-directory atomic swap",
+              "body": "Rotation builds a rotated copy at `data.rotating/`, verifies it round-trips, then atomically swaps `data/` to `data.old.<ISO>/` and `data.rotating/` to `data/`. A crash at any point leaves `data/` either fully pre-rotation or fully post-rotation, never partial. Boot recovery handles every interruption point."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "File blobs do not rotate (by design)",
+              "body": "Per-file keys are isolated per upload; re-sealing the column entries in `files.encryptionKey` is sufficient to invalidate access via the old vault key. The blobs on disk remain XChaCha20-encrypted under their per-file key, which is itself re-sealed."
+            },
+            {
+              "title": "Performance envelope",
+              "body": "Roughly 500 sealed-column values per second per CPU core. 100k DB rows with ~5 sealed columns each (500k values) takes about 15 minutes; 1M rows about 90 minutes. CPU-bound on ML-KEM-1024 + ECDH P-384 hybrid crypto, not I/O."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.9.2",
+      "date": "2026-04-22",
+      "headline": "Backup and restore parity under wrapped vault mode",
+      "summary": "The v1.9.0 / v1.9.1 wrapping work shipped before backup and restore had been validated end-to-end under `VAULT_PASSPHRASE_MODE=required`. v1.9.2 closes that gap and adds atomic rollback for failed restores.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Backup failed under wrapped mode",
+              "body": "Backup previously read `vault.key` directly from disk; in wrapped mode only `vault.key.sealed` exists. `lib/vault.js` now exposes `getKeysJson()` / `getCurrentPassphrase()`; `lib/backup-crypto.js` `encryptVaultKey` accepts in-memory JSON (with a disk-read fallback for plaintext-mode callers); `lib/db.js` adds `snapshotEncryptedDb()` that WAL-checkpoints and produces an encrypted DB buffer on demand."
+            },
+            {
+              "title": "Restore left the data directory in an invalid state",
+              "body": "Restore would leave the server with both `vault.key` and `vault.key.sealed` present, tripping the boot invariant. Restore now re-wraps the extracted plaintext with the current passphrase before writing, so only `vault.key.sealed` hits disk."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Atomic restore rollback (`lib/restore-rollback.js`)",
+              "body": "Pre-restore snapshots of `db.key.enc`, `hermitstash.db.enc`, `vault.key`, and `vault.key.sealed` are taken before mutation. Any error between extract and verify triggers atomic rollback to the running state. An E2E test forces a mid-restore failure and verifies the running database is intact."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Default plaintext mode upgrades are a drop-in",
+              "body": "No operator action is required for deployments not running in wrapped mode."
+            },
+            {
+              "title": "Enable wrapped mode on an existing install",
+              "body": "Run `VAULT_PASSPHRASE='...' node scripts/vault-passphrase-setup.js`, then set `VAULT_PASSPHRASE_MODE=required` in the deployment environment. To rotate use `node scripts/vault-passphrase-rotate.js --help`; to revert use `vault-passphrase-remove.js`."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.9.1",
+      "date": "2026-04-22",
+      "headline": "Vault passphrase rotation CLI",
+      "summary": "Builds on the v1.9.0 wrapping feature. Operators can now rotate the passphrase that wraps `vault.key.sealed` without touching the underlying vault key material.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`scripts/vault-passphrase-rotate.js`",
+              "body": "Atomic rotation: unwrap with OLD passphrase, wrap with NEW (fresh salt and nonce), in-process round-trip verify, atomic rename. No marker file is needed because only `vault.key.sealed` is touched; a crash before rename leaves an orphan `.tmp` that boot recovery cleans. Supports interactive, env-pair (`VAULT_PASSPHRASE_OLD` + `_NEW`), and `_FILE` variants."
+            },
+            {
+              "title": "Admin settings reflect the wrapping mode",
+              "body": "The admin Settings surface shows whether the server is running in plaintext or wrapped mode, so operators can verify configuration without inspecting the data directory."
+            },
+            {
+              "title": "`VAULT_PASSPHRASE_*` env block in `docker-compose.yml`",
+              "body": "Commented by default; surfaces the opt-in surface so operators who want to wrap don't have to discover the env-var names from the documentation alone."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Rotation protects the future, not the past",
+              "body": "If an attacker already captured both the sealed file AND the old passphrase, they already have the vault key — rotating the passphrase does not undo that. For suspected vault-key compromise the operator needs full vault key rotation (re-encrypt every DB field, every file key), which is a separate feature tracked for a later release."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.9.0",
+      "date": "2026-04-22",
+      "headline": "Opt-in passphrase wrapping for the vault keypair",
+      "summary": "Adds an opt-in layer that wraps `data/vault.key` with an Argon2id-derived XChaCha20-Poly1305 key sourced from an operator passphrase. Closes the largest at-rest gap from the threat model — `data/vault.key` was previously plaintext JSON guarded only by filesystem permissions, so a stolen backup or disk snapshot recovered everything. Default behavior is unchanged; the feature requires `VAULT_PASSPHRASE_MODE=required` to take effect.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Passphrase-wrapped vault keypair (`vault.key.sealed`)",
+              "body": "Self-describing 0xE2-magic envelope with an AAD-bound header carrying Argon2id parameters, a 16-byte salt, and a 24-byte nonce. Algorithm-agile — the KDF or cipher can be swapped without re-wrapping existing data."
+            },
+            {
+              "title": "Three passphrase sources",
+              "body": "Pick the one that fits the deployment: `VAULT_PASSPHRASE_FILE=/path/to/secret` (Docker / Kubernetes secrets idiom, recommended), `VAULT_PASSPHRASE=<passphrase>` env var, or interactive stdin with a raw-mode no-echo prompt for local development."
+            },
+            {
+              "title": "`scripts/vault-passphrase-setup.js`",
+              "body": "Atomic 9-step migration of plaintext `vault.key` to `vault.key.sealed` with in-process round-trip verification and a SHA3-pinned migration marker that survives crashes. Auto-deletes the plaintext backup after verification; `--keep-plaintext` retains it for a rollback window."
+            },
+            {
+              "title": "`scripts/vault-passphrase-remove.js`",
+              "body": "Symmetric reversal of setup. Required before downgrading to v1.8.x — a v1.8.x server cannot read `vault.key.sealed` and would generate a fresh keypair, destroying access to existing data."
+            },
+            {
+              "title": "Crash-safe boot recovery",
+              "body": "Every filesystem mutation runs `.tmp` → fsync → marker write → atomic rename → unlink → marker delete. `lib/vault.js` boot recovery handles a crash at any step, verifies sealed-file hashes against the marker, and aborts with operator instructions on tampering detection."
+            },
+            {
+              "title": "`docs/THREAT_MODEL.md` (v1.8.26)",
+              "body": "Full cryptographic design document: goals, non-goals, adversary model, primitives table, protocols with ASCII diagrams + code cross-references, key hierarchy, versioning, randomness, known limitations, assumptions, and ten specific questions for external reviewers."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`lib/mtls-ca.js` + `middleware/api-encrypt.js` use the SHA3-wrapped RNG",
+              "body": "Migrated from direct `crypto.randomBytes()` to `generateBytes()` from `lib/crypto`, matching the project's convention of routing all randomness through the wrapped RNG for defense-in-depth."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Existing deployments require no action",
+              "body": "v1.9.0 is backwards-compatible. A server with no `VAULT_PASSPHRASE_MODE` set keeps using plaintext `vault.key` exactly as before."
+            },
+            {
+              "title": "Enable wrapped mode",
+              "body": "Store the chosen passphrase in a password manager — loss of passphrase equals total data loss with no recovery mechanism. Stop the server, run `VAULT_PASSPHRASE='...' node scripts/vault-passphrase-setup.js`, set `VAULT_PASSPHRASE_MODE=required` plus `VAULT_PASSPHRASE` (or `_FILE`) in the environment, and restart."
+            },
+            {
+              "title": "Downgrade to v1.8.x",
+              "body": "Run `scripts/vault-passphrase-remove.js` under v1.9.x first, unset `VAULT_PASSPHRASE_MODE`, then downgrade. Never downgrade directly from sealed state — v1.8.x will generate a new keypair."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

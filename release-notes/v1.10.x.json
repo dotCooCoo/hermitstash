@@ -1,0 +1,225 @@
+{
+  "minor": "1.10",
+  "releases": [
+    {
+      "version": "1.10.8",
+      "date": "2026-05-14",
+      "headline": "Passkey wrapper adoption, idempotency and PQC-gate retirement, non-`lib/` canonical sweep",
+      "summary": "Closes four open framework-adoption items: `routes/passkey.js` now routes through the upstream passkey wrapper (inheriting clone-detection and prototype-pollution fixes), the local idempotency store and TCP-level PQC gate are retired in favor of upstream primitives, and the canonical require-name convention enforced on `lib/` since v1.10.5 now also applies to `routes/`, `middleware/`, and `app/`. The git tag `v1.10.7` exists but its GHCR image never published because the canonical sweep's regex accidentally renamed a local `stream` variable to `nodeStream` in `app/domain/uploads/file.service.js`; v1.10.8 reverts those four sites and lands the rest of v1.10.7's content intact.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`routes/passkey.js` adopts `b.auth.passkey` wrapper",
+              "body": "`routes/passkey.js` now routes through `b.auth.passkey.{startRegistration, verifyRegistration, startAuthentication, verifyAuthentication}` instead of the raw `@simplewebauthn/server` CJS bundle. Inherits the upstream wrapper's counter-regression refusal (CTAP 2.1 clone detection cannot be silently defeated by an unpersisted-counter row), `expectedOrigin` accepting `string[]` for multi-origin deployments, and the prototype-pollution fix in mediation-allowlist lookup."
+            },
+            {
+              "title": "Canonical `node:` and binding-name sweep across non-`lib/`",
+              "body": "Roughly 13 files in `routes/`, `middleware/`, and `app/` brought into alignment with the canonical naming convention enforced on `lib/` since v1.10.5: `require(\"fs\")` to `require(\"node:fs\")` (and the same for `path`, `crypto`, `tls`, `net`, `stream`, `url`), plus `var fs` to `var nodeFs` (and same for the other built-ins). `routes/admin.js` had four inline shadow `var fs2 = require(\"fs\")` declarations plus two inline `var path2 = require(\"path\")` declarations removed; they were redundant with the module-level binding."
+            }
+          ]
+        },
+        {
+          "heading": "Removed",
+          "items": [
+            {
+              "title": "`lib/idempotency-store.js` retired",
+              "body": "HS's roughly 70-line local DB-backed idempotency-key store is retired. The upstream `b.middleware.idempotencyKey.dbStore` (shipped in blamejs 0.9.15+) now provides the same security posture: SHA3-512 key-hashing before insert (the raw header value never reaches the DB) plus sealed body and headers via `b.cryptoField.sealRow`."
+            },
+            {
+              "title": "`lib/pqc-gate.js` retired",
+              "body": "HS's roughly 200-line PQC-only TCP gate (inspects ClientHello at the TCP level and rejects connections without a PQC key-share group) is retired in favor of `b.pqcGate.create`. Default bypass list matches the prior HS localhost rules (`127.0.0.1`, `::1`, `::ffff:127.0.0.1`)."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Idempotency-key cache table renamed",
+              "body": "The legacy `idempotency_keys` table is dropped automatically on first boot of v1.10.8; the new `blamejs_idempotency_keys` table is created lazily on the first idempotency-key middleware hit. The cache is transient (24-hour TTL), so no operator data is lost."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.10.6",
+      "date": "2026-05-14",
+      "headline": "Vendored blamejs 0.9.17 with `node:` prefix sweep",
+      "summary": "Two patches of vendored-framework cleanup plus two new lint detectors. Pure refactor with no behavior change.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`node-builtin-prefix` lint rule",
+              "body": "Every `require()` of a Node built-in must use the modern `require(\"node:fs\")` form (Node 18+ convention). Protects against userland packages shadowing built-in names; bundler and SEA static-trace passes treat `node:` as an unambiguous Node-builtin marker. Adopted from upstream blamejs 0.9.17 and gated by the existing CI lint job."
+            },
+            {
+              "title": "`internal-binding-in-prose` lint rule",
+              "body": "Internal binding names such as `nodeFs`, `nodePath`, `nodeCrypto`, and `bCrypto` cannot appear in operator-facing surface (JSDoc, error messages, audit metadata). Operators see the public API name (`path`, `fs`, `crypto`), never the internal alias. Adopted from upstream blamejs 0.9.17."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Vendored blamejs refreshed 0.9.15 to 0.9.17",
+              "body": "Picks up the two upstream lint detectors plus accompanying cleanup. Lint posture: 57 of 57 detector classes pass (up from 55 in the prior release)."
+            },
+            {
+              "title": "`node:` prefix and prose-leak sweep applied",
+              "body": "35 `require(\"…\")` to `require(\"node:…\")` rewrites across 19 `lib/` files (covering `fs`, `path`, `crypto`, `tls`, `net`, `stream`, `worker_threads`). Three prose-leak cleanups in `lib/multipart.js` and `lib/storage.js` (twice) remove internal binding names from JSDoc."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.10.5",
+      "date": "2026-05-14",
+      "headline": "Vendored blamejs 0.9.15 with canonical require sweep and lint-gate CI",
+      "summary": "Vendored blamejs jumps to 0.9.15 (bringing eight patches of hardening primitives), the lint gate now runs in CI alongside ESLint/Hadolint/ShellCheck, and `lib/` require-bindings are normalized to a single canonical naming convention. The git tags `v1.10.3` and `v1.10.4` exist but their GHCR images never published because the new lint test lived under a gitignored path; `v1.10.5` carries the same content plus the gitignore exception that lets CI find it.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Codebase-patterns lint gate runs in CI",
+              "body": "`.github/workflows/{ci,docker-publish}.yml` now run `node tests/lint/codebase-patterns.test.js` alongside ESLint, Hadolint, and ShellCheck. Lint violations now fail the release before the GHCR image is built. All 55 detector classes pass on the post-sweep tree."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Vendored blamejs refreshed 0.9.7 to 0.9.15",
+              "body": "Brings the v0.9.x audit-hardening line: `b.middleware.idempotencyKey.dbStore` persistent replay cache, `b.crypto.hashFilesParallel` worker-pooled multi-digest hashing, `b.pqcAgent.reload` to rebuild the outbound HTTPS agent against current TLS posture without restarting, `b.metrics.snapshot.{startWriter, read, render}` atomic out-of-process metrics export (also renders Prometheus exposition), `b.retry.withBreaker` for composed retry plus circuit-breaker, `b.selfUpdate.standaloneVerifier` for install-pipeline verification before the framework is installed, and `b.vex` CSAF 2.1 VEX builder used by `scripts/build-vex.js`. HermitStash continues to use its local field-crypto-sealed idempotency store; adoption of upstream `dbStore` is its own future refactor."
+            },
+            {
+              "title": "Canonical require-binding sweep across `lib/`",
+              "body": "31 require renames across 17 `lib/` files. Node built-ins consistently bind with the `node` prefix to avoid shadowing common local names: `nodeFs`, `nodePath`, `nodeCrypto`, `nodeStream`, `nodeTls`, `nodeUrl`. HS's own `lib/crypto.js` is now bound as `bCrypto` everywhere it's imported."
+            },
+            {
+              "title": "Overflow-field migration uses safe identifier quoting",
+              "body": "`lib/db.js` overflow-field migration now routes the table identifier through `b.safeSql.quoteIdentifier(table, \"sqlite\")` instead of inline interpolation."
+            },
+            {
+              "title": "Settings boolean validation refactored",
+              "body": "`lib/settings-schema.js` boolean validation no longer uses the `value === \"\" || value === \"true\"` shape that the CDN-Cache-Control bug-class detector flags."
+            },
+            {
+              "title": "`.gitleaks.toml` moved to project root",
+              "body": "Relocated from `tests/` to project root with a stopwords block for `x25519`, `mlkem`, `PrivateKey`, and `PublicKey` identifiers that previously triggered false positives."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.10.2",
+      "date": "2026-05-13",
+      "headline": "Idempotency-Key on mutating POSTs",
+      "summary": "Five mutating POST endpoints now honor an optional `Idempotency-Key` header so retries from the same client do not produce duplicate side effects.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Idempotency-Key support on retry-prone POSTs",
+              "body": "`POST /admin/apikeys/create`, `POST /admin/webhooks/create`, `POST /admin/users/invite`, `POST /drop/init`, and `POST /drop/finalize/:bundleId` now accept an optional `Idempotency-Key` header (any opaque string, UUID typical). The server caches the first response for 24 hours; a retry with the same key plus same body fingerprint replays the cached response without re-executing the handler. The header is optional; clients that omit it skip the cache entirely and keep working unchanged."
+            },
+            {
+              "title": "Key-reuse mismatch returns 422 problem-details",
+              "body": "Sending the same `Idempotency-Key` with a different request body returns 422 plus `application/problem+json` carrying type `https://hermitstash.com/problems/idempotency/key-reuse-mismatch`. The draft spec mandates the refusal because reuse across genuinely different operations is a client-side mistake."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "First boot creates the `idempotency_keys` table",
+              "body": "A new `idempotency_keys` table is created at first boot via `CREATE TABLE IF NOT EXISTS`; no data migration. Cleanup runs hourly via the existing scheduler and expired rows GC themselves."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "draft-ietf-httpapi-idempotency-key",
+          "url": "https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key/"
+        }
+      ]
+    },
+    {
+      "version": "1.10.1",
+      "date": "2026-05-13",
+      "headline": "RFC 9457 errors, NTP boot check, CSAF 2.1 VEX",
+      "summary": "Non-HTML API clients now receive RFC 9457 problem-details responses, the server verifies system clock drift against public NTP at boot, and release images can carry a CSAF 2.1 VEX attestation when the release ships CVE assessments.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "RFC 9457 problem-details on API responses",
+              "body": "Non-HTML clients (Bearer-authenticated API, sync client, anything not sending `Accept: text/html`) now receive errors as `application/problem+json` with body shape `{ type, title, status, detail? }`. 5xx `detail` is suppressed so internal failure text never reaches the client. HTML clients continue to receive the standard error template via content negotiation on `Accept`."
+            },
+            {
+              "title": "Boot-time NTP clock-drift check",
+              "body": "The server queries `time.cloudflare.com` and `pool.ntp.org` at startup to verify the system clock. Audit log timestamps, session/token expirations, backup naming, and cert validity all depend on it. Default: `info` log for drift under 5 min, `warn` for 5 min to 1 hr, `warn` and continue at 1 hr or more. Set `BLAMEJS_NTP_STRICT=1` to refuse to boot at the 1 hr tier. NTP unreachable is always a soft warning so deployments do not fail closed without operator intent."
+            },
+            {
+              "title": "CSAF 2.1 VEX attestation on container images",
+              "body": "When a release ships CVE assessments (a `vex/statements.json` with entries), the Docker workflow attaches a CSAF 2.1 VEX document to the GHCR image as a cosign attestation with predicate type `https://docs.oasis-open.org/csaf/csaf-vex/v2.1/`. This release ships no VEX entries, so the attestation is omitted; future releases with transitive-CVE assessments will carry it."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "API consumers must read `.detail` instead of `.error`",
+              "body": "The pre-v1.10.1 `{ \"error\": message }` response shape is gone. Switch to `.detail` from the new problem-details body. For type-stable error branching, key off `.type` (the URI under `https://hermitstash.com/problems/`) rather than HTTP status alone."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 9457",
+          "url": "https://datatracker.ietf.org/doc/rfc9457/"
+        },
+        {
+          "label": "CSAF 2.1 VEX",
+          "url": "https://docs.oasis-open.org/csaf/csaf/v2.1/"
+        }
+      ]
+    },
+    {
+      "version": "1.10.0",
+      "date": "2026-05-11",
+      "headline": "Full blamejs framework adoption",
+      "summary": "The minor bump closes the v1.9.x adoption arc. Every framework primitive HermitStash uses now routes through the canonical `b.*` surface, and every code-shape bug class the framework's lint gates check is at zero violations on HS's `lib/` tree. No operator-facing behavior change: every refactor preserved the public surface and runtime semantics.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Vendored blamejs refreshed 0.8.78 to 0.8.80",
+              "body": "Picks up framework internals from 0.8.79 and the `b.config.loadDbBacked` overlapping-tick race fix in 0.8.80. HermitStash uses `b.config.create()` directly (not the polling `loadDbBacked` wrapper), so the race is not load-bearing for HS, but the refresh keeps the vendored snapshot at the latest published surface."
+            },
+            {
+              "title": "Internal primitives now route through `b.*`",
+              "body": "Rate-limit registry, field-crypto `sealDoc` in test seeding, DB-backed config with save-triggered reload via `cfg.subscribe`/`cfg.reload`, and the codebase-patterns + test-coverage lint gates all run from the framework rather than parallel HS implementations. HermitStash is now a thin product layer over blamejs."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

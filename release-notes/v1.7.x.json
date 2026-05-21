@@ -1,0 +1,161 @@
+{
+  "minor": "1.7",
+  "releases": [
+    {
+      "version": "1.7.7",
+      "date": "2026-04-19",
+      "headline": "Storage Migration, Backup Restore, mTLS Lifecycle, Deploy Hardening",
+      "summary": "Rollup of v1.7.0 through v1.7.7 covering storage tooling, backup safety, mTLS certificate lifecycle automation, deployment polish, and observability improvements.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Storage migration between local disk and S3",
+              "body": "Files are copied as raw ciphertext, since the encryption layer is independent of the storage backend, so no re-encryption is required."
+            },
+            {
+              "title": "Orphan cleanup tooling",
+              "body": "Finds and removes storage files with no DB record, S3 objects with no DB record, and DB records pointing to missing files."
+            },
+            {
+              "title": "Restore from the admin UI",
+              "body": "Pre-restore snapshots of `vault.key`, `db.key.enc`, and `hermitstash.db.enc` are taken for crash recovery before the restore proceeds."
+            },
+            {
+              "title": "Encrypted backup manifest",
+              "body": "Backup archives are passphrase-protected and surface a clear error when the supplied passphrase is wrong."
+            },
+            {
+              "title": "TLS certificates and mTLS CA included in backup/restore",
+              "body": "Operators no longer need to back these files up out-of-band; they round-trip through the same encrypted archive."
+            },
+            {
+              "title": "mTLS client certificate expiry tracking with auto-renewal",
+              "body": "Client certs are renewed automatically before expiry, eliminating the manual reissue chore that previously broke sync connections."
+            },
+            {
+              "title": "Client-initiated cert renewal via `POST /sync/renew-cert`",
+              "body": "Both a valid API key and a valid mTLS cert are required; the endpoint returns a fresh client certificate signed by the mTLS CA."
+            },
+            {
+              "title": "Admin UI cert reissue for broken sync connections",
+              "body": "Operators can reissue a client cert from the UI when a sync client's existing cert is unrecoverable."
+            },
+            {
+              "title": "One-time enrollment codes for sync clients",
+              "body": "Codes such as `HSTASH-A4K9-XMWP-7RB2` bundle the API key and mTLS certs together so the client redeems and gets everything in one round-trip."
+            },
+            {
+              "title": "Runtime env vars `PUID`, `PGID`, `UMASK`, `TZ`",
+              "body": "Defaults are `99:100` (Unraid `nobody:users`); override with `1000:1000` for standard Linux. `UMASK` defaults to `022`; use `000` for Unraid sharing."
+            },
+            {
+              "title": "Multi-platform install paths",
+              "body": "`docker-compose.yml`, `docker-compose.image.yml`, `docker-compose.coolify.yml`, `kubernetes.yml`, `unraid-template.xml`, plus install scripts for podman, LXD/Incus, Proxmox LXC, Ansible, and Terraform."
+            },
+            {
+              "title": "Image tag scheme `:1`, `:1.7`, `:1.7.7`, `:latest`, `:sha-<commit>`",
+              "body": "Operators pick the level of stability they want; user-facing examples now pin to `:1` for minor/patch updates."
+            },
+            {
+              "title": "Coolify Docker Compose build pack",
+              "body": "Dedicated `docker-compose.coolify.yml` with `is_directory: true` volumes and a compose-level healthcheck."
+            },
+            {
+              "title": "ESLint, Hadolint, and ShellCheck on every push and PR",
+              "body": "Each run posts a summary table comment, and `eslint-plugin-security` adds prompt-injection-style and crypto-pattern rules."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Migration preview flags missing source files before start",
+              "body": "Operators see how many records have missing source files up front, with a hint pointing to Orphan Cleanup so they do not watch every file fail in turn."
+            },
+            {
+              "title": "Per-file errors are visible during and after migration",
+              "body": "The admin UI now exposes per-file detail instead of an opaque `5 failed` count; the same fix lands on restore so path-traversal rejections count toward `failedUploads` rather than being silently dropped."
+            },
+            {
+              "title": "Backup scheduler no longer runs on every server restart",
+              "body": "Atomic writes, locking, S3 validation, and safe pruning are in place; individual backups can be deleted from the UI and backup history reloads after a settings save."
+            },
+            {
+              "title": "Same-bucket guard for storage and backup",
+              "body": "Storage and backup cannot share the same S3 bucket, which prevents migration into the backup bucket and vice versa."
+            },
+            {
+              "title": "Container security hardening",
+              "body": "`init: true` (tini as PID 1), `no-new-privileges`, `cap_drop: ALL` with a minimal `cap_add` set, non-root via `gosu`, and graceful `SIGTERM` shutdown."
+            },
+            {
+              "title": "Unraid Community Apps template fixed and consolidated",
+              "body": "The broken `Default=\"true|false\"` syntax is corrected, and the duplicate template at the repo root is consolidated with a self-referencing `TemplateURL`."
+            },
+            {
+              "title": "WebSocket heartbeat sent immediately on connect",
+              "body": "Clients confirm the connection is live without waiting for the first 30s interval tick; subsequent heartbeats continue at the existing 30s cadence."
+            },
+            {
+              "title": "Silent-failure audit across job and worker code paths",
+              "body": "Every error path that increments a failure counter or skips work now logs at `warn` or `error` with file path, ID, and error message. Affects `storage-migration.service.js`, `restore-worker.js`, `cert-expiry.job.js`, `expiry-cleanup.job.js`, and `chunk-gc.job.js`."
+            },
+            {
+              "title": "Slug validator and filename sanitizer rewritten",
+              "body": "Nested-quantifier patterns are replaced with structurally safe regexes, removing the need for linter suppression comments."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`isS3Path` returns a boolean",
+              "body": "Previously returned `null` / `undefined` for falsy input, which broke callers that did strict comparisons against `true` / `false`."
+            },
+            {
+              "title": "`reissueCert` uses `findOne` instead of non-existent `findById`",
+              "body": "The admin-UI reissue path threw on the missing helper; it now resolves the credential record correctly."
+            },
+            {
+              "title": "Audit log race condition, path traversal, `var` shadowing, and pre-signed key handling",
+              "body": "Concurrent writes no longer interleave, traversal attempts are rejected, the shadowed binding is renamed, and pre-signed S3 keys are handled correctly."
+            },
+            {
+              "title": "Backup history reload after settings save",
+              "body": "The history pane refreshes immediately so a freshly-saved schedule reflects in the visible list without a manual reload."
+            },
+            {
+              "title": "S3 storage path stored from `saved.path`",
+              "body": "The S3 backend was previously persisting the local relative path on the DB record; the path now comes from the storage adapter's return value."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "`PUID` / `PGID` ownership check on upgrade from pre-v1.7.2",
+              "body": "Pre-v1.7.2 images ran the container as root; v1.7.x runs as `hermit` and remaps via gosu. Check ownership of `/app/data` and `/app/uploads` after upgrade — the entrypoint chowns them automatically on first start."
+            },
+            {
+              "title": "Pin image tag to `:1` or `:1.7.7` instead of `:latest`",
+              "body": "`:1` tracks minor and patch updates within the v1 line; `:1.7.7` pins exactly. Both are preferable to `:latest` for operators who want predictable upgrades."
+            },
+            {
+              "title": "Run Orphan Cleanup before Storage Migration",
+              "body": "If migrating local files to S3, run `Orphan Cleanup → Scan` first to surface dangling DB records, clean those up, then run `Storage Migration → Preview → Start`. The preview now flags dangling records inline as a reminder."
+            },
+            {
+              "title": "v1.7.6 tag skipped — no Docker image published",
+              "body": "v1.7.6 attempted to pin `gosu=1.17-3+b4` and `curl=8.14.1-2+deb13u2` for Hadolint DL3008 compliance, but the live Debian Trixie mirror versions did not match `node:24-slim`'s apt snapshot. v1.7.7 ships everything from v1.7.6 minus the broken pin."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,550 @@
+{
+  "minor": "1.8",
+  "releases": [
+    {
+      "version": "1.8.26",
+      "date": "2026-04-22",
+      "headline": "Threat model published",
+      "summary": "Ships `docs/THREAT_MODEL.md`, the first full published threat model for HermitStash. Documentation milestone — no code behavior change in this tag.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`docs/THREAT_MODEL.md`",
+              "body": "Covers the cryptographic design, threat categories (N1-N15) with their stated mitigations or explicit out-of-scope declarations, limitations (L1-L20+) with workarounds, and review-ready open questions the project is still working through. Audience is security reviewers and operators making trust decisions. Notable entries: N1 — host compromise (explicitly out of scope), L2 — vault key on disk plaintext (the gap v1.9.0 will address with opt-in passphrase wrapping), L3 — no forward secrecy for stored data (vault compromise retroactively decrypts everything), L4 — envelope header not bound as AAD (future hardening)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.8.25",
+      "date": "2026-04-21",
+      "headline": "Chainguard Wolfi base and strict CI gates (v1.8.19 through v1.8.25)",
+      "summary": "A security-and-CI hardening rollup. The Docker image now runs on a Chainguard Wolfi base (near-zero CVE surface, continuously rebuilt for upstream patches) and every CI step that can lint now does, at the strictest useful threshold.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Chainguard Wolfi base image",
+              "body": "Replaces `node:24-slim` (Debian Trixie). Prior Trivy scans reported roughly 100 base-image findings (mostly unfixed upstream Debian CVEs); the Wolfi base rebuilds each digest when fixes land, so at-digest CVE count is typically near zero. Same `:1`, `:1.8`, and `:latest` tags — pulling on existing deployments just picks up the new base."
+            },
+            {
+              "title": "Two-step Trivy scan",
+              "body": "Build now runs a full-severity visibility scan (UNKNOWN through CRITICAL, secrets, misconfig, including unfixed) for the follow-up fix queue, plus a narrow gate that fails the release on fixable HIGH/CRITICAL findings only. Upstream-unpatched noise stays informational; actionable issues block the publish."
+            },
+            {
+              "title": "Strict lint gates",
+              "body": "ESLint runs with `--max-warnings=0`, Hadolint with `failure-threshold: style`, ShellCheck with `--severity=style`. Surfaced three preexisting findings on first run (all fixed in the rollup)."
+            },
+            {
+              "title": "Runtime privilege drop: `setpriv` -> `su-exec`",
+              "body": "Wolfi's BusyBox ships a stripped `setpriv` applet that rejects `--reuid` and `--regid`. Swapped to `su-exec` (tiny, purpose-built, standard in the Wolfi/Alpine ecosystem). Entrypoint behavior is identical: PUID/PGID remap, volume chown, direct exec to node."
+            },
+            {
+              "title": "Entrypoint chmod-before-chown fix",
+              "body": "`chmod` now runs before `chown` so the volume-permissions loop does not need the FOWNER capability. The current cap set (`CHOWN + SETUID + SETGID + DAC_OVERRIDE`) is unchanged."
+            },
+            {
+              "title": "README accuracy pass",
+              "body": "Entrypoint description corrected (`setpriv` -> `su-exec`). Architecture summary updated to 180 JS files / 25 HTML templates / 21 DB tables (was 100+ / 26 / 20). Route and middleware counts updated to 19 routes / 15 middleware (was 18 / 12). Vendored deps table now includes `@peculiar/x509` and `pkijs` (pure-JS mTLS CA — no openssl CLI at runtime). Settings schema descriptor updated to 77 settings."
+            },
+            {
+              "title": "Heredoc-quoted shellcheck idiom",
+              "body": "The ShellCheck SC2016 findings in the entrypoint scripts were resolved by switching to `bash -s <<'EOF'` quoted-delimiter heredocs instead of suppression pragmas, so the literal-`$` intent is now expressed in the syntax."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "No-op for tag-tracking deployments",
+              "body": "The `:1`, `:1.8`, and `:latest` tags automatically roll deployments onto the new Chainguard base. Compose files, Unraid template, Kubernetes manifest, and Ansible playbook are unchanged. The rootless compose variant (`docker-compose.rootless.yml`) still works identically. If you pin to a specific patch version, bump to `:1.8.25` to pick up the new base."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.8.20",
+      "date": "2026-04-22",
+      "headline": "Chainguard Wolfi base and strict CI gates",
+      "summary": "Swaps the runtime base image to Chainguard Wolfi (continuously rebuilt for upstream patches), promotes the CI lint thresholds to fail on warnings, and splits the Trivy scan into a visibility step plus a narrow release gate.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Runtime base image -> Chainguard Wolfi",
+              "body": "Dockerfile swapped `node:24-slim` for `cgr.dev/chainguard/node:latest-dev` (glibc-dynamic Wolfi base, continuously rebuilt for CVE patches). `apk add util-linux shadow` provides `setpriv`, `groupmod`, and `usermod` needed by the existing entrypoint. Eliminates roughly 100 unfixed Debian base-image findings previously flagged by Trivy."
+            },
+            {
+              "title": "Strict CI lint gates",
+              "body": "ESLint runs with `--max-warnings=0`, Hadolint with `failure-threshold: style`, ShellCheck with `--severity=style`. Any warning now fails the release."
+            },
+            {
+              "title": "Two-step Trivy scan",
+              "body": "An all-severity visibility scan (`exit 0`, informational) runs alongside a narrow gate that fails the release on fixable CRITICAL/HIGH findings only. Visibility surfaces the full finding list for the follow-up fix queue; the gate only blocks on actionable issues."
+            },
+            {
+              "title": "File-level JSDoc preambles",
+              "body": "Added on `routes/admin.js`, `lib/router.js`, `lib/session.js`, and `lib/storage.js` to match the convention used elsewhere in `lib/`."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.8.18",
+      "date": "2026-04-20",
+      "headline": "Deployment hardening and opt-in auto-update (v1.8.16 through v1.8.18)",
+      "summary": "Adds an opt-in unattended updater for native installs, enables Podman's built-in auto-update, and documents the recommended Docker/Compose update path. Server behavior is unchanged from v1.8.15 except the version bump.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`deploy/update.sh` (native install auto-updater)",
+              "body": "Pluggable, unattended updater driven by a systemd timer. Off by default. Enable at install time with `HERMITSTASH_AUTO_UPDATE=yes`, or any time after with `sudo systemctl enable --now hermitstash-update.timer`. Reads the installed version from `package.json`, queries GitHub Releases, applies the newest tag matching the current major, restarts `hermitstash.service`, polls `/health`, and rolls back to the prior commit automatically if the new version does not come up healthy within 60s. `flock`-guarded against concurrent runs. `DRY_RUN=1` previews without touching anything. `UPDATE_CHANNEL=off` disables at runtime. Stays on the current major; going from v1.x to v2.x remains an operator-initiated action."
+            },
+            {
+              "title": "Pluggable update strategies",
+              "body": "`UPDATE_STRATEGY=git` is the only strategy active today. Explicit stubs for `release-tarball` (integrity-only) and `signed-tarball` (P-384 ECDSA against `/etc/hermitstash/trusted-keys.d/`) lay the groundwork for signed releases without rewriting the timer, rollback, or health-check paths."
+            },
+            {
+              "title": "Podman auto-update support",
+              "body": "`deploy/podman.sh` now supports `AUTO_UPDATE=true` — adds the `io.containers.autoupdate=registry` label and enables `podman-auto-update.timer`. Reuses Podman's built-in mechanism: no extra container, no Docker socket mount."
+            },
+            {
+              "title": "App-store platform screenshots",
+              "body": "Screenshots added for app-store platform submissions (Umbrel, Start9, CasaOS, etc.). Brings forward the v1.8.16 release."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "README — Docker/Compose update guidance",
+              "body": "Recommends a 3-line root cron over Watchtower (same outcome, no extra long-running service, no socket mount). Platform users (Coolify, Portainer, CapRover) are steered to native auto-deploy instead."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.8.17",
+      "date": "2026-04-22",
+      "headline": "Deployment cleanup, rootless compose, and reverse-proxy configs",
+      "summary": "Tightens up the native install and uninstall paths, adds a rootless Compose variant, and ships ready-to-use reverse-proxy configurations for Caddy, nginx, and Apache.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`deploy/uninstall.sh`",
+              "body": "Reverses `install.sh`: stops the service, removes the unit + drop-in, unmounts the tmpfs and strips its fstab entry, and removes the `hermit` user only if it owns the install directory. Data is preserved unless `--purge` is passed."
+            },
+            {
+              "title": "`docker-compose.rootless.yml`",
+              "body": "Hardened variant running as user 1000:1000 with `read_only: true` and zero capabilities. Works because the entrypoint gates chown/setpriv on `id -u = 0`."
+            },
+            {
+              "title": "`deploy/reverse-proxy/` configs",
+              "body": "Ready-to-use Caddyfile, nginx.conf, and apache.conf. Each handles TLS termination, `/sync/ws` WebSocket upgrade, a 100 MB body limit, X-Forwarded-* passthrough, and no buffering. The README in that directory covers the mTLS-sync caveat."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`deploy/install.sh` installs the checked-in unit file",
+              "body": "Installs the checked-in `hermitstash.service` unit instead of an inline heredoc (no more silent drift). Applies non-default `PORT` and path values via a systemd drop-in. On re-run, restarts the service after `git pull` instead of leaving a stale process."
+            },
+            {
+              "title": "Dockerfile dead-COPY removal",
+              "body": "Dropped the dead `COPY lib/vendor` and `COPY public` layers. Because there are zero npm dependencies, nothing interleaves with the final `COPY . .`."
+            },
+            {
+              "title": "`kubernetes.yml` moved under `deploy/`",
+              "body": "Relocated to `deploy/kubernetes.yml` for locality with the other deployment artifacts."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.8.15",
+      "date": "2026-04-20",
+      "headline": "Enforce mTLS, CA auto-rotation, and hardening rollup (v1.8.7 through v1.8.15)",
+      "summary": "Bundles enforce-mTLS mode, browser certificate issuance, in-place CA rotation with live sync-client re-provisioning, restore dry-run, and a focused E2E hardening rollup that caught three real bugs.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Enforce mTLS (soft and hard)",
+              "body": "The web UI can now be locked down to clients that present a valid CA-signed certificate. Sync clients, Bearer-authenticated API calls, `/sync/*`, and `/health` always pass through. Soft mode (Admin -> Auth -> Enforce mTLS) drops non-mTLS browser connections at the app layer via `socket.destroy()` with no HTTP response rendered. Hard mode (`ENFORCE_MTLS_STRICT=true`) rejects at the TLS handshake. `ENFORCE_MTLS_STRICT=false` forces all enforcement off at boot."
+            },
+            {
+              "title": "Browser certificate issuance",
+              "body": "Admin -> Browser Certificates issues PKCS#12 bundles for browser/OS cert stores. Bundle protection uses AES-256-CBC + HMAC-SHA-512 + 2,000,000-iteration PBKDF2 (above OWASP 2023 guidance). Per-OS install instructions live in the README."
+            },
+            {
+              "title": "mTLS CA auto-regeneration with live rotation",
+              "body": "Admin -> General -> Danger Zone -> Regenerate mTLS CA rolls the CA to the current algorithm envelope. Active sync clients receive replacement certificates over WebSocket (`ca:rotation`) and acknowledge before the server auto-restarts. Offline sync clients must re-enroll; browser certs must be re-downloaded. Every CA is version-tagged (`OU=CAv{N}` in the subject DN), so future algorithm bumps surface a legacy warning on boot and in the admin UI."
+            },
+            {
+              "title": "Restore dry-run",
+              "body": "`POST /admin/restore/run { dryRun: true }` exercises the full decrypt + checksum + path-safety pipeline against an S3 backup without writing any target files or triggering the post-restore process restart. Useful as an operator preview and as the mechanism behind the E2E roundtrip test."
+            },
+            {
+              "title": "Shared sync-guard middleware",
+              "body": "`middleware/sync-guards.js` exposes `enforceSyncScope`, `enforceCertBinding`, `enforceBundleBinding`, and `enforceBundleOwnership`, plus a `requireSyncAuth()` middleware. Every new `/sync/*` endpoint inherits the full gate chain so the per-endpoint omission pattern cannot repeat."
+            },
+            {
+              "title": "Shared authz helpers",
+              "body": "`app/shared/authz.js` adds `isAdmin()` and `canEditOwned()` and replaces 13 inline copies of `ownerId !== req.user._id && req.user.role !== \"admin\"` across bundles, files, vault, teams, and profile."
+            },
+            {
+              "title": "Repo and storage consolidation helpers",
+              "body": "`bundlesRepo.findCompleteByShareId()` collapses 5 copies of `findByShareId + status !== \"complete\" -> 404`. `storage.resolveLocalPath()` normalizes absolute and relative storagePaths with an always-applied upload-dir-escape check (two of three prior inline copies had skipped the safety check). `lib/http-utils.extractBearerToken()` is the single source of truth for Bearer extraction; fixes a drift where WS upgrade trimmed whitespace but `api-auth` middleware did not, making extra-whitespace tokens hash differently per path."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "`/sync/rename` missed `boundBundleId` enforcement",
+              "body": "A sync key scoped to bundle A could rename files in bundle B if the same user owned both. WS upgrade and other bundle-scoped endpoints already enforced the binding; `/sync/rename` was overlooked."
+            },
+            {
+              "title": "`/sync/rename` missed `certFingerprint` enforcement",
+              "body": "A leaked Bearer token for a cert-bound key could call `/sync/rename` without presenting the matching client certificate. Same omission shape as the bundle-binding gap, different binding."
+            },
+            {
+              "title": "`bundle.seq` TOCTOU race",
+              "body": "Parallel uploads, deletes, and renames all read `bundle.seq`, awaited storage I/O, then wrote `oldSeq + 1`, producing duplicate seq values on the WebSocket stream. Downstream sync clients use `seq > lastSeq` for catch-up and silently dropped duplicates. Fixed with a new atomic `bundlesRepo.incrementSeq()` using SQLite `UPDATE ... RETURNING`."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Strict ESLint and unified config",
+              "body": "Zero ESLint warnings (was 9 unused `eslint-disable` directives — 7 dead directives deleted). `tests/eslint.config.js` and the inline heredoc in `.github/workflows/ci.yml` are unified into a single canonical `eslint.config.js` at the repo root; CI now runs `npx eslint .` directly."
+            },
+            {
+              "title": "Error-path logging restored",
+              "body": "6 error-handling catches that returned 500 without logging now emit `logger.error(...)` so operators can diagnose failures on `/sync/enroll`, `/sync/renew-cert`, `/vault/stealth`, `/admin/logo/remove`, `/s/:shareId/download`, and the backup-restore decrypt path."
+            },
+            {
+              "title": "Silent-catch annotations",
+              "body": "74 silent `catch (_e) {}` blocks are annotated with one-line intent so future drift becomes visible to reviewers."
+            },
+            {
+              "title": "Admin email-fallback polish",
+              "body": "Consistent spacing in invite flows. Password-reset links surface inline when SMTP is down so an admin can copy them out-of-band (carried forward from v1.8.7)."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 7292 (PKCS#12)",
+          "url": "https://datatracker.ietf.org/doc/html/rfc7292"
+        },
+        {
+          "label": "OWASP Password Storage Cheat Sheet",
+          "url": "https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html"
+        }
+      ]
+    },
+    {
+      "version": "1.8.10",
+      "date": "2026-04-22",
+      "headline": "Backup dry-run mode restored",
+      "summary": "Restores the `--dry-run` flag on the backup tooling so operators can confidence-check backup config without writing any output.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`--dry-run` on the backup tooling",
+              "body": "Exercises Argon2id derivation, vault key access, and per-file checksum verification end-to-end without writing any output file. Useful for confidence-checking backup configuration before committing to a full run."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.8.8",
+      "date": "2026-04-22",
+      "headline": "Enforce mTLS, browser certs, pure-JS PKI, and CA auto-regeneration",
+      "summary": "Four bundled features: an enforce-mTLS toggle (soft and hard), in-admin issuance of browser PKCS#12 bundles, removal of the `openssl` CLI dependency in favor of a pure-JS PKI stack, and mTLS CA regeneration with live sync-client rotation.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Enforce mTLS toggle",
+              "body": "Admin -> Auth -> Enforce mTLS provides an instant, app-layer enforcement toggle via `socket.destroy` in `middleware/web-guard.js`. `ENFORCE_MTLS_STRICT=true` switches enforcement to TLS-layer handshake rejection; `ENFORCE_MTLS_STRICT=false` forces all enforcement off as a lockout escape. Bearer-authenticated API, `/sync/*`, and `/health` always pass through."
+            },
+            {
+              "title": "Browser certificate issuance",
+              "body": "Admin -> Browser Certificates -> Issue + Download streams a `.p12` bundle to the operator's browser. Bundle protection uses AES-256-CBC + HMAC-SHA-512 + 2,000,000-iteration PBKDF2. Cross-platform install instructions live in the README."
+            },
+            {
+              "title": "Pure-JS PKI stack",
+              "body": "The `openssl` CLI dependency is removed from the runtime image. `@peculiar/x509`, `pkijs`, and `reflect-metadata` are vendored as `lib/vendor/pki.cjs`. Cert signatures upgraded to ECDSA P-384 with SHA-384 (from SHA-256). The algorithm envelope is centralized in `mtls-ca.js` with explicit markers for future swaps to PQ certs and PKCS#12 v3."
+            },
+            {
+              "title": "mTLS CA regeneration with live sync-client rotation",
+              "body": "Admin -> General -> Danger Zone -> Regenerate mTLS CA rolls the CA to the current algorithm envelope. `CA_GENERATION` is embedded as `OU=CAv{N}` in the cert subject so future algorithm upgrades trigger boot-time and admin-UI legacy warnings. Active sync clients receive replacement credentials over WebSocket (`ca:rotation` message), acknowledge, and the server commits + auto-restarts. Offline sync clients must re-enroll; browser certs must be re-downloaded. A `skipRestart` flag is available for E2E testing and operator preview."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "FIPS 186-5 (ECDSA)",
+          "url": "https://csrc.nist.gov/pubs/fips/186-5/final"
+        },
+        {
+          "label": "RFC 7292 (PKCS#12)",
+          "url": "https://datatracker.ietf.org/doc/html/rfc7292"
+        }
+      ]
+    },
+    {
+      "version": "1.8.7",
+      "date": "2026-04-22",
+      "headline": "Email fallback and admin UX polish",
+      "summary": "Adds an in-UI fallback when SMTP/Resend delivery fails so admins can share invite, verification, and password-reset links out-of-band, plus a master switch to disable email entirely without removing backend credentials.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Email-fallback copy modal",
+              "body": "When SMTP/Resend delivery fails, the admin UI surfaces the `inviteUrl`, `verifyUrl`, or password-reset link in a copy modal so the admin can share it out-of-band."
+            },
+            {
+              "title": "`POST /admin/users/:id/password-reset-link` endpoint",
+              "body": "Generates a password-reset link for a user without sending email. The link is shown inline in the admin UI for manual delivery."
+            },
+            {
+              "title": "`POST /admin/users/:id/resend-verification` endpoint",
+              "body": "Re-sends the verification email or, if delivery fails, surfaces the link directly via the fallback modal."
+            },
+            {
+              "title": "Per-row Reset link and Verify buttons",
+              "body": "User-list rows in the admin UI now expose Reset link and Verify actions inline alongside the existing controls."
+            },
+            {
+              "title": "`EMAIL_ENABLED` master switch",
+              "body": "New `email.enabled` boolean (default `true`). When off, `sendEmail()` short-circuits without touching any backend. SMTP and Resend credentials are preserved; toggle back on to resume delivery."
+            },
+            {
+              "title": "Pending-invite delete",
+              "body": "`POST /admin/users/invite/:id/delete` plus a matching Delete button in the invite-list row, alongside the existing Resend action."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Storage migration runs async",
+              "body": "The main thread now yields during file I/O so the admin UI stays responsive during long migration runs on large installs."
+            },
+            {
+              "title": "Admin hero spacing",
+              "body": "40px desktop and 24px mobile top padding so the first card no longer flushes against the border."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.8.6",
+      "date": "2026-04-19",
+      "headline": "Security hardening rollup (v1.8.0 through v1.8.6)",
+      "summary": "Closes several auth bypasses, DoS vectors, and one SSRF gap discovered after the v1.7.x line. Upgrade is strongly recommended for any v1.7.x deployment.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Bundle `both`-mode unlock bypass",
+              "body": "A bundle configured to require both email verification and password could be unlocked with just the password. `/unlock` now rejects unless email was verified first; `checkLock` is hardened as defense-in-depth to reject any boolean-`true` satisfaction of the email gate."
+            },
+            {
+              "title": "Default admin credentials replaced with per-install random password",
+              "body": "First-boot admin previously used `admin`/`admin`. Now generates a random password per install, logs it to stdout with a banner, and writes to `data/initial-admin-password.txt` (0600). The file is deleted when the setup wizard completes."
+            },
+            {
+              "title": "WebSocket mTLS required by default",
+              "body": "When the mTLS CA exists, `/sync/ws` upgrade requires a valid client cert. `MTLS_REQUIRED=false` is an explicit bring-up escape hatch. Per-key cert binding is enforced via `apiKey.certFingerprint` regardless."
+            },
+            {
+              "title": "`/drop/file` bypass of stash limits closed",
+              "body": "Uploads to a stash-owned bundle via `/drop/*` endpoints now 403; callers must use `/stash/:slug/*`, which applies per-stash caps and access locks."
+            },
+            {
+              "title": "SSRF gap at 240.0.0.0/4",
+              "body": "The string-prefix-matched denylist missed `241.` through `254.` (14 /8 ranges). Rewritten against Node's `net.BlockList` with proper CIDRs; also adds IPv6 doc/discard/6to4 ranges that were not covered."
+            },
+            {
+              "title": "WebSocket frame cap and mask enforcement",
+              "body": "1 MB payload cap is enforced before buffer growth. Unmasked client-to-server frames close the connection per RFC 6455 section 5.1. 127-length frames with the upper 32 bits set are rejected outright."
+            },
+            {
+              "title": "Rate-limit store memory cap",
+              "body": "100k key limit per action with oldest-10% eviction. Prevents memory balloon under distributed IP floods."
+            },
+            {
+              "title": "WebSocket cert binding normalization",
+              "body": "The WS per-key cert check now normalizes to the same `sha3Hash(PEM)` form used by the renew-cert route, so a single fingerprint comparison works across both code paths."
+            },
+            {
+              "title": "SVG sanitizer rewrite",
+              "body": "Decodes HTML entities before matching. Catches `<script/x>` (slash boundary), `<svg/onload=`, `&#x6F;nload=`, nested `data:image/svg+xml`, and `<style>` injection. The strict CSP remains the primary XSS defense."
+            },
+            {
+              "title": "Bundle lockout persistence",
+              "body": "Failed-password counters are now stored in a hash-indexed `bundle_access_lockouts` table. Survives restart and is shared across workers, with hourly cleanup of rows idle over 24 hours."
+            },
+            {
+              "title": "Vault quota bypass closed",
+              "body": "`/vault/rotate` no longer accepts a client-supplied `originalSize`. Rotation preserves plaintext content, so quota accounting cannot be manipulated through the rotate endpoint."
+            },
+            {
+              "title": "CSP `img-src` narrowed",
+              "body": "Dropped the `https:` wildcard. When Google OAuth is configured, `googleusercontent.com` is auto-allowlisted for avatars. `play.google.com` telemetry beacons stay blocked."
+            },
+            {
+              "title": "Session IP binding on IPv6",
+              "body": "Previously pinned to the full IPv6 address, causing spurious logouts on RFC 4941 privacy-address rotation. Now binds to the /64, symmetric to the IPv4 /24 binding."
+            },
+            {
+              "title": "`WWW-Authenticate` on 401 `/auth/failed`",
+              "body": "Adds the `WWW-Authenticate` response header to 401 responses on the failed-auth endpoint for RFC 7235 section 3.1 compliance."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Expired file cleanup",
+              "body": "The scheduled job compared plaintext timestamps against sealed ciphertext columns and always returned zero rows. Replaced with the ORM-based path; the dead SQL index was dropped."
+            },
+            {
+              "title": "`teams.countAdmins` sealed-column bug",
+              "body": "Same sealed-column SQL bug as the expired-cleanup job. Rewritten to load-then-filter so admin counts are accurate."
+            },
+            {
+              "title": "`storage.uploadDir` stays reactive after config reload",
+              "body": "Was a primitive export; 18 call sites saw stale values after runtime config changes. Converted to a getter so reloads propagate."
+            },
+            {
+              "title": "Cert revocation enforcement",
+              "body": "`cert_revocations` table had no writer path. Revoking an API key now also revokes its bound client certificate."
+            },
+            {
+              "title": "Stash and custom logos write to the data volume",
+              "body": "Previously wrote to `public/img/...`, which is the read-only image layer in Docker, returning 500 EACCES. Now served via explicit route handlers from `<DATA_DIR>/{stash,custom}-logos/`, with a boot-time migration handling existing files."
+            },
+            {
+              "title": "Email verification GET crash",
+              "body": "The handler called `req.csrfToken()` as a function but it is a string in the current middleware; the GET path now reads it directly."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`api_keys.keyHash` SQL index",
+              "body": "API auth was a full-table scan on every authenticated request; the new index makes lookup O(log n)."
+            },
+            {
+              "title": "mTLS CA cert generation runs async",
+              "body": "Replaced four `execFileSync` OpenSSL calls with promisified `execFile`. Stops event-loop stalls on `/sync/renew-cert` and stash-sync-token creation."
+            },
+            {
+              "title": "Logger request-ID correlation",
+              "body": "Replaced the module-global with `AsyncLocalStorage`. Concurrent requests no longer overwrite each other's IDs in log lines."
+            },
+            {
+              "title": "ZIP deflate runs async",
+              "body": "`deflateRawSync` swapped for promisified `deflateRaw`. No archive format change for consumers."
+            },
+            {
+              "title": "Admin dashboard disk-usage cached",
+              "body": "5-minute TTL with lazy background refresh. Eliminates multi-second admin page stalls on installs with many files."
+            },
+            {
+              "title": "Multipart parser uses native `Buffer.indexOf`",
+              "body": "Removes the O(n^2) hand-rolled scan in the multipart body parser; throughput rises on large uploads."
+            },
+            {
+              "title": "Chunked-upload scratch API",
+              "body": "Dedicated `storage.saveChunk` / `readChunk` API, always local-disk (S3 is unsuitable for thousands of transient chunk objects). New `CHUNK_SCRATCH_DIR` env var supports tmpfs-backed staging."
+            },
+            {
+              "title": "Convention sweeps",
+              "body": "`var` over `let`/`const` (227 declarations across 16 files), `C.TIME.*` over hardcoded millisecond literals (~30 sites, plus new `ONE_MIN` and `FIFTEEN_MIN` constants), `timingSafeEqual` on cert fingerprint and invite token comparisons, and worker thread paths centralized via `workerData.paths`."
+            },
+            {
+              "title": "Error-handling convention documented",
+              "body": "Three-pattern rule (`AppError` subclasses / inline `res.status()` / plain `throw` for internal control flow) is documented in `app/shared/errors.js`, with a narrow sweep of admin services to use the proper subclasses."
+            },
+            {
+              "title": "CSP nonce infrastructure landed dormant",
+              "body": "Per-response nonce is generated and passed to templates but not yet emitted in the CSP header pending a future refactor of inline event handlers. A one-line flip enables it once those handlers move to `addEventListener`."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Logo path move",
+              "body": "Stash and custom logo paths moved from `public/img/{stash,custom}/` to `<DATA_DIR>/{stash,custom}-logos/`. A boot-time migration copies existing files best-effort. Installs whose logos never persisted (Docker + read-only image layer) need to re-upload once."
+            },
+            {
+              "title": "`CHUNK_SCRATCH_DIR` env var (new, optional)",
+              "body": "Defaults to `<UPLOAD_DIR>/chunks`. Set to a tmpfs mount (e.g. `/dev/shm/hermitstash-chunks`) for RAM-backed staging of in-flight chunked uploads."
+            },
+            {
+              "title": "`MTLS_REQUIRED=false` semantics",
+              "body": "The escape hatch is still supported, but the default flipped to strict when a CA exists. Operators who relied on permissive WS upgrade must set this explicitly."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 6455 (WebSocket Protocol)",
+          "url": "https://datatracker.ietf.org/doc/html/rfc6455"
+        },
+        {
+          "label": "RFC 7235 (HTTP Authentication)",
+          "url": "https://datatracker.ietf.org/doc/html/rfc7235"
+        },
+        {
+          "label": "RFC 4941 (IPv6 Privacy Extensions)",
+          "url": "https://datatracker.ietf.org/doc/html/rfc4941"
+        }
+      ]
+    }
+  ]
+}

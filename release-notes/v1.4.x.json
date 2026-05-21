@@ -1,0 +1,153 @@
+{
+  "minor": "1.4",
+  "releases": [
+    {
+      "version": "1.4.1",
+      "date": "2026-04-12",
+      "headline": "Vault folders, analytics passthrough, and CSRF hardening",
+      "summary": "Bug fixes and hardening since v1.4.0. Vault uploads and batch downloads now preserve folder structure, same-origin scoping restores third-party analytics, and a class of silently-403'd admin actions caused by missing JSON content-types is fixed.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Folder structure in vault uploads",
+              "body": "Uploads transmit `relativePath` so the original directory layout is preserved on the server. The vault download API echoes `relativePath` so clients can reconstruct the tree."
+            },
+            {
+              "title": "Batch ZIP download preserves folder paths",
+              "body": "ZIP entries are written using the stored folder path rather than a flattened basename, so a multi-folder selection round-trips correctly."
+            },
+            {
+              "title": "Download ZIP button on stash bundle actions",
+              "body": "Administrators can now download a stash bundle as a single ZIP archive directly from the bundle actions menu."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Vault unlock returning 403",
+              "body": "The challenge request was missing `Content-Type: application/json`, which tripped the CSRF middleware. The client now sets the header so the unlock handshake completes."
+            },
+            {
+              "title": "Vault dual-key object stripped to ML-KEM-1024",
+              "body": "The client was still emitting a legacy `sk768` field alongside the ML-KEM-1024 key, which the v1.4.0 server rejects. The object now carries the 1024-bit key only."
+            },
+            {
+              "title": "Sixteen admin POST handlers silently rejected since v1.2.2",
+              "body": "Bare `fetch()` calls on delete, toggle, revoke, and suspend actions were missing `Content-Type: application/json`, so the CSRF middleware was returning 403 with no UI feedback. All sixteen call sites now set the header explicitly."
+            },
+            {
+              "title": "External analytics requests failing with 400",
+              "body": "API payload encryption now applies only to same-origin requests, so outbound calls to Umami, Plausible, and similar third-party analytics endpoints are no longer wrapped in encrypted envelopes those services cannot decode."
+            },
+            {
+              "title": "Admin stats not refreshing after file or bundle delete",
+              "body": "The stats panel now re-renders immediately after a delete action so the operator sees the updated counts without a manual reload."
+            },
+            {
+              "title": "Dashboard `Helpers is not defined` error",
+              "body": "Early-loading inline script blocks referenced `Helpers` before the helper bundle had parsed. Inline fallbacks are now provided so the dashboard initializes without a ReferenceError."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Branding section label hints",
+              "body": "Verbose hint text in the admin branding section has been shortened so the form fits without wrapping at typical viewport widths."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.4.0",
+      "date": "2026-04-12",
+      "headline": "PQC only — no backwards compatibility",
+      "summary": "All legacy cryptographic code paths are removed. Existing data encrypted with the prior algorithms must be migrated before upgrading. The server now refuses to start with legacy vault keys, and the remaining crypto stack admits no exceptions.",
+      "sections": [
+        {
+          "heading": "Removed",
+          "items": [
+            {
+              "title": "AES-256-GCM decryption path",
+              "body": "Only XChaCha20-Poly1305 is accepted for symmetric decryption. Blobs sealed with AES-GCM can no longer be opened in-process and must be re-encrypted before upgrade."
+            },
+            {
+              "title": "SHA3-256 KDF fallback",
+              "body": "Only SHAKE256 is supported for key derivation. The dual-KDF dispatch is gone; envelopes carrying the legacy KDF identifier fail closed."
+            },
+            {
+              "title": "ML-KEM-768 support",
+              "body": "Only ML-KEM-1024 (FIPS 203, Level 5) is accepted. The 768-bit security level is no longer recognized anywhere in the KEM stack."
+            },
+            {
+              "title": "Legacy envelope formats V1 and V2",
+              "body": "Only the V3 envelope is decoded. Older envelope versions are rejected at parse time, eliminating the algorithm-negotiation surface they exposed."
+            },
+            {
+              "title": "Legacy vault key auto-upgrade",
+              "body": "The server refuses to start when it detects a vault key derived under ML-KEM-768. Operators must rotate to a 1024-bit vault key out-of-band before upgrading."
+            },
+            {
+              "title": "P-256 classical fallback in SMTP and outbound TLS",
+              "body": "P-384 is the minimum curve for all outbound TLS handshakes, including SMTP submission. P-256 is no longer offered or accepted."
+            },
+            {
+              "title": "`PQC_OUTBOUND_ENFORCE` toggle",
+              "body": "Outbound PQC enforcement is always on. The runtime toggle that previously allowed disabling the policy has been deleted."
+            },
+            {
+              "title": "`SecP256r1MLKEM768` hybrid from the PQC gate",
+              "body": "The TLS ClientHello inspector now accepts P-384-and-above hybrids only. P-256 hybrid clients are rejected at the TCP layer."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Fixed crypto stack — no exceptions",
+              "body": "KEM is ML-KEM-1024, ECDH is P-384, symmetric is XChaCha20-Poly1305, hash is SHA3-512, HMAC is HMAC-SHA3-512, KDF is SHAKE256, HKDF is HKDF-SHA3-512, password hashing is Argon2id, TLS is restricted to X25519MLKEM768 / SecP384r1MLKEM1024 hybrids on TLS 1.3 only, and API key exchange is ML-KEM-1024 + ECDH P-384 + HKDF-SHA3-512 + XChaCha20-Poly1305."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Re-encrypt before upgrading",
+              "body": "Any data still sealed under AES-GCM, SHA3-256-KDF, ML-KEM-768, or the V1/V2 envelope formats must be re-encrypted with the v1.4.0 stack before the new binary is started. The server will not transparently upgrade legacy ciphertext."
+            },
+            {
+              "title": "Rotate vault key to ML-KEM-1024",
+              "body": "A vault key generated against ML-KEM-768 blocks server startup. Generate a fresh 1024-bit vault key and re-seal field-level secrets before deploying this release."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "FIPS 203 (ML-KEM)",
+          "url": "https://csrc.nist.gov/pubs/fips/203/final"
+        },
+        {
+          "label": "FIPS 202 (SHA-3, SHAKE)",
+          "url": "https://csrc.nist.gov/pubs/fips/202/final"
+        },
+        {
+          "label": "RFC 9106 (Argon2)",
+          "url": "https://datatracker.ietf.org/doc/rfc9106/"
+        },
+        {
+          "label": "RFC 8439 (ChaCha20-Poly1305)",
+          "url": "https://datatracker.ietf.org/doc/rfc8439/"
+        }
+      ]
+    }
+  ]
+}

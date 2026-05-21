@@ -1,0 +1,316 @@
+{
+  "minor": "1.2",
+  "releases": [
+    {
+      "version": "1.2.8",
+      "date": "2026-04-12",
+      "headline": "API consolidation for upcoming sync client",
+      "summary": "Access control, auth-failure responses, and audit-log shape are normalized so a non-browser sync client can talk to the same endpoints as the web UI without each route reinventing its own JSON contract.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Shared `require-access` middleware",
+              "body": "Bundles and stashes now share a single `require-access.js` middleware for access checks, so password, email gating, and domain gating evaluate identically across both resource types."
+            },
+            {
+              "title": "Structured JSON audit log for file mutations",
+              "body": "File create, rename, and delete events emit a structured JSON audit record (actor, resource, action, outcome) instead of a free-form log line, so downstream tooling can consume the stream without regex parsing."
+            },
+            {
+              "title": "JSON content negotiation on bundle view",
+              "body": "Requesting a bundle view with `Accept: application/json` returns the bundle metadata + file list as JSON instead of the HTML template, enabling programmatic clients without a separate API surface."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`requireAuth` content-negotiates failure response",
+              "body": "Authentication failures now return `401` with a JSON body for API clients (Accept: application/json) and a browser redirect for HTML clients, instead of always redirecting."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.7",
+      "date": "2026-04-12",
+      "headline": "Email and domain gating for Customer Stash pages",
+      "summary": "Customer Stash pages can now be restricted to a recipient allow list — either specific email addresses or entire domains such as `@acme.com` — using the same one-time-code verification flow already used for bundles.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Stash access restricted by email or domain",
+              "body": "A stash can be restricted to a list of specific email addresses or whole domains (`@acme.com`), so only recipients matching the allow list can open the page after verification."
+            },
+            {
+              "title": "One-time verification code on stashes",
+              "body": "The stash verification endpoint reuses the bundle-side anti-enumeration shape: the response is identical whether the supplied email matches the allow list or not, so attackers can't probe the recipient list."
+            },
+            {
+              "title": "Dual protection on stashes",
+              "body": "A stash can require both email verification and a password, so a recipient must hold the password and prove control of an allow-listed email before the page renders."
+            },
+            {
+              "title": "Stash editor field for email/domain allow list",
+              "body": "Admin UI gains a Restrict to emails/domains field on the stash editor, mirroring the bundle-side field so the workflow is identical across the two access-gated surfaces."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.6",
+      "date": "2026-04-12",
+      "headline": "Configurable analytics integration",
+      "summary": "Admins can paste any analytics provider's script tag into the branding panel and have it injected on public pages with the right CSP allowance — no provider-specific integration code required.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Provider-agnostic analytics field",
+              "body": "Admin > Branding gains a field that accepts any analytics provider's script tag. The tag is injected on public pages only; admin and dashboard surfaces are excluded so authenticated activity never reaches the analytics provider."
+            },
+            {
+              "title": "Automatic CSP allowance for analytics domains",
+              "body": "The injected script tag is parsed to extract the analytics origin, which is then added to the Content-Security-Policy `script-src` and `connect-src` allowlists. A manual override is available for providers that load assets from a different host than the script tag."
+            },
+            {
+              "title": "Tested with common providers",
+              "body": "Verified with Plausible, Umami, Matomo, Fathom, PostHog, and Google Analytics. Any provider that follows the standard script-tag-on-page integration pattern should work without provider-specific code."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.5",
+      "date": "2026-04-12",
+      "headline": "SEO, legal pages, and accessibility improvements",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Open Graph and Twitter Card metadata",
+              "body": "Public pages emit Open Graph and Twitter Card meta tags plus a canonical URL, while auth pages emit `noindex` so credentials surfaces don't appear in search results."
+            },
+            {
+              "title": "`robots.txt` and dynamic `sitemap.xml`",
+              "body": "A `robots.txt` blocks crawlers from `/admin`, `/dashboard`, and `/vault`, and a dynamically generated `sitemap.xml` lists the public surfaces that should be indexed."
+            },
+            {
+              "title": "Configurable legal pages",
+              "body": "Privacy Policy, Terms of Service, and Cookie Policy pages are now configurable from admin, with built-in defaults so a fresh install ships with usable legal copy."
+            },
+            {
+              "title": "Skip-to-content link and ARIA labels",
+              "body": "Every page gets a keyboard-accessible skip-to-content link, and interactive controls receive ARIA labels and accessible names so screen-reader navigation matches visual navigation."
+            },
+            {
+              "title": "Alt text on all images",
+              "body": "Every shipped `<img>` carries descriptive alt text (or empty alt for decorative images), so non-sighted users get an equivalent reading of every page."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Semantic HTML with `main` landmark",
+              "body": "Every page wraps its primary content in a `<main>` landmark, so assistive technology can jump straight to the content region without traversing chrome."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.4",
+      "date": "2026-04-12",
+      "headline": "Stored-XSS fix, email validation, and password minimum",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Stored XSS in bundle names",
+              "body": "Bundle names rendered with triple-brace (unescaped) template syntax now render with double-brace escaping, so HTML in a bundle name can no longer execute in another viewer's browser."
+            },
+            {
+              "title": "Server-side password minimum on bundles and stashes",
+              "body": "Bundle and stash passwords are rejected by the backend if shorter than 4 characters, so a manipulated frontend can no longer set a 1- or 2-character password."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Uploader email validated via shared helper",
+              "body": "Bundle init now runs the uploader email through the shared `validateEmail()` instead of the previous inline check, matching the rule applied everywhere else email is captured."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.3",
+      "date": "2026-04-12",
+      "headline": "Upload handler consolidation removes ~320 duplicated lines",
+      "summary": "The upload pipeline is collapsed into a single shared handler so drop and stash routes no longer carry parallel copies of the same chunking, quota, and finalize logic.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Shared upload handler module",
+              "body": "`upload.handler.js` now owns `handleFileUpload`, `handleChunkUpload`, and `handleFinalize`. `drop.js` shrinks from 397 to 107 lines and the stash upload section drops from 340 to 70 lines, eliminating roughly 320 lines of duplication."
+            },
+            {
+              "title": "Consolidated quota checking",
+              "body": "Storage, per-user, and per-IP quota gates are evaluated in a single call instead of three separate code paths, so a quota refusal returns the same response shape regardless of which limit tripped."
+            },
+            {
+              "title": "Stash config resolution extracted",
+              "body": "The stash config lookup that was inlined in three places is now a single helper, so changes to how stash defaults are resolved propagate uniformly."
+            },
+            {
+              "title": "Shared frontend helpers",
+              "body": "`showRenameError`, `esc`, and `formatSize` move into a shared `helpers.js`, so the inline copies in individual page scripts are gone."
+            },
+            {
+              "title": "Email validation uses shared `validateEmail()`",
+              "body": "Inline regex email checks across upload and access-gate paths now call the shared `validateEmail()` helper, matching the rule applied at user signup."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.2",
+      "date": "2026-04-12",
+      "headline": "CSRF enforcement and Zip Slip path-traversal fixes",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "CSRF enforcement on non-JSON cookie-authenticated POSTs",
+              "body": "Non-JSON POST requests to cookie-authenticated routes now return 403 unless they carry a valid CSRF token, closing a gap where form-encoded requests could bypass the token check."
+            },
+            {
+              "title": "Zip Slip path-traversal mitigation",
+              "body": "ZIP entry names have `..` segments stripped during extraction, and `sanitizeFilename()` strips path traversal from every upload, so neither archive contents nor direct uploads can write outside their intended directory."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.1",
+      "date": "2026-04-12",
+      "headline": "Email-gated bundle access without passwords",
+      "summary": "Bundles can now be restricted to a specific allow list of recipient emails, with access proven by a one-time code instead of (or in addition to) a password. The verification path is anti-enumeration: the response is identical whether the supplied email is on the allow list or not.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Email-gated bundles",
+              "body": "Uploaders can restrict bundle access to a specific list of recipient emails. Recipients prove ownership of the email by entering a one-time code sent to that address."
+            },
+            {
+              "title": "Dual protection mode",
+              "body": "A bundle can require both email verification and a password, so the recipient must hold the password and demonstrate control of an allow-listed email address before download."
+            },
+            {
+              "title": "Anti-enumeration verification response",
+              "body": "The verification endpoint returns an identical response whether the supplied email is on the allow list or not, preventing attackers from probing membership of the recipient list."
+            },
+            {
+              "title": "One-time access codes",
+              "body": "Codes are 6 digits, expire in 10 minutes, allow 5 attempts, and are stored as SHA3 hashes — only the hash is compared during verification."
+            },
+            {
+              "title": "`bundle_access_codes` and `bundle_access_log` tables",
+              "body": "Two new tables track issued codes and successful verifications. All fields are vault-sealed; only identifiers, counters, and timestamps remain raw."
+            },
+            {
+              "title": "Restrict to emails option in upload form",
+              "body": "The upload form gains a Restrict to emails field so an uploader can attach the allow list at bundle-creation time without a separate admin step."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Hourly cleanup of expired access codes",
+              "body": "A background sweep deletes expired entries from `bundle_access_codes` once per hour so the table doesn't accumulate stale rows."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.0",
+      "date": "2026-04-12",
+      "headline": "Dashboard overhaul, bundle naming, inline rename, shared sanitization",
+      "summary": "Dashboard is redesigned around row-based lists with bundle and file drill-down. Bundles can be named at upload time and renamed inline (along with files and vault batches), all validation now happens on the backend, and upload handling gains magic-byte checks, per-IP storage quota, and consistent filename sanitization.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Row-based dashboard with drill-down",
+              "body": "Dashboard is redesigned from card grids to row-based lists, with bundle and file drill-down for faster navigation in stashes with many entries."
+            },
+            {
+              "title": "Bundle naming at upload + inline rename",
+              "body": "Bundles can be named during upload, and bundles, files, and vault batches can be renamed inline. All rename validation runs on the backend; the frontend sends raw input and displays the server response."
+            },
+            {
+              "title": "Shared filename sanitization helper",
+              "body": "New `sanitize-filename.js` exports `sanitizeRename()`, `sanitizeFilename()`, and `safeContentDisposition()` so every upload, rename, and download path uses the same sanitization rules."
+            },
+            {
+              "title": "Per-IP storage quota",
+              "body": "Upload path now tracks bytes per source IP and refuses writes that would exceed the configured per-IP ceiling, in addition to the existing per-user and global quota gates."
+            },
+            {
+              "title": "Magic-byte upload validation",
+              "body": "Uploads are validated against expected magic bytes for their declared MIME type, rejecting renamed payloads before they reach storage."
+            },
+            {
+              "title": "Allow All extension toggle",
+              "body": "Admins can remove the file extension whitelist with an Allow All button instead of editing the list to match an open policy."
+            },
+            {
+              "title": "Shop Merch link in navbar and footer",
+              "body": "When maintainer support is enabled, the navbar and footer surface a Shop Merch link pointing at the configured merch URL."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Expanded field-level encryption coverage",
+              "body": "Field-level encryption now covers additional columns across every table, narrowing the set of raw values to identifiers, counters, status enums, timestamps, and foreign keys."
+            },
+            {
+              "title": "Stale bundle cleanup deletes orphan files",
+              "body": "The stale-bundle sweep now also removes the underlying file rows and on-disk payloads when their parent bundle is reaped, instead of leaving orphaned blobs behind."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "minor": "1.5",
+  "releases": [
+    {
+      "version": "1.5.0",
+      "date": "2026-04-12",
+      "headline": "Encrypted Backup, Bot Guard & Security Hardening",
+      "summary": "Adds automated S3-compatible backup with a passphrase-encrypted vault key and Cloudflare R2 as a supported provider. Bundles in the v1.4.3 through v1.4.8 hardening run: sync enrollment codes, POST-only logout with CSRF, WebSocket Authorization-header-only auth, public-GET bot guard, admin-configurable /health CORS, locally vendored Google Fonts with tightened CSP, and an ECIES protocol version byte for algorithm agility.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Automated encrypted backup to S3-compatible storage",
+              "body": "Scheduled backups encrypt the vault key with an operator passphrase before upload. Restore requires the same passphrase, so a stolen bucket cannot be used to recover data."
+            },
+            {
+              "title": "Cloudflare R2 as a storage provider",
+              "body": "R2 is supported alongside generic S3 endpoints for both file storage and the new backup destination. Configure via the existing S3 settings using the R2 endpoint URL."
+            },
+            {
+              "title": "Sync enrollment codes",
+              "body": "A one-time enrollment code replaces manual cert-file transfer when pairing a sync client. The code is single-use, short-lived, and bound to the issuing account."
+            },
+            {
+              "title": "Bot guard middleware on public GET routes",
+              "body": "Request fingerprinting on accept-language, sec-fetch-dest, and sec-fetch-mode blocks automated clients from public GET endpoints. Real browsers pass through unchanged."
+            },
+            {
+              "title": "ECIES protocol version byte",
+              "body": "The `_ek` field is now prefixed with a one-byte protocol version so future KEM or cipher changes can be negotiated without breaking older sessions. Current version is 0x01 (ML-KEM-1024 + P-384 + HKDF-SHA3-512 + XChaCha20-Poly1305)."
+            },
+            {
+              "title": "Logo and OG image variants",
+              "body": "Adds image assets used by the landing page and social-card metadata. No behavior change for existing deployments."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Logout is POST-only with CSRF validation",
+              "body": "GET-based logout is removed. Clients must POST to the logout endpoint with a valid CSRF token, closing a cross-site logout-forgery vector."
+            },
+            {
+              "title": "WebSocket authentication via Authorization header only",
+              "body": "Query-string API key tokens are no longer accepted on WebSocket upgrades. Clients must send the key in the Authorization header, keeping it out of access logs and proxy URLs."
+            },
+            {
+              "title": "`/health` CORS origins are admin-configurable",
+              "body": "Operators running a PQC gateway in front of the server can now allowlist specific origins for `/health` checks via the admin UI, replacing the previous static configuration."
+            },
+            {
+              "title": "Google Fonts vendored locally with tightened CSP",
+              "body": "Fonts ship as woff2 files served from the same origin, removing the external CDN dependency. The Content-Security-Policy drops the corresponding font-src exception."
+            },
+            {
+              "title": "Landing page refreshed for Customer Stash, sync, and enrollment",
+              "body": "Copy and screenshots reflect the current feature set including Customer Stash, the sync client, and one-time enrollment codes."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 8439 — ChaCha20 and Poly1305",
+          "url": "https://datatracker.ietf.org/doc/rfc8439/"
+        },
+        {
+          "label": "Cloudflare R2 — S3-compatible API",
+          "url": "https://developers.cloudflare.com/r2/api/s3/api/"
+        }
+      ]
+    }
+  ]
+}

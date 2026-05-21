@@ -1,0 +1,220 @@
+{
+  "minor": "1.3",
+  "releases": [
+    {
+      "version": "1.3.5",
+      "date": "2026-04-12",
+      "headline": "Hybrid ECIES completes the PQC stack",
+      "summary": "API key exchange — the last classical-only component — is replaced with a hybrid ML-KEM-768 + ECDH P-384 construction. No plaintext key material appears in any HTTP response and AES-GCM is no longer used anywhere in the server.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "API key exchange upgraded to hybrid ECIES",
+              "body": "The wire protocol now performs ML-KEM-768 encapsulation alongside ECDH P-384, combines both shared secrets through HKDF-SHA3-256 into a wrapping key, and encrypts the per-session key with XChaCha20-Poly1305. The previous AES-GCM + SHA-256 + P-256 path is gone."
+            },
+            {
+              "title": "AES-GCM removed from the server",
+              "body": "With the ECIES upgrade, no code path on the server still references AES-GCM. Every symmetric operation uses XChaCha20-Poly1305 and every hash uses a SHA-3 family function."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`lib/vendor/noble-pq.cjs` — ML-KEM-768 CommonJS bundle",
+              "body": "A server-side CommonJS bundle of the noble post-quantum library provides ML-KEM-768 for the ECIES path. The bundle is vendored under `lib/vendor/` and carries no runtime npm dependency."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "No plaintext key material in HTTP responses",
+              "body": "Session keys are only ever transmitted as XChaCha20-Poly1305 ciphertext under the hybrid wrapping key. A passive observer who records the full HTTP exchange cannot recover the session key without breaking both ML-KEM-768 and ECDH P-384."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.3.4",
+      "date": "2026-04-12",
+      "headline": "PQC on outbound connections and mutual TLS for sync clients",
+      "summary": "Every outbound HTTPS connection now negotiates PQC hybrid groups, and the server doubles as a small ECDSA P-384 CA that issues client certificates for mutual TLS on the sync channel.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Global PQC HTTPS agent for all outbound traffic",
+              "body": "S3, SMTP, the Resend API, webhook deliveries, and Google OAuth all share a single outbound agent that advertises PQC hybrid groups. Operators do not need to configure PQC per integration; it is applied uniformly to every outbound HTTPS call."
+            },
+            {
+              "title": "`PQC_OUTBOUND_ENFORCE=false` for classical fallback",
+              "body": "Set this environment variable to allow outbound classical handshakes during a transition window where an upstream service does not yet speak a PQC group. The default is enforcement on."
+            },
+            {
+              "title": "Built-in Certificate Authority for mTLS client certs",
+              "body": "On first boot the server generates an ECDSA P-384 CA via OpenSSL and persists the private key with `0600` permissions. The CA issues short-lived client certificates whose SHA3-512 fingerprint is recorded for revocation."
+            },
+            {
+              "title": "One-click client certificate bundle download",
+              "body": "Minting a sync token now also issues a client certificate; the admin UI returns a single PEM bundle (key + cert + CA) that the operator pastes into the desktop sync client."
+            },
+            {
+              "title": "Certificate revocation table with hashed fingerprints",
+              "body": "Revoked certificates are tracked by SHA3-512 fingerprint hash. The mTLS validator consults the table on every handshake; a revoked client cert is refused before the WebSocket upgrade is attempted."
+            },
+            {
+              "title": "`MTLS_REQUIRED=true` to enforce client certificates on sync",
+              "body": "When set, every sync WebSocket upgrade must present a valid client certificate in addition to the API key (dual auth). When unset, mTLS is offered but not required, easing rollout to existing clients."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Temporary certificate files cleaned up immediately",
+              "body": "The OpenSSL helper that generates client certs writes its inputs and outputs to a per-request temp directory and removes the directory in a `finally` block, so a key written to disk for the duration of the signing call is gone before the HTTP response is returned."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.3.3",
+      "date": "2026-04-12",
+      "headline": "PQC-only TLS enforcement via ClientHello inspection",
+      "summary": "A TCP-level gate inspects the raw TLS ClientHello and rejects connections that do not offer a PQC hybrid key-exchange group, before any classical handshake completes.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "TCP-level PQC gate (`lib/pqc-gate.js`)",
+              "body": "An outer `net.Server` parses the `supported_groups` extension from each incoming ClientHello. Connections that list at least one PQC hybrid group are piped to the internal HTTPS server; connections without one receive a TLS `handshake_failure` alert and are closed."
+            },
+            {
+              "title": "Localhost bypass for container health probes",
+              "body": "Connections from `127.0.0.1` skip the gate so Docker `HEALTHCHECK` and other loopback probes can reach the HTTPS server without negotiating PQC."
+            },
+            {
+              "title": "`PQC_ENFORCE=false` opt-out",
+              "body": "When the environment variable is set to `false`, the gate is bypassed entirely and PQC remains preferred but not required. This is intended as a transition aid while clients are upgraded; the default is enforcement on."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Gate fails closed on parse errors and timeouts",
+              "body": "The ClientHello parser has a 5-second timeout and a 16 KB maximum buffer. Any parse error, timeout, or oversized record causes the connection to be closed before the handshake can proceed, so a malformed record cannot smuggle a classical session through the gate."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.3.2",
+      "date": "2026-04-12",
+      "headline": "Resource-scoped sync tokens and stash sync integration",
+      "summary": "API keys can now be bound to a specific stash or bundle, and the admin UI gains a one-click flow for minting a sync token tied to a single stash.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Resource-scoped API keys (`boundStashId`, `boundBundleId`)",
+              "body": "An API key may now be restricted to a single stash or a single bundle. Requests authenticated with a bound key are rejected if the target resource does not match the binding, limiting the blast radius of a leaked sync token."
+            },
+            {
+              "title": "Stash sync mode — persistent mutable bundle per stash",
+              "body": "Enabling sync on a stash provisions a persistent mutable bundle that desktop sync clients use as their canonical sync target. The bundle survives client reconnects and is the anchor for the per-file sequence cursor."
+            },
+            {
+              "title": "Admin UI — sync toggle and one-click token generation",
+              "body": "The stash admin page gains a sync toggle and a button that mints a sync-scoped, stash-bound API key in a single step, returning the token for the operator to copy into the desktop client."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.3.1",
+      "date": "2026-04-12",
+      "headline": "Real-time file sync via WebSocket over PQC TLS",
+      "summary": "Adds a minimal RFC 6455 WebSocket channel at `GET /sync/ws` that streams file-change events to authenticated sync clients, with reconnection catch-up via a sequence cursor.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "WebSocket sync channel at `GET /sync/ws`",
+              "body": "Clients receive `file_added`, `file_replaced`, `file_removed`, and `heartbeat` events in real time. Authentication is enforced during the upgrade handshake; unauthorized upgrades are rejected before the socket opens."
+            },
+            {
+              "title": "Reconnect catch-up via sequence cursor",
+              "body": "Clients reconnect with `?since=N` to replay every event after that sequence number, so a dropped connection cannot lose state. The cursor is the same per-file `seq` introduced in 1.3.0."
+            },
+            {
+              "title": "Conditional HTTPS with PQC hybrid key exchange",
+              "body": "TLS now negotiates the `X25519MLKEM768` and `SecP256r1MLKEM768` hybrid groups when the client supports them, with classical fallback otherwise. The same TLS endpoint serves HTTP and WebSocket traffic."
+            },
+            {
+              "title": "Minimal RFC 6455 WebSocket implementation (`lib/ws.js`)",
+              "body": "A dependency-free framer/parser supports the subset needed for the sync channel (text frames, ping/pong, close). Event dispatch inside the server uses an in-process `EventEmitter` so route handlers can publish without coupling to the socket layer."
+            },
+            {
+              "title": "`sync` API key scope",
+              "body": "A new scope gates the WebSocket upgrade and the sync HTTP endpoints. Existing scopes are unchanged; operators must mint a new key (or extend an existing one) to enable sync access."
+            },
+            {
+              "title": "Certificate auto-reload for Let's Encrypt renewals",
+              "body": "The HTTPS server reloads its certificate chain in place when the file on disk changes, so a renewal no longer requires a process restart that would drop every active WebSocket."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.3.0",
+      "date": "2026-04-12",
+      "headline": "Mutable sync bundles — the foundation for file sync",
+      "summary": "Introduces a second bundle type that accepts post-creation file additions, replacements, and deletions, enabling sync-client workflows without altering the immutable snapshot path.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`bundleType` column with `snapshot` and `sync` modes",
+              "body": "New bundles default to `snapshot` (immutable, existing behavior). Sync bundles accept file additions, replacements, and deletions after creation, with a per-file `seq` counter and `updatedAt` timestamp for change-feed ordering."
+            },
+            {
+              "title": "File replace and soft-delete for sync bundles",
+              "body": "Re-uploading a file with the same `relativePath` overwrites the prior entry with a fresh encryption key. Deletions are soft (tombstone) and cleaned up after 30 days so reconnecting clients can observe the removal."
+            },
+            {
+              "title": "Rate-limited sync file delete endpoint",
+              "body": "The new sync delete route is rate-limited to 100 requests per minute per token to bound the cost of a misbehaving or hostile client."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Snapshot bundles remain fully immutable",
+              "body": "Existing snapshot bundles are unaffected by this release. The mutation paths are gated on `bundleType === 'sync'`, so the immutable contract for prior bundles holds with zero regression."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

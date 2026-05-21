@@ -65,10 +65,10 @@
     }
   ],
   "references": [
-    { "label": "SLSA v1.0 specification",                                     "url": "https://slsa.dev/spec/v1.0/" },
-    { "label": "slsa-github-generator (container builder)",                   "url": "https://github.com/slsa-framework/slsa-github-generator/tree/main/internal/builders/container" },
-    { "label": "FIPS 204 — Module-Lattice-Based Digital Signature Standard",  "url": "https://csrc.nist.gov/pubs/fips/204/final" },
-    { "label": "CVE-2025-30066 (tj-actions tag mutation)",                    "url": "https://nvd.nist.gov/vuln/detail/CVE-2025-30066" },
-    { "label": "CSAF 2.1 VEX",                                                "url": "https://docs.oasis-open.org/csaf/csaf-vex/v2.1/" }
+    { "label": "SLSA v1.0 specification", "url": "https://slsa.dev/spec/v1.0/" },
+    { "label": "slsa-github-generator (container builder)", "url": "https://github.com/slsa-framework/slsa-github-generator/tree/main/internal/builders/container" },
+    { "label": "FIPS 204 — Module-Lattice-Based Digital Signature Standard", "url": "https://csrc.nist.gov/pubs/fips/204/final" },
+    { "label": "CVE-2025-30066 (tj-actions tag mutation)", "url": "https://nvd.nist.gov/vuln/detail/CVE-2025-30066" },
+    { "label": "CSAF 2.1 VEX", "url": "https://docs.oasis-open.org/csaf/csaf-vex/v2.1/" }
   ]
 }
