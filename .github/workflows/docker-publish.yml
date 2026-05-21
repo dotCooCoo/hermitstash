@@ -139,6 +139,39 @@ jobs:
           if [ $EXIT_CODE -ne 0 ]; then echo "::error::codebase-patterns found violations"; fi
           exit $EXIT_CODE
 
+      - name: Verify release-notes rollup
+        # Non-current minor lines must collapse to a single
+        # `release-notes/v<minor>.x.json` rollup. The `--check` mode
+        # exits non-zero if any non-current minor still has per-patch
+        # files. Operator runs `consolidate-release-notes.js --prune`
+        # between releases to roll them up; this gate catches a
+        # missed rollup before a release lands.
+        if: always()
+        id: rollup_check
+        run: |
+          set +e
+          node scripts/consolidate-release-notes.js --check
+          EXIT_CODE=$?
+          set -e
+          if [ $EXIT_CODE -ne 0 ]; then echo "::error::release-notes rollup needed"; fi
+          exit $EXIT_CODE
+
+      - name: Verify CHANGELOG.md in sync with release-notes/
+        # CHANGELOG.md is a derived artifact rebuilt from
+        # `release-notes/`. The `--check` mode does an in-memory
+        # rebuild + diff against on-disk and fails fast when an
+        # operator added/edited a release-notes JSON without running
+        # `--rebuild`. Same non-mutating gate as the rollup check.
+        if: always()
+        id: changelog_drift
+        run: |
+          set +e
+          node scripts/generate-changelog-entry.js --check
+          EXIT_CODE=$?
+          set -e
+          if [ $EXIT_CODE -ne 0 ]; then echo "::error::CHANGELOG.md drifts from release-notes/"; fi
+          exit $EXIT_CODE
+
       - name: Lint summary
         if: always()
         run: |
@@ -146,12 +179,16 @@ jobs:
           HADOLINT_OK=${{ steps.hadolint.outcome == 'success' }}
           SHELLCHECK_OK=${{ steps.shellcheck.outcome == 'success' }}
           PATTERNS_OK=${{ steps.codebase_patterns.outcome == 'success' }}
+          ROLLUP_OK=${{ steps.rollup_check.outcome == 'success' }}
+          CHANGELOG_OK=${{ steps.changelog_drift.outcome == 'success' }}
           PASS="✅"
           FAIL="❌"
           ESLINT_ICON=$( [ "$ESLINT_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
           HADOLINT_ICON=$( [ "$HADOLINT_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
           SHELLCHECK_ICON=$( [ "$SHELLCHECK_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
           PATTERNS_ICON=$( [ "$PATTERNS_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
+          ROLLUP_ICON=$( [ "$ROLLUP_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
+          CHANGELOG_ICON=$( [ "$CHANGELOG_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
           {
             echo "### Lint Results"
             echo ""
@@ -161,6 +198,8 @@ jobs:
             echo "| Hadolint (Dockerfile)          | $HADOLINT_ICON |"
             echo "| ShellCheck (shell)             | $SHELLCHECK_ICON |"
             echo "| codebase-patterns (vendored)   | $PATTERNS_ICON |"
+            echo "| release-notes rollup           | $ROLLUP_ICON |"
+            echo "| CHANGELOG.md drift             | $CHANGELOG_ICON |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   build-and-push:
