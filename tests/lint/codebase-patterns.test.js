@@ -94,6 +94,40 @@ function _walk(dir, files) {
 
 function _libFiles() { return _walk(LIB_ROOT); }
 
+// Scope: every `*.test.js` under `tests/` + non-underscore-prefixed
+// `tests/helpers/*.js`. Excludes:
+//   - tests/node_modules/         (vendored test deps)
+//   - tests/helpers/_*            (infrastructure helpers — not under test discipline)
+//   - tests/lint/                 (this file + .test-output)
+//   - tests/.test-output/         (generated artifacts)
+var TESTS_ROOT = path.resolve(__dirname, "..", "..", "tests");
+function _testFiles() {
+  var all = [];
+  function _w(dir) {
+    var entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+    catch (_e) { return; }
+    for (var i = 0; i < entries.length; i++) {
+      var e = entries[i];
+      var full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        if (e.name === "node_modules") continue;
+        if (e.name === "lint") continue;
+        if (e.name === ".test-output") continue;
+        _w(full);
+      } else if (e.isFile() && e.name.endsWith(".js")) {
+        all.push(full);
+      }
+    }
+  }
+  _w(TESTS_ROOT);
+  return all.filter(function (full) {
+    var rel = _relPath(full);
+    if (/^tests\/helpers\/_/.test(rel)) return false;
+    return /\.test\.js$/.test(rel) || /^tests\/helpers\/[^_].*\.js$/.test(rel);
+  });
+}
+
 function _relPath(absPath) {
   return path.relative(path.resolve(__dirname, "..", ".."), absPath).replace(/\\/g, "/");
 }
@@ -4430,6 +4464,47 @@ var KNOWN_ANTIPATTERNS = [
     ],
     reason: "Audit outcomes are the literal strings 'success' / 'failure' / 'denied' at call sites. safeEmit normalizes the common typos as a safety net but the canonical form belongs in code so reviewers reading a primitive see exactly what audit row will land on the chain.",
   },
+
+  // ---- Test-scoped antipatterns (scanScope: "test") ----
+
+  {
+    id: "test-promise-settimeout-sleep",
+    primitive: "poll the actual condition (curl /health, check fs state, listen for child 'exit' event) rather than sleeping a fixed duration",
+    scanScope: "test",
+    regex: /new\s+Promise\s*\(\s*(?:function\s*[\w$]*\s*\([^)]*\)\s*\{|\([^)]*\)\s*=>\s*\{?|[\w$]+\s*=>\s*\{?)[\s\S]{0,200}?setTimeout\s*\(/,
+    allowlist: [
+      // Waits for a subprocess to flush its stderr after rejecting a
+      // passphrase and exiting. The condition being waited on IS the
+      // process death; polling can't shortcut that. The right
+      // long-term fix is a child.on('exit') listener; until then this
+      // is the documented exemption.
+      "tests/integration/vault-passphrase-server-boot.test.js",
+    ],
+    reason: "Fixed-duration sleeps race under parallel test runs and inflate the suite's wall-clock floor. Polling the actual condition (curl /health, check fs state, listen for child 'exit') is correct and faster.",
+  },
+
+  {
+    id: "test-hardcoded-server-bind-port",
+    primitive: ".listen(0) + server.address().port (let the OS assign an ephemeral port; read it after bind)",
+    scanScope: "test",
+    regex: /\.listen\s*\(\s*(?:\{[^}]*port\s*:\s*)?(?!0\b)\d{2,5}\b/,
+    allowlist: [],
+    reason: "Hardcoded bind ports race under parallel test runs when two suites pick the same value. Convention: .listen(0) + server.address().port. Read-only protocol-constant references (autoconfig XML port 993 / 587 etc.) don't trip this detector — only .listen() with a literal non-zero port does.",
+  },
+
+  {
+    id: "test-creates-db-handle-without-isolation",
+    primitive: "tests/helpers/test-env.js helpers (setupTestEnv / startTestServer) — every test spinning up a real DB handle wires per-test isolation so SQLite state stays per-test",
+    scanScope: "test",
+    regex: /\bb\.db\.create\s*\(/,
+    requires: /\b(?:setupTestEnv|startTestServer|setupTestDb|mkdtempSync)\b/,
+    allowlist: [
+      "tests/helpers/test-env.js",
+      "tests/helpers/test-server.js",
+      "tests/helpers/index.js",
+    ],
+    reason: "Tests spinning up a real DB handle without a per-test isolation primitive leak SQLite state to a shared directory; subsequent tests see prior rows under parallel runs. Static-API tests that reference b.db without instantiating a real handle don't trip the detector.",
+  },
 ];
 
 // @example placeholder detection lives in
@@ -4970,15 +5045,27 @@ function testNoInlineRequireInDeferred() {
 
 function testKnownAntipatterns() {
   // class: known-antipattern
-  // Fires at n=1 — any file matching a registered antipattern (and not
-  // in its allowlist) fails the gate with a pointer to the primitive
-  // that should replace it.
-  var files = _libFiles();
+  // Fires at n=1. Per-entry `scanScope` selects the file set:
+  //   - default (omitted)  — lib/ files
+  //   - "test"             — tests/ files (excluding tests/lint/ self
+  //                          + tests/node_modules/ + tests/helpers/_*)
+  // Per-entry `requires` (optional): when the same file ALSO matches
+  // this companion regex, the antipattern is treated as satisfied
+  // (e.g. b.db.create plus setupTestDb in one file = isolated test).
+  var libFiles  = _libFiles();
+  var testFiles = null;
   var allBad = [];
   for (var ai = 0; ai < KNOWN_ANTIPATTERNS.length; ai++) {
     var ap = KNOWN_ANTIPATTERNS[ai];
     var allowSet = Object.create(null);
     for (var k = 0; k < ap.allowlist.length; k++) allowSet[ap.allowlist[k]] = true;
+    var files;
+    if (ap.scanScope === "test") {
+      if (testFiles === null) testFiles = _testFiles();
+      files = testFiles;
+    } else {
+      files = libFiles;
+    }
     var bad = [];
     for (var fi = 0; fi < files.length; fi++) {
       var rel = _relPath(files[fi]);
@@ -4988,7 +5075,7 @@ function testKnownAntipatterns() {
       catch (_e) { continue; }
       var m = ap.regex.exec(content);
       if (!m) continue;
-      // Compute line number from match index.
+      if (ap.requires && ap.requires.test(content)) continue;
       var lineNum = content.slice(0, m.index).split(/\r?\n/).length;
       bad.push({
         file: rel,
