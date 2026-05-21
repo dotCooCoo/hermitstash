@@ -964,12 +964,12 @@ git fetch --tags
 git tag --verify vX.Y.Z
 ```
 
-The `.github/workflows/sha-to-tag-verify.yml` gate refuses tag pushes whose
-commit SHA is not on `main`'s first-parent history, was not merged via a
-pull request, or whose tag object is not annotated + SSH-signed against the
-maintainer key. The gate runs server-side independently of the GitHub edge
-ruleset, defending against the tag-mutation class (CVE-2025-30066) and
-source-side malicious-publish (TanStack 2025-05-11 class).
+Tag-integrity is enforced at the GitHub edge by the repository ruleset:
+unsigned tag pushes, tag deletion, and tag force-update are rejected
+server-side and cannot be bypassed. Combined with the SLSA L3
+provenance + ML-DSA-65 sidecar + cosign image signature below, every
+release artifact carries a verifiable chain back to the maintainer's
+SSH signing key or to Sigstore's transparency log.
 
 Each release attaches a fixed asset bundle to the GitHub Release page,
 created atomically by the workflow at tag-push time:
