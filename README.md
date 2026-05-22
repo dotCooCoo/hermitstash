@@ -796,6 +796,8 @@ See [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) §5.2 and §9 L2 for the full
 
 `GET /health` returns `{ status, uptime, timestamp }` — works with Docker HEALTHCHECK, Kubernetes liveness probes, load balancers, and the [PQC gateway](https://github.com/dotCooCoo/hermitstash-web) status check.
 
+Probes from the same origin as the app (container HEALTHCHECK on `localhost`, a Kubernetes liveness probe inside the pod, a TLS-terminating reverse proxy without CORS) need no extra config. A browser-driven probe from a *different* origin — for example the static PQC entry page at `hermitstash.com` checking `app.hermitstash.com/health` before redirecting — needs that origin added to `CORS_ORIGINS` (env var or Admin > Settings > Security). Without the listing, the response is `403` and the browser rejects the result, even though the underlying request succeeded.
+
 ### Reverse proxy
 
 Drop-in configs for the three common proxies live in [`deploy/reverse-proxy/`](deploy/reverse-proxy/) — [`Caddyfile`](deploy/reverse-proxy/Caddyfile), [`nginx.conf`](deploy/reverse-proxy/nginx.conf), and [`apache.conf`](deploy/reverse-proxy/apache.conf). All three terminate TLS, forward `/sync/ws` WebSocket upgrades, match the 100MB upload limit, and pass `X-Forwarded-*` headers through for `TRUST_PROXY=true`.
