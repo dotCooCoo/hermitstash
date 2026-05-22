@@ -26,10 +26,5 @@ var current = build();
 config.onReset(function () { current = build(); });
 
 module.exports = function (req, res, next) {
-  // /health runs its own narrower CORS (rpOrigin + HEALTH_CORS_ORIGINS) so
-  // the gateway at hermitstash.com can probe app.hermitstash.com without
-  // appearing on the global CORS_ORIGINS allowlist. Bypass the global
-  // refuseUnknown check for that one path only.
-  if (req.pathname === "/health") return next();
   return current(req, res, next);
 };

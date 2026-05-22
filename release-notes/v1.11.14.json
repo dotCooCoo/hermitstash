@@ -1,0 +1,34 @@
+{
+  "version": "1.11.14",
+  "date": "2026-05-21",
+  "headline": "Single CORS allowlist for `/health`; retire `autocannon` load-test harness",
+  "summary": "Collapses the two-allowlist arrangement introduced last patch back to a single `CORS_ORIGINS`-driven path: the per-endpoint CORS code inside `/health` and the bespoke `HEALTH_CORS_ORIGINS` setting are both removed, so the gateway-domain probe traverses the same middleware as every other cross-origin caller. The `autocannon`-based load test is also retired — no CI workflow exercised it, and the dependency was the source of the only outstanding `npm audit` finding (CVE-2026-41907 in transitive `uuid < 11.1.1`).",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "`/health` now uses the global CORS middleware",
+          "body": "`middleware/cors.js` no longer short-circuits for `/health`. The handler at `server-main.js` returns `{ status, uptime, timestamp }` with no per-endpoint CORS plumbing — the `Access-Control-Allow-Origin` header is set by `b.middleware.cors` against `CORS_ORIGINS` exactly as for any other route. Operators fronting the app with a separate gateway origin add that origin to `CORS_ORIGINS`."
+        }
+      ]
+    },
+    {
+      "heading": "Removed",
+      "items": [
+        {
+          "title": "`HEALTH_CORS_ORIGINS` setting",
+          "body": "The dedicated allowlist for `/health` is removed from `lib/config.js`, `lib/settings-schema.js`, and the General tab of the admin Settings panel. Operators that had this set should move the same origins into the global `CORS_ORIGINS` allowlist."
+        },
+        {
+          "title": "`tests/performance/load.test.js`",
+          "body": "The opt-in autocannon-based load test is removed. The retained `tests/performance/performance.test.js` continues to assert in-process timing budgets (template renders, hot-path operations) using the standard `TestClient` helper, with no external load-generator dependency."
+        },
+        {
+          "title": "`autocannon` devDependency",
+          "body": "Removed from `tests/package.json` along with the `npm run test:load` script. Regenerated `tests/package-lock.json` no longer carries `autocannon`, `hyperid`, or `uuid` (transitive), closing CVE-2026-41907 / GHSA-w5hq-g745-h8pq at the source. `npm audit` against the test workspace now reports 0 vulnerabilities."
+        }
+      ]
+    }
+  ]
+}

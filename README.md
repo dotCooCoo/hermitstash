@@ -369,7 +369,6 @@ Built on Node.js 24.14.1+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - WebSocket API keys accepted only via Authorization header -- query string tokens rejected to prevent proxy/log/Referer leaks
 - CSV formula injection protection on all exports
 - CORS configurable via admin (wildcard disallowed with credentials)
-- Health endpoint CORS configurable from admin for PQC gateway status checks
 - Canonical origin policy -- all URLs generated from rpOrigin, never from Host header
 - Webhook DNS pinning -- resolved IP reused for outbound connection, preventing TOCTOU rebinding
 - Input length limits on all free-text fields
@@ -411,7 +410,7 @@ Built on Node.js 24.14.1+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - No build step -- vanilla Node.js
 - `node server.js` is the entire setup -- no npm install needed
 - `process.env` overrides available for Docker/containers
-- Health check endpoint (`GET /health`) for load balancers, container probes, and PQC gateway status checks (CORS configurable)
+- Health check endpoint (`GET /health`) for load balancers, container probes, and PQC gateway status checks (subject to the global CORS allowlist)
 - Zero external CDN dependencies -- fonts vendored locally, no requests to Google, Cloudflare, or any third-party on page load
 - PWA web app manifest with dynamic site name and theme colors
 - Automatic database schema migrations on startup

@@ -3,7 +3,6 @@
   "private": true,
   "description": "Dev dependencies for testing and linting. Run: cd tests && npm install && npm test",
   "devDependencies": {
-    "autocannon": "^8.0.0",
     "better-npm-audit": "^3.11.0",
     "c8": "^11.0.0",
     "eslint": "^10.2.0",
@@ -15,7 +14,6 @@
     "test:integration": "NODE_ENV=test node --test --test-isolation=process --test-concurrency=4 integration/*.test.js",
     "test:security": "NODE_ENV=test node --test --test-isolation=process --test-concurrency=4 security/*.test.js",
     "test:serial": "NODE_ENV=test node --test --test-concurrency=1 unit/*.test.js integration/*.test.js security/*.test.js",
-    "test:load": "node --test performance/load.test.js",
     "test:coverage": "npx c8 --reporter=text --reporter=html --reports-dir=coverage --temp-directory=.c8_output node --test --test-isolation=process unit/*.test.js integration/*.test.js security/*.test.js",
     "lint": "npx eslint --config eslint.config.js ..",
     "lint:security": "npx eslint --config eslint.config.js --rule '{\"security/detect-eval-with-expression\": \"error\", \"security/detect-child-process\": \"error\", \"security/detect-unsafe-regex\": \"error\", \"security/detect-buffer-noassert\": \"error\", \"security/detect-new-buffer\": \"error\", \"security/detect-possible-timing-attacks\": \"error\"}' ..",

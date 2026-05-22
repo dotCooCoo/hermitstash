@@ -212,19 +212,12 @@ app.get("/img/stash/:name", serveLogoFrom(C.PATHS.STASH_LOGO_DIR));
   });
 })();
 
-// Health check — before auth so it's fast and unauthenticated
+// Health check — before auth so it's fast and unauthenticated. CORS is
+// handled by the global `cors` middleware (position 44) using CORS_ORIGINS;
+// the gateway origin needs to be on that allowlist like any other cross-
+// origin caller.
 app.get("/health", function (req, res) {
-  var origin = req.headers.origin || "";
-  // Build allowed origins from rpOrigin (the app's own domain) + healthCorsOrigins (gateway domains)
-  var allowed = [];
-  if (config.rpOrigin) allowed.push(config.rpOrigin);
-  if (config.healthCorsOrigins) {
-    config.healthCorsOrigins.forEach(function (o) { if (allowed.indexOf(o) === -1) allowed.push(o); });
-  }
-  var corsHeader = allowed.indexOf(origin) !== -1 ? origin : (allowed[0] || "*");
-  var headers = { "Content-Type": "application/json", "Vary": "Origin" };
-  if (corsHeader) headers["Access-Control-Allow-Origin"] = corsHeader;
-  res.writeHead(200, headers);
+  res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ status: "ok", uptime: process.uptime(), timestamp: new Date().toISOString() }));
 });
 app.get("/sitemap.xml", function (req, res) {
