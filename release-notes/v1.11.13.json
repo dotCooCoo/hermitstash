@@ -1,0 +1,17 @@
+{
+  "version": "1.11.13",
+  "date": "2026-05-21",
+  "headline": "`/health` bypasses global CORS so gateway-domain probes reach the handler",
+  "summary": "The global CORS middleware (`refuseUnknown: true`) was rejecting cross-origin requests to `/health` with `403 CORS: origin not allowed` before the handler's own narrower allowlist (`RP_ORIGIN` + `HEALTH_CORS_ORIGINS`) could run. The handler is now the sole CORS authority for `/health`, so a gateway domain set via `HEALTH_CORS_ORIGINS` actually controls who can probe the endpoint.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Global CORS middleware skips `/health`",
+          "body": "`middleware/cors.js` now short-circuits when `req.pathname === \"/health\"`. The endpoint's existing per-request CORS logic (origin matched against `RP_ORIGIN` plus the `HEALTH_CORS_ORIGINS` list) remains the only allowlist that gates the response. Operators running a separate gateway origin (for example the PQC entry page at `hermitstash.com` in front of `app.hermitstash.com`) can now add the gateway domain to `HEALTH_CORS_ORIGINS` without also having to widen the global `CORS_ORIGINS` allowlist."
+        }
+      ]
+    }
+  ]
+}
