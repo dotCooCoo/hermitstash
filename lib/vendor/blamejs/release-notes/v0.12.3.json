@@ -1,0 +1,23 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.3",
+  "date": "2026-05-22",
+  "headline": "README \"What ships in the box\" backfill — mail-stack listeners + JSCalendar + new postures",
+  "summary": "The README's \"Communication\" + \"Compliance regimes\" bullets lagged behind the v0.11.24-v0.12.1 ship cadence. Backfilled: `b.mail.send.deliver` (turnkey outbound delivery chain), the four mail-server listeners (mx / submission / imap / jmap), the JMAP EmailSubmission/set reference handler, mail-crypto (CMS + PGP+WKD), the mail-stack agent, `b.calendar` (RFC 8984 JSCalendar substrate with full BY*+BYSETPOS+multi-rule expansion), and the 16 newly-promoted postures from v0.12.1 (`42-cfr-part-2` / `hti-1` / `uscdi-v4` / `irs-1075` / `nist-800-172-r3` / `tlp-2.0` / `soci-au` / `ffiec-cat-2` / `cri-profile-v2.0` / `m-22-09` / `m-22-18` / `nist-800-53-r5-privacy` / `nist-ai-600-1-genai` / `nist-csf-2.0` / `sb-53` / `nyc-ll144-2024`).",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Communication section names every mail-stack listener + delivery chain + crypto primitive",
+          "body": "New entries: `b.mail.send.deliver` (MX → MTA-STS → DANE → REQUIRETLS → SMTP → DSN chain), four `b.mail.server.*` listeners, JMAP EmailSubmission reference handler, `b.mail.crypto.cms` + `b.mail.crypto.pgp`, `b.mail.agent` + `b.mailStore`, and `b.calendar` (JSCalendar / iCalendar bridge for JMAP Calendars interop)."
+        },
+        {
+          "title": "Compliance regimes section lists the 16 v0.12.1 backfilled postures",
+          "body": "New rows organise the additions under three sub-bullets: AI governance adds `nyc-ll144-2024` / `sb-53` / `nist-ai-rmf-1.0` / `nist-ai-600-1-genai` alongside the existing AI-act / NYC-LL144 / Colorado / Illinois entries; a new \"Federal / sectoral\" row covers `42-cfr-part-2` / `hti-1` / `uscdi-v4` / `irs-1075` / `nist-csf-2.0` / `nist-800-53-r5-privacy` / `nist-800-172-r3` / `m-22-09` / `m-22-18` / `ffiec-cat-2` / `cri-profile-v2.0`; a new \"Critical infrastructure / info-sharing\" row covers `soci-au` / `tlp-2.0`."
+        }
+      ]
+    }
+  ],
+  "references": []
+}

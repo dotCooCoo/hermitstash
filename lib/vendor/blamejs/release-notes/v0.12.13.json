@@ -1,0 +1,31 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.13",
+  "date": "2026-05-23",
+  "headline": "`b.backup.bundleAdapterStorage.objectStoreAdapter` — wraps any `b.objectStore` backend (local / SigV4 / GCS / Azure-Blob) into the backup-adapter contract; closes the v0.11.2 \"any custom backend\" promise",
+  "summary": "`b.backup.bundleAdapterStorage.objectStoreAdapter(client, opts)` adapts a `b.objectStore`-shaped client into the `{ writeFile, readFile, listKeys, deleteKey, hasKey }` adapter contract that `bundleAdapterStorage` consumes. Operators wire any of the four shipped object-store backends (`protocol: \"local\"` / `\"sigv4\"` for S3+MinIO / `\"gcs\"` / `\"azure-blob\"`) through the same recipient / passphrase wrap layers shipped in v0.12.10 and v0.12.11 — the bundle bytes hit the object-store `put` as an opaque envelope. `opts.prefix` namespaces every key under a fixed root inside the bucket so operators sharing a bucket across deployments keep listings scoped. Closes the deferral surfaced in v0.11.2 JSDoc and the v0.12.10 release-notes follow-up list: \"S3 or any custom backend\" is now wired with no operator-supplied adapter glue.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.backup.bundleAdapterStorage.objectStoreAdapter(client, opts?)` — object-store-backed bundle storage",
+          "body": "Adapts any `b.objectStore.buildBackend({ protocol })` client (local / sigv4 / gcs / azure-blob) into the `{ writeFile, readFile, listKeys, deleteKey, hasKey }` adapter contract. NOT_FOUND errors from the underlying client translate to `backup/no-key` for the readFile path and to idempotent return-without-throw for deleteKey (matching the fsAdapter contract). hasKey routes through `client.head(key)` — NOT_FOUND → false; any other error propagates so operators can distinguish network failure from missing-key. Composes transparently with v0.12.10 `cryptoStrategy: \"recipient\"` and v0.12.11 `cryptoStrategy: \"passphrase\"` — the wrap envelope is the bytes hitting the object-store put."
+        },
+        {
+          "title": "`opts.prefix` — per-deployment key namespacing inside the bucket",
+          "body": "Operators sharing one bucket across multiple deployments (per-environment / per-tenant / per-region) pass distinct prefixes so listings stay scoped. The prefix gets a trailing slash inserted automatically; traversal segments (`..`) and NUL bytes refused upfront with `backup/bad-arg` so a misconfigured prefix can't escape the operator's intended scope. listKeys strips the prefix on return so the adapter surface looks identical to the fsAdapter — operators switching backends don't see key-shape drift."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Key path validation — traversal + NUL byte refusal at every adapter call",
+          "body": "Every `_scopedKey(key)` invocation refuses keys containing `..` traversal segments or NUL bytes upfront with `backup/bad-key` so a misconfigured bundleId or an attacker-controlled value never reaches the underlying `client.put(...)` / `client.get(...)`. Matches the same defensive posture the fsAdapter carries against operator-supplied key shapes."
+        }
+      ]
+    }
+  ]
+}

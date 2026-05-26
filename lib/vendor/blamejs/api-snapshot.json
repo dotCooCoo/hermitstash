@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.11.30",
-  "createdAt": "2026-05-21T15:41:42.348Z",
+  "frameworkVersion": "0.12.69",
+  "createdAt": "2026-05-26T14:58:13.295Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -1498,6 +1498,81 @@
             }
           }
         },
+        "capability": {
+          "type": "object",
+          "members": {
+            "AiCapabilityError": {
+              "type": "function",
+              "arity": 4
+            },
+            "REASONING_TIERS": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "create": {
+              "type": "function",
+              "arity": 1
+            }
+          }
+        },
+        "disclosure": {
+          "type": "object",
+          "members": {
+            "AiDisclosureError": {
+              "type": "function",
+              "arity": 4
+            },
+            "DEEPFAKE_CONTENT_TYPES": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "SUPPORTED_JURISDICTIONS": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "applyAll": {
+              "type": "function",
+              "arity": 1
+            },
+            "chatbot": {
+              "type": "function",
+              "arity": 2
+            },
+            "deepfake": {
+              "type": "function",
+              "arity": 2
+            },
+            "emotion": {
+              "type": "function",
+              "arity": 1
+            }
+          }
+        },
+        "dp": {
+          "type": "object",
+          "members": {
+            "ACCOUNTINGS": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "AiDpError": {
+              "type": "function",
+              "arity": 4
+            },
+            "MECHANISMS": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "budget": {
+              "type": "function",
+              "arity": 1
+            },
+            "mechanism": {
+              "type": "function",
+              "arity": 1
+            }
+          }
+        },
         "input": {
           "type": "object",
           "members": {
@@ -1541,6 +1616,31 @@
             "verify": {
               "type": "function",
               "arity": 3
+            }
+          }
+        },
+        "quota": {
+          "type": "object",
+          "members": {
+            "AiQuotaError": {
+              "type": "function",
+              "arity": 4
+            },
+            "DIMENSIONS": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "ENFORCEMENTS": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "PERIODS": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "create": {
+              "type": "function",
+              "arity": 1
             }
           }
         }
@@ -1705,6 +1805,150 @@
         "ArchiveError": {
           "type": "function",
           "arity": 4
+        },
+        "ArchiveGzError": {
+          "type": "function",
+          "arity": 4
+        },
+        "ArchiveWrapError": {
+          "type": "function",
+          "arity": 4
+        },
+        "TarError": {
+          "type": "function",
+          "arity": 4
+        },
+        "adapters": {
+          "type": "object",
+          "members": {
+            "buffer": {
+              "type": "function",
+              "arity": 2
+            },
+            "fs": {
+              "type": "function",
+              "arity": 2
+            },
+            "http": {
+              "type": "function",
+              "arity": 2
+            },
+            "isRandomAccessAdapter": {
+              "type": "function",
+              "arity": 1
+            },
+            "isTrustedStreamAdapter": {
+              "type": "function",
+              "arity": 1
+            },
+            "objectStore": {
+              "type": "function",
+              "arity": 3
+            },
+            "trustedStream": {
+              "type": "function",
+              "arity": 2
+            }
+          }
+        },
+        "gz": {
+          "type": "function",
+          "arity": 2
+        },
+        "read": {
+          "type": "object",
+          "members": {
+            "ArchiveReadError": {
+              "type": "function",
+              "arity": 4
+            },
+            "DEFAULT_BOMB_POLICY": {
+              "type": "object",
+              "members": {
+                "maxEntries": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxEntryDecompressedBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxExpansionRatio": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxTotalDecompressedBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            },
+            "DEFAULT_ENTRY_TYPE_POLICY": {
+              "type": "object",
+              "members": {
+                "devices": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "fifos": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "hardlinks": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "sockets": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "symlinks": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                }
+              }
+            },
+            "fromGzip": {
+              "type": "function",
+              "arity": 2
+            },
+            "gz": {
+              "type": "function",
+              "arity": 2
+            },
+            "tar": {
+              "type": "function",
+              "arity": 2
+            },
+            "zip": {
+              "type": "function",
+              "arity": 2
+            }
+          }
+        },
+        "sniffEnvelope": {
+          "type": "function",
+          "arity": 1
+        },
+        "tar": {
+          "type": "function",
+          "arity": 0
+        },
+        "unwrap": {
+          "type": "function",
+          "arity": 2
+        },
+        "unwrapWithPassphrase": {
+          "type": "function",
+          "arity": 2
+        },
+        "wrap": {
+          "type": "function",
+          "arity": 2
+        },
+        "wrapWithPassphrase": {
+          "type": "function",
+          "arity": 2
         },
         "zip": {
           "type": "function",
@@ -2956,6 +3200,23 @@
             "verifyAuthenticator": {
               "type": "function",
               "arity": 3
+            }
+          }
+        },
+        "jar": {
+          "type": "object",
+          "members": {
+            "AuthJarError": {
+              "type": "function",
+              "arity": 4
+            },
+            "JAR_TYP": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "parse": {
+              "type": "function",
+              "arity": 2
             }
           }
         },
@@ -4349,11 +4610,19 @@
           "type": "function",
           "arity": 4
         },
+        "bundleAdapterStorage": {
+          "type": "function",
+          "arity": 1
+        },
         "create": {
           "type": "function",
           "arity": 1
         },
         "diskStorage": {
+          "type": "function",
+          "arity": 1
+        },
+        "migrate": {
           "type": "function",
           "arity": 1
         },
@@ -4507,6 +4776,36 @@
           "arity": 1
         },
         "verifySignature": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
+    "base32": {
+      "type": "object",
+      "members": {
+        "ALPHABETS": {
+          "type": "object",
+          "members": {
+            "rfc4648": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "rfc4648-hex": {
+              "type": "primitive",
+              "valueType": "string"
+            }
+          }
+        },
+        "Base32Error": {
+          "type": "function",
+          "arity": 4
+        },
+        "decode": {
+          "type": "function",
+          "arity": 2
+        },
+        "encode": {
           "type": "function",
           "arity": 2
         }
@@ -5574,6 +5873,206 @@
         }
       }
     },
+    "calendar": {
+      "type": "object",
+      "members": {
+        "CalendarError": {
+          "type": "function",
+          "arity": 4
+        },
+        "JSCAL_ALERT_ACTIONS": {
+          "type": "object",
+          "members": {
+            "display": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "email": {
+              "type": "primitive",
+              "valueType": "number"
+            }
+          }
+        },
+        "JSCAL_FREQUENCIES": {
+          "type": "object",
+          "members": {
+            "daily": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "hourly": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "minutely": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "monthly": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "secondly": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "weekly": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "yearly": {
+              "type": "primitive",
+              "valueType": "number"
+            }
+          }
+        },
+        "JSCAL_NOTE_STATUS": {
+          "type": "object",
+          "members": {
+            "cancelled": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "draft": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "final": {
+              "type": "primitive",
+              "valueType": "number"
+            }
+          }
+        },
+        "JSCAL_TASK_PROGRESS": {
+          "type": "object",
+          "members": {
+            "cancelled": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "completed": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "in-process": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "needs-action": {
+              "type": "primitive",
+              "valueType": "number"
+            }
+          }
+        },
+        "JSCAL_TYPES": {
+          "type": "object",
+          "members": {
+            "Alert": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "Event": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "Group": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "Link": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "Location": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "Note": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "Participant": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "Recurrence": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "Task": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "TimeZone": {
+              "type": "primitive",
+              "valueType": "string"
+            }
+          }
+        },
+        "MAX_EXPAND_INSTANCES": {
+          "type": "primitive",
+          "valueType": "number"
+        },
+        "MAX_EXPAND_SPAN_MS": {
+          "type": "primitive",
+          "valueType": "number"
+        },
+        "expandRecurrence": {
+          "type": "function",
+          "arity": 2
+        },
+        "fromIcal": {
+          "type": "function",
+          "arity": 2
+        },
+        "toIcal": {
+          "type": "function",
+          "arity": 2
+        },
+        "validate": {
+          "type": "function",
+          "arity": 1
+        }
+      }
+    },
+    "canonicalJson": {
+      "type": "object",
+      "members": {
+        "sortKeys": {
+          "type": "function",
+          "arity": 1
+        },
+        "stringify": {
+          "type": "function",
+          "arity": 2
+        },
+        "stringifyJcs": {
+          "type": "function",
+          "arity": 1
+        }
+      }
+    },
+    "cbor": {
+      "type": "object",
+      "members": {
+        "CborError": {
+          "type": "function",
+          "arity": 4
+        },
+        "Tag": {
+          "type": "function",
+          "arity": 2
+        },
+        "decode": {
+          "type": "function",
+          "arity": 2
+        },
+        "encode": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
     "cdnCacheControl": {
       "type": "object",
       "members": {
@@ -5764,7 +6263,56 @@
           "type": "primitive",
           "valueType": "string"
         },
+        "fromJSON": {
+          "type": "function",
+          "arity": 2
+        },
+        "fromJSONBatch": {
+          "type": "function",
+          "arity": 2
+        },
+        "http": {
+          "type": "object",
+          "members": {
+            "decode": {
+              "type": "function",
+              "arity": 3
+            },
+            "decodeBinary": {
+              "type": "function",
+              "arity": 3
+            },
+            "encodeBatch": {
+              "type": "function",
+              "arity": 1
+            },
+            "encodeBinary": {
+              "type": "function",
+              "arity": 1
+            },
+            "encodeStructured": {
+              "type": "function",
+              "arity": 1
+            }
+          }
+        },
+        "isValid": {
+          "type": "function",
+          "arity": 1
+        },
         "parse": {
+          "type": "function",
+          "arity": 1
+        },
+        "toJSON": {
+          "type": "function",
+          "arity": 2
+        },
+        "toJSONBatch": {
+          "type": "function",
+          "arity": 2
+        },
+        "validate": {
           "type": "function",
           "arity": 1
         },
@@ -6017,6 +6565,27 @@
                 }
               }
             },
+            "ai-act": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "ar-pdpa": {
               "type": "object",
               "members": {
@@ -6039,6 +6608,27 @@
               }
             },
             "au-privacy": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ca-ab-853": {
               "type": "object",
               "members": {
                 "auditChainSignedRequired": {
@@ -6102,6 +6692,27 @@
               }
             },
             "ca-tfaia": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "cac-genai-label": {
               "type": "object",
               "members": {
                 "auditChainSignedRequired": {
@@ -6610,6 +7221,27 @@
               }
             },
             "eidas-2": {
+              "type": "object",
+              "members": {
+                "auditChainSignedRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "backupEncryptionRequired": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireVacuumAfterErase": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "tlsMinVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "eu-ai-act": {
               "type": "object",
               "members": {
                 "auditChainSignedRequired": {
@@ -8407,6 +9039,27 @@
         "REGIME_MAP": {
           "type": "object",
           "members": {
+            "42-cfr-part-2": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "ai-act": {
               "type": "object",
               "members": {
@@ -8512,7 +9165,49 @@
                 }
               }
             },
+            "bsi-c5": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "ca-aadc": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ca-ab-853": {
               "type": "object",
               "members": {
                 "citation": {
@@ -8575,7 +9270,49 @@
                 }
               }
             },
+            "ca-sopipa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "ca-tfaia": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "cac-genai-label": {
               "type": "object",
               "members": {
                 "citation": {
@@ -8638,7 +9375,49 @@
                 }
               }
             },
+            "cfpb-1033": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "circia": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "cis-controls-v8": {
               "type": "object",
               "members": {
                 "citation": {
@@ -8702,6 +9481,69 @@
               }
             },
             "cmmc-2.0": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "cmmc-2.0-level-1": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "cmmc-2.0-level-2": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "cmmc-2.0-level-3": {
               "type": "object",
               "members": {
                 "citation": {
@@ -8848,6 +9690,48 @@
                 }
               }
             },
+            "cri-profile-v2.0": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ct-pa-5-2": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "ct-sb3": {
               "type": "object",
               "members": {
@@ -8870,6 +9754,48 @@
               }
             },
             "ctdpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "cwe-top-25-2024": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "cyclonedx-v1.6": {
               "type": "object",
               "members": {
                 "citation": {
@@ -9058,6 +9984,48 @@
                 }
               }
             },
+            "ens-es": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "eu-ai-act": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "eu-cer": {
               "type": "object",
               "members": {
@@ -9121,6 +10089,27 @@
                 }
               }
             },
+            "fapi-2.0": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "fapi-2.0-message-signing": {
               "type": "object",
               "members": {
@@ -9142,7 +10131,91 @@
                 }
               }
             },
+            "fda-21cfr11": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "fda-annex-11": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "fedramp-rev5-moderate": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "ferpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ffiec-cat-2": {
               "type": "object",
               "members": {
                 "citation": {
@@ -9310,7 +10383,70 @@
                 }
               }
             },
+            "hipaa-security-rule": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "hitech": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "hitrust-csf-v11.4": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "hti-1": {
               "type": "object",
               "members": {
                 "citation": {
@@ -9352,7 +10488,70 @@
                 }
               }
             },
+            "iab-mspa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "iab-tcf-v2.3": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "id-pdp": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "iec-62443-3-3": {
               "type": "object",
               "members": {
                 "citation": {
@@ -9415,6 +10614,27 @@
                 }
               }
             },
+            "il-soppa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "in-indpa": {
               "type": "object",
               "members": {
@@ -9436,7 +10656,70 @@
                 }
               }
             },
+            "irap": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "irs-1075": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "iso-23894": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "iso-23894-2023": {
               "type": "object",
               "members": {
                 "citation": {
@@ -9583,6 +10866,27 @@
                 }
               }
             },
+            "iso-42001-2023": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "kr-ai-basic": {
               "type": "object",
               "members": {
@@ -9626,6 +10930,48 @@
               }
             },
             "lgpd-br": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "m-22-09": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "m-22-18": {
               "type": "object",
               "members": {
                 "citation": {
@@ -9793,6 +11139,27 @@
                 }
               }
             },
+            "nerc-cip-007-6": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "nh-nhpa": {
               "type": "object",
               "members": {
@@ -9835,7 +11202,217 @@
                 }
               }
             },
+            "nist-800-115": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nist-800-172-r3": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nist-800-218-ssdf": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nist-800-53": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nist-800-53-r5-privacy": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nist-800-63b-rev4": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "nist-800-66-r2": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nist-800-82-r3": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nist-ai-600-1-genai": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nist-ai-rmf-1.0": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "nist-csf-2.0": {
               "type": "object",
               "members": {
                 "citation": {
@@ -9919,6 +11496,27 @@
                 }
               }
             },
+            "ny-2-d": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "ny-safe-kids": {
               "type": "object",
               "members": {
@@ -9982,6 +11580,27 @@
                 }
               }
             },
+            "nyc-ll144-2024": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "nydfs-500": {
               "type": "object",
               "members": {
@@ -10004,6 +11623,69 @@
               }
             },
             "or-cpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "owasp-asvs-v5.0": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "owasp-llm-top-10-2025": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "owasp-wstg-v5": {
               "type": "object",
               "members": {
                 "citation": {
@@ -10129,6 +11811,48 @@
                 }
               }
             },
+            "psd2-rts-sca": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ptes": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "quebec-25": {
               "type": "object",
               "members": {
@@ -10171,6 +11895,69 @@
                 }
               }
             },
+            "sb-53": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "sec-1.05": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "slsa-v1.0-build-l3": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "soc2": {
               "type": "object",
               "members": {
@@ -10192,7 +11979,154 @@
                 }
               }
             },
+            "soc2-cc1.3": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "soci-au": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "sox": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "sox-404": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "spdx-v3.0": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "staterramp": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "swift-cscf-v2026": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "tcpa-10dlc": {
               "type": "object",
               "members": {
                 "citation": {
@@ -10255,6 +12189,27 @@
                 }
               }
             },
+            "tlp-2.0": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "tn-tipa": {
               "type": "object",
               "members": {
@@ -10277,6 +12232,27 @@
               }
             },
             "tx-cubi": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "tx-hb-4504": {
               "type": "object",
               "members": {
                 "citation": {
@@ -10360,7 +12336,49 @@
                 }
               }
             },
+            "uk-g-cloud": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "uk-gdpr": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "uscdi-v4": {
               "type": "object",
               "members": {
                 "citation": {
@@ -10402,7 +12420,49 @@
                 }
               }
             },
+            "va-sb-1376": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "vcdpa": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domain": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "jurisdiction": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "vex-csaf-2.1": {
               "type": "object",
               "members": {
                 "citation": {
@@ -11463,6 +13523,27 @@
         }
       }
     },
+    "contentDigest": {
+      "type": "object",
+      "members": {
+        "ACTIVE_ALGORITHMS": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "ContentDigestError": {
+          "type": "function",
+          "arity": 4
+        },
+        "create": {
+          "type": "function",
+          "arity": 2
+        },
+        "verify": {
+          "type": "function",
+          "arity": 3
+        }
+      }
+    },
     "cookies": {
       "type": "object",
       "members": {
@@ -11485,6 +13566,114 @@
         "serialize": {
           "type": "function",
           "arity": 3
+        }
+      }
+    },
+    "cose": {
+      "type": "object",
+      "members": {
+        "AEAD_ALGORITHMS": {
+          "type": "object",
+          "members": {
+            "A128GCM": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "A256GCM": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "ChaCha20-Poly1305": {
+              "type": "primitive",
+              "valueType": "number"
+            }
+          }
+        },
+        "ALGORITHMS": {
+          "type": "object",
+          "members": {
+            "ES256": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "ES384": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "ES512": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "EdDSA": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "ML-DSA-87": {
+              "type": "primitive",
+              "valueType": "number"
+            }
+          }
+        },
+        "COSE_ENCRYPT0_TAG": {
+          "type": "primitive",
+          "valueType": "number"
+        },
+        "COSE_MAC0_TAG": {
+          "type": "primitive",
+          "valueType": "number"
+        },
+        "COSE_SIGN1_TAG": {
+          "type": "primitive",
+          "valueType": "number"
+        },
+        "CoseError": {
+          "type": "function",
+          "arity": 4
+        },
+        "MAC_ALGORITHMS": {
+          "type": "object",
+          "members": {
+            "HMAC-256/256": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "HMAC-384/384": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "HMAC-512/512": {
+              "type": "primitive",
+              "valueType": "number"
+            }
+          }
+        },
+        "decrypt0": {
+          "type": "function",
+          "arity": 2
+        },
+        "encrypt0": {
+          "type": "function",
+          "arity": 2
+        },
+        "importKey": {
+          "type": "function",
+          "arity": 1
+        },
+        "mac0": {
+          "type": "function",
+          "arity": 2
+        },
+        "macVerify0": {
+          "type": "function",
+          "arity": 2
+        },
+        "sign": {
+          "type": "function",
+          "arity": 2
+        },
+        "verify": {
+          "type": "function",
+          "arity": 2
         }
       }
     },
@@ -11766,6 +13955,10 @@
           "type": "function",
           "arity": 2
         },
+        "selfTest": {
+          "type": "function",
+          "arity": 1
+        },
         "sha3Hash": {
           "type": "function",
           "arity": 1
@@ -11980,6 +14173,56 @@
           "arity": 2
         },
         "stringify": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
+    "cwt": {
+      "type": "object",
+      "members": {
+        "CLAIM_LABELS": {
+          "type": "object",
+          "members": {
+            "aud": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "cti": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "exp": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "iat": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "iss": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "nbf": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "sub": {
+              "type": "primitive",
+              "valueType": "number"
+            }
+          }
+        },
+        "CwtError": {
+          "type": "function",
+          "arity": 4
+        },
+        "sign": {
+          "type": "function",
+          "arity": 2
+        },
+        "verify": {
           "type": "function",
           "arity": 2
         }
@@ -12319,6 +14562,96 @@
         "create": {
           "type": "function",
           "arity": 1
+        }
+      }
+    },
+    "did": {
+      "type": "object",
+      "members": {
+        "DidError": {
+          "type": "function",
+          "arity": 4
+        },
+        "MULTICODEC": {
+          "type": "object",
+          "members": {
+            "231": {
+              "type": "object",
+              "members": {
+                "curveOid": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "kind": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "237": {
+              "type": "object",
+              "members": {
+                "kind": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "4608": {
+              "type": "object",
+              "members": {
+                "curveOid": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "kind": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "4609": {
+              "type": "object",
+              "members": {
+                "curveOid": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "kind": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "name": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            }
+          }
+        },
+        "keyToDid": {
+          "type": "function",
+          "arity": 2
+        },
+        "parse": {
+          "type": "function",
+          "arity": 1
+        },
+        "resolve": {
+          "type": "function",
+          "arity": 2
         }
       }
     },
@@ -12707,6 +15040,117 @@
           "ctorName": "Array"
         },
         "send": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
+    "eat": {
+      "type": "object",
+      "members": {
+        "CLAIM_LABELS": {
+          "type": "object",
+          "members": {
+            "dbgstat": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "eat_profile": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "hwmodel": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "hwversion": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "location": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "manifests": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "measurements": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "nonce": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "oemboot": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "oemid": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "submods": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "sueids": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "swname": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "swversion": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "ueid": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "uptime": {
+              "type": "primitive",
+              "valueType": "number"
+            }
+          }
+        },
+        "DBGSTAT": {
+          "type": "object",
+          "members": {
+            "disabled": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "disabled-fully-and-permanently": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "disabled-permanently": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "disabled-since-boot": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "enabled": {
+              "type": "primitive",
+              "valueType": "number"
+            }
+          }
+        },
+        "EatError": {
+          "type": "function",
+          "arity": 4
+        },
+        "sign": {
+          "type": "function",
+          "arity": 2
+        },
+        "verify": {
           "type": "function",
           "arity": 2
         }
@@ -14796,9 +17240,17 @@
           "type": "function",
           "arity": 1
         },
+        "entryTypePolicy": {
+          "type": "function",
+          "arity": 1
+        },
         "gate": {
           "type": "function",
           "arity": 1
+        },
+        "inspect": {
+          "type": "function",
+          "arity": 2
         },
         "inspectMagic": {
           "type": "function",
@@ -14808,9 +17260,17 @@
           "type": "function",
           "arity": 1
         },
+        "tarEntryPolicy": {
+          "type": "function",
+          "arity": 1
+        },
         "validateEntries": {
           "type": "function",
           "arity": 2
+        },
+        "zipBombPolicy": {
+          "type": "function",
+          "arity": 1
         }
       }
     },
@@ -18899,6 +21359,10 @@
         "validate": {
           "type": "function",
           "arity": 2
+        },
+        "verifyExtractionPath": {
+          "type": "function",
+          "arity": 3
         }
       }
     },
@@ -34581,6 +37045,183 @@
         }
       }
     },
+    "jsonMergePatch": {
+      "type": "object",
+      "members": {
+        "JsonMergePatchError": {
+          "type": "function",
+          "arity": 4
+        },
+        "merge": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
+    "jsonPatch": {
+      "type": "object",
+      "members": {
+        "JsonPatchError": {
+          "type": "function",
+          "arity": 4
+        },
+        "OPS": {
+          "type": "object",
+          "members": {
+            "add": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "copy": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "move": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "remove": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "replace": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "test": {
+              "type": "primitive",
+              "valueType": "number"
+            }
+          }
+        },
+        "apply": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
+    "jsonPath": {
+      "type": "object",
+      "members": {
+        "JsonPathError": {
+          "type": "function",
+          "arity": 4
+        },
+        "paths": {
+          "type": "function",
+          "arity": 2
+        },
+        "query": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
+    "jsonPointer": {
+      "type": "object",
+      "members": {
+        "ARRAY_INDEX_RE": {
+          "type": "instance",
+          "ctorName": "RegExp"
+        },
+        "JsonPointerError": {
+          "type": "function",
+          "arity": 4
+        },
+        "get": {
+          "type": "function",
+          "arity": 2
+        },
+        "parse": {
+          "type": "function",
+          "arity": 1
+        }
+      }
+    },
+    "jsonSchema": {
+      "type": "object",
+      "members": {
+        "DIALECT": {
+          "type": "primitive",
+          "valueType": "string"
+        },
+        "JsonSchemaError": {
+          "type": "function",
+          "arity": 4
+        },
+        "compile": {
+          "type": "function",
+          "arity": 2
+        },
+        "isValid": {
+          "type": "function",
+          "arity": 3
+        },
+        "validate": {
+          "type": "function",
+          "arity": 3
+        }
+      }
+    },
+    "jtd": {
+      "type": "object",
+      "members": {
+        "JtdError": {
+          "type": "function",
+          "arity": 4
+        },
+        "isValid": {
+          "type": "function",
+          "arity": 2
+        },
+        "validate": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
+    "jwk": {
+      "type": "object",
+      "members": {
+        "JwkError": {
+          "type": "function",
+          "arity": 4
+        },
+        "REQUIRED": {
+          "type": "object",
+          "members": {
+            "AKP": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "EC": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "OKP": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "RSA": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "oct": {
+              "type": "instance",
+              "ctorName": "Array"
+            }
+          }
+        },
+        "canonicalize": {
+          "type": "function",
+          "arity": 1
+        },
+        "thumbprint": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
     "keychain": {
       "type": "object",
       "members": {
@@ -34618,6 +37259,23 @@
           "arity": 4
         },
         "create": {
+          "type": "function",
+          "arity": 1
+        }
+      }
+    },
+    "linkHeader": {
+      "type": "object",
+      "members": {
+        "LinkHeaderError": {
+          "type": "function",
+          "arity": 4
+        },
+        "parse": {
+          "type": "function",
+          "arity": 1
+        },
+        "serialize": {
           "type": "function",
           "arity": 1
         }
@@ -35961,6 +38619,14 @@
                   "type": "function",
                   "arity": 4
                 },
+                "decrypt": {
+                  "type": "function",
+                  "arity": 1
+                },
+                "encrypt": {
+                  "type": "function",
+                  "arity": 1
+                },
                 "experimental": {
                   "type": "object",
                   "members": {
@@ -35994,6 +38660,19 @@
                 "verify": {
                   "type": "function",
                   "arity": 1
+                },
+                "wkd": {
+                  "type": "object",
+                  "members": {
+                    "computeUrl": {
+                      "type": "function",
+                      "arity": 2
+                    },
+                    "fetch": {
+                      "type": "function",
+                      "arity": 2
+                    }
+                  }
                 }
               }
             },
@@ -36717,6 +39396,10 @@
                 "create": {
                   "type": "function",
                   "arity": 1
+                },
+                "emailSubmissionSetHandler": {
+                  "type": "function",
+                  "arity": 1
                 }
               }
             },
@@ -36983,6 +39666,70 @@
                 "jmap": {
                   "type": "object",
                   "members": {
+                    "Calendar/changes": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "Calendar/get": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "Calendar/query": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "Calendar/queryChanges": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "Calendar/set": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "CalendarEvent/changes": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "CalendarEvent/copy": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "CalendarEvent/get": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "CalendarEvent/query": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "CalendarEvent/queryChanges": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "CalendarEvent/set": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "CalendarEventNotification/changes": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "CalendarEventNotification/get": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "CalendarEventNotification/query": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "CalendarEventNotification/queryChanges": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "CalendarEventNotification/set": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
                     "Core/echo": {
                       "type": "primitive",
                       "valueType": "number"
@@ -37068,6 +39815,18 @@
                       "valueType": "number"
                     },
                     "Mailbox/set": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "ParticipantIdentity/changes": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "ParticipantIdentity/get": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "ParticipantIdentity/set": {
                       "type": "primitive",
                       "valueType": "number"
                     },
@@ -37995,6 +40754,40 @@
         "validateToolInput": {
           "type": "function",
           "arity": 3
+        }
+      }
+    },
+    "mdoc": {
+      "type": "object",
+      "members": {
+        "DIGEST_ALGS": {
+          "type": "object",
+          "members": {
+            "SHA-256": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "SHA-384": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "SHA-512": {
+              "type": "primitive",
+              "valueType": "string"
+            }
+          }
+        },
+        "MdocError": {
+          "type": "function",
+          "arity": 4
+        },
+        "verifyDeviceAuth": {
+          "type": "function",
+          "arity": 1
+        },
+        "verifyIssuerSigned": {
+          "type": "function",
+          "arity": 2
         }
       }
     },
@@ -39092,9 +41885,186 @@
               "type": "function",
               "arity": 0
             },
+            "dane": {
+              "type": "object",
+              "members": {
+                "DaneError": {
+                  "type": "function",
+                  "arity": 4
+                },
+                "SELECTORS": {
+                  "type": "object",
+                  "members": {
+                    "0": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "1": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "USAGES": {
+                  "type": "object",
+                  "members": {
+                    "0": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "1": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "2": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "3": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "matchCertificate": {
+                  "type": "function",
+                  "arity": 1
+                }
+              }
+            },
             "discoverEncrypted": {
               "type": "function",
               "arity": 1
+            },
+            "dnssec": {
+              "type": "object",
+              "members": {
+                "ALGORITHMS": {
+                  "type": "object",
+                  "members": {
+                    "8": {
+                      "type": "object",
+                      "members": {
+                        "hash": {
+                          "type": "primitive",
+                          "valueType": "string"
+                        },
+                        "kind": {
+                          "type": "primitive",
+                          "valueType": "string"
+                        },
+                        "name": {
+                          "type": "primitive",
+                          "valueType": "string"
+                        }
+                      }
+                    },
+                    "13": {
+                      "type": "object",
+                      "members": {
+                        "coord": {
+                          "type": "primitive",
+                          "valueType": "number"
+                        },
+                        "crv": {
+                          "type": "primitive",
+                          "valueType": "string"
+                        },
+                        "hash": {
+                          "type": "primitive",
+                          "valueType": "string"
+                        },
+                        "kind": {
+                          "type": "primitive",
+                          "valueType": "string"
+                        },
+                        "name": {
+                          "type": "primitive",
+                          "valueType": "string"
+                        }
+                      }
+                    },
+                    "14": {
+                      "type": "object",
+                      "members": {
+                        "coord": {
+                          "type": "primitive",
+                          "valueType": "number"
+                        },
+                        "crv": {
+                          "type": "primitive",
+                          "valueType": "string"
+                        },
+                        "hash": {
+                          "type": "primitive",
+                          "valueType": "string"
+                        },
+                        "kind": {
+                          "type": "primitive",
+                          "valueType": "string"
+                        },
+                        "name": {
+                          "type": "primitive",
+                          "valueType": "string"
+                        }
+                      }
+                    },
+                    "15": {
+                      "type": "object",
+                      "members": {
+                        "crv": {
+                          "type": "primitive",
+                          "valueType": "string"
+                        },
+                        "hash": {
+                          "type": "primitive",
+                          "valueType": "null"
+                        },
+                        "kind": {
+                          "type": "primitive",
+                          "valueType": "string"
+                        },
+                        "name": {
+                          "type": "primitive",
+                          "valueType": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                "DEFAULT_ROOT_ANCHORS": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
+                "DnssecError": {
+                  "type": "function",
+                  "arity": 4
+                },
+                "keyTag": {
+                  "type": "function",
+                  "arity": 1
+                },
+                "nsec3Hash": {
+                  "type": "function",
+                  "arity": 2
+                },
+                "verifyChain": {
+                  "type": "function",
+                  "arity": 1
+                },
+                "verifyDenial": {
+                  "type": "function",
+                  "arity": 1
+                },
+                "verifyDs": {
+                  "type": "function",
+                  "arity": 1
+                },
+                "verifyRrset": {
+                  "type": "function",
+                  "arity": 1
+                }
+              }
             },
             "getServers": {
               "type": "function",
@@ -42320,6 +45290,31 @@
         }
       }
     },
+    "privacyPass": {
+      "type": "object",
+      "members": {
+        "PrivacyPassError": {
+          "type": "function",
+          "arity": 4
+        },
+        "TOKEN_TYPE_BLIND_RSA": {
+          "type": "primitive",
+          "valueType": "number"
+        },
+        "buildChallenge": {
+          "type": "function",
+          "arity": 1
+        },
+        "parseToken": {
+          "type": "function",
+          "arity": 1
+        },
+        "verifyToken": {
+          "type": "function",
+          "arity": 1
+        }
+      }
+    },
     "problemDetails": {
       "type": "object",
       "members": {
@@ -43154,6 +46149,23 @@
         }
       }
     },
+    "safeArchive": {
+      "type": "object",
+      "members": {
+        "SafeArchiveError": {
+          "type": "function",
+          "arity": 4
+        },
+        "extract": {
+          "type": "function",
+          "arity": 1
+        },
+        "inspect": {
+          "type": "function",
+          "arity": 1
+        }
+      }
+    },
     "safeAsync": {
       "type": "object",
       "members": {
@@ -43231,6 +46243,10 @@
       "type": "object",
       "members": {
         "BASE64URL_RE": {
+          "type": "instance",
+          "ctorName": "RegExp"
+        },
+        "BASE64_RE": {
           "type": "instance",
           "ctorName": "RegExp"
         },
@@ -45461,6 +48477,27 @@
         }
       }
     },
+    "scitt": {
+      "type": "object",
+      "members": {
+        "CWT_CLAIMS_LABEL": {
+          "type": "primitive",
+          "valueType": "number"
+        },
+        "ScittError": {
+          "type": "function",
+          "arity": 4
+        },
+        "signStatement": {
+          "type": "function",
+          "arity": 2
+        },
+        "verifyStatement": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
     "sdNotify": {
       "type": "object",
       "members": {
@@ -45951,13 +48988,41 @@
     "structuredFields": {
       "type": "object",
       "members": {
+        "ByteSequence": {
+          "type": "function",
+          "arity": 1
+        },
+        "Date": {
+          "type": "function",
+          "arity": 1
+        },
+        "Decimal": {
+          "type": "function",
+          "arity": 1
+        },
+        "DisplayString": {
+          "type": "function",
+          "arity": 1
+        },
+        "Token": {
+          "type": "function",
+          "arity": 1
+        },
         "containsControlBytes": {
           "type": "function",
           "arity": 2
         },
+        "parse": {
+          "type": "function",
+          "arity": 3
+        },
         "refuseControlBytes": {
           "type": "function",
           "arity": 2
+        },
+        "serialize": {
+          "type": "function",
+          "arity": 3
         },
         "splitTopLevel": {
           "type": "function",
@@ -46279,6 +49344,114 @@
         }
       }
     },
+    "tsa": {
+      "type": "object",
+      "members": {
+        "IMPRINT_HASHES": {
+          "type": "object",
+          "members": {
+            "SHA-256": {
+              "type": "object",
+              "members": {
+                "nodeHash": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "oid": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "SHA-384": {
+              "type": "object",
+              "members": {
+                "nodeHash": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "oid": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "SHA-512": {
+              "type": "object",
+              "members": {
+                "nodeHash": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "oid": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "SHA3-256": {
+              "type": "object",
+              "members": {
+                "nodeHash": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "oid": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "SHA3-512": {
+              "type": "object",
+              "members": {
+                "nodeHash": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "oid": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            }
+          }
+        },
+        "TsaError": {
+          "type": "function",
+          "arity": 4
+        },
+        "buildRequest": {
+          "type": "function",
+          "arity": 2
+        },
+        "parseResponse": {
+          "type": "function",
+          "arity": 1
+        },
+        "verifyToken": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
+    "uriTemplate": {
+      "type": "object",
+      "members": {
+        "UriTemplateError": {
+          "type": "function",
+          "arity": 4
+        },
+        "compile": {
+          "type": "function",
+          "arity": 1
+        },
+        "expand": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
     "uuid": {
       "type": "object",
       "members": {
@@ -46580,6 +49753,88 @@
         "wrap": {
           "type": "function",
           "arity": 3
+        }
+      }
+    },
+    "vc": {
+      "type": "object",
+      "members": {
+        "JOSE_ALGS": {
+          "type": "object",
+          "members": {
+            "ES256": {
+              "type": "object",
+              "members": {
+                "dsaEncoding": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "nodeHash": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ES384": {
+              "type": "object",
+              "members": {
+                "dsaEncoding": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "nodeHash": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "ES512": {
+              "type": "object",
+              "members": {
+                "dsaEncoding": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "nodeHash": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "EdDSA": {
+              "type": "object",
+              "members": {
+                "nodeHash": {
+                  "type": "primitive",
+                  "valueType": "null"
+                }
+              }
+            }
+          }
+        },
+        "VCDM_V2_CONTEXT": {
+          "type": "primitive",
+          "valueType": "string"
+        },
+        "VcError": {
+          "type": "function",
+          "arity": 4
+        },
+        "issue": {
+          "type": "function",
+          "arity": 2
+        },
+        "present": {
+          "type": "function",
+          "arity": 1
+        },
+        "verify": {
+          "type": "function",
+          "arity": 2
+        },
+        "verifyPresentation": {
+          "type": "function",
+          "arity": 2
         }
       }
     },

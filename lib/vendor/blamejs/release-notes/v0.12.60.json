@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.60",
+  "date": "2026-05-25",
+  "headline": "`b.jsonMergePatch` — JSON Merge Patch (RFC 7396)",
+  "summary": "The simpler companion to JSON Patch: b.jsonMergePatch.merge applies an RFC 7396 merge patch (application/merge-patch+json), the partial-document PATCH body. A member present in the patch replaces or — for nested objects — merges into the target, a member whose value is null removes that key, and a patch that is itself an array, scalar, or null replaces the target wholesale. The inputs are never mutated (the merge runs on a deep copy) and member keys are written as literal own properties, so a \"__proto__\" member cannot reach any prototype. Verified against every RFC 7396 Appendix A test case.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.jsonMergePatch.merge(target, patch)`",
+          "body": "Applies a JSON Merge Patch to a target document and returns the result without mutating either input. When the patch is an object it overlays the target (a null member deletes the key, a nested object merges recursively, any other value replaces); when the patch is an array, scalar, or null it replaces the whole target. Member keys are set via `Object.defineProperty`, so a `\"__proto__\"` member becomes a literal own key rather than altering a prototype. Pairs with `b.jsonPatch` — merge patch reads like the resource you want, JSON Patch expresses precise operations (array reordering, literal-null values)."
+        }
+      ]
+    }
+  ]
+}

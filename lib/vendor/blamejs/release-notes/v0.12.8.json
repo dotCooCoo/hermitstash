@@ -1,0 +1,81 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.8",
+  "date": "2026-05-23",
+  "headline": "`b.archive.tar` + `b.archive.read.tar` — POSIX pax tar format end-to-end + `b.guardArchive.tarEntryPolicy` + `b.backup` tar bundle default",
+  "summary": "Tar lands as the second format in the archive family. `b.archive.tar()` builds POSIX pax archives (ustar magic + pax extended headers for >100-char names, >8 GiB sizes, nanosecond mtime); `b.archive.read.tar(adapter)` walks the 512-byte block sequence with the same bomb-cap + path-traversal + entry-type defenses that ZIP read shipped at v0.12.7. Tar's natively-streamable shape means `b.archive.adapters.trustedStream(readable)` is a first-class extract path here (no CD-walk required since tar has no central directory; sequential header-by-header is the canonical adversarial-safe path). `b.guardArchive.tarEntryPolicy` ships as the tar-specific entry-shape policy beyond `entryTypePolicy` — handles typeflag 0/5 (regular/directory) by default, refuses 1/2 (hardlink/symlink) unless `allowDangerous` is set with the realpath-on-link-target dual-check, and refuses 3/4/6/7 (char-device/block-device/FIFO/contiguous-file) unconditionally. `b.backup.bundleAdapterStorage({ format: \"tar\" })` becomes the default for new bundles — directory-tree format stays available via `format: \"directory\"` for back-compat with v0.12.7 bundles. `b.backup.migrate(from, to)` one-shot helper converts v0.12.7 directory bundles to v0.12.8 tar bundles transparently. `b.safeArchive.extract({ source, destination, format: \"auto\" })` now sniffs ustar magic at offset 257 inside the first 512-byte block and dispatches to the tar reader automatically. CVE coverage extends to the tar class: CVE-2026-23745 / 2026-24842 (node-tar symlink+hardlink path resolution), CVE-2025-4517 PATH_MAX TOCTOU (the v0.12.7 dual-check carries through), CVE-2025-11001/11002 (symlink TOCTOU on extract), CVE-2024-12905 / 2025-48387 (tar-fs traversal), CVE-2025-4138/4330 (Python tarfile data filter bypass).",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.archive.tar()` — POSIX pax write builder",
+          "body": "Mirrors `b.archive.zip()`'s contract: `addFile(name, content, opts?)` + `addDirectory(name, opts?)` + `toBuffer()` + `toStream(writable)` + `toAdapter(adapter)` + `digest()`. Emits ustar-magic 512-byte header blocks with the standard 11-field prefix (name / mode / uid / gid / size / mtime / chksum / typeflag / linkname / magic / version / uname / gname / devmajor / devminor / prefix). Names >100 chars + sizes >8 GiB + mtime with nanosecond precision get a pax extended header (typeflag=x) preceding the entry; the extended header records (per POSIX.1-2001 §4.18) carry the `path` / `size` / `mtime` / `atime` / `ctime` fields that overflow ustar's fixed widths. Determinism opts: `{ fixedMtime: 0, ignoreOrder: false }` for reproducible builds (matches the ZIP write side)."
+        },
+        {
+          "title": "`b.archive.read.tar(adapter, opts)` — sequential + random-access tar reader",
+          "body": "Walks 512-byte header blocks in order. `inspect()` enumerates entries without decompressing; `extract({ destination })` decompresses entry-by-entry with the same bomb-cap + path-traversal + entry-type defenses as ZIP read. Trusted-stream adapters are first-class here — tar has no central directory, so sequential header-by-header walk IS the canonical adversarial-safe path (`b.archive.adapters.trustedStream(readable)` and `b.archive.adapters.fs/buffer/objectStore/http` all flow through the same reader). Per-entry path safety routes through `b.guardFilename.verifyExtractionPath` (the v0.12.7 dual-check). Refuses to overwrite pre-existing destination files (carries the v0.12.7 atomic-rollback contract)."
+        },
+        {
+          "title": "`b.guardArchive.tarEntryPolicy(opts)` — tar-specific entry-type policy",
+          "body": "Defaults: typeflag 0 (regular file) + 5 (directory) extract; typeflag 1 (hardlink) + 2 (symlink) refused unless `allowDangerous: { symlinks: true, hardlinks: true }` is set; typeflag 3 (char-device) + 4 (block-device) + 6 (FIFO) + 7 (contiguous-file) refused unconditionally. When `allowDangerous` is set, link target is routed through `b.guardFilename.verifyExtractionPath` against the extraction root — the realpath-on-link-target check defends the CVE-2026-23745 / 24842 node-tar class where the safety check and creation logic diverged on path resolution. Pax extended-header (x) + global-header (g) entries consumed by the reader (merged into the following entry's metadata); operators never see them as standalone entries."
+        },
+        {
+          "title": "`b.backup.bundleAdapterStorage({ format: \"tar\" })` — tar bundle becomes default",
+          "body": "New bundles ship as a single tar archive instead of a directory tree. Restore via `b.archive.read.tar` (with the operator-supplied adapter routing the bytes). `format: \"directory\"` opts back into the v0.12.7 layout for operators with existing bundles. `format: \"tar\"` is the new default; `b.backup.diskStorage` stays back-compat at the legacy directory-tree format."
+        },
+        {
+          "title": "`b.backup.migrate(opts)` — directory → tar bundle migration",
+          "body": "One-shot helper that walks an operator's directory-tree-format bundle (v0.12.7 layout) and writes the same content as a tar-format bundle via the v0.12.8 bundleAdapterStorage. Idempotent: re-running on an already-migrated bundle is a no-op. Source bundle stays in place until the migrate succeeds; operators with explicit transition windows pass `{ deleteSourceOnSuccess: true }` to opt into the inline replace."
+        },
+        {
+          "title": "`b.safeArchive.extract({ format: \"auto\" })` recognizes tar",
+          "body": "Format auto-sniff now dispatches `ustar` magic at offset 257 inside the first 512-byte header block to the tar reader. ZIP magic + tar magic + GZIP magic (v0.12.9) live in the same sniff path; operators with mixed-format pipelines pass `format: \"auto\"` once + the orchestrator picks the right reader."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Symlink + hardlink path resolution (CVE-2026-23745 / CVE-2026-24842 node-tar class)",
+          "body": "node-tar < 7.5.7 / ≤ 7.5.2 shipped a divergence between its hardlink safety check (which used one path resolution) and its hardlink creation logic (which used another). When `allowDangerous: { hardlinks: true }` is set, blamejs routes the link target through `b.guardFilename.verifyExtractionPath` — the SAME primitive that the eventual `link()` call resolves against — so check + create agree by construction. Symlink targets same shape."
+        },
+        {
+          "title": "Path traversal (CVE-2024-12905 / CVE-2025-48387 tar-fs + CVE-2025-4138 / 4330 Python tarfile data filter bypass)",
+          "body": "Every entry name passes through `b.guardFilename.verifyExtractionPath` — the v0.12.7 dual-check that refuses pre-resolve names > PATH_MAX (4096 bytes) AND verifies the string-normalize + `fs.realpath` resolutions agree on the same final path. Defends the CVE-2025-4517 / 4138 / 4330 class where the operator's path resolution and the kernel's diverge silently past PATH_MAX."
+        },
+        {
+          "title": "Symlink TOCTOU on extract (CVE-2025-11001 / CVE-2025-11002 7-Zip class)",
+          "body": "When `allowDangerous: { symlinks: true }` opts symlinks in, the reader resolves the link target via `verifyExtractionPath` against the extraction root BEFORE calling `fs.symlink` — so the resolved target is inside the trust boundary by construction. The v0.12.7 atomic-rollback contract carries through: any single entry failure aborts the whole extract + cleans up only newly-created files (pre-existing destination files refused at the pre-write check)."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "`tar-extract-allow-dangerous-without-link-target-check`",
+          "body": "Flags any `b.archive.read.tar(adapter).extract({ allowDangerous: ... })` call site in `lib/` that doesn't route the link target through `b.guardFilename.verifyExtractionPath` against the extraction root. Forces the dual-check discipline at every allow-dangerous opt-in — operators with hardlink / symlink extract needs see the realpath check at the call site."
+        },
+        {
+          "title": "`tar-entry-typeflag-without-policy`",
+          "body": "Flags `lib/archive-tar.js` extract code paths that switch on typeflag without composing `b.guardArchive.tarEntryPolicy` for the type-allowlist decision. Locks the shape: every typeflag dispatch goes through the policy, never inline."
+        },
+        {
+          "title": "`backup-migrate-without-source-preserve`",
+          "body": "Flags `b.backup.migrate(opts)` call sites that pass `deleteSourceOnSuccess: true` without an operator-stated justification comment. Default is preserve-source; deletes need an explicit reason."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "POSIX.1-2001 pax extended format (IEEE 1003.1)",                "url": "https://pubs.opengroup.org/onlinepubs/9699919799/utilities/pax.html" },
+    { "label": "CVE-2026-23745 — node-tar symlink+hardlink path resolution",    "url": "https://www.sentinelone.com/vulnerability-database/cve-2026-23745/" },
+    { "label": "CVE-2026-24842 — node-tar hardlink path resolution",            "url": "https://github.com/advisories/GHSA-34x7-hfp2-rc4v" },
+    { "label": "CVE-2025-4517 — Python tarfile PATH_MAX bypass (CVSS 9.4)",     "url": "https://nvd.nist.gov/vuln/detail/CVE-2025-4517" },
+    { "label": "CVE-2025-4138 / CVE-2025-4330 — Python tarfile data filter",    "url": "https://github.com/0xDTC/CVE-2025-4138-4517-POC" },
+    { "label": "CVE-2025-11001 / CVE-2025-11002 — 7-Zip symlink TOCTOU on extract", "url": "https://www.sentinelone.com/vulnerability-database/cve-2025-11001/" },
+    { "label": "CVE-2024-12905 / CVE-2025-48387 — node-tar-fs path traversal",   "url": "https://vulert.com/vuln-db/debian-11-node-tar-fs-193050" }
+  ]
+}

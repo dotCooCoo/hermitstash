@@ -1,0 +1,65 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.10",
+  "date": "2026-05-23",
+  "headline": "`b.archive.wrap` + `b.archive.unwrap` — recipient-encrypted archive envelopes (Flavor 1) + `b.backup` `cryptoStrategy: \"recipient\"` + HIPAA/PCI-DSS posture refusal",
+  "summary": "Flavor 1 lands as the whole-archive recipient-wrap substrate. `b.archive.wrap(bytes, { recipient })` produces a sealed envelope under the framework's hybrid PQC seal (ML-KEM-1024 + P-384 ECDH + SHAKE256 + XChaCha20-Poly1305) prefixed with a 6-byte `BAWRP` archive-wrap header so format sniffers can identify wrap envelopes without trial decryption. `b.archive.unwrap(sealed, { recipient })` is the inverse with magic-check upfront so non-envelope inputs throw `archive-wrap/bad-magic` rather than a crypto-level error. Recipient strategies: static keypair (`{ publicKey, ecPublicKey }`) and peer-cert (`{ peerCertDer, peerKemPubkey }`); the tenant strategy lands in v0.12.11 alongside the backup-crypto refactor + per-tenant key resolution. `b.backup.bundleAdapterStorage({ cryptoStrategy: \"recipient\", recipient })` composes the wrap/unwrap layer transparently: the bytes hitting the adapter's `writeFile` are a `BAWRP`-prefixed envelope, never the raw tar / tar.gz / directory bundle. HIPAA + PCI-DSS postures refuse `cryptoStrategy: \"none\"` upfront with `backup/posture-requires-encryption` — the storage adapter cannot itself satisfy the encryption-at-rest requirement; the recipient envelope is the framework-side gate. Flavor 2 (per-entry ZIP wrap with the 0xBADC extra-field marker) and the backup-crypto refactor into `lib/_crypto-base.js` ship in v0.12.11.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.archive.wrap(bytes, { recipient })` — recipient-encrypted archive envelope",
+          "body": "Composes `b.crypto.encrypt` (or `b.crypto.encryptEnvelopeAsCertPeer` for the peer-cert strategy) under the framework's hybrid PQC seal. The output is a Buffer carrying a 6-byte `BAWRP` archive-wrap header (5-byte magic + 1-byte version) followed by the base64-encoded envelope bytes. Recipient strategies: `{ publicKey, ecPublicKey }` for the static-keypair path (ML-KEM-1024 PEM + P-384 ECDH PEM); `{ peerCertDer, peerKemPubkey }` for the peer-cert path (extracts the P-384 half from the cert per `b.crypto.encryptEnvelopeAsCertPeer`). `\"tenant\"` returns `archive-wrap/tenant-strategy-deferred` upfront — that strategy lands in v0.12.11 with the per-tenant key resolution."
+        },
+        {
+          "title": "`b.archive.unwrap(sealed, { recipient })` — inverse with upfront magic check",
+          "body": "Verifies the 6-byte `BAWRP` header before any cryptographic work so non-envelope inputs (raw archives, other-magic envelopes, truncated buffers) fail with `archive-wrap/bad-magic` / `archive-wrap/bad-version` rather than a downstream `crypto/*` error. Routes through `b.crypto.decrypt(envelope, recipient, { raw: true })` so binary archive payloads (gzip, ZIP, tar) round-trip losslessly — `raw: true` is the contract that preserves bytes vs the default utf-8 decoding."
+        },
+        {
+          "title": "`b.backup.bundleAdapterStorage({ cryptoStrategy: \"recipient\", recipient })` — opt-in envelope storage",
+          "body": "`cryptoStrategy: \"none\"` (default, v0.12.7-9 behaviour) writes plaintext bundle bytes to the adapter — safe for storage layers that are themselves the protective boundary (S3 SSE, disk-encrypted hosts). `cryptoStrategy: \"recipient\"` requires `opts.recipient` and wraps every `writeBundle` payload through `b.archive.wrap` before `adapter.writeFile`; `readBundle` unwraps after `adapter.readFile`. The wrap layer sits OUTSIDE the gz / tar layers so the bundle on disk is opaque ciphertext under the operator-controlled recipient key. Passphrase strategy is deferred to v0.12.11 alongside the `_crypto-base.js` refactor."
+        },
+        {
+          "title": "HIPAA + PCI-DSS posture refuses plaintext bundles",
+          "body": "`bundleAdapterStorage({ posture: \"hipaa\" })` (or `\"pci-dss\"`) refuses `cryptoStrategy: \"none\"` upfront with `backup/posture-requires-encryption` — adapter-storage's plaintext default cannot itself satisfy encryption-at-rest requirements. Operators under these postures pass `cryptoStrategy: \"recipient\"` + a recipient key. The refusal message includes the posture name + the strategy that fails so audit-trail operators see exactly which gate blocked the call."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Wrap envelope is the framework's hybrid PQC seal — ML-KEM-1024 + P-384 ECDH + SHAKE256 + XChaCha20-Poly1305",
+          "body": "Defence-in-depth posture: a CRQC against ML-KEM-1024 alone still has to defeat the classical P-384 ECDH leg; a future ECDH break alone still has to defeat ML-KEM-1024. The 4-byte envelope header (magic + KEM ID + cipher ID + KDF ID) is bound as AEAD AAD so a header-substitution attack fails Poly1305 verification. `b.archive.wrap` prepends a separate 6-byte archive-wrap header BEFORE the base64 envelope so format sniffing can identify wrap output without trial decryption — non-envelope inputs are refused at byte 0-4 (magic check) instead of after fruitless decapsulation work."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "`backup-adapter-storage-without-posture-check` — postures that mandate encryption must propagate to `cryptoStrategy`",
+          "body": "When a primitive that wires `b.backup.bundleAdapterStorage` carries a `posture:` opt drawn from the HIPAA / PCI-DSS / etc. set, the same code path must propagate `cryptoStrategy: \"recipient\"` (or refuse before reaching writeBundle). The detector matches `bundleAdapterStorage({ ... posture: ... })` invocations in `lib/` and requires a matching `cryptoStrategy` opt; missing it surfaces during the codebase-patterns gate so a future caller can't silently drop the contract."
+        }
+      ]
+    },
+    {
+      "heading": "Migration",
+      "items": [
+        {
+          "title": "Flavor 2 — per-entry ZIP recipient wrap with 0xBADC extra-field",
+          "body": "Per-entry encryption inside the carrier ZIP (method=STORE with the encrypted bytes as the stored payload + a 0xBADC user-defined-range extra-field marker carrying the recipient hint). Inspect-without-decrypt is the operator value: entry list + name-safety gating happens BEFORE any key resolution. Lands in v0.12.11 alongside the backup-crypto refactor."
+        },
+        {
+          "title": "`lib/_crypto-base.js` refactor — backup-crypto, Flavor 1, Flavor 2 share substrate",
+          "body": "The legacy per-file Argon2id + XChaCha20-Poly1305 path in `lib/backup/crypto.js` gets factored into a private `_crypto-base.js` helper so all three encryption flavors compose the same primitive set. No operator-visible API change; closes the each-feature-rolls-its-own-crypto smell."
+        },
+        {
+          "title": "`cryptoStrategy: \"passphrase\"` + tenant strategy",
+          "body": "Passphrase strategy on `bundleAdapterStorage` (Argon2id-derived key + XChaCha20-Poly1305) and the `\"tenant\"` recipient string (composes `b.vault.derivedKey({ tenant, purpose: \"archive-wrap\" })`) both ship in v0.12.11. The v0.12.10 surface is the recipient substrate; v0.12.11 lights up the per-tenant + passphrase strategies that consume it."
+        }
+      ]
+    }
+  ]
+}

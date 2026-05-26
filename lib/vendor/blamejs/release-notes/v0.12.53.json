@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.53",
+  "date": "2026-05-25",
+  "headline": "`b.contentDigest` — HTTP Content-Digest / Repr-Digest fields (RFC 9530)",
+  "summary": "Emit and verify the Content-Digest / Repr-Digest HTTP fields so a recipient can detect a corrupted or tampered message body. b.contentDigest.create builds the RFC 8941 dictionary value (sha-256=:base64:, sha-512=:base64:) over a body; b.contentDigest.verify recomputes each modern digest over the body and compares it in constant time. Only SHA-256 and SHA-512 are computed — the legacy algorithms RFC 9530 §6 marks insecure (MD5, SHA-1, the unix checksums) are ignored on verify, and a field carrying no modern digest is refused, so an attacker cannot downgrade integrity to an MD5-only digest. Content-Digest is the integrity companion to HTTP Message Signatures (b.httpSig, RFC 9421): sign the digest rather than the whole body. Verified against the RFC 9530 Appendix D worked examples.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.contentDigest.create(body, opts?)` / `b.contentDigest.verify(fieldValue, body, opts?)`",
+          "body": "`create` returns a Content-Digest / Repr-Digest field value over the body — SHA-256 by default, or any subset of `[\"sha-256\",\"sha-512\"]` via `opts.algorithms` — and refuses insecure or unknown algorithms. `verify` parses the field, recomputes each SHA-256 / SHA-512 entry over the body, and compares constant-time; it throws `content-digest/mismatch` on any mismatch, ignores legacy / unknown entries, throws `content-digest/no-modern-digest` if the field has no SHA-256 / SHA-512 entry at all, and honours `opts.required` to force specific algorithms to be present and match. Composes the framework's structured-field helpers and constant-time compare; Repr-Digest is the same machinery over the selected representation (RFC 9110)."
+        }
+      ]
+    }
+  ]
+}

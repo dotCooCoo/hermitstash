@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.40",
+  "date": "2026-05-24",
+  "headline": "`b.mdoc` — ISO 18013-5 mdoc / mDL issuer-data verification",
+  "summary": "Verify the issuer-signed data of an ISO/IEC 18013-5 mdoc — the credential format behind mobile driving licences (mDL) and the ISO track of the EU Digital Identity Wallet. This is the relying-party side: confirm that the data elements a holder presents were signed by the issuer and have not been altered. An mdoc's IssuerSigned carries the disclosed data elements and an issuerAuth that is a COSE_Sign1 (b.cose) over a Mobile Security Object (MSO) holding a per-element digest. b.mdoc.verifyIssuerSigned verifies the COSE signature with the issuer certificate from the COSE x5chain header, parses the MSO, enforces its validityInfo window, and recomputes each disclosed element's digest (the full Tag-24 IssuerSignedItemBytes) to match it against the MSO constant-time — the integrity check that makes selective disclosure trustworthy. An absent or mismatched digest is refused. Signing algorithms follow b.cose verification (the classical ES256/384/512 + EdDSA that real mDL issuers use; the caller names the allowlist); opts.trustAnchorsPem additionally verifies the issuer certificate chain. This completes the credential trio alongside W3C VCDM (b.vc) and IETF SD-JWT VC (b.auth.sdJwtVc). Composes b.cose + b.cbor; no new runtime dependency.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.mdoc.verifyIssuerSigned(issuerSigned, opts)`",
+          "body": "Takes the CBOR `IssuerSigned` map (the operator extracts it from the device response / QR) and returns `{ docType, version, digestAlgorithm, validityInfo, namespaces, signerCert, alg }`. Verifies the COSE_Sign1 `issuerAuth` against the mandatory `opts.algorithms` allowlist using the issuer certificate from its `x5chain` (label 33) header; parses the Tag-24 Mobile Security Object; enforces the MSO `validityInfo` window against `opts.at` (default now; must be a valid Date; malformed dates fail closed); and recomputes the digest of every disclosed `IssuerSignedItem` (over the full Tag-24 bytes, with the MSO `digestAlgorithm` — SHA-256/384/512) to match the MSO `valueDigests` constant-time — an absent or mismatched digest is refused with `mdoc/digest-mismatch`. `opts.expectedDocType` pins the document type; `opts.trustAnchorsPem` (a PEM string or array) additionally verifies the issuer certificate chain and validity at the asserted time. A malformed `x5chain` certificate is refused with a clean `mdoc/bad-cert`. The mdoc device-authentication half (the SessionTranscript-bound holder-binding proof) is a presentation-protocol concern and is not part of issuer-data verification."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.65",
+  "date": "2026-05-26",
+  "headline": "`b.base32` — RFC 4648 Base32 encode / decode",
+  "summary": "Encode and decode RFC 4648 Base32 — the case-insensitive alphabet behind TOTP / 2FA secrets, DNSSEC NSEC3 hashes, and human-transcribable identifiers. Both RFC 4648 variants are supported: the standard alphabet (the default) and the extended-hex alphabet. b.base32.encode pads to an 8-character boundary by default (pass padding: false for the bare form TOTP key URIs use); b.base32.decode is strict by default but accepts the real-world shapes humans produce — lower-case, embedded spaces and dashes, missing padding — under loose: true. Verified against the RFC 4648 §10 test vectors for both alphabets. The TOTP primitive now composes this codec instead of carrying its own Base32 implementation.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.base32.encode` / `b.base32.decode`",
+          "body": "RFC 4648 Base32 codec. `encode(buf, opts)` takes a Buffer or Uint8Array and returns a Base32 string, padded to an 8-character boundary unless `padding: false`; `decode(str, opts)` returns a Buffer. The `variant` option selects the standard (`\"rfc4648\"`, default) or extended-hex (`\"rfc4648-hex\"`) alphabet. Decoding is strict by default — any character outside the alphabet throws `Base32Error` — and `loose: true` up-cases the input and ignores embedded spaces, dashes, and missing padding, which is how copied TOTP keys and hand-typed codes arrive."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "TOTP composes `b.base32`",
+          "body": "`b.auth.totp` now encodes and decodes its secrets through `b.base32` rather than a private Base32 implementation. Behavior is unchanged — secrets are still emitted unpadded and parsed leniently (case-insensitive, ignoring spaces and dashes)."
+        }
+      ]
+    }
+  ]
+}

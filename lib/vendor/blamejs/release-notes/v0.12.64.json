@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.64",
+  "date": "2026-05-25",
+  "headline": "`b.jsonSchema` — JSON Schema 2020-12 validation",
+  "summary": "Validate JSON against a JSON Schema 2020-12 document — the dialect OpenAPI 3.1 adopted and the most widely implemented schema language. b.jsonSchema.compile(schema) returns a reusable validator; b.jsonSchema.validate(schema, instance) compiles and runs in one call, returning { valid, errors } where each error names the failing instance location, keyword, and schema path. The full 2020-12 vocabulary is supported: every applicator (allOf / anyOf / oneOf / not / if-then-else, properties / patternProperties / additionalProperties / prefixItems / items / contains), the annotation-aware unevaluatedProperties / unevaluatedItems, every assertion keyword, and reference resolution ($ref / $anchor / $dynamicRef / $dynamicAnchor / $defs / $id base URIs). format is an annotation by default (opt in to assertion with assertFormat). External references resolve through an operator-supplied schema map — never a network fetch. Verified against the official JSON-Schema-Test-Suite (1292 of 1295 draft2020-12 cases; the remainder need the bundled dialect metaschema or $vocabulary selection, both opt-in). This is the standards-track counterpart to the fluent b.safeSchema builder and the portable b.jtd.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.jsonSchema` — JSON Schema 2020-12",
+          "body": "`compile(schema, opts)` returns `{ validate, isValid }`; `validate(schema, instance, opts)` and `isValid(schema, instance, opts)` compile and run in one call. `validate` returns `{ valid, errors }`, each error a `{ instancePath, keyword, schemaPath, message }`. The full 2020-12 vocabulary is implemented — applicators, annotation-aware `unevaluatedProperties` / `unevaluatedItems`, every assertion keyword, and `$ref` / `$anchor` / `$dynamicRef` / `$dynamicAnchor` / `$defs` / `$id` resolution. `format` is an annotation by default (`assertFormat: true` to assert). External references resolve through `opts.schemas` (a URI→schema map), never a network fetch. Reach for it when the schema is an existing JSON Schema document (an API contract, OpenAPI component, or config schema); `b.safeSchema` remains the fluent in-process builder and `b.jtd` the portable codegen-friendly option. Validating a schema document against the dialect metaschema requires supplying that metaschema via `opts.schemas`, and `$vocabulary`-based keyword selection is not honored (every standard keyword always asserts)."
+        }
+      ]
+    }
+  ]
+}

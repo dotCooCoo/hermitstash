@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.51",
+  "date": "2026-05-25",
+  "headline": "`b.network.dns.dane.matchCertificate` — DANE / TLSA certificate matching (RFC 6698 / 7671)",
+  "summary": "Pin a service's certificate through DNS instead of a public CA. matchCertificate checks a server certificate against a set of TLSA records: the selected data — the full certificate (selector 0) or its subjectPublicKeyInfo (selector 1) — is hashed per the matching type (exact / SHA-256 / SHA-512) and compared in constant time to the record's association data. For a DANE-EE (usage 3) record a match is self-authenticating — the TLSA pins the key, so no public-CA path is needed (the common SMTP-DANE case, RFC 7672); for the PKIX usages a match is reported as necessary-but-not-sufficient so the caller still runs PKIX. This is the payoff of the DNSSEC verifier: verify the TLSA RRset with b.network.dns.dnssec, then match the certificate. Verified against a live DNSSEC-signed TLSA record and the matching server certificate.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.network.dns.dane.matchCertificate(opts)`",
+          "body": "Matches a leaf certificate (and optional `chain`) against a TLSA RRset (`{ usage, selector, matchingType, data }`). Selector 0 hashes the full certificate DER, selector 1 the subjectPublicKeyInfo; matching type 0 is an exact comparison, 1 SHA-256, 2 SHA-512 (SHA-1 and any other type are refused, not guessed). End-entity usages (PKIX-EE 1, DANE-EE 3) match the leaf; trust-anchor usages (PKIX-TA 0, DANE-TA 2) match the leaf or any supplied chain certificate. Returns `{ ok, matched, daneAuthenticated, trustAnchorMatch, pkixRequired, matchedCertIndex }` — `daneAuthenticated` is true only for a DANE-EE match (the key is pinned, no CA needed); `pkixRequired` flags the PKIX usages. Throws `dane/no-match` when nothing matches, and refuses unknown usage / selector / matching values and unparseable certificates. Verify the TLSA RRset with `b.network.dns.dnssec` first — an unauthenticated TLSA record proves nothing."
+        }
+      ]
+    }
+  ]
+}

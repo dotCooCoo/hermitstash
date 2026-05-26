@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.34",
+  "date": "2026-05-24",
+  "headline": "`b.cwt` — CBOR Web Token (RFC 8392) sign / verify over `b.cose`",
+  "summary": "A CWT is the CBOR-native counterpart to JWT — a signed claims set for constrained / IoT, FIDO attestation, and verifiable-credential contexts. `b.cwt` composes the v0.12.33 `b.cose` (COSE_Sign1 signature + mandatory algorithm allowlist) and v0.12.32 `b.cbor` (deterministic claims encoding) and layers the standard-claim handling on top: `sign` takes a friendly claims object, maps the standard claims to their RFC 8392 §3.1.1 integer labels (iss=1, sub=2, aud=3, exp=4, nbf=5, iat=6, cti=7), and signs; `verify` checks the COSE signature, decodes the claims, and enforces the time + identity claims — a passed `exp` (with clock-skew tolerance), a future `nbf`, and an `iss` / `aud` mismatch against the expected values are each refused. Signing algorithms follow `b.cose`: classical ES256/384/512 + EdDSA (final COSE ids, interoperable today) and ML-DSA-87 (PQC-forward). RFC 8392 is a finalized standard, so CWTs produced here interoperate with other COSE/CWT implementations.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.cwt.sign(claims, opts)` / `b.cwt.verify(cwt, opts)`",
+          "body": "`sign` maps standard claim names to integer labels and keeps custom claims verbatim; `exp` / `nbf` / `iat` must be non-negative integer NumericDates. `opts.tagged` wraps the COSE_Sign1 in the CWT CBOR tag 61 (RFC 8392 §6); `verify` accepts tagged or bare input. `verify` returns `{ claims, raw, alg, protectedHeaders }` — `claims` is the friendly object (labels mapped back to names), `raw` the integer-keyed Map. Standard-claim enforcement: `exp` past `now + clockSkewSec` (default 60s) is refused with `cwt/expired`, `nbf` beyond `now - skew` with `cwt/not-yet-valid`, and `expectedIssuer` / `expectedAudience` mismatches with `cwt/issuer-mismatch` / `cwt/audience-mismatch` (aud may be a single value or an array). `opts.now` overrides the clock for testing. The signature itself is verified by `b.cose.verify`, so a tampered token fails there."
+        }
+      ]
+    }
+  ]
+}

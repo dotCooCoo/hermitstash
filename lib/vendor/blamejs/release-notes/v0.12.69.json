@@ -1,0 +1,27 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.69",
+  "date": "2026-05-26",
+  "headline": "`b.middleware.botGuard` no longer blocks browsers that omit Sec-Fetch-Mode",
+  "summary": "b.middleware.botGuard treated a missing Sec-Fetch-Mode header as a bot signal and returned 403 Forbidden, which refused legitimate browsers on any origin where the browser does not emit Fetch Metadata: every plain-HTTP non-localhost origin (Umbrel apps, LAN and *.local reverse-proxy deployments) and Safari before 16.4 even over HTTPS. Browsers only send Sec-Fetch-* in a secure context, so its absence is normal there — not a bot. Sec-Fetch-Mode is now advisory only: it never blocks, and it sets req.suspectedBot in mode:\"tag\" only on a secure-context HTML GET where a modern browser would have sent it. Drive-by bots are still blocked by the missing-Accept-Language and User-Agent heuristics. No configuration change is needed; if you had widened skipPaths or disabled bot-guard to work around this, you can revert that.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "`b.middleware.botGuard` no longer 403s browsers over plain HTTP or older Safari",
+          "body": "A missing `Sec-Fetch-Mode` was a blocking heuristic, but browsers omit Fetch Metadata outside a secure context (every plain-HTTP non-localhost origin — Umbrel, LAN, `*.local` proxies) and Safari < 16.4 omits it even over HTTPS. Those legitimate browsers were refused with `403 Forbidden`. `Sec-Fetch-Mode` is now advisory: it never blocks, and only sets `req.suspectedBot` in `mode: \"tag\"` on a secure-context HTML GET. The `Accept-Language` and User-Agent heuristics (which catch the same bots) are unchanged."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "reserved-hostname trailing-dot detector recognizes regex strips",
+          "body": "The codebase-patterns gate that requires stripping the RFC 1034 trailing root-zone dot before a reserved-hostname comparison now also recognizes end-anchored regex strips (`.replace(/\\.$/, …)`), not only the `charAt` / `while`-loop forms."
+        }
+      ]
+    }
+  ]
+}

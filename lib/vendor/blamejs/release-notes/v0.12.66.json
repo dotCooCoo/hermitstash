@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.66",
+  "date": "2026-05-26",
+  "headline": "`b.uriTemplate` — RFC 6570 URI Template expansion",
+  "summary": "Expand RFC 6570 URI Templates — the {var} syntax that OpenAPI links, HAL _links, and hypermedia API clients use to turn a template plus a set of variables into a concrete URI. The full Level 4 grammar is supported: every operator ({+var} reserved, {#var} fragment, {.var} label, {/var} path, {;var} path-style parameters, {?var} query, {&var} query continuation), the {var:3} prefix modifier, and the {var*} explode modifier for lists and associative arrays. b.uriTemplate.expand(template, vars) returns the expanded string; b.uriTemplate.compile(template) parses once for templates applied to many variable sets. A malformed template (unclosed expression, reserved operator, non-numeric prefix, unmatched brace) throws UriTemplateError. Verified against the official uritemplate-test conformance suite (all 135 spec, extended, and negative cases).",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.uriTemplate.expand` / `b.uriTemplate.compile`",
+          "body": "RFC 6570 URI Template expansion, full Level 4. `expand(template, vars)` substitutes variables into a template and returns the URI; `compile(template)` returns a reusable `{ expand }` for repeated use. Variable values may be strings, numbers, booleans, arrays (lists), or plain objects (associative arrays); undefined, null, and empty list/map variables are omitted. All eight operators, the `:N` prefix modifier, and the `*` explode modifier follow §3.2, including reserved-set encoding for `{+var}` / `{#var}`. Composes naturally with `b.hal`, `b.linkHeader`, and `b.openapi` link objects. A malformed template throws `UriTemplateError`."
+        }
+      ]
+    }
+  ]
+}

@@ -206,7 +206,7 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | Anonymous storage abuse | Per-IP upload quota with 24-hour rolling window |
 | Stored XSS via uploads | User-controlled names auto-escaped in templates; raw output reserved for admin-set values only |
 | Weak bundle/stash passwords | Minimum 4-character requirement enforced server-side |
-| Automated scanners and bots | Request fingerprinting (accept-language, sec-fetch-dest, sec-fetch-mode) blocks non-browser clients on public routes — survives PQC TLS adoption |
+| Automated scanners and bots | Request fingerprinting (missing Accept-Language + known automation User-Agents) blocks non-browser clients on public routes — survives PQC TLS adoption |
 | NPM supply chain | All dependencies vendored as committed bundles — zero npm runtime packages |
 | Admin settings injection | Type-safe settings schema (lib/settings-schema.js) sanitizes on save (strip control chars, trim, type-specific normalization) and validates (format, range, enum) — bad data rejected at the gate with clear error messages |
 | Stale config after admin change | Config reset registry (config.onReset) invalidates cached clients (S3, upload paths, etc.) when dependent settings change at runtime |
@@ -365,7 +365,7 @@ Built on Node.js 24.14.1+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - 256-bit SHA3-derived share IDs (no brute-force, no collisions)
 - CSRF protection: JSON requests bound by per-session encryption key; form POSTs validated with constant-time CSRF token; non-JSON/non-exempt POSTs rejected
 - Logout is POST-only with CSRF token validation (no GET logout CSRF)
-- Bot guard middleware -- request fingerprinting (accept-language, sec-fetch-dest, sec-fetch-mode) blocks automated scanners on public routes without relying on user-agent strings
+- Bot guard middleware -- blocks automated scanners on public routes via a missing-Accept-Language check plus a known-automation User-Agent deny-list (curl, wget, python-requests, …); a missing Sec-Fetch-Mode is advisory only, so browsers reaching the app over plain HTTP (LAN / reverse-proxy origins) are not refused
 - WebSocket API keys accepted only via Authorization header -- query string tokens rejected to prevent proxy/log/Referer leaks
 - CSV formula injection protection on all exports
 - CORS configurable via admin (wildcard disallowed with credentials)

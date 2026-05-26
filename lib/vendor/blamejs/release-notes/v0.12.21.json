@@ -1,0 +1,27 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.21",
+  "date": "2026-05-24",
+  "headline": "`bundleAdapterStorage.rewrapBundle(bundleId, opts)` — key rotation without restore + rewrite of inner archive bytes",
+  "summary": "`storage.rewrapBundle(bundleId, opts?)` rotates a bundle's wrap envelope under a new recipient keypair or passphrase WITHOUT touching the inner tar / tar.gz bytes. Operators rotating a compromised keypair, migrating to a new HSM, or refreshing passphrases on a HIPAA-posture repository previously had to `readBundle` → write to a stage dir → `writeBundle` under the new key — three byte-walks of the bundle payload, two filesystem touches, transient plaintext on disk. rewrapBundle does it as unwrap + rewrap in memory: zero disk plaintext, one round-trip through the wrap layer, the gzipped tar archive bytes inside the envelope are never inflated. Cross-kind rotation (recipient ↔ passphrase) is refused — that's a separate migration the operator configures with explicit cryptoStrategy switch.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`storage.rewrapBundle(bundleId, opts?)` — in-place envelope rotation",
+          "body": "Unwraps the bundle under the old key (storage's configured recipient/passphrase OR `opts.oldRecipient` / `opts.oldPassphrase`), re-wraps under the new key (`opts.newRecipient` / `opts.newPassphrase`), writes the rewrapped bytes back to the same storage key. Returns `{ bundleId, oldEnvelopeKind, newEnvelopeKind, bytesRewritten }`. Plaintext bundles refused with `backup/no-envelope-to-rewrap`; cross-kind rotation refused with `backup/no-new-recipient` / `backup/no-new-passphrase`. The inner archive bytes (the gz-compressed tar payload) are never decompressed or re-encoded — rewrap is a wrap-layer-only operation."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Zero plaintext on disk during rotation",
+          "body": "The inner tar bytes flow only through memory — old-envelope unwrap → new-envelope wrap → adapter writeFile. Operators previously rotating via readBundle + writeBundle wrote plaintext archive bytes to a temporary stage directory; rewrapBundle removes that exposure window entirely. Matches the operator-side discipline that backup payloads should never land on disk in plaintext form during steady-state operations."
+        }
+      ]
+    }
+  ]
+}

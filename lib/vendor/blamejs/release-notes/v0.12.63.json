@@ -1,0 +1,27 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.63",
+  "date": "2026-05-25",
+  "headline": "`b.cloudEvents` gains the JSON event format, batch, and the HTTP binding",
+  "summary": "b.cloudEvents grows beyond wrap / parse into a full CloudEvents 1.0.2 surface. b.cloudEvents.validate / isValid check an envelope against the spec without throwing (the non-throwing companion to parse). toJSON / fromJSON serialize and parse the JSON event format, and toJSONBatch / fromJSONBatch handle the JSON batch format; untrusted bodies parse through the framework's bounded, prototype-pollution-safe JSON reader. The new http.* binding speaks both content modes the spec defines — binary mode spreads context attributes across percent-encoded ce-* headers with the data in the body, structured mode carries the whole event as application/cloudevents+json — plus the batch mode, and http.decode auto-detects the incoming mode from Content-Type exactly as a conformant receiver does. Verified against the spec's normative example events.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.cloudEvents` JSON event format, batch, and HTTP binding",
+          "body": "`validate` / `isValid` report spec violations without throwing (the non-throwing companion to `parse`). `toJSON` / `fromJSON` and `toJSONBatch` / `fromJSONBatch` serialize and parse the JSON event and batch formats over the existing envelope shape. `http.encodeBinary` / `http.encodeStructured` / `http.encodeBatch` render the three HTTP content modes — binary spreads attributes across percent-encoded `ce-*` headers, structured and batched carry the event(s) as `application/cloudevents+json` / `application/cloudevents-batch+json` — and `http.decode` parses a request back into an envelope (or array) by auto-detecting the mode from `Content-Type`. `b.jtd` or `b.safeSchema` still validate the event's `data` payload."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "`b.csp.build` accepts `fenced-frame-src` and `webrtc`",
+          "body": "The CSP3 `fenced-frame-src` directive — which the default security-headers policy emits to block `<fencedframe>` embeds — was missing from the builder's recognized-directive set, so the default policy could not round-trip through `b.csp.build` (it threw `csp/unknown-directive`). Both `fenced-frame-src` and the CSP3 `webrtc` directive are now recognized."
+        }
+      ]
+    }
+  ]
+}

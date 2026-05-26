@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.47",
+  "date": "2026-05-25",
+  "headline": "`b.cose.mac0` / `b.cose.macVerify0` — COSE_Mac0 (RFC 9052 §6.2)",
+  "summary": "Completes the COSE message-type set (COSE_Sign1 / COSE_Encrypt0 / COSE_Mac0) with single shared-key MACs. b.cose.mac0 produces a tagged COSE_Mac0 over a payload using HMAC-SHA-256/384/512 (the COSE-standard MAC algorithms; HMAC is symmetric, so its post-quantum strength is preserved). b.cose.macVerify0 recomputes the tag over the MAC_structure and compares it in constant time, with a mandatory algorithm allowlist. Use when both parties hold a shared key — e.g. an ECDH-derived key — and a non-repudiable signature is not wanted; detached payloads are supported (the proximity mdoc device-MAC variant and MACed CWTs are the consumers). Composes b.cbor + the framework's constant-time compare; no new runtime dependency.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.cose.mac0(payload, opts)` / `b.cose.macVerify0(coseMac0, opts)`",
+          "body": "`mac0` emits a tagged COSE_Mac0 (tag 17) with `alg` (`HMAC-256/256` | `HMAC-384/384` | `HMAC-512/512`) in the protected header and the HMAC tag computed over the MAC_structure `[\"MAC0\", protected, external_aad, payload]`; `detached: true` emits a nil payload. `macVerify0` reads the algorithm from the protected header (must be in the required `opts.algorithms` allowlist), recomputes the tag, and compares it constant-time — a wrong key, tampered tag, or `external_aad` mismatch is refused with `cose/bad-tag`; a detached payload is supplied via `opts.externalPayload`. `external_aad` binds context into the tag."
+        }
+      ]
+    }
+  ]
+}

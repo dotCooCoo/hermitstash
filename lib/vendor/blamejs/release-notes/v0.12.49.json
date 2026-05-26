@@ -1,0 +1,31 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.49",
+  "date": "2026-05-25",
+  "headline": "`b.network.dns.dnssec.verifyDenial` — NSEC / NSEC3 denial-of-existence",
+  "summary": "Prove a DNS name does not exist, or has no records of a given type, from the signed NSEC (RFC 4034 §4) or NSEC3 (RFC 5155) records a server returns. This is the other half of local DNSSEC verification: verifyRrset proves a positive answer, verifyDenial proves a negative — so a resolver client can confirm an NXDOMAIN / NODATA itself instead of trusting the upstream resolver. NSEC3 proofs run the closest-encloser / next-closer / covering-range logic over iterated-SHA-1 hashes, with the iteration count capped (default 500) to bound the work an attacker can force, and an Opt-Out NXDOMAIN refused unless explicitly accepted (opt-out only proves 'no signed records', not non-existence). The companion b.network.dns.dnssec.nsec3Hash computes the RFC 5155 §5 hash directly. NSEC verifyRrset support is also enabled: per RFC 6840 §5.1 the NSEC Next Domain Name is not downcased, so its RDATA is verbatim-canonical.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.network.dns.dnssec.verifyDenial(opts)`",
+          "body": "Proves NXDOMAIN or NODATA from already-verified NSEC / NSEC3 records (supply one of `opts.nsec3` or `opts.nsec`). Like `verifyDs`, it checks the denial RELATION — closest-encloser matching, covering ranges, and type-bitmap absence — not the record signatures, which the caller verifies with `verifyRrset` first. NSEC3 supports name-error proofs (matching closest encloser + covered next-closer + covered wildcard), NODATA (matching record with the type and CNAME absent from the bitmap), Opt-Out DS NODATA, and wildcard NODATA. The iterated-SHA-1 count is capped by `opts.maxIterations` (default 500); an NXDOMAIN proof that depends on an Opt-Out NSEC3 is refused unless `opts.allowOptOut` is set. NSEC supports covering-name NXDOMAIN (with the source-of-synthesis wildcard) and matching-name NODATA. Verified end-to-end against a live iana.org NXDOMAIN proof."
+        },
+        {
+          "title": "`b.network.dns.dnssec.nsec3Hash(name, opts)`",
+          "body": "Computes the RFC 5155 §5 NSEC3 hash of a name — iterated SHA-1 over the canonical (lowercased, root-terminated) wire form with the zone salt. The base32hex encoding of the result is the NSEC3 owner label. SHA-1 is the only hash IANA registers for NSEC3, so this is a wire-protocol constant rather than a cryptographic default. Useful for checking an owner label or analyzing a zone's hashing parameters."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "`verifyRrset` now accepts NSEC and NSEC3 RRsets",
+          "body": "NSEC (type 47) and NSEC3 (type 50) are no longer refused as uncanonicalizable: NSEC3's next-owner is a hash, and per RFC 6840 §5.1 the NSEC Next Domain Name field is not downcased for DNSSEC canonical form, so both RDATAs are verbatim-canonical. This lets a caller verify the signatures on the records that `verifyDenial` then reasons over."
+        }
+      ]
+    }
+  ]
+}

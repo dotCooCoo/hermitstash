@@ -3,8 +3,8 @@
   "_about": "As of v1.9.12 HermitStash vendors a single framework — blamejs — which itself bundles every server-side crypto/identity dependency. The transitive packages blamejs ships are listed below for SBOM transparency (Trivy / Grype rely on the nested-package data to flag CVEs against any of them). Argon2id derivation runs through Node 24+'s built-in `crypto.argon2` via blamejs's `lib/argon2-builtin.js` wrapper — the @ranisalt/argon2 native binding (and its 8-platform prebuilds) are no longer vendored.",
   "packages": {
     "blamejs": {
-      "version": "0.11.30",
-      "tag": "v0.11.30",
+      "version": "0.12.69",
+      "tag": "v0.12.69",
       "license": "Apache-2.0",
       "author": "blamejs contributors",
       "source": "https://github.com/blamejs/blamejs",
@@ -13,7 +13,7 @@
         "server": "lib/vendor/blamejs/"
       },
       "bundler": "shallow git clone of release tag from github.com/blamejs/blamejs",
-      "bundledAt": "2026-05-21",
+      "bundledAt": "2026-05-26",
       "components": {
         "@noble/ciphers": {
           "version": "2.2.0",

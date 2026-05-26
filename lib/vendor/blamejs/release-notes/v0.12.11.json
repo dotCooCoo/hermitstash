@@ -1,0 +1,39 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.11",
+  "date": "2026-05-23",
+  "headline": "`b.archive.wrapWithPassphrase` + `b.archive.unwrapWithPassphrase` — Argon2id + XChaCha20-Poly1305 archive envelope + `b.backup` `cryptoStrategy: \"passphrase\"` with HIPAA / PCI-DSS 128-bit entropy floor",
+  "summary": "Passphrase wrap lands as the second `b.archive` envelope strategy alongside v0.12.10's recipient wrap. `b.archive.wrapWithPassphrase(bytes, { passphrase, minEntropyBits })` produces a `BAWPP`-prefixed envelope under Argon2id (RFC 9106; framework-default 64 MiB / 3 iterations / 4 parallelism) key derivation with XChaCha20-Poly1305 AEAD; each envelope carries its own fresh salt in the wire format (5-byte magic + 1-byte version + 1-byte saltLen + salt + 24-byte nonce + ciphertext+tag) so KDF parameters can rotate in future minors without per-envelope version bumps. `b.archive.unwrapWithPassphrase(sealed, { passphrase })` verifies the `BAWPP` header before any Argon2id compute so non-envelope inputs fail with `archive-wrap/bad-magic` rather than burning the KDF on bad bytes. `b.backup.bundleAdapterStorage({ cryptoStrategy: \"passphrase\", passphrase })` composes the wrap layer transparently — bundle bytes hitting the adapter's `writeFile` are an opaque passphrase-derived envelope. Default `passphraseMinEntropyBits: 80` matches OWASP strong-password guidance; HIPAA + PCI-DSS postures raise the floor to 128 bits automatically (matching the framework's existing crypto-grade-password discipline for sealed-storage). The recipient strategy from v0.12.10 + passphrase strategy from v0.12.11 + plaintext strategy from v0.12.7 cover the operator's posture matrix: HIPAA / PCI-DSS pick recipient or passphrase; non-regulated deployments may stay on `\"none\"` when the storage layer is itself the protective boundary.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.archive.wrapWithPassphrase(bytes, { passphrase, minEntropyBits })` — Argon2id-derived archive envelope",
+          "body": "Composes `b.backupCrypto.encryptWithFreshSalt(bytes, passphrase)` (Argon2id KDF + XChaCha20-Poly1305 AEAD, fresh per-envelope salt) and prepends a 7-byte `BAWPP` envelope header (5-byte magic + 1-byte version + 1-byte saltLen) so format sniffers can identify passphrase wrap output without trial KDF work. Entropy estimate uses observed-alphabet bit-count (the standard NIST/OWASP character-class approximation). `minEntropyBits` defaults to 80; the gate refuses upfront with `archive-wrap/weak-passphrase` when the estimate falls short."
+        },
+        {
+          "title": "`b.archive.unwrapWithPassphrase(sealed, { passphrase })` — inverse with magic-check upfront",
+          "body": "Verifies the 7-byte `BAWPP` header (magic + version + saltLen) before any cryptographic work so non-envelope inputs (raw archives, recipient-wrap envelopes, truncated buffers) fail with `archive-wrap/bad-magic` / `archive-wrap/bad-version` / `archive-wrap/truncated-envelope` rather than wasting Argon2id compute. Routes through `b.backupCrypto.decryptWithPassphrase(encrypted, passphrase, saltHex)` so the framework's locked Argon2id parameters apply."
+        },
+        {
+          "title": "`b.backup.bundleAdapterStorage({ cryptoStrategy: \"passphrase\", passphrase })` — Argon2id-keyed bundle storage",
+          "body": "Composes `b.archive.wrapWithPassphrase` transparently — every `writeBundle` payload is wrapped before `adapter.writeFile`; every `readBundle` payload is unwrapped after `adapter.readFile`. The `passphraseMinEntropyBits` opt defaults to 80 (OWASP strong-password floor); HIPAA + PCI-DSS postures raise the floor to 128 bits automatically. Passphrase + directory format combination refused upfront (same contract as recipient + directory). Wire-format envelope on disk is opaque ciphertext — no information leakage about archive contents through the storage adapter."
+        },
+        {
+          "title": "HIPAA + PCI-DSS postures raise entropy floor to 128 bits under passphrase strategy",
+          "body": "`bundleAdapterStorage({ posture: \"hipaa\", cryptoStrategy: \"passphrase\", passphrase })` enforces `passphraseMinEntropyBits >= 128` regardless of the operator-supplied opt. The 128-bit floor matches the framework's existing crypto-grade-password discipline for sealed-storage cells. Operators sourcing passphrases from a CSPRNG (`b.crypto.generateBytes(16).toString(\"base64url\")` → ~128 bits) pass without issue; operators typing dictionary phrases trip the gate."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Magic-check before KDF work — non-envelope inputs can't burn Argon2id compute",
+          "body": "Adversarial inputs that look like passphrase envelopes but aren't (random bytes, recipient envelopes, raw archives) fail at byte 0-4 (magic check) rather than after a 64 MiB Argon2id round. Operators handing user-supplied bundles to readBundle on a server with concurrent load get bounded refusal latency rather than worst-case KDF compute under a chosen-bytes attack."
+        }
+      ]
+    }
+  ]
+}

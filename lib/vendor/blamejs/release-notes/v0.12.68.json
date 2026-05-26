@@ -1,0 +1,27 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.68",
+  "date": "2026-05-26",
+  "headline": "`b.jwk` — RFC 7638 JWK thumbprint",
+  "summary": "Compute the RFC 7638 thumbprint of a JSON Web Key — the canonical base64url(SHA-256(canonical-JSON)) identifier used to name a key (DPoP jkt bindings, ACME account-key thumbprints, DBSC session pins, kid derivation). b.jwk.thumbprint(jwk) returns the digest; b.jwk.canonicalize(jwk) returns the exact JSON that is hashed — only the key-type's required members, member names in lexicographic order, no whitespace, so the same key always yields the same thumbprint regardless of how its JWK was serialized. The standard key types are supported (EC, RSA, oct, OKP per RFC 8037) plus AKP, the IANA key type Node uses for ML-DSA / SLH-DSA post-quantum public keys; SHA-256 is the default, with hash: \"sha384\" | \"sha512\" for RFC 9278 thumbprint-with-hash. Verified against the RFC 7638 §3.1 worked example. b.auth.dpop, b.acme, and b.dbsc now compute their thumbprints through this primitive.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.jwk.thumbprint` / `b.jwk.canonicalize`",
+          "body": "RFC 7638 JWK thumbprint. `thumbprint(jwk, opts)` returns `base64url(hash(canonical-JSON))` — only the key-type's required members feed the hash, so optional fields (`kid`, `use`, `alg`, …) never change the result. `canonicalize(jwk)` returns the canonical JSON string itself. Supports EC / RSA / oct / OKP and the AKP post-quantum key type; SHA-256 default, `hash` selects SHA-384 / SHA-512. Throws `JwkError` on an invalid key or unknown hash."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "DPoP, ACME, and DBSC compose `b.jwk`",
+          "body": "`b.auth.dpop` (the `jkt` proof-key thumbprint), `b.acme` (the RFC 8555 account-key authorization), and `b.dbsc` (the session-pin thumbprint) now compute RFC 7638 thumbprints through `b.jwk` instead of carrying their own implementations. Behavior is unchanged — DPoP still refuses symmetric key types, and each surface keeps its own error codes."
+        }
+      ]
+    }
+  ]
+}

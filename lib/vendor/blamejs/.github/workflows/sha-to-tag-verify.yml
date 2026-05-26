@@ -42,6 +42,14 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      - name: Refresh origin/main reference
+        # actions/checkout fetches refs for the checked-out ref (the tag
+        # in this case) — it does NOT fetch remote branches like main as
+        # a side effect, so `git rev-list --first-parent origin/main`
+        # walks a stale (or absent) ref. Fetch main explicitly so the
+        # first-parent walk sees the current squash-merge HEAD.
+        run: git fetch origin main:refs/remotes/origin/main
+
       - name: Resolve tag + verify chain
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

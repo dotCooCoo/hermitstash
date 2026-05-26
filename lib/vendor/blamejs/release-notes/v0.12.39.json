@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.39",
+  "date": "2026-05-24",
+  "headline": "`b.vc` — W3C Verifiable Credentials 2.0 (issue / verify, JOSE + COSE securing)",
+  "summary": "Issue and verify W3C Verifiable Credentials (VC Data Model 2.0, a W3C Recommendation) secured per Securing Verifiable Credentials using JOSE and COSE (VC-JOSE-COSE, also a W3C Recommendation, May 2025). A verifiable credential is a tamper-evident, signed set of claims an issuer makes about a subject — a diploma, a membership, a license, an age assertion. Two securing mechanisms are supported, both signing the credential itself (no JWT/CWT claims wrapper): JOSE produces a compact JWS with the vc+jwt media type, signed with ES256/384/512 or EdDSA; COSE produces a COSE_Sign1 (application/vc+cose) over b.cose, which also accepts ML-DSA-87 for PQC-forward deployments. b.vc.verify auto-detects the form from the input, requires an algorithm allowlist, always refuses the JOSE none algorithm, re-checks the VCDM 2.0 structural rules, and enforces the validFrom / validUntil window. This is the W3C credential model, distinct from the IETF SD-JWT VC already at b.auth.sdJwtVc. Composes b.cose; no new runtime dependency.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.vc.issue(credential, opts)` / `b.vc.verify(secured, opts)`",
+          "body": "`issue` validates the credential against the VCDM 2.0 structural rules (the `credentials/v2` context first, a `VerifiableCredential` type, an issuer, a credential subject) and signs it: `securing: \"jose\"` returns a compact JWS string (`typ` header `vc+jwt`), `securing: \"cose\"` returns COSE_Sign1 bytes (`typ` header `application/vc+cose`, content type `application/vc`) via `b.cose`. The credential is the exact signed payload — no JWT/CWT claims are injected. `verify` auto-detects the securing form from the input (compact-JWS string vs. COSE_Sign1 bytes), verifies the signature against the mandatory `opts.algorithms` allowlist (the JOSE `none` algorithm is always refused), re-checks the structural rules, enforces the `validFrom` / `validUntil` window against `opts.at` (default now; must be a valid Date), and optionally matches `opts.expectedIssuer` against the credential issuer id. Returns `{ credential, securing, alg, issuer }`."
+        }
+      ]
+    }
+  ]
+}

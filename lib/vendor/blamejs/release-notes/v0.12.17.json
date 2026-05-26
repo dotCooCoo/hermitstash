@@ -1,0 +1,22 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.17",
+  "date": "2026-05-23",
+  "headline": "`bundleAdapterStorage.bundleInfo` + `listBundles.format` — per-bundle introspection for envelope kind + format without restore",
+  "summary": "Two introspection additions on `b.backup.bundleAdapterStorage`. `listBundles()` now returns the inferred `format` (`\"tar\"` / `\"tar.gz\"` / `\"directory\"`) per bundle from the storage key suffix — no byte read. `storage.bundleInfo(bundleId)` returns `{ bundleId, format, envelopeKind, sizeBytes }` where `envelopeKind` is the result of a 5-byte magic probe (`\"recipient\"` / `\"passphrase\"` / `\"none\"`). Operators administering a multi-strategy backup repository can now filter bundles by encryption posture or by format without a full restore cycle.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`listBundles()` carries inferred format per bundle",
+          "body": "Each entry now includes `format` alongside `bundleId` / `createdAt` / `size`. Inference is from the storage key suffix the writeBundle path produced — `<bid>/bundle.tar` → tar, `<bid>/bundle.tar.gz` → tar.gz, anything else → directory. Cheap: no byte read, no per-key stat call. Operators rendering a bundle picker UI now sort + filter by format from a single list call."
+        },
+        {
+          "title": "`storage.bundleInfo(bundleId)` — per-bundle introspection",
+          "body": "Returns `{ bundleId, format, envelopeKind, sizeBytes }`. `format` from the storage layout (no byte read). `envelopeKind` from `b.archive.sniffEnvelope` over the bundle payload — `\"recipient\"` (BAWRP / v0.12.10 hybrid PQC), `\"passphrase\"` (BAWPP / v0.12.11 Argon2id), `\"none\"` (plaintext or directory format). `sizeBytes` is the payload byte count for tar / tar.gz; null for directory format (operator's per-file walk applies if exact size matters). Nonexistent bundles refused with `backup/bundle-not-found`."
+        }
+      ]
+    }
+  ]
+}

@@ -10,7 +10,7 @@ npm install
 WIKI_ADMIN_PASSWORD="some-strong-password" npm start
 ```
 
-Server listens on `http://localhost:8080` by default. Override with `WIKI_PORT`. Admin credentials via `WIKI_ADMIN_EMAIL` (default `admin@blamejs.com`) and `WIKI_ADMIN_PASSWORD` (required ≥ 8 chars; a random dev password is generated and printed if unset).
+Server listens on `http://localhost:3008` by default. Override with `WIKI_PORT`. Admin credentials via `WIKI_ADMIN_EMAIL` (default `admin@blamejs.com`) and `WIKI_ADMIN_PASSWORD` (required ≥ 8 chars; a random dev password is generated and printed if unset).
 
 ## Run with Docker Compose
 

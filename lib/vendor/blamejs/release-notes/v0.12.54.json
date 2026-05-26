@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.54",
+  "date": "2026-05-25",
+  "headline": "`b.structuredFields.parse` / `serialize` — full RFC 8941 Structured Fields codec",
+  "summary": "The structured-fields module gains a complete RFC 8941 parser and serializer alongside its existing quote-aware helpers. b.structuredFields.parse reads an Item, List, or Dictionary into a typed value model — items are { value, params }, lists are arrays of items / inner lists, dictionaries are Maps — with Tokens and byte sequences returned as distinct SfToken / SfByteSequence instances. It enforces the grammar strictly: integer and decimal digit caps, printable-ASCII strings, canonical base64 byte sequences, valid token and key grammar, and no trailing characters. b.structuredFields.serialize is the exact inverse. This is the real parser the framework's Content-Digest, Client Hints, Web Push, and HTTP Message Signature surfaces can build on instead of open-coding each field. Validated against the official httpwg structured-field-tests conformance vectors.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.structuredFields.parse(input, type, opts?)` / `serialize(value, type, opts?)` / `Token` / `ByteSequence`",
+          "body": "`parse` accepts `type` of `\"item\"`, `\"list\"`, or `\"dictionary\"` and returns the value model (items as `{ value, params }` with a `Map` of parameters; lists as arrays of items or inner lists; dictionaries as `Map`s). Bare items are JS numbers (Integer / Decimal), strings, booleans, `SfToken`, or `SfByteSequence`. Malformed input is rejected — out-of-range integers, over-long decimals, non-printable string bytes, non-canonical base64, invalid tokens / keys, and any trailing characters — and `opts.ErrorClass` yields a typed error. `serialize` is the inverse, rounding decimals to three fractional digits and refusing values outside the RFC's ranges or grammar. `b.structuredFields.Token` and `b.structuredFields.ByteSequence` wrap those bare-item types for serialization. The existing `splitTopLevel` / `refuseControlBytes` / `unquoteSfString` helpers are unchanged."
+        }
+      ]
+    }
+  ]
+}

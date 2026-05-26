@@ -1,0 +1,24 @@
+{
+  "version": "1.11.17",
+  "date": "2026-05-26",
+  "headline": "Bot guard no longer blocks browsers that omit `Sec-Fetch-Mode`",
+  "summary": "Browsers reaching the app over plain HTTP at a non-localhost hostname — LAN access and reverse-proxy deployments that terminate TLS upstream — omit the `Sec-Fetch-*` request headers, which per the Fetch Metadata spec are sent only to secure-context origins. The bot guard treated a missing `Sec-Fetch-Mode` as a non-browser signal and returned `Forbidden` on every page load in those setups. The header is now advisory only; genuine automation is still refused by the missing-`Accept-Language` check and the User-Agent deny-list.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Bot guard demotes the `Sec-Fetch-Mode` heuristic to advisory",
+          "body": "The vendored `b.middleware.botGuard` no longer refuses a request solely because `Sec-Fetch-Mode` is absent. Browsers omit every `Sec-Fetch-*` header on a non-secure-context origin — a plain-HTTP LAN host such as `http://hermitstash.local:3080`, or any reverse proxy that terminates TLS upstream and forwards cleartext — and Safari omitted them even over HTTPS before 16.4. A missing `Sec-Fetch-Mode` now contributes only as an advisory signal; blocking decisions rest on the missing-`Accept-Language` check and the known-automation User-Agent deny-list (curl, wget, python-requests, …)."
+        },
+        {
+          "title": "`tests/unit/bot-guard.test.js`",
+          "body": "New unit test drives the bot-guard middleware with a request shaped like a browser behind a plain-HTTP reverse proxy (host header set, `Accept-Language` present, no `Sec-Fetch-Mode`) and asserts it reaches the app rather than a `403`, while a `curl` User-Agent and an `Accept-Language`-less request remain refused."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "W3C Fetch Metadata Request Headers", "url": "https://www.w3.org/TR/fetch-metadata/" }
+  ]
+}

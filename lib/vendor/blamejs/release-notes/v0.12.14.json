@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.14",
+  "date": "2026-05-23",
+  "headline": "`b.archive.sniffEnvelope(bytes)` — identify recipient vs passphrase vs raw payload without attempting decryption",
+  "summary": "Small helper closing a gap in the archive-wrap surface. `b.archive.sniffEnvelope(bytes)` reads the first 5 bytes of a buffer and returns one of `\"recipient\"` (v0.12.10 BAWRP envelope), `\"passphrase\"` (v0.12.11 BAWPP envelope), or `\"none\"` (raw payload or unrelated bytes). The sniff does NO cryptographic work — no Argon2id round, no decapsulation, no allocation beyond a 5-byte ASCII compare — so it's safe to call on adversarial input. Operators dispatching between unwrap paths get a clean predicate instead of trial-decrypting under multiple key candidates.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.archive.sniffEnvelope(bytes)` — magic-byte envelope identifier",
+          "body": "Returns `\"recipient\"` (BAWRP / v0.12.10 hybrid PQC envelope), `\"passphrase\"` (BAWPP / v0.12.11 Argon2id + XChaCha20 envelope), or `\"none\"` (raw archive bytes / unrelated payload). Accepts Buffer + Uint8Array; non-buffer / null / undefined / empty-buffer inputs return `\"none\"` upfront. Operators wire the result into a switch that dispatches to the matching unwrap primitive — no trial decryption, no per-key candidate attempts."
+        }
+      ]
+    }
+  ]
+}

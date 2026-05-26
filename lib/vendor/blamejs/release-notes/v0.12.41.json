@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.41",
+  "date": "2026-05-24",
+  "headline": "`b.did` — W3C DID resolution (did:key + did:web) feeding the credential verifiers",
+  "summary": "Resolve W3C Decentralized Identifiers (DID Core 1.0) to verification keys — the link that lets a credential's issuer be named by a DID rather than a raw key. Resolve the issuer DID of a b.vc / b.mdoc / b.scitt credential to a node:crypto KeyObject and hand it to the verifier. did:key encodes the public key in the identifier (multicodec + base58btc), so resolution is deterministic and offline — Ed25519, P-256, P-384, and secp256k1 round-trip; did:web places the DID document at an HTTPS URL derived from the identifier, with the network fetch left to the operator (the framework parses the operator-fetched document and extracts its verification methods, as publicKeyMultibase or publicKeyJwk). b.did.keyToDid encodes a KeyObject as a did:key (an issuer naming itself), b.did.parse splits the identifier (and returns the did:web URL to fetch), and b.did.resolve returns the document and verification keys. DID Core 1.0 is a W3C Recommendation; the method specs (did:key W3C CCG report, did:web DID method registry — EUDI-mandated) are deployed-stable. Composes node:crypto; no new runtime dependency.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.did.resolve(did, opts?)` / `b.did.keyToDid(publicKey)` / `b.did.parse(did)`",
+          "body": "`resolve` returns `{ didDocument, verificationMethods: [{ id, controller, type, publicKey }] }` with each `publicKey` a `node:crypto` KeyObject ready for `b.vc.verify` / `b.mdoc.verifyIssuerSigned` / `b.scitt.verifyStatement`. did:key resolves deterministically and offline (base58btc + multicodec → Ed25519 raw key or EC compressed point, rebuilt via SPKI); did:web requires the operator to pass the fetched DID document as `opts.document` (the URL to GET is on `b.did.parse(did).url`) and the document `id` must match the requested DID. A publicKeyJwk in a DID document is imported only after its `kty`/`crv` is allowlisted (Ed25519 / P-256 / P-384 / secp256k1) — an unexpected key type from an untrusted document is refused, not blindly imported. `keyToDid` encodes an Ed25519 / P-256 / P-384 / secp256k1 KeyObject as a did:key; `parse` derives the did:web HTTPS URL (`host[:port][:path]` → `https://host/path/did.json`, or `/.well-known/did.json`). Unknown methods, malformed base58, unsupported multicodec codes, and unsupported key types are each refused."
+        }
+      ]
+    }
+  ]
+}

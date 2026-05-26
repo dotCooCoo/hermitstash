@@ -1,0 +1,27 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.15",
+  "date": "2026-05-23",
+  "headline": "`b.safeArchive.extract` auto-unwraps v0.12.10 recipient and v0.12.11 passphrase envelopes inline",
+  "summary": "The safeArchive orchestrator's `format: \"auto\"` sniffer recognises `BAWRP` (v0.12.10 recipient) and `BAWPP` (v0.12.11 passphrase) envelope magics and routes through `b.archive.unwrap` / `b.archive.unwrapWithPassphrase` inline before re-sniffing the inner format. Operators pass `opts.recipient` (or `opts.passphrase`) alongside `source` + `destination` and get a single extract() call regardless of envelope shape. Missing the matching key opt surfaces a structured `safe-archive/no-recipient-for-wrap` / `safe-archive/no-passphrase-for-wrap` refusal upfront rather than a downstream crypto error.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.safeArchive.extract` auto-unwraps wrap envelopes",
+          "body": "The sniffer at byte 0-4 recognises `BAWRP` (returns `format: \"wrap-recipient\"`) and `BAWPP` (returns `format: \"wrap-passphrase\"`). The extract path collects the sealed adapter into a Buffer, routes through `b.archive.unwrap` (recipient) or `b.archive.unwrapWithPassphrase` (passphrase), wraps the inner bytes in a buffer adapter, re-sniffs the inner format, and dispatches to the appropriate `b.archive.read.*` reader. A wrap-around-tar.gz envelope round-trips through wrap → unwrap → gunzip → untar with no operator intervention beyond passing the key opt."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Missing-key opt refused upfront with structured error",
+          "body": "When the sniffer identifies a wrap envelope but the operator hasn't supplied `opts.recipient` (BAWRP) or `opts.passphrase` (BAWPP), extract refuses with `safe-archive/no-recipient-for-wrap` / `safe-archive/no-passphrase-for-wrap` BEFORE any decryption attempt. Operators wiring extract behind an HTTP boundary get a typed refusal instead of a leaked crypto-level error."
+        }
+      ]
+    }
+  ]
+}

@@ -26,7 +26,7 @@
 #
 #   # optional — defaults shown
 #   WIKI_ADMIN_EMAIL=admin@blamejs.com
-#   WIKI_PORT=8080
+#   WIKI_PORT=3008
 #   LOG_LEVEL=info
 #   BLAMEJS_DEPRECATIONS=warn
 #
@@ -45,21 +45,21 @@ services:
     # Pull the published image instead of building from source. Pin to
     # a specific version in production so a forgotten `docker compose
     # pull` doesn't quietly upgrade.
-    image: ghcr.io/blamejs/blamejs-wiki:0.3.24
+    image: ghcr.io/blamejs/blamejs-wiki:0.11.45
     build: !reset null
     container_name: blamejs-wiki
-    # Don't expose 8080 on the host — only Caddy talks to it on the
+    # Don't expose 3008 on the host — only Caddy talks to it on the
     # internal network.
     ports: !override []
     expose:
-      - "8080"
+      - "3008"
     # Full operator-facing environment surface. Every value is
     # overridable from the .env file; defaults match the framework's
     # built-in defaults so an operator who just wants the basics can
     # leave most blank.
     environment:
       # ---- Wiki app ----
-      WIKI_PORT:            ${WIKI_PORT:-8080}
+      WIKI_PORT:            ${WIKI_PORT:-3008}
       WIKI_DATA_DIR:        ${WIKI_DATA_DIR:-/data}
       WIKI_ADMIN_EMAIL:     ${WIKI_ADMIN_EMAIL:-admin@blamejs.com}
       WIKI_ADMIN_PASSWORD:  ${WIKI_ADMIN_PASSWORD:?WIKI_ADMIN_PASSWORD must be set in .env for production}
@@ -214,6 +214,14 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data        # ACME state — DO NOT delete in prod
       - caddy-config:/config
+    # Pass WIKI_PORT through so the Caddyfile's `wiki:{$WIKI_PORT:3008}`
+    # upstream tracks whatever the wiki service is actually listening
+    # on. An operator carrying WIKI_PORT=8080 from a pre-v0.11.40
+    # deploy gets a matching upstream — without this, the wiki would
+    # listen on 8080 but Caddy would forward to 3008, surfacing as
+    # 502s on the public site.
+    environment:
+      WIKI_PORT: ${WIKI_PORT:-3008}
     depends_on:
       wiki:
         condition: service_healthy

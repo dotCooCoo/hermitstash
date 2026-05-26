@@ -1,0 +1,61 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.9",
+  "date": "2026-05-23",
+  "headline": "`b.archive.gz` + `b.archive.read.gz` — gzip composition with `b.safeDecompress` bomb caps + `b.backup` `tar.gz` bundle format + `sha-to-tag verify` fetches `origin/main`",
+  "summary": "gzip lands as the composition layer over the archive family. `b.archive.gz(bytes)` produces an RFC 1952 gzip stream with the same `toBuffer()` / `toAdapter(adapter)` / `digest()` shape every archive builder ships, and `b.archive.read.gz(adapter, opts)` reads it back through `b.safeDecompress` so a malicious `tar.gz` fails the gzip-layer bomb cap (1 GiB output / 100× ratio defaults) before the tar walker ever sees a decompressed byte. The reader exposes `toBuffer()` / `asTar(opts)` / `asZip(opts)` so operators can hand the decompressed bytes directly to a downstream archive reader without a round-trip through disk. `b.archive.tar().toGzip(adapter, opts)` is the write-side convenience for the most common combination. `b.backup.bundleAdapterStorage({ format: \"tar.gz\" })` adds gzip compression on the wire — bundle sizes drop ~3-5× on text-heavy backups (databases, JSON exports, mail spools); the readback path detects the format from the storage key suffix and composes `b.safeDecompress` automatically. The `sha-to-tag verify` workflow now explicitly fetches `origin/main` before walking the first-parent history, fixing a stale-ref bug that silently failed v0.12.6 through v0.12.8 tag verifications (the publish workflow itself was unaffected; the gate is independent).",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.archive.gz(bytes)` — standalone gzip write builder",
+          "body": "RFC 1952 gzip envelope with the standard archive-builder shape. `toBuffer()` returns the compressed bytes; `toAdapter(adapter)` writes through any writable adapter (fs / object-store / http) that exposes `.write(bytes)` + optional `.close()`; `digest()` returns a SHA3-512 hex hash of the compressed payload for operator integrity logs. `opts.level` accepts 0-9 (zlib default 6). Composes cleanly under `b.archive.tar().toGzip(adapter)` / `b.archive.zip()` for tar.gz / zip.gz convenience."
+        },
+        {
+          "title": "`b.archive.read.gz(adapter, opts)` — gunzip reader with `b.safeDecompress` bomb caps",
+          "body": "Every decompression routes through `b.safeDecompress({ algorithm: \"gzip\", maxOutputBytes, maxRatio })` so a hostile gzip stream fails the bomb gate before any downstream parsing happens. Defaults: `maxDecompressedBytes` = 1 GiB, `maxExpansionRatio` = 100×. The reader exposes three downstream entry points: `toBuffer()` returns the raw decompressed bytes; `asTar(opts)` returns a `b.archive.read.tar` reader over the decompressed payload; `asZip(opts)` returns a `b.archive.read.zip` reader. `fromGzip` is the documented alias the spec uses (operators may reach for either). Refuses non-gzip input upfront via the `0x1f 0x8b` magic check (`archive-gz/bad-magic`)."
+        },
+        {
+          "title": "`b.archive.tar().toGzip(adapter, opts)` — tar.gz write convenience",
+          "body": "Pipes the tar builder's `toBuffer()` through `b.archive.gz()` and writes the resulting gzip envelope to a writable adapter. Equivalent to `b.archive.gz(t.toBuffer()).toAdapter(adapter)` but lets the operator stay in the tar-builder fluent chain when composing under fs / object-store / http adapters."
+        },
+        {
+          "title": "`b.backup.bundleAdapterStorage({ format: \"tar.gz\" })` — compressed-on-the-wire bundles",
+          "body": "Adds gzip compression to the v0.12.8 tar bundle format. Bundle sizes drop ~3-5× on text-heavy backups (databases, JSON exports, mail spools); binary-heavy backups (compressed databases, encrypted archives) see ~1.0-1.1×. Read paths auto-detect via the `<bundleId>/bundle.tar.gz` storage key suffix and route through `b.safeDecompress` on readback. The v0.12.8 `maxBundleBytes` cap continues to gate against pathological projected-uncompressed sizes; `tar.gz` does not bypass it."
+        },
+        {
+          "title": "`b.safeArchive.extract({ format: \"tar.gz\" })` — explicit tar.gz dispatch",
+          "body": "Operators handed a `.tar.gz` upload pass `format: \"tar.gz\"` explicitly; the orchestrator composes `b.archive.read.gz` → `.asTar()` and feeds the standard tar bomb-policy + entry-type-policy + guardProfile through. Defer-with-condition: auto-sniff for tar.gz (peek inside the gzip envelope for ustar magic at offset 257 of the decompressed prefix) lands when operator demand surfaces; today operators with `auto` mode on a `.tar.gz` payload get `format-unsupported gzip` with the explicit-format hint in the error message."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Bomb caps ride at the gz layer, not the tar/zip layer",
+          "body": "The decompression gate is enforced BEFORE the downstream archive reader sees any bytes — a hostile `tar.gz` that would decompress to 10 GiB of zero-filled tar entries fails the 1 GiB `maxDecompressedBytes` default cap during gunzip, never reaching the tar walker. Operators with legitimately large compressed archives pass `maxDecompressedBytes` higher; the framework refuses without an explicit opt-in. RFC 1952 §2.3.1 magic enforcement prevents content-type confusion (gzip-pretending-to-be-something-else inputs)."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "`sha-to-tag verify` workflow fetches `origin/main` before first-parent walk",
+          "body": "The release-tag integrity gate runs on every `v*` tag push and verifies the tag's commit SHA appears on `main`'s first-parent history. `actions/checkout` was being asked for full history of the tag ref alone — `origin/main` wasn't fetched as a side effect, so `git rev-list --first-parent origin/main | grep -qx \"$SHA\"` walked a stale (or absent) ref and falsely refused. The check now explicitly fetches `origin/main` after checkout so the walk sees the current squash-merge HEAD. Affected releases (v0.12.6 / v0.12.7 / v0.12.8) had publish workflows that completed normally — `sha-to-tag verify` is an independent gate that was silently failing alongside successful publishes; nothing about the published artifacts was wrong."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "`archive-gz-without-safedecompress` — direct `node:zlib` gunzip in `lib/` must compose `b.safeDecompress`",
+          "body": "Mirrors the v0.11.5 must-compose pattern: any `lib/` call to `zlib.gunzipSync` / `zlib.createGunzip` / `gunzip` outside `lib/archive-gz.js` (which IS the canonical gunzip site, with `b.safeDecompress` wired in) must carry an `allow:archive-gz-without-safedecompress` marker explaining why the bomb gate is bypassed. The detector locks the contract so v0.13+ work that touches a gzip-handling primitive can't quietly drop the cap."
+        }
+      ]
+    }
+  ]
+}

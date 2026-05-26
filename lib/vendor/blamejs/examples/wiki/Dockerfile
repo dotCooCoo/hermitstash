@@ -56,7 +56,7 @@ USER 65532:65532
 #   NODE_ENV               production | development                 (default: production)
 #   WIKI_DATA_DIR          on-disk path for vault.key + sqlite +
 #                          audit chain                              (default: /data)
-#   WIKI_PORT              listen port                              (default: 8080)
+#   WIKI_PORT              listen port                              (default: 3008)
 #
 #   WIKI_ADMIN_EMAIL       seeded admin login email                 (default: admin@blamejs.com)
 #   WIKI_ADMIN_PASSWORD    seeded admin password                    (REQUIRED — generated
@@ -95,7 +95,7 @@ USER 65532:65532
 #                          structured-log filter level
 ENV NODE_ENV=production \
     WIKI_DATA_DIR=/data \
-    WIKI_PORT=8080
+    WIKI_PORT=3008
 WORKDIR /app
 COPY --from=deps --chown=65532:65532 /home/node/package.json /home/node/index.js /home/node/NOTICE /home/node/LICENSE /home/node/README.md ./
 COPY --from=deps --chown=65532:65532 /home/node/bin ./bin
@@ -112,9 +112,9 @@ COPY --from=deps --chown=65532:65532 /home/node/examples/wiki ./examples/wiki
 # (the post-publish smoke-test job's invocation).
 COPY --from=deps --chown=65532:65532 /home/node/data-skeleton /data
 WORKDIR /app/examples/wiki
-EXPOSE 8080
+EXPOSE 3008
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD ["node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+  CMD ["node", "-e", "fetch('http://127.0.0.1:3008/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
 # The Chainguard node image has ENTRYPOINT ["/usr/bin/node"], so CMD
 # is just the script path the operator wants Node to run.
 CMD ["server.js"]

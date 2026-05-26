@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.20",
+  "date": "2026-05-24",
+  "headline": "`bundleAdapterStorage.verifyAllBundles(opts)` — bounded-parallel batch integrity walk with stopOnFirstFailure short-circuit",
+  "summary": "Batch wrapper over the v0.12.19 verifyBundle primitive. `storage.verifyAllBundles(opts?)` iterates `listBundles()` + walks each bundle with a bounded-parallel pool. Returns `{ total, ok, failed, results }` where `results` carries every per-bundle verifyBundle output (including bundleId, format, envelopeKind, entryCount, errors). `opts.concurrency` defaults to 4 (gentle on the storage backend); `opts.stopOnFirstFailure` short-circuits the walk when an unhealthy bundle is found (default off — operators want the full health report). `opts.recipient` / `opts.passphrase` forwarded to every per-bundle verify call. Operators wiring a periodic cron job over a backup repository now have a single primitive to call instead of hand-rolling the listBundles loop.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`storage.verifyAllBundles(opts?)` — batch integrity walk",
+          "body": "Iterates `listBundles()` + calls `verifyBundle(bundleId, opts)` on each. Bounded-parallel fan-out (default 4 workers; `opts.concurrency` raises or lowers); each worker pulls from a shared queue + the warm-up keeps `concurrency` workers in flight until the queue drains. Returns the aggregate `{ total, ok, failed, results }` with `results` sorted by bundleId so the report is stable across runs regardless of completion order. `opts.stopOnFirstFailure` short-circuits the walk when the first unhealthy bundle is found — useful for fast-fail CI gates that don't need to enumerate every failure."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.4",
+  "date": "2026-05-22",
+  "headline": "`SECURITY.md` Watch list — remove stale \"framework doesn't ship CMS / S/MIME\" entry",
+  "summary": "The Watch list bullet claiming `framework does not ship a CMS / S/MIME / PKCS#7 surface today` has been wrong since v0.10.13 — `b.cms.encodeSignedData` / `decode` / `encodeEnvelopedData` / `parseSignedData` shipped then, and `b.mail.crypto.smime.sign` / `verify` / `verifyAll` / `checkCert` shipped under the mail-stack. The Watch list is for CVE classes the framework deliberately doesn't ship a primitive for; CMS no longer fits that shape. Entry removed.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Watch list no longer claims CMS / S/MIME are unshipped",
+          "body": "`b.cms` exposes RFC 5652 ContentInfo / SignedData / EnvelopedData encode + decode with PQC signer support (ML-DSA-65 per RFC 9909 §5, ML-DSA-87 per RFC 9909 §6, SLH-DSA-SHAKE-256f per RFC 9881). `b.mail.crypto.smime` builds on it for RFC 8551 S/MIME signed + enveloped mail with `checkCert` for X.509 chain validation. The SECURITY.md Watch list entry that pointed operators to external CMS libraries is gone; operators on regulated mail interop reach for the in-framework primitives instead."
+        }
+      ]
+    }
+  ],
+  "references": []
+}

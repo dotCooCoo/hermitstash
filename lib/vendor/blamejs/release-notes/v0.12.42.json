@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.42",
+  "date": "2026-05-24",
+  "headline": "`b.vc.present` / `b.vc.verifyPresentation` — W3C Verifiable Presentations",
+  "summary": "Completes b.vc with the holder side: a Verifiable Presentation is a holder-signed envelope wrapping one or more credentials, proving the presenter controls the key the credentials were issued to. b.vc.present builds and signs a VerifiablePresentation (each credential enveloped per VC-JOSE-COSE) as a compact JWS (vp+jwt) or COSE_Sign1 (application/vp+cose), matching b.vc.issue's algorithms; an optional nonce / audience is embedded in the signed presentation for holder-binding and replay protection. b.vc.verifyPresentation verifies the holder signature (auto-detected jose/cose, mandatory algorithm allowlist, JOSE none refused), the VCDM structure, and the embedded nonce / audience / expectedHolder when given, and — with verifyCredentials: true — verifies each enveloped credential through b.vc.verify and returns them. The holder is typically a DID, resolved to a key via b.did. Composes b.cose; no new runtime dependency.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.vc.present(opts)` / `b.vc.verifyPresentation(secured, opts)`",
+          "body": "`present` wraps `opts.credentials` (secured VCs — compact-JWS strings or COSE_Sign1 bytes, each enveloped as an `EnvelopedVerifiableCredential` data: URI) in a `VerifiablePresentation` signed by the holder, with optional `nonce` / `audience` embedded for binding. `verifyPresentation` verifies the holder signature against the mandatory `opts.algorithms` allowlist (JOSE `none` always refused), re-checks the VCDM structure, enforces `expectedHolder` / `nonce` / `audience` when supplied, and with `verifyCredentials: true` verifies each enveloped credential through `b.vc.verify` (using `opts.credentialOpts`), returning `{ presentation, holder, credentials, securing, alg }`. The enveloped-credential count is bounded. A `vp+jwt` presentation is refused by `b.vc.verify` and a `vc+jwt` credential is refused by `verifyPresentation` — the media-type binding keeps the two surfaces distinct."
+        }
+      ]
+    }
+  ]
+}

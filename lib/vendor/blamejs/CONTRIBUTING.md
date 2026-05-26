@@ -143,7 +143,7 @@ If you're being added as a maintainer, the additional commitments:
 - Triage incoming issues within 7 days
 - Respond to security reports per the SLA in [SECURITY.md](SECURITY.md)
 - Review PRs in your domain area within 14 days
-- Sign-off + tag releases (the release process is in [examples/wiki/DEPLOY.md](examples/wiki/DEPLOY.md) → "Tag-driven releases")
+- Sign-off + tag releases via `node scripts/release.js` — eight idempotent subcommands (`prepare` → `smoke` → `commit` → `push` → `watch` → `merge` → `tag` → `publish`) plus `all` for a one-shot. See [examples/wiki/DEPLOY.md](examples/wiki/DEPLOY.md) → "Tag-driven releases" for the wiki-container side of the same flow.
 
 The maintainer list is in [MAINTAINERS.md](MAINTAINERS.md) (or `git log` if that file doesn't exist yet).
 

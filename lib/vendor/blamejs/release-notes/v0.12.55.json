@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.55",
+  "date": "2026-05-25",
+  "headline": "`b.structuredFields` — RFC 9651 Date and Display String types",
+  "summary": "Brings the Structured Fields codec up to RFC 9651, which obsoletes RFC 8941 by adding two bare-item types. A Date (`@1659578233`) is an Integer number of seconds since the Unix epoch; a Display String (`%\"f%c3%bc%c3%bc\"`) is a Unicode string conveyed as percent-escaped UTF-8. parse returns them as distinct SfDate / SfDisplayString values, and serialize emits them canonically — a Date as `@` + integer, a Display String as `%\"`-wrapped lowercase-percent-escaped UTF-8 that escapes only what RFC 9651 requires. Parsing is strict: a Date rejects a decimal / out-of-range value, and a Display String rejects uppercase escapes, raw non-ASCII, bad hex, and invalid UTF-8. Validated against the official httpwg structured-field-tests date and display-string vectors.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "RFC 9651 Date (`@…`) and Display String (`%\"…\"`) in `b.structuredFields`",
+          "body": "`parse` now reads the two RFC 9651 types: `@` + an Integer yields an `SfDate` (rejecting a decimal `@1.5`, an empty `@`, a sign-only `@-`, and out-of-range values), and `%\"…\"` yields an `SfDisplayString` (decoding lowercase `%XX` escapes as UTF-8, rejecting uppercase escapes, raw non-ASCII or control characters, malformed hex, and invalid UTF-8). `serialize` is the inverse — a Date as `@` + the integer, a Display String percent-escaping only non-printable / non-ASCII bytes plus `%` and `\"`. The new `b.structuredFields.Date` and `b.structuredFields.DisplayString` wrappers construct these values. The module now tracks RFC 9651 (which obsoletes RFC 8941); the existing Item / List / Dictionary parsing is unchanged."
+        }
+      ]
+    }
+  ]
+}

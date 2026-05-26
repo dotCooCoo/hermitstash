@@ -1,0 +1,31 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.29",
+  "date": "2026-05-24",
+  "headline": "`b.ai.dp` — float-safe differential privacy: snapping-mechanism Laplace + discrete Gaussian + Rényi-DP budgets",
+  "summary": "Differential privacy adds calibrated noise so an aggregate is provably insensitive to any single record — but the guarantee is fragile: Mironov (2012) showed that a Laplace mechanism sampled with naive double-precision floats lets an attacker distinguish neighbouring datasets with > 35% probability from a single output, silently destroying the promise. `b.ai.dp` ships only mechanisms whose sampling is hardened against that attack class: Laplace via the snapping mechanism (clamp + CSPRNG sign + full-mantissa uniform + power-of-two-grid rounding) and the discrete Gaussian (Canonne–Kamath–Steinke 2020) via integer-exact rejection sampling built from Bernoulli(exp(−γ)) over exact rationals — no floating-point noise at all. All randomness comes from `b.crypto.generateBytes` (SHAKE256 over the OS CSPRNG), never `Math.random`. `b.ai.dp.budget({ scope, epsilon, delta })` tracks a privacy budget per scope and refuses a `consume` that would exceed it, accounting composition either by basic summation (default) or a Rényi-DP accountant (Mironov 2017) for a much tighter bound under repeated Gaussian releases. NIST SP 800-226 (2025) is the evaluation standard; Dwork & Roth is the canonical reference. The exponential and sparse-vector mechanisms are deferred-with-condition — their float-safe constructions (base-2 / permute-and-flip; snapped SVT) re-open on operator demand, since shipping them float-unsafe would defeat the module's purpose.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.ai.dp.mechanism({ type, sensitivity, epsilon, ... })` — float-safe noise mechanisms",
+          "body": "`type: \"laplace\"` is the snapping mechanism (pure ε-DP, real-valued, requires a clamp `bound` the guarantee depends on); `type: \"gaussian\"` is the discrete Gaussian (integer-valued, (ε, δ)-DP, requires `delta`). The Gaussian uses the classic calibration σ = √(2 ln(1.25/δ))·Δ/ε, proven for ε ≤ 1 — larger ε is refused with a pointer to splitting the release under an rdp budget. Descriptors are validated + frozen at construction so a malformed parameter fails fast."
+        },
+        {
+          "title": "`b.ai.dp.budget({ scope, epsilon, delta, accounting })` — per-scope privacy budget",
+          "body": "Returns `{ consume, remaining, spent, reset }`. `consume(mechanism, value)` adds the mechanism's noise, charges the accountant, and throws `aiDp/budget-exhausted` if the release would push the scope past its (ε, δ). `accounting: \"basic\"` (default) sums per-release ε and δ; `accounting: \"rdp\"` runs a Rényi-DP accountant across a grid of orders and converts to (ε, δ) at the scope's δ for a tight composition bound under repeated Gaussian releases (requires `delta > 0`). The scope budget is enforced on both ε and δ independently."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "`b.crypto.generateBytes` uniformity fix at 1-byte length",
+          "body": "Node's SHAKE256 XOF is non-uniform at `outputLength: 1` — the byte values 0x00 and 0xff never occur and the low bit skews to ~0.54. `b.crypto.generateBytes(1)` (and the underlying `random(1)`) now draws at least 2 bytes and slices, so a single-byte CSPRNG request is uniform. Surfaced by `b.ai.dp` per-byte noise sampling; any per-byte consumer of `generateBytes` inherits the fix. A regression test asserts 0x00 / 0xff occur and the low bit is balanced."
+        }
+      ]
+    }
+  ]
+}

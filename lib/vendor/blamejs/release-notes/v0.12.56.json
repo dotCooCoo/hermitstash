@@ -1,0 +1,27 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.12.56",
+  "date": "2026-05-25",
+  "headline": "`b.canonicalJson` — RFC 8785 JSON Canonicalization Scheme, now a public primitive",
+  "summary": "The deterministic JSON serializer the framework uses internally for audit-chain and config-drift fingerprints is now an operator-facing primitive, for signing your own JSON (custom credentials, receipts, deterministic request signing). b.canonicalJson.stringifyJcs is strict RFC 8785: keys sorted in UTF-16 code-unit order at every depth, numbers in the ECMAScript format JCS references, and types JCS does not define (BigInt / Buffer / Date / Map / Set / circular references) refused rather than silently lost. b.canonicalJson.stringify is a lenient variant that also serializes Buffers (hex), Dates (ISO-8601), and BigInts. Exposing it surfaced and fixed a latent ordering bug: the serializer built a sorted-key object and let JSON.stringify emit it, but V8 hoists integer-like keys (\"1\", \"10\") to the front — so canonical output was wrong for objects with integer-like string keys. Members are now written in sorted order directly. Validated against the official cyberphone/json-canonicalization conformance vectors.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.canonicalJson.stringifyJcs(value)` / `stringify(value, opts?)` / `sortKeys(obj)`",
+          "body": "`stringifyJcs` produces strict RFC 8785 canonical JSON — the byte-for-byte stable form to hash or sign — with UTF-16 code-unit key sorting and ECMAScript number formatting, refusing BigInt / Buffer / Date / Map / Set / RegExp / Symbol / function / circular references. `stringify` is the lenient framework variant (Buffers → hex, Dates → ISO-8601, BigInts → decimal; `opts.bufferAs: \"reject\"` to forbid binary). `sortKeys` returns an object's own keys in the canonical UTF-16 ordering. These were framework-internal; they are now documented public API."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Canonical JSON now emits integer-like keys in sorted order",
+          "body": "The canonical serializer built a sorted-key object and serialized it with JSON.stringify, which hoists integer-like string keys (\"1\", \"10\") to the front per V8 own-property ordering — producing non-canonical output for objects containing such keys (a violation of RFC 8785 §3.2.3). Members are now written in sorted-key order directly. Real-world consumers (audit-chain, config-drift) use named fields and are unaffected; only objects with integer-like string keys change, and the new output is the correct canonical form."
+        }
+      ]
+    }
+  ]
+}

@@ -162,7 +162,7 @@ jobs:
       # Note: load: true forces single-arch (amd64). The multi-arch
       # build happens on the post-scan push step below.
       - name: Build (local-only, for Trivy)
-        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f  # v7
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7
         with:
           context: .
           file: examples/wiki/Dockerfile
@@ -210,7 +210,7 @@ jobs:
       - name: Push (multi-arch, after Trivy gate)
         id: push
         if: ${{ !inputs.dry_run && steps.tags.outputs.is_tag == 'true' }}
-        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f  # v7
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7
         with:
           context: .
           file: examples/wiki/Dockerfile
@@ -289,7 +289,7 @@ jobs:
   # ---- Post-publish smoke test --------------------------------------------
   # Pulls the just-published image by digest, verifies the OCI labels are
   # present, starts the container with hardened flags (--init, no-new-
-  # privileges, cap-drop ALL, …), curls /healthz on port 8080 and asserts
+  # privileges, cap-drop ALL, …), curls /healthz on port 3008 and asserts
   # the body contains `"status":"ok"`. Skipped on dry-run.
   smoke-test:
     name: Post-publish smoke test
@@ -341,12 +341,12 @@ jobs:
             --init \
             --security-opt no-new-privileges:true \
             --cap-drop ALL \
-            -p 8080:8080 \
+            -p 3008:3008 \
             "${{ env.IMAGE }}@${{ needs.publish.outputs.digest }}"
 
           echo "Waiting for /healthz..."
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:8080/healthz > /dev/null 2>&1; then
+            if curl -sf http://localhost:3008/healthz > /dev/null 2>&1; then
               echo "Healthy after ${i}s"
               break
             fi
@@ -356,7 +356,7 @@ jobs:
       - name: Health check
         run: |
           set -euo pipefail
-          HEALTH=$(curl -sf http://localhost:8080/healthz)
+          HEALTH=$(curl -sf http://localhost:3008/healthz)
           echo "$HEALTH"
           echo "$HEALTH" | python3 -c "
           import sys, json
