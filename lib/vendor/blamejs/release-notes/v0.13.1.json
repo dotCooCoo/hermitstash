@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.1",
+  "date": "2026-05-26",
+  "headline": "`b.worm` — write-once-read-many retention",
+  "summary": "Store records that cannot be altered or deleted before a retention period elapses — the immutable-storage discipline regulators require (SEC 17a-4(f), CFTC 1.31, FINRA 4511). b.worm.create(opts) returns a WORM store that enforces, on every mutating call, that a record is not overwritten or deleted while it is within its retainUntil window or under a legal hold. Two modes mirror cloud Object-Lock: compliance (the default — no one, including the operator, can delete before expiry) and governance (a privileged caller may override with an audited reason). Retention can only be extended, never shortened; every record carries a SHA3-512 digest that get verifies, so tampering with the underlying bytes is detected on read; every allow/refuse decision is audited. Storage is pluggable via a synchronous store adapter, so the policy layer sits over a sealed DB table, a filesystem, or any non-S3 backend — the store-agnostic, application-level companion to b.objectStore's S3 Object Lock, with content-integrity verification that native Object Lock does not provide.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.worm.create` — write-once-read-many retention",
+          "body": "Returns a store with `put` / `get` / `delete` / `extendRetention` / `placeLegalHold` / `releaseLegalHold` / `list`. `put` is write-once (an overwrite of a retained or held record is refused); `delete` is gated by the retention window, legal holds, and the mode (`compliance` refuses any early delete; `governance` allows a privileged override with a required, audited reason); `extendRetention` is extend-only; `get` verifies the stored SHA3-512 digest and throws `worm/tampered` on a mismatch. Storage is a pluggable synchronous adapter (`get` / `set` / `delete` / `has` / `keys`), defaulting to in-memory for tests. Use it for SEC 17a-4 / CFTC / FINRA immutable records on backends without native Object Lock; `b.objectStore` remains the path for S3 Object Lock."
+        }
+      ]
+    }
+  ]
+}

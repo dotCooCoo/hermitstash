@@ -1,0 +1,27 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.9",
+  "date": "2026-05-26",
+  "headline": "Corrected CVE citations in source threat annotations + a build gate that refuses malformed CVE identifiers",
+  "summary": "Several source-comment threat annotations cited CVE identifiers that were rejected by the numbering authority (never assigned to a real issue), attributed to the wrong product, or structurally malformed (a placeholder with a non-numeric sequence). The annotated defenses are unchanged — every cap, refusal, and constant-time comparison behaves exactly as before; only the reference labels were corrected, each to a verifiable CVE or to the underlying weakness class (CWE / RFC) where no single CVE fits. Notable corrections: the S/MIME SHA-1 / MD5 certificate-signature refusal now cites the SHAttered collision and RFC 8551 §2.5 instead of a rejected candidate id; decompression-output caps cite CWE-409 and CVE-2025-0725 instead of a fabricated placeholder; the iCalendar RRULE / nesting / byte caps describe the calendar-bomb recursion-DoS class instead of an unrelated SSRF advisory; and the SAML signature-wrapping (XSW) defense now cites the actively-exploited CVE-2024-45409 (ruby-saml, CVSS 10.0) and CVE-2025-25291 / -25292 that the duplicate-element refusal defeats. A new build-time detector refuses any CVE token whose sequence number is not all-numeric, so a placeholder identifier can never reach a release again.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Corrected rejected / misattributed / malformed CVE references in source threat annotations",
+          "body": "Threat-annotation comments across the mail, crypto, auth, guard, and safe modules carried CVE identifiers that were rejected by the CVE numbering authority, attributed to the wrong product, or written as non-numeric placeholders. Each was corrected to a verifiable CVE or to the weakness class (CWE / RFC) it defends. No runtime behaviour changed — the defenses these comments describe are unchanged. The S/MIME certificate check's SHA-1 / MD5 refusal message now names the SHAttered collision and RFC 8551 §2.5; the SAML XSW defense now names CVE-2024-45409 and CVE-2025-25291 / -25292."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "`malformed-cve-identifier` — refuses structurally-invalid CVE tokens at build time",
+          "body": "A CVE identifier's sequence number is always numeric (`CVE-<year>-<digits>`). The new detector refuses any CVE token whose post-year segment contains a letter — the placeholder shape that lets a fabricated reference slip past review. It cannot verify that a well-formed id is real or correctly attributed (that stays a review responsibility), but it makes the structurally-invalid class impossible to ship."
+        }
+      ]
+    }
+  ]
+}

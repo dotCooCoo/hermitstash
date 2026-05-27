@@ -300,7 +300,7 @@ function generateSyncToken(){
       var html='<strong>Enrollment Code (shown once, expires in 1 hour):</strong>';
       html+='<div style="margin:12px 0;padding:16px;background:rgba(139,92,246,.08);border:2px solid rgba(139,92,246,.2);border-radius:10px;text-align:center">';
       html+='<span style="font-size:1.4rem;font-weight:800;font-family:monospace;letter-spacing:3px;color:var(--main-color)">'+esc(d.enrollmentCode)+'</span></div>';
-      html+='<button type="button" data-code="'+esc(d.enrollmentCode)+'" onclick="navigator.clipboard.writeText(this.dataset.code);this.textContent=\'Copied!\'" style="cursor:pointer;background:var(--main-color);color:#fff;border:none;padding:6px 16px;border-radius:6px;font-size:.8rem">Copy Code</button>';
+      html+='<button type="button" data-code="'+esc(d.enrollmentCode)+'" onclick="Helpers.copyText(this.dataset.code);this.textContent=\'Copied!\'" style="cursor:pointer;background:var(--main-color);color:#fff;border:none;padding:6px 16px;border-radius:6px;font-size:.8rem">Copy Code</button>';
       html+='<p style="font-size:.75rem;color:var(--muted);margin-top:10px;line-height:1.5">Give this code to the sync client user. They enter it during <code>hermitstash-sync init</code> — the client exchanges it for the API key and certificates automatically. One-time use.</p>';
       el.innerHTML=html;
       el.style.display='block';
@@ -392,11 +392,11 @@ function deleteStashBundle(stashId,bundleId,btn){
   }).catch(function(){btn.querySelector('span').textContent='Delete';btn.disabled=false});
 }
 function cpBundle(shareId,btn){
-  navigator.clipboard.writeText(location.origin+'/b/'+shareId).then(function(){var s=btn.querySelector('span');s.textContent='Copied!';setTimeout(function(){s.textContent='Copy'},2000)});
+  Helpers.copyText(location.origin+'/b/'+shareId).then(function(){var s=btn.querySelector('span');s.textContent='Copied!';setTimeout(function(){s.textContent='Copy'},2000)});
 }
 function toggleStash(id){fetch('/admin/stash/'+id+'/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){if(d.success)loadStash();else alert(d.error)})}
 function deleteStash(id,name){if(!confirm('Delete stash page "'+name+'"?'))return;fetch('/admin/stash/'+id+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){if(d.success)loadStash();else alert(d.error)})}
-function cpStash(slug,btn){navigator.clipboard.writeText(location.origin+'/stash/'+slug).then(function(){var s=btn.querySelector('span');s.textContent='Copied!';setTimeout(function(){s.textContent='Copy'},2000)})}
+function cpStash(slug,btn){Helpers.copyText(location.origin+'/stash/'+slug).then(function(){var s=btn.querySelector('span');s.textContent='Copied!';setTimeout(function(){s.textContent='Copy'},2000)})}
 document.getElementById('seColor').addEventListener('input',function(){document.getElementById('seColorText').value=this.value});
 document.getElementById('seColorText').addEventListener('input',function(){if(/^#[0-9a-fA-F]{6}$/.test(this.value))document.getElementById('seColor').value=this.value});
 document.getElementById('seName').addEventListener('input',function(){if(!_stashEditId){document.getElementById('seSlug').value=this.value.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,50)}});

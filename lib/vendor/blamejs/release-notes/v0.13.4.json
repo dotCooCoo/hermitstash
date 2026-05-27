@@ -1,0 +1,23 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.4",
+  "date": "2026-05-26",
+  "headline": "`b.crdt` — conflict-free replicated data types",
+  "summary": "b.crdt adds state-based Conflict-free Replicated Data Types: data structures that independent replicas update without coordination and still converge to the same value once they have exchanged state. Each type's merge is a join over a semilattice — commutative, associative, and idempotent — so replicas can merge in any order, any number of times, and agree, which makes these the substrate for active/active cluster state, offline-first clients that reconcile on reconnect, and eventually-consistent counters, sets, and maps. The release ships the full state-based family: grow-only and positive-negative counters (gCounter / pnCounter), grow-only, two-phase, and observed-remove sets (gSet / twoPSet / orSet), a last-write-wins register (lwwRegister), and an observed-remove map (orMap). Every type exposes the same contract — local mutators, merge(other) that returns a converged instance without mutating either operand, value() for the materialized value, and state() / fromState() for a JSON-serializable form to snapshot via b.archive or b.backup or ship to a peer — and carries a replicaId so per-replica contributions stay distinct.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.crdt` — state-based CvRDT counters, sets, register, and map",
+          "body": "`b.crdt.gCounter` / `pnCounter` (grow-only and increment/decrement counters), `b.crdt.gSet` / `twoPSet` / `orSet` (grow-only, two-phase, and observed-remove sets — `orSet` supports re-add and resolves a concurrent add-vs-remove as add-wins), `b.crdt.lwwRegister` (last-write-wins with a deterministic replicaId tie-break), and `b.crdt.orMap` (observed-remove keys with last-write-wins values). Each exposes `merge` / `value` / `state` / `fromState` and converges by the CvRDT laws. `orSet` and `orMap` accept `tombstoneRetention` to bound tombstone memory against a remove flood."
+        }
+      ]
+    }
+  ],
+  "outOfScope": [
+    "Operation-based sequence CRDTs (RGA) — a different formal class (CmRDT) requiring a causal-delivery channel; ships when collaborative-text / ordered-list editing is needed.",
+    "Delta-state mutators — a bandwidth optimization over full-state merge; ships under large-state replication pressure.",
+    "The event-bus replicator for live multi-node auto-sync — the state-based types merge manually standalone; ships when live multi-node synchronization is wired, together with the causal-delivery option and its detector."
+  ]
+}

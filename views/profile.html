@@ -60,6 +60,7 @@
         <p style="font-size:.85rem;color:var(--text-muted)">Loading passkeys...</p>
       </div>
       <button class="butn butn-bg butn-sm radius-30" id="addPasskeyBtn" onclick="registerPasskey()"><span>Add Passkey</span></button>
+      <p id="passkeyUnsupportedNote" style="display:none;font-size:.85rem;color:var(--text-muted)"></p>
     </div>
     {% } %}
 
@@ -163,6 +164,7 @@ function loadPasskeys(){
 }
 
 async function registerPasskey(){
+  if(!WebAuthnHelpers.supported()){msg(WebAuthnHelpers.UNSUPPORTED_MSG,false);return}
   var btn=document.getElementById('addPasskeyBtn');
   btn.disabled=true;btn.querySelector('span').textContent='Waiting for passkey...';
   try{
@@ -206,7 +208,18 @@ function removePasskey(id,confirmVault){
 
 // Load passkeys on page load
 // Defer until api.js has loaded and overridden fetch for encrypted responses
-window.addEventListener('load',function(){if(document.getElementById('passkeyList'))loadPasskeys()});
+window.addEventListener('load',function(){
+  if(document.getElementById('passkeyList'))loadPasskeys();
+  // Adding a passkey needs a secure context; over plain HTTP the browser has
+  // no WebAuthn API. Hide the add button and explain (existing passkeys can
+  // still be listed/removed — those are plain API calls).
+  var addBtn=document.getElementById('addPasskeyBtn');
+  if(addBtn&&!WebAuthnHelpers.supported()){
+    addBtn.style.display='none';
+    var note=document.getElementById('passkeyUnsupportedNote');
+    if(note){note.textContent=WebAuthnHelpers.UNSUPPORTED_MSG;note.style.display='block'}
+  }
+});
 
 function deleteAccount(){
   var confirm=document.getElementById('profDeleteConfirm').value;
@@ -230,6 +243,8 @@ async function toggleStealth(){
   var tog=document.getElementById('stealthToggle');
   var enabling=tog.checked;
   tog.checked=!enabling; // revert until confirmed
+
+  if(!WebAuthnHelpers.supported()){msg(WebAuthnHelpers.UNSUPPORTED_MSG,false);return}
 
   // Require passkey re-authentication
   try{

@@ -1,0 +1,28 @@
+{
+  "version": "1.11.18",
+  "date": "2026-05-27",
+  "headline": "Browser features that need a secure context degrade gracefully over plain HTTP",
+  "summary": "On a plain-HTTP origin at a non-localhost hostname — a LAN host or a reverse-proxy deployment without TLS — several browser APIs are simply absent (WebAuthn, the async Clipboard API, crypto.randomUUID). HermitStash now detects their absence and adapts instead of throwing \"Cannot read properties of undefined\": the passkey option hides itself, copy-to-clipboard uses a legacy fallback, and multi-file uploads generate batch IDs without the secure-context API.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Passkey sign-in and registration hide on non-secure origins",
+          "body": "The login and profile passkey controls now feature-detect the WebAuthn API and, when it is absent (any plain-HTTP non-localhost origin, and Safari before 16.4 even over HTTPS), hide with a short \"Passkeys require a secure (HTTPS) connection\" note instead of throwing on click. They reappear automatically once the app is served over HTTPS. The PASSKEY_ENABLED setting is unchanged."
+        },
+        {
+          "title": "Copy-to-clipboard falls back to a legacy path over plain HTTP",
+          "body": "Share-link, stash-link, and enrollment-code copy buttons route through a shared helper that uses the async Clipboard API in a secure context and falls back to document.execCommand('copy') over plain HTTP, so copying works regardless of scheme."
+        },
+        {
+          "title": "Multi-file uploads no longer depend on a secure-context UUID API",
+          "body": "Batch IDs for multi-file uploads fall back from crypto.randomUUID (secure-context only) to crypto.getRandomValues, which is available over plain HTTP."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "MDN — Secure contexts", "url": "https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts" }
+  ]
+}

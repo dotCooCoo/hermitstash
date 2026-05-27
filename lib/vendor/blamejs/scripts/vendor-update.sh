@@ -33,7 +33,7 @@ DATE=$(date +%Y-%m-%d)
 # (see lib/argon2-builtin.js). The case-block below preserves the
 # `argon2` operator-friendly error message for anyone who still tries
 # `vendor-update.sh argon2`.
-VENDORED_PACKAGES=("@noble/ciphers" "@noble/post-quantum" "@simplewebauthn/server" "peculiar-pki")
+VENDORED_PACKAGES=("@noble/ciphers" "@noble/curves" "@noble/post-quantum" "@simplewebauthn/server" "peculiar-pki")
 
 get_vendored_ver() {
   node -e "var m=require('./$MANIFEST'); var p=m.packages['$1']; console.log(p?p.version:'?')"
@@ -131,6 +131,16 @@ case "$PKG" in
     npx esbuild _entry.mjs --bundle --format=cjs --minify --platform=node --outfile=lib/vendor/noble-ciphers.cjs
     rm _entry.mjs
     sed -i "1s|^|// XChaCha20-Poly1305 — vendored from @noble/ciphers v${INSTALLED_VER} by Paul Miller\n// License: MIT — https://github.com/paulmillr/noble-ciphers\n// Bundled with esbuild. Exports: xchacha20poly1305\n|" lib/vendor/noble-ciphers.cjs
+    ;;
+
+  "@noble/curves")
+    cat > _entry.mjs <<'ENTRY'
+export { ristretto255_oprf } from "@noble/curves/ed25519.js";
+export { p256_oprf, p384_oprf, p521_oprf } from "@noble/curves/nist.js";
+ENTRY
+    npx esbuild _entry.mjs --bundle --format=cjs --minify --platform=node --outfile=lib/vendor/noble-curves.cjs
+    rm _entry.mjs
+    sed -i "1s|^|// @noble/curves v${INSTALLED_VER} — vendored from Paul Miller\n// License: MIT — https://github.com/paulmillr/noble-curves\n// Bundled with esbuild. Exports the RFC 9497 OPRF suites:\n//   ristretto255_oprf (ristretto255-SHA512), p256_oprf (P-256-SHA256),\n//   p384_oprf (P-384-SHA384), p521_oprf (P-521-SHA512) — each with\n//   oprf / voprf / poprf modes. Backs b.crypto.oprf.\n|" lib/vendor/noble-curves.cjs
     ;;
 
   "@noble/post-quantum")

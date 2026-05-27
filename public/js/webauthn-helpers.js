@@ -76,12 +76,28 @@
     };
   }
 
+  // WebAuthn is exposed by the browser only in a secure context (HTTPS, or a
+  // localhost-family origin). Over plain HTTP at a non-localhost hostname — a
+  // LAN host or reverse-proxy deployment that hasn't enabled TLS — the API is
+  // absent and navigator.credentials is undefined, so calling .create()/.get()
+  // throws "Cannot read properties of undefined". Callers gate on this first
+  // and surface UNSUPPORTED_MSG instead of attempting the ceremony.
+  function supported() {
+    return !!(window.isSecureContext &&
+              window.PublicKeyCredential &&
+              navigator.credentials &&
+              typeof navigator.credentials.create === 'function' &&
+              typeof navigator.credentials.get === 'function');
+  }
+
   window.WebAuthnHelpers = {
     base64urlToBuffer: base64urlToBuffer,
     bufferToBase64url: bufferToBase64url,
     prepareGetOptions: prepareGetOptions,
     prepareCreateOptions: prepareCreateOptions,
     formatGetResponse: formatGetResponse,
-    formatCreateResponse: formatCreateResponse
+    formatCreateResponse: formatCreateResponse,
+    supported: supported,
+    UNSUPPORTED_MSG: 'Passkeys require a secure (HTTPS) connection.'
   };
 })();

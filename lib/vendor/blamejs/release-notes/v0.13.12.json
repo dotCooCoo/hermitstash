@@ -1,0 +1,36 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.12",
+  "date": "2026-05-27",
+  "headline": "Inbound MX listener now runs the connection-level gate cascade it documented — HELO identity, DNS blocklist, and greylisting",
+  "summary": "b.mail.server.mx.create documented helo / rbl / greylist gate options, but the listener never invoked them — an operator who wired them got silent acceptance of mail those gates would have rejected. They are now wired into the live SMTP state machine: the HELO-identity gate evaluates at HELO/EHLO and refuses a spoofed or malformed identity with 550; the DNS-blocklist gate evaluates the connecting IP once per connection and refuses a listed source with 554; the greylisting gate defers a first-seen (ip, sender, recipient) tuple with a 450 tempfail so legitimate senders retry and pass. Each gate is skipped when the operator doesn't wire it. Because these gates do DNS and store lookups, the per-connection command pump was reworked to process commands asynchronously and strictly in arrival order, so pipelined commands (RFC 2920) cannot overtake a gate still resolving and the existing SMTP-smuggling and STARTTLS-stripping defenses are unchanged. The message-authentication gate (SPF/DKIM/DMARC alignment via b.guardEnvelope) needs the inbound SPF + DKIM verification results as inputs; that inbound-auth pipeline lands as a follow-up, and the documentation no longer implies that gate is active today.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "HELO-identity / RBL / greylist gates wired into `b.mail.server.mx`",
+          "body": "When wired, `opts.helo` (FCrDNS / HELO-shape / self-name checks) refuses a bad HELO identity at HELO/EHLO with 550; `opts.rbl` refuses a connecting IP found on a DNS blocklist with 554 (evaluated once per connection); `opts.greylist` defers a first-seen (ip, sender, recipient) tuple with 450 4.7.1. Their verdicts surface on the `rcpt_to` event (`rblListed`, `greylist`) and the `helo` event (`heloVerdict`), with dedicated `helo_gate_refused` / `rbl_refused` / `greylist_deferred` audit events. A gate the operator doesn't supply is skipped, never synthesized."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "MX command pump processes commands asynchronously and in arrival order",
+          "body": "Gate evaluation involves DNS and store lookups, so the per-connection command pump now awaits each command before the next. Pipelined commands are serialized so a gate resolving cannot let a later command answer ahead of an earlier one; reply ordering, the bare-LF SMTP-smuggling refusal, and the STARTTLS-stripping defense are unchanged. No change to the listener's external behaviour when no gates are wired."
+        }
+      ]
+    },
+    {
+      "heading": "Deprecated",
+      "items": [
+        {
+          "title": "SPF/DKIM/DMARC-alignment gate documentation corrected to match what is active",
+          "body": "The `envelope` (SPF/DKIM/DMARC alignment) and `dmarc` gate options were documented as wireable but require inbound SPF + DKIM verification results the listener does not yet produce. They are removed from the documented option set until the inbound-authentication pipeline (composing `b.mail.spf` + `b.mail.dmarc` + DKIM verification) lands; run those checks on the delivered message via the agent handoff in the meantime."
+        }
+      ]
+    }
+  ]
+}

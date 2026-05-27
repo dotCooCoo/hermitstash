@@ -29,11 +29,14 @@
     {% } %}
 
     {% if (passkeyEnabled) { %}
-      {% if (typeof localAuth === 'undefined' || localAuth) { %}<div class="auth-divider"><span>or</span></div>{% } %}
-      <button class="butn butn-bord butn-full radius-30" id="passkeyBtn" onclick="passkeyLogin()" style="gap:10px">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 18v3c0 .6.4 1 1 1h4v-3h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg>
-        <span>Sign in with Passkey</span>
-      </button>
+      <div id="passkeyBlock">
+        {% if (typeof localAuth === 'undefined' || localAuth) { %}<div class="auth-divider"><span>or</span></div>{% } %}
+        <button class="butn butn-bord butn-full radius-30" id="passkeyBtn" onclick="passkeyLogin()" style="gap:10px">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 18v3c0 .6.4 1 1 1h4v-3h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg>
+          <span>Sign in with Passkey</span>
+        </button>
+      </div>
+      <p id="passkeyUnsupported" style="display:none;font-size:.8rem;color:var(--text-muted);text-align:center;margin-top:8px"></p>
     {% } %}
 
     {% if (googleAuth) { %}
@@ -71,6 +74,7 @@ async function passkeyLogin(){
   var errEl=document.getElementById('authError');
   var btn=document.getElementById('passkeyBtn');
   errEl.style.display='none';
+  if(!WebAuthnHelpers.supported()){errEl.textContent=WebAuthnHelpers.UNSUPPORTED_MSG;errEl.style.display='block';return}
   btn.disabled=true;btn.querySelector('span').textContent='Waiting for passkey...';
 
   try{
@@ -103,6 +107,18 @@ async function passkeyLogin(){
   }
   btn.disabled=false;btn.querySelector('span').textContent='Sign in with Passkey';
 }
+
+// Passkeys need a secure context (HTTPS / localhost). Over plain HTTP the
+// browser doesn't expose the WebAuthn API, so hide the option and explain
+// rather than letting the button throw on click.
+(function(){
+  var block=document.getElementById('passkeyBlock');
+  if(block&&!WebAuthnHelpers.supported()){
+    block.style.display='none';
+    var note=document.getElementById('passkeyUnsupported');
+    if(note){note.textContent=WebAuthnHelpers.UNSUPPORTED_MSG;note.style.display='block'}
+  }
+})();
 </script>
 </main>
 {{> foot}}

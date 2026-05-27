@@ -1,0 +1,27 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.11",
+  "date": "2026-05-27",
+  "headline": "Test-suite reliability: replaced fixed-delay waits in the rate-limiter and scheduler suites with condition polling",
+  "summary": "No runtime behaviour changes. The rate-limiter, scheduler, and websocket-channel test suites waited for asynchronous work to settle by draining a fixed number of event-loop ticks before asserting. Under heavily parallel CI that budget was occasionally too short, so an assertion read state before the async work (a cluster-backend counter update, a scheduler tick-claim) had landed — an intermittent failure unrelated to the code under test. Those waits now poll the observable condition (helpers.waitUntil) and exit as soon as it holds, with a generous upper bound, so they pass quickly on fast machines and reliably under load. A build gate is added so the fixed-tick-drain shape cannot be reintroduced.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Flaky fixed-budget waits in the rate-limiter / scheduler / sandbox test suites made contention-tolerant",
+          "body": "The rate-limit-cluster and scheduler-exactly-once suites drained a fixed count of event-loop ticks before asserting on asynchronously-updated state; under contended CI the budget could expire before the work settled, producing intermittent failures. They now wait on the actual observable condition (a written response, a settled counter). The sandbox suite's success-path cases gave the worker a 5 s execution budget that cold worker-thread startup under heavily parallel Windows CI could just exceed; those are raised to the framework's 10 s ceiling. Affects test code only — no change to shipped framework behaviour. The unused tick-drain helper in the websocket-channel suite was removed."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "Build gate rejects the fixed-tick-drain wait shape in tests",
+          "body": "A new test-suite lint rule flags the counted microtask/tick-drain idiom (reassigning a promise to its own `.then()` in a loop to wait a fixed number of ticks), the sibling of the existing fixed-`setTimeout`-sleep rule. A single event-loop yield is unaffected; only the drain-as-wait shape is rejected, directing the wait to condition polling instead."
+        }
+      ]
+    }
+  ]
+}

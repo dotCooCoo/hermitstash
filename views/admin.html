@@ -1497,7 +1497,7 @@ function loadExtFromValue(val){
   syncExtCatButtons();
 }
 
-function cp(u,btn){navigator.clipboard.writeText(u);btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000)}
+function cp(u,btn){Helpers.copyText(u);btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000)}
 function updateStat(id,delta){var el=document.getElementById(id);if(el){var v=parseInt(el.textContent,10)||0;el.textContent=Math.max(0,v+delta)}}
 async function delF(id){if(!confirm('Delete this file?'))return;await fetch('/admin/files/'+id+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});document.getElementById('af-'+id).remove();updateStat('statFiles',-1);loadFiles(1)}
 async function delB(id){if(!confirm('Delete bundle and all its files?'))return;var el=document.getElementById('ab-'+id);var fc=el?parseInt(el.getAttribute('data-files')||'0',10):0;await fetch('/admin/bundles/'+id+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});if(el)el.remove();updateStat('statBundles',-1);updateStat('statFiles',-fc);loadBundles(1);loadFiles(1)}
@@ -1968,7 +1968,7 @@ function _wizardStepWrapEnable(){
     var pre=_el('pre',{style:'background:#0a0a0a;color:#d4d4d4;padding:14px;border-radius:6px;font-size:.78rem;overflow-x:auto;line-height:1.5;margin:12px 0'},snippet);
     body.appendChild(pre);
     var copyBtn=_wizardBtn('Copy snippet',{onClick:function(){
-      navigator.clipboard.writeText(snippet);
+      Helpers.copyText(snippet);
       copyBtn.firstChild.textContent='✓ Copied';
       setTimeout(function(){copyBtn.firstChild.textContent='Copy snippet'},2000);
     }});
@@ -2269,7 +2269,7 @@ function updateProxySnippet(){
 
 function cpProxy(){
   var code=document.getElementById('proxyCode').textContent;
-  navigator.clipboard.writeText(code);
+  Helpers.copyText(code);
   event.target.closest('button').querySelector('span').textContent='Copied!';
   setTimeout(function(){event.target.closest('button').querySelector('span').textContent='Copy'},2000);
 }

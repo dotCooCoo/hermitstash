@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.5",
+  "date": "2026-05-26",
+  "headline": "`b.ai.aedtBiasAudit` — NYC Local Law 144 bias audit",
+  "summary": "b.ai.aedtBiasAudit computes the bias-audit figures New York City Local Law 144 requires before an Automated Employment Decision Tool may screen candidates (NYC Admin. Code §20-870 et seq.; DCWP rules 6 RCNY §5-300). Given the per-category counts an independent auditor collected — selected/total for a pass-fail tool, or scored-above-the-overall-median/total for a continuous-score tool — it returns the selection (or scoring) rate, the impact ratio (each group's rate divided by the most-selected group's rate), and an adverse-impact flag (impact ratio below the EEOC four-fifths threshold of 0.8) for every group, across the sex, race/ethnicity, and intersectional dimensions, plus the most-selected group per dimension and an overall flag. Categories under 2% of the audited data are marked excluded per DCWP discretion. It is a pure calculation that produces exactly the figures the annual published summary must contain — the law mandates the calculation, not any particular remediation. The relevant compliance postures (nyc-ll144, and ca-tfaia for California SB 53) were already in the catalog.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.ai.aedtBiasAudit` — Local Law 144 selection/scoring rates and four-fifths impact ratios",
+          "body": "`b.ai.aedtBiasAudit({ type, metadata, categories, minCategoryShare? })` where `type` is `\"selection\"` (group entries `{ selected, total }`) or `\"scoring\"` (`{ scoredAboveMedian, total }`). Returns per-group rate, impact ratio, and `adverseImpact` flag across the `sex`, `raceEthnicity`, and `intersectional` dimensions, plus the most-selected group per dimension and an `anyAdverseImpact` summary. Categories below `minCategoryShare` (2% default) are excluded from the impact-ratio basis. Throws `AedtBiasAuditError` on malformed input."
+        }
+      ]
+    }
+  ]
+}

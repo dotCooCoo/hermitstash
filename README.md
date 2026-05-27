@@ -806,6 +806,8 @@ The admin panel (Settings > Uploads) auto-detects your proxy and generates a rea
 
 If you use the sync client's mTLS mode, see the [reverse-proxy README](deploy/reverse-proxy/README.md#mtls-sync-clients) — TLS-terminating proxies strip the client cert, so you need TCP passthrough or a dedicated bypass port.
 
+Passkey sign-in uses the browser's WebAuthn API, which is exposed only over HTTPS or on `localhost`. On a plain-HTTP origin (e.g. a LAN hostname) the passkey option hides itself and reappears once the app is served over HTTPS; password sign-in and the rest of the app work over plain HTTP regardless.
+
 ### S3 storage
 
 Configure S3-compatible storage (AWS, MinIO, Cloudflare R2, DigitalOcean Spaces, Backblaze B2) from Admin > Settings > Storage tab. All credentials are vault-sealed and validated by the settings schema on save. For R2, set the endpoint to `https://<account-id>.r2.cloudflarestorage.com` and region to `auto`.

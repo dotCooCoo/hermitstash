@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.3",
+  "date": "2026-05-26",
+  "headline": "`b.crypto.xwing` — X-Wing hybrid post-quantum KEM",
+  "summary": "b.crypto.xwing adds the X-Wing hybrid key-encapsulation mechanism (draft-connolly-cfrg-xwing-kem): it runs ML-KEM-768 and X25519 side by side and binds their shared secrets with SHA3-256, so an encapsulated key stays secure as long as either ML-KEM-768 or X25519 holds. That is the conservative shape for moving off classical ECDH today — a harvest-now-decrypt-later attacker must break the lattice KEM, and a hypothetical ML-KEM break still leaves X25519 standing. keygen() produces a 32-byte decapsulation seed and a 1216-byte public key; encapsulate(publicKey) returns a 1120-byte ciphertext and a 32-byte shared secret; decapsulate(secretKey, ciphertext) recovers it. The X-Wing combiner is frozen, but its specification is still an IETF Internet-Draft, so this primitive is marked experimental and sits beside the existing pre-RFC post-quantum HPKE drafts; it composes the framework's vendored ML-KEM-768 and X25519 with SHA3 and adds no new cryptographic core. The combiner is known-answer-tested byte-for-byte against the draft's definition.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.crypto.xwing` — X-Wing hybrid PQ/T KEM (experimental)",
+          "body": "`keygen(seed?)` → `{ publicKey (1216 B), secretKey (32-byte seed) }`; `encapsulate(publicKey, eseed?)` → `{ ciphertext (1120 B), sharedSecret (32 B) }`; `decapsulate(secretKey, ciphertext)` → the 32-byte shared secret. Both `keygen` and `encapsulate` accept an optional seed for deterministic operation. The combiner — `SHA3-256(ssMLKEM ‖ ssX25519 ‖ ctX25519 ‖ pkX25519 ‖ label)` — is exposed as `combiner` for advanced use. Marked `experimental` while draft-connolly-cfrg-xwing-kem remains an Internet-Draft; the algorithm itself is frozen."
+        }
+      ]
+    }
+  ]
+}

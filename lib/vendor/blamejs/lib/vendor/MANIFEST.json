@@ -17,7 +17,30 @@
       "cpe": "cpe:2.3:a:paulmillr:noble-ciphers:2.2.0:*:*:*:*:node.js:*:*",
       "hashes": {
         "server": "sha256:5d539dfc9ef47121d4c09bd7256d76448a1f5ac47ee09ac44c78ff6a062af9ab"
-      }
+      },
+      "refreshedAt": "2026-05-26T19:53:53.034Z"
+    },
+    "@noble/curves": {
+      "version": "2.2.0",
+      "license": "MIT",
+      "author": "Paul Miller",
+      "source": "https://github.com/paulmillr/noble-curves",
+      "exports": [
+        "ristretto255_oprf",
+        "p256_oprf",
+        "p384_oprf",
+        "p521_oprf"
+      ],
+      "files": {
+        "server": "lib/vendor/noble-curves.cjs"
+      },
+      "bundler": "esbuild --format=cjs --minify --platform=node",
+      "bundledAt": "2026-05-26T00:00:00Z",
+      "cpe": "cpe:2.3:a:paulmillr:noble-curves:0.0.0:*:*:*:*:node.js:*:*",
+      "hashes": {
+        "server": "sha256:ebf254d5eb56aef8705a1c4af9603f47987b4870a9bb5e657e06907b701e2731"
+      },
+      "refreshedAt": "2026-05-26T19:53:53.034Z"
     },
     "@noble/post-quantum": {
       "version": "0.6.1",
@@ -47,7 +70,8 @@
       "cpe": "cpe:2.3:a:paulmillr:noble-post-quantum:0.6.1:*:*:*:*:node.js:*:*",
       "hashes": {
         "server": "sha256:f9190309daadca4c2e2cc2b76beaa6b96e463429cc3c390bd9f0ceaf7b588c68"
-      }
+      },
+      "refreshedAt": "2026-05-26T19:53:53.034Z"
     },
     "@simplewebauthn/server": {
       "version": "13.3.0",
@@ -69,7 +93,8 @@
       "cpe": "cpe:2.3:a:simplewebauthn:server:13.3.0:*:*:*:*:node.js:*:*",
       "hashes": {
         "server": "sha256:a9777dca582095d67f17ca24e19a0791de29928555b6b779c2233429175eb3f0"
-      }
+      },
+      "refreshedAt": "2026-05-26T19:53:53.034Z"
     },
     "SecLists-common-passwords-top-10000": {
       "version": "10k-most-common (master)",
@@ -88,7 +113,8 @@
         "data_js": "sha256:87b223beca89f33d2c2c32a2cfda0bc187e58061de40e7127bb5ffc4258c6e2a"
       },
       "runtime_artifact": "lib/vendor/common-passwords-top-10000.data.js",
-      "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)"
+      "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
+      "refreshedAt": "2026-05-26T19:53:53.034Z"
     },
     "bimi-trust-anchors": {
       "version": "operator-managed",
@@ -112,7 +138,8 @@
         "data_js": "sha256:aa7a4d33b65a68422a2a2c1670177689f66fdcaa08bd2514d78798b827bd1608"
       },
       "runtime_artifact": "lib/vendor/bimi-trust-anchors.data.js",
-      "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)"
+      "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
+      "refreshedAt": "2026-05-26T19:53:53.034Z"
     },
     "publicsuffix-list": {
       "version": "master",
@@ -131,7 +158,8 @@
         "data_js": "sha256:b4b6ae76fdacbfe07683c4ea62761326f42894c2ccf4359f253bbcab9826ed04"
       },
       "runtime_artifact": "lib/vendor/public-suffix-list.data.js",
-      "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)"
+      "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
+      "refreshedAt": "2026-05-26T19:53:53.034Z"
     },
     "peculiar-pki": {
       "version": "2.0.0+pkijs-3.4.0",
@@ -140,8 +168,14 @@
       "source": "https://github.com/PeculiarVentures",
       "_about": "Meta-bundle of @peculiar/x509 + pkijs + reflect-metadata + every transitive ASN.1 schema package. Used by lib/mtls-engine-default.js as the pure-JS CA + PKCS#12 engine wired into b.mtlsCa.",
       "components": {
-        "@peculiar/x509": { "url": "https://github.com/PeculiarVentures/x509", "version": "1.13.0" },
-        "pkijs": { "url": "https://github.com/PeculiarVentures/PKI.js", "version": "3.4.0" }
+        "@peculiar/x509": {
+          "url": "https://github.com/PeculiarVentures/x509",
+          "version": "1.13.0"
+        },
+        "pkijs": {
+          "url": "https://github.com/PeculiarVentures/PKI.js",
+          "version": "3.4.0"
+        }
       },
       "exports": [
         "x509",
@@ -155,7 +189,8 @@
       "bundledAt": "2026-04-29T00:00:00Z",
       "hashes": {
         "server": "sha256:9bbc191afaaa2b1e5757f00480457c08134cdc2c55d541df18d9155bba9cbf77"
-      }
+      },
+      "refreshedAt": "2026-05-26T19:53:53.034Z"
     }
   }
 }

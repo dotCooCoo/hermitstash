@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.6",
+  "date": "2026-05-26",
+  "headline": "`b.ai.frontierModelProtocol` — California SB 53 frontier-AI obligations",
+  "summary": "b.ai.frontierModelProtocol assesses a developer's obligations under California's Transparency in Frontier Artificial Intelligence Act — SB 53, Cal. Bus. & Prof. Code §22757.10, effective 2026-01-01 — from a model's training compute and the developer's revenue. It reports whether the model crosses the frontier threshold (more than 10^26 training FLOPs), whether the developer is a large frontier developer (prior-year revenue, with affiliates, above $500M), and the resulting obligations: every frontier developer must report critical safety incidents and publish a transparency report, and a large frontier developer must additionally publish an annual safety framework and disclose its catastrophic-risk assessment. Passing a candidate safety framework reports which required elements (risk identification, mitigation, governance, cybersecurity, standards alignment) are missing. b.ai.frontierModelProtocol.incidentReport validates a critical-incident type against the Act's four categories and computes the notification deadline to the California Office of Emergency Services — 15 days from discovery, or 24 hours when there is an imminent risk of death or serious physical injury. The ca-tfaia compliance posture was already in the catalog.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.ai.frontierModelProtocol` — SB 53 threshold classification, obligations, and incident reporting",
+          "body": "`b.ai.frontierModelProtocol({ trainingFlops, annualRevenueUsd, framework? })` returns `isFrontierModel`, `isLargeFrontierDeveloper`, the `obligations` list, and (when a framework is supplied) its `frameworkGaps`. `b.ai.frontierModelProtocol.incidentReport({ type, discoveredAt, imminentRiskToLife? })` builds a critical-safety-incident report with the California OES recipient and a `dueAt` / `deadlineHours` computed from the 15-day (or 24-hour imminent-risk) statutory window; `type` must be one of the four categories in `INCIDENT_TYPES`. Throws `FrontierProtocolError` on malformed input."
+        }
+      ]
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.12.69",
-  "createdAt": "2026-05-26T14:58:13.295Z",
+  "frameworkVersion": "0.13.14",
+  "createdAt": "2026-05-27T12:40:36.809Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -1388,6 +1388,10 @@
             }
           }
         },
+        "aedtBiasAudit": {
+          "type": "function",
+          "arity": 1
+        },
         "aiContentDetect": {
           "type": "object",
           "members": {
@@ -1572,6 +1576,10 @@
               "arity": 1
             }
           }
+        },
+        "frontierModelProtocol": {
+          "type": "function",
+          "arity": 1
         },
         "input": {
           "type": "object",
@@ -13699,6 +13707,43 @@
         }
       }
     },
+    "crdt": {
+      "type": "object",
+      "members": {
+        "CrdtError": {
+          "type": "function",
+          "arity": 4
+        },
+        "gCounter": {
+          "type": "function",
+          "arity": 1
+        },
+        "gSet": {
+          "type": "function",
+          "arity": 1
+        },
+        "lwwRegister": {
+          "type": "function",
+          "arity": 1
+        },
+        "orMap": {
+          "type": "function",
+          "arity": 1
+        },
+        "orSet": {
+          "type": "function",
+          "arity": 1
+        },
+        "pnCounter": {
+          "type": "function",
+          "arity": 1
+        },
+        "twoPSet": {
+          "type": "function",
+          "arity": 1
+        }
+      }
+    },
     "createApp": {
       "type": "function",
       "arity": 1
@@ -13951,6 +13996,23 @@
           "type": "function",
           "arity": 3
         },
+        "oprf": {
+          "type": "object",
+          "members": {
+            "OprfError": {
+              "type": "function",
+              "arity": 4
+            },
+            "SUITES": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "suite": {
+              "type": "function",
+              "arity": 1
+            }
+          }
+        },
         "randomInt": {
           "type": "function",
           "arity": 2
@@ -13982,6 +14044,56 @@
         "verify": {
           "type": "function",
           "arity": 3
+        },
+        "xwing": {
+          "type": "object",
+          "members": {
+            "NAME": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "SIZES": {
+              "type": "object",
+              "members": {
+                "ciphertext": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "publicKey": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "secretKey": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "sharedSecret": {
+                  "type": "primitive",
+                  "valueType": "number"
+                }
+              }
+            },
+            "XWingError": {
+              "type": "function",
+              "arity": 4
+            },
+            "combiner": {
+              "type": "function",
+              "arity": 4
+            },
+            "decapsulate": {
+              "type": "function",
+              "arity": 2
+            },
+            "encapsulate": {
+              "type": "function",
+              "arity": 2
+            },
+            "keygen": {
+              "type": "function",
+              "arity": 1
+            }
+          }
         }
       }
     },
@@ -36811,6 +36923,14 @@
           "type": "function",
           "arity": 2
         },
+        "encode": {
+          "type": "function",
+          "arity": 1
+        },
+        "isValid": {
+          "type": "function",
+          "arity": 1
+        },
         "parseString": {
           "type": "function",
           "arity": 1
@@ -42207,6 +42327,69 @@
             "setServers": {
               "type": "function",
               "arity": 1
+            },
+            "tsig": {
+              "type": "object",
+              "members": {
+                "ALGORITHMS": {
+                  "type": "object",
+                  "members": {
+                    "hmac-sha224": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "hmac-sha256": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "hmac-sha384": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    },
+                    "hmac-sha512": {
+                      "type": "primitive",
+                      "valueType": "string"
+                    }
+                  }
+                },
+                "ERROR": {
+                  "type": "object",
+                  "members": {
+                    "BADKEY": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "BADSIG": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "BADTIME": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "BADTRUNC": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    },
+                    "NOERROR": {
+                      "type": "primitive",
+                      "valueType": "number"
+                    }
+                  }
+                },
+                "TsigError": {
+                  "type": "function",
+                  "arity": 4
+                },
+                "sign": {
+                  "type": "function",
+                  "arity": 2
+                },
+                "verify": {
+                  "type": "function",
+                  "arity": 2
+                }
+              }
             },
             "useDesignatedResolvers": {
               "type": "function",
@@ -50267,6 +50450,23 @@
         "create": {
           "type": "function",
           "arity": 2
+        }
+      }
+    },
+    "worm": {
+      "type": "object",
+      "members": {
+        "MODES": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "WormError": {
+          "type": "function",
+          "arity": 4
+        },
+        "create": {
+          "type": "function",
+          "arity": 1
         }
       }
     },
