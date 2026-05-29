@@ -4,6 +4,15 @@
 <p align="center"><a href="https://github.com/dotCooCoo/hermitstash-sync">HermitStash Sync</a> — companion desktop sync client</p>
 
 <p align="center">
+  <a href="https://apps.umbrel.com/app/hermitstash">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://apps.umbrel.com/badge-light.svg">
+      <img src="https://apps.umbrel.com/badge-dark.svg" alt="Get it on the Umbrel App Store" height="46">
+    </picture>
+  </a>
+</p>
+
+<p align="center">
   <a href="https://blamejs.com">
     <img src="https://raw.githubusercontent.com/blamejs/blamejs/main/assets/BlameJS_Logo.png" width="96" alt="blamejs">
   </a>
@@ -813,6 +822,8 @@ Passkey sign-in uses the browser's WebAuthn API, which is exposed only over HTTP
 Configure S3-compatible storage (AWS, MinIO, Cloudflare R2, DigitalOcean Spaces, Backblaze B2) from Admin > Settings > Storage tab. All credentials are vault-sealed and validated by the settings schema on save. For R2, set the endpoint to `https://<account-id>.r2.cloudflarestorage.com` and region to `auto`.
 
 ### Other platforms
+
+**Umbrel:** Available in the [Umbrel App Store](https://apps.umbrel.com/app/hermitstash) — open the App Store on your Umbrel, search HermitStash, and click Install. Volumes, ports, and shared memory are configured automatically.
 
 **Coolify / Portainer:** Paste `ghcr.io/dotcoocoo/hermitstash:1` as the image. Set port 3000, mount `/app/data` and `/app/uploads` as persistent volumes, set shared memory to 256MB, add `TRUST_PROXY=true` and `RP_ORIGIN=https://your-domain.com`.
 
