@@ -153,6 +153,7 @@ var UNTESTED_BACKLOG = {
   "atomicFile.writeSync":                        "backfill — covered indirectly under the atomicFile test or via composition",
   // audit — sub-keys exercised through composition / direct lib imports.
   "audit.emit":                                  "backfill — covered indirectly under the audit test or via composition",
+  "audit.safeEmit":                              "patched to a no-op in server.js (silences framework emits that fire before b.db.init); no HS-specific behavior to test",
   // auditChain — sub-keys exercised through composition / direct lib imports.
   "auditChain.canonicalize":                     "backfill — covered indirectly under the auditChain test or via composition",
   "auditChain.getChainTip":                      "backfill — covered indirectly under the auditChain test or via composition",

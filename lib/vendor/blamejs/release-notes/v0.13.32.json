@@ -1,0 +1,34 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.32",
+  "date": "2026-05-28",
+  "headline": "`b.auditDailyReview` enforces notify under the sox-404 posture; compliance doc corrections",
+  "summary": "b.auditDailyReview documented `sox-404` (SOX §404 ICFR — the internal-controls regime this primitive serves) as one of the postures that make a `notify` callback mandatory at construction, but the enforcement set used only `sox`, so pinning `posture: \"sox-404\"` without a notify channel was silently accepted. `sox-404` is now in the mandatory-notify set, so the advertised guarantee holds (a regression test pins it). The rest are documentation corrections with no behavior change: b.compliance.posturesByDomain / posturesByJurisdiction examples showed small fixed arrays where the functions return every matching posture (the catalog has grown); b.dataAct's surface list named two methods that do not exist (the real surface is declareProduct / recordUserAccess / shareWithThirdParty / recordSwitchRequest, with gatekeeper refusal folded into shareWithThirdParty); b.secCyber.eightKArtifact's documented return key `audit` is actually `deadlineBusinessDays`; and b.compliance.aiAct.transparency's helper summary named `cspMetaTag` / a `watermark({ kind })` argument that are really `metaTags` / `watermark({ mediaKind })`.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "`b.auditDailyReview` requires a notify channel under the `sox-404` posture",
+          "body": "The docs listed `sox-404` among the postures that make a `notify` callback mandatory at create-time, but the enforcement set contained only `sox` — so `posture: \"sox-404\"` without `notify` was accepted instead of refused. `sox-404` (SOX §404 ICFR) is now in the mandatory-notify set, matching the documented guarantee; constructing without a notify channel under it throws `auditDailyReview/notify-required-under-posture`."
+        },
+        {
+          "title": "`b.compliance` jurisdiction/domain lister examples no longer enumerate a stale fixed set",
+          "body": "`posturesByDomain` and `posturesByJurisdiction` return every posture matching the domain/jurisdiction, but their `@example`s showed small fixed arrays from before the posture catalog grew. The examples now show a representative prefix with `...` and note they return the full matching set."
+        },
+        {
+          "title": "`b.dataAct` surface list matches the real methods",
+          "body": "The module surface listed `userAccessible(...)` and `refuseGatekeeper(...)`, neither of which exists. The real surface is `declareProduct` / `recordUserAccess` / `shareWithThirdParty` / `recordSwitchRequest`, and DMA-gatekeeper refusal (Art 32 §1) is enforced inside `shareWithThirdParty`. The doc now reflects that."
+        },
+        {
+          "title": "`b.secCyber.eightKArtifact` documented return shape corrected",
+          "body": "The signature line showed `{ artifact, deadline, audit }`; the function returns `{ artifact, deadline, deadlineBusinessDays }` (there is no `audit` key). The doc now matches."
+        },
+        {
+          "title": "`b.compliance.aiAct.transparency` helper names corrected",
+          "body": "The helper summary named a `cspMetaTag(...)` function and a `watermark({ kind })` argument; the real names are `metaTags(...)` and `watermark({ mediaKind })`. Calling the documented names threw. Also corrected: a `b.aiAdverseDecision` illustration showed an ECOA `statutoryDeadlines` shape that didn't match the regime's actual deadlines."
+        }
+      ]
+    }
+  ]
+}

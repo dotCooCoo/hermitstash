@@ -1,0 +1,27 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.38",
+  "date": "2026-05-29",
+  "headline": "Atomic cache tag invalidation, and a clusterStorage.transaction primitive for multi-statement framework writes",
+  "summary": "The cluster cache stored a value and its tag index with separate statements, so two concurrent writes to the same key could interleave their tag updates and leave the index out of step with the value — a later tag-based invalidation would then miss the key, letting a stale (possibly authorization-bearing) value survive a wipe. The value and tag writes now commit as one atomic unit. The enabling piece is a new b.clusterStorage.transaction primitive that runs a multi-statement read-modify-write all-or-nothing against the active backend — the external DB's pooled transaction in cluster mode, and a serialized transaction on the shared SQLite connection in single-node mode (so no concurrent statement can interleave into an open transaction).",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "b.clusterStorage.transaction(fn) — atomic multi-statement framework-state writes",
+          "body": "Runs `fn` inside one transaction against the active backend so a multi-statement read-modify-write commits all-or-nothing. `fn` receives a transaction handle with the same `execute` / `executeOne` / `executeAll` surface, scoped to the open transaction. Cluster mode uses the external DB's pooled transaction (with its deadlock retry); single-node mode serializes against other transactions and against `execute` on the shared SQLite connection, so a concurrent statement cannot interleave into an open transaction. Use the handle's methods inside `fn` — calling the module-level `execute` from within `fn` would wait on the very transaction it is running."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Cluster cache tag invalidation can no longer miss a key under concurrent writes",
+          "body": "The cluster cache wrote a value (`INSERT ... ON CONFLICT DO UPDATE`) and then rewrote its tag index (`DELETE` prior tags, `INSERT` new ones) as separate statements. Two concurrent `set()`s on the same key could interleave those tag statements, leaving the tag index inconsistent with the value — so a later `invalidateTag` could miss the key and a stale value would survive the wipe. The value and tag writes now run inside a single `clusterStorage.transaction`, so a concurrent writer observes either the whole prior state or the whole new state, never a mix."
+        }
+      ]
+    }
+  ]
+}

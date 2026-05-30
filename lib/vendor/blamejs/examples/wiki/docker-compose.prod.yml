@@ -53,6 +53,34 @@ services:
     ports: !override []
     expose:
       - "3008"
+    # Encrypted-at-rest mode (WIKI_DB_AT_REST=encrypted) keeps the live
+    # SQLite working copy in a tmpfs (BLAMEJS_TMPDIR=/dev/shm below);
+    # plaintext only ever touches RAM. Docker's default /dev/shm is just
+    # 64 MiB, which the DB outgrows over time (append-only audit chain,
+    # sessions) — and a tmpfs overflow truncates the working copy mid-
+    # write, surfacing as "database disk image is malformed" on the next
+    # boot. Give it real headroom.
+    shm_size: '512m'
+    # Persist the encrypted-at-rest copy (db.enc) + sealed keys so they
+    # survive `docker rm`, host reboot, and image redeploys, and give a
+    # restore point. Without a volume, /data lives in the container's
+    # writable layer and is destroyed on every recreate — a corrupt boot
+    # then has nothing to roll back to.
+    volumes:
+      - wiki-data:/data
+    # Stop grace must exceed the app's 30s shutdown budget (graceMs) plus
+    # the forced-exit watchdog margin, so a `docker stop` / rolling redeploy
+    # lets the DB re-encrypt phase finish before SIGKILL — otherwise the
+    # final flush is lost and the next boot rolls back to the prior db.enc
+    # snapshot. (Inherited from the base compose; restated here because the
+    # data-loss risk is highest in encrypted mode.)
+    stop_grace_period: 40s
+    # NOTE for PaaS platforms (Coolify, Dokku, CapRover, …) that
+    # regenerate this compose file on deploy: set the above via the platform
+    # UI instead of hand-editing here — a "Persistent Storage" mount for
+    # /data, a custom docker run option `--shm-size 512m`, and a stop grace
+    # period of at least 40s. Edits to this file are otherwise overwritten
+    # on the next deploy.
     # Full operator-facing environment surface. Every value is
     # overridable from the .env file; defaults match the framework's
     # built-in defaults so an operator who just wants the basics can
@@ -227,5 +255,6 @@ services:
         condition: service_healthy
 
 volumes:
+  wiki-data:        # encrypted-at-rest DB (db.enc) + sealed keys — persistent, survives recreate/redeploy
   caddy-data:
   caddy-config:

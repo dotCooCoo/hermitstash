@@ -69,10 +69,9 @@ after(function () { return testServer.stop(); });
 
 function resetRateLimits() {
   var rateLimit = require(path.join(testServer.projectRoot, "lib", "rate-limit"));
-  var ips = ["127.0.0.1", "::1", "::ffff:127.0.0.1"];
-  for (var i = 0; i < ips.length; i++) {
-    rateLimit.reset("login", ips[i]);
-  }
+  // Flush every b.middleware.rateLimit instance so repeated logins across
+  // cases don't share the login limiter's 15/5min budget.
+  rateLimit.resetAllInstances();
 }
 
 async function loginAs(c, email, password) {

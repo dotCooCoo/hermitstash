@@ -1,0 +1,29 @@
+# zizmor configuration (auto-discovered at .github/zizmor.yml).
+#
+# Suppressions live here rather than as inline `# zizmor: ignore[...]`
+# comments because the affected lines are `uses:` references that
+# already carry a pinact version comment (`# vX.Y.Z`). zizmor only
+# honors an ignore pragma when `zizmor:` is the first token of the
+# YAML comment; a `# vX.Y.Z  # zizmor: ignore[...]` line reads as the
+# comment text "vX.Y.Z  # zizmor: ..." and the pragma is never seen.
+# A config-file ignore is the only placement that does not collide
+# with the SHA-pin version comment that pinact requires.
+
+rules:
+  cache-poisoning:
+    # actions/setup-node carries an optional `cache:` input that, when
+    # set, restores a dependency cache. zizmor flags the *capability*
+    # whenever the workflow also has a release-class trigger
+    # (`push: tags: ["v*"]`), because a poisoned cache restored during a
+    # publishing run is high-impact. None of these workflows set a
+    # `cache:` input — no dependency cache is created or restored, so
+    # there is nothing to poison. The finding is capability-driven, not
+    # an observed cache.
+    #
+    # Invariant for future edits: if any step in one of these files adds
+    # a `cache:` input to a setup-* action, remove that file from this
+    # list and review the cache-poisoning exposure for real.
+    ignore:
+      - ci.yml
+      - npm-publish.yml
+      - release-container.yml

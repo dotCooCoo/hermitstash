@@ -71,10 +71,6 @@ describe("bundle password protection", function () {
 
   it("upload file and finalize the password-protected bundle", async function () {
     await client.initApiKey();
-    var rateLimit = require(path.join(testServer.projectRoot, "lib", "rate-limit"));
-    rateLimit.reset("upload", "127.0.0.1");
-    rateLimit.reset("upload", "::1");
-    rateLimit.reset("upload", "::ffff:127.0.0.1");
 
     var up = await client.uploadFile("/drop/file/" + protectedBundleId, "file", "test.txt", "protected content", { relativePath: "test.txt" });
     assert.strictEqual(up.status, 200);
@@ -174,10 +170,6 @@ describe("bundle expiry", function () {
 describe("chunked uploads", function () {
   it("POST /drop/chunk/:bundleId uploads a file in 2 chunks and reassembles", async function () {
     await client.initApiKey();
-    var rateLimit = require(path.join(testServer.projectRoot, "lib", "rate-limit"));
-    rateLimit.reset("upload", "127.0.0.1");
-    rateLimit.reset("upload", "::1");
-    rateLimit.reset("upload", "::ffff:127.0.0.1");
 
     // Create bundle
     var init = await client.post("/drop/init", {

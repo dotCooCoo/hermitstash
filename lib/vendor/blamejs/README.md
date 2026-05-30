@@ -125,7 +125,7 @@ The framework bundles the surface a typical Node app reaches for. Every primitiv
   - Rate-limit
   - Security headers with `Permissions-Policy` defaults denying storage-access / browsing-topics / private-aggregation / controlled-frame
   - CSP nonce
-  - Body parser
+  - Body parser — JSON / urlencoded / text / multipart; multipart file parts stream to a tmp dir or buffer in memory (`storage: "memory"`) for read-only / serverless filesystems
   - Compression
   - SSE
   - Request log
@@ -141,7 +141,7 @@ The framework bundles the surface a typical Node app reaches for. Every primitiv
 - **JSON / SQL / schema** — `b.safeJson` (with `maxKeys` cap defending CVE-2026-21717 V8 HashDoS), `b.safeBuffer`, `b.safeSql`, `b.safeSchema`
 - **URL + path** — `b.safeUrl` (IDN mixed-script / homograph refuse); `b.safeJsonPath` (refuses filter `?(...)`, deep-scan `$..`, script-shape `(@.x)` for safe Postgres JSONB ops)
 - **Binary codec** — `b.cbor` bounded deterministic CBOR (RFC 8949 §4.2): depth/size caps, indefinite-length + reserved-info + tag + duplicate-key refusal, `requireDeterministic` canonical-form check; the in-tree substrate under COSE / CWT / SCITT / WebAuthn attestation
-- **COSE messages** — `b.cose` the full RFC 9052 message-type set over `b.cbor`: COSE_Sign1 sign/verify (attached or detached payload), COSE_Encrypt0 single-recipient AEAD, COSE_Mac0 shared-key HMAC (mac0/macVerify0), plus `importKey` (COSE_Key → KeyObject). Signatures use classical ES256/384/512 + EdDSA (final COSE ids, interoperable today) plus ML-DSA-87 (PQC-forward, draft id); bounded + alg-allowlisted + crit-bypass-checked verification; AEAD ChaCha20/Poly1305 default (AES-GCM opt-in); the signed-statement substrate under SCITT / CWT / mdoc / C2PA
+- **COSE messages** — `b.cose` the full RFC 9052 message-type set over `b.cbor`: COSE_Sign1 sign/verify (attached or detached payload), COSE_Encrypt0 single-recipient AEAD, COSE_Mac0 shared-key HMAC (mac0/macVerify0), plus `importKey` (COSE_Key → KeyObject) and `exportKey` (KeyObject → COSE_Key, the inverse — ship a verification key as RFC 9052 §7 bytes). Signatures use classical ES256/384/512 + EdDSA (final COSE ids, interoperable today) plus ML-DSA-87 (PQC-forward, draft id); bounded + alg-allowlisted + crit-bypass-checked verification; AEAD ChaCha20/Poly1305 default (AES-GCM opt-in); the signed-statement substrate under SCITT / CWT / mdoc / C2PA
 - **CBOR Web Token** — `b.cwt` CWT sign/verify (RFC 8392) over `b.cose`: standard-claim mapping (iss/sub/aud/exp/nbf/iat/cti) + `exp`/`nbf` clock-skew enforcement + `iss`/`aud` matching; the CBOR-native JWT for constrained / IoT / FIDO / verifiable-credential contexts
 - **Entity Attestation Token** — `b.eat` EAT sign/verify (RFC 9711) over `b.cwt`: device + software attestation claims (ueid / oemid / hwmodel / measurements / submods) with verifier-nonce freshness binding, `dbgstat` debug-status policy, and `eat_profile` pinning
 - **SCITT signed statements** — `b.scitt` sign/verify a signed, attributable claim about an artifact (signed SBOM, build attestation, release approval) over `b.cose`: the issuer + subject bind in the integrity-protected CWT_Claims header (RFC 9597); verification refuses any statement missing the iss/sub binding. The issuer side, on finalized RFCs; the transparency receipt (COSE Receipts draft) opts in on publication
@@ -221,14 +221,14 @@ The framework bundles the surface a typical Node app reaches for. Every primitiv
 - **PII redaction** — `b.redact`
 - **Decoy detection** — canary-credential / decoy-record framework auditing every positive lookup as `honeytoken.tripped` (`b.honeytoken`)
 - **Boot assertions** — operator-callable security policy assertions (`b.security.assertProduction`); tamper-evident config-baseline drift detection signed with audit-signing key + at-boot vendor-bundle SHA-256 integrity verification across `lib/vendor/*` (`b.configDrift`, `b.configDrift.verifyVendorIntegrity`)
-- **CSP reports + forensic export** — `b.middleware.cspReport`; post-incident audit-bundle composer (`b.auditTools.forensicSnapshot`)
+- **CSP reports + forensic export** — `b.middleware.cspReport`; post-incident audit-bundle composer (`b.auditTools.forensicSnapshot`); audit export / archive / forensic snapshot write to disk or return the encrypted bundle in memory (`returnBytes`) for read-only / serverless filesystems
 
 ### i18n + format helpers
 
 - **i18n** — CLDR plural rules, Accept-Language negotiation, Intl formatters, RTL (`b.i18n`)
 - **CSV** — RFC 4180 with Excel formula-injection prevention (`b.csv`)
 - **IDs + slugs** — RFC 9562 UUID v4 + v7 (`b.uuid`); URL-safe slugs (`b.slug`)
-- **Time + archive** — TZ-aware datetime (`b.time`); ZIP creation + adversarial-safe read with bomb caps + path-traversal + LFH/CD-skew defense (`b.archive` + `b.archive.read.zip`); one-liner quarantine extraction (`b.safeArchive.extract`); in-memory extraction with no disk write for read-only / serverless filesystems (`b.archive.read.zip(...).extractEntries()` / `.tar`); fs / objectStore / http / buffer / trusted-stream adapter contract (`b.archive.adapters`)
+- **Time + archive** — TZ-aware datetime (`b.time`); ZIP creation + adversarial-safe read with bomb caps + path-traversal + LFH/CD-skew defense (`b.archive` + `b.archive.read.zip`); one-liner quarantine extraction (`b.safeArchive.extract`); in-memory extraction with no disk write for read-only / serverless filesystems (`b.archive.read.zip(...).extractEntries()` / `.tar`); fs / objectStore / http / buffer / trusted-stream adapter contract (`b.archive.adapters`); recipient-sealed envelopes — hybrid-PQC key-pair, peer certificate, or per-tenant key with no key-pair to manage (`b.archive.wrap({ recipient: "tenant", tenantId })`)
 - **Pagination + forms** — HMAC-signed cursor pagination (`b.pagination`); HTML form rendering + validation + CSRF (`b.forms`)
 
 ### Production

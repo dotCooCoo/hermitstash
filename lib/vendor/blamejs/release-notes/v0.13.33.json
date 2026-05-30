@@ -1,0 +1,26 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.33",
+  "date": "2026-05-28",
+  "headline": "Encrypted-mode DB recovers from a corrupt tmpfs working copy instead of crash-looping",
+  "summary": "In encrypted-at-rest mode the live SQLite copy is decrypted into a tmpfs working file and re-encrypted to db.enc periodically. If that working copy was corrupted (an unclean shutdown, or a full tmpfs — Docker's /dev/shm defaults to 64 MiB), the boot path trusted it because its mtime was newer than db.enc, so db.init failed its integrity gate with \"database disk image is malformed\" identically on every boot — an unrecoverable crash loop. db now integrity-probes the newer working copy before trusting it: if it is unreadable, the working copy is discarded and db.enc (the last-good encrypted snapshot) is re-decrypted, so the next boot self-heals. db.enc is never modified by this path, and a genuinely-corrupt db.enc still fails loudly rather than wiping data. The boot error on an unreadable database is now actionable (it names the tmpfs-size cause and the recovery). The wiki production compose also gains the storage settings encrypted mode needs.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Corrupt tmpfs working copy no longer causes a boot crash loop (encrypted-at-rest mode)",
+          "body": "`db.init`'s crash-recovery path preferred a newer tmpfs working copy over `db.enc` unconditionally. When that copy was corrupt (truncated by an unclean shutdown or a full `/dev/shm`), every boot trusted it and failed the integrity gate the same way — an unrecoverable loop. The newer working copy is now integrity-probed (`PRAGMA quick_check`); if it is unreadable it is discarded and `db.enc` — the last-good encrypted snapshot — is re-decrypted, so boot self-heals. `db.enc` is never modified, so this only ever rolls back to the persistent copy; if `db.enc` is also corrupt, boot still fails loudly (no silent data loss). A regression test pins the recovery."
+        },
+        {
+          "title": "Actionable boot error when the database is unreadable",
+          "body": "When SQLite reports a database too corrupt to even run an integrity check, the boot error now names the likely cause and recovery instead of surfacing the raw \"database disk image is malformed\": in encrypted mode it points at the tmpfs working copy and the most common operational cause (Docker's 64 MiB `/dev/shm` default — raise it via `shm_size` / `--shm-size`), or restoring `db.enc` / the DB file from backup."
+        },
+        {
+          "title": "Wiki production compose ships the storage encrypted mode needs",
+          "body": "`examples/wiki/docker-compose.prod.yml` now sets `shm_size: '512m'` (so the encrypted-mode tmpfs working copy has headroom above Docker's 64 MiB default) and mounts a persistent `wiki-data` volume at `/data` (so `db.enc` + sealed keys survive container recreate, host reboot, and image redeploys, and give a restore point). A note flags that PaaS platforms which regenerate the compose on deploy (Coolify, Dokku, CapRover, …) must set both via the platform UI — a persistent-storage mount for `/data` and a `--shm-size 512m` custom option."
+        }
+      ]
+    }
+  ]
+}

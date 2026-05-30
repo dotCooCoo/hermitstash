@@ -1,0 +1,35 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.35",
+  "date": "2026-05-29",
+  "headline": "In-memory replay, idempotency, DNS, and i18n stores gain entry-count ceilings",
+  "summary": "Several framework caches keyed on request-influenced input grew without an upper bound between their periodic sweeps, so a flood of unique keys could exhaust process memory faster than the sweep reclaimed it. Each now enforces a hard entry ceiling. The replay-protection nonce store is the security-sensitive one: rather than evict a live nonce to admit a new one — which would reopen a replay window for the evicted nonce — it purges expired entries and then fails closed at capacity, refusing the unrecordable request instead of admitting it unprotected. The idempotency, DNS, and i18n caches hold re-derivable values, so they evict the oldest entry instead (the worst case is a recomputed value or a single re-executed retry under flood). Ceilings are generous defaults that normal traffic never reaches; the nonce store and the agent idempotency in-memory backend expose options to tune them.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Replay-nonce store bounds memory and fails closed under a nonce flood",
+          "body": "The in-memory `b.nonceStore` backend recorded every request-supplied nonce until a periodic sweep ran, so a stream of unique nonces could exhaust memory between sweeps (a memory-amplification denial of service). It now caps its entry count. Because a replay-protection store must never evict a live nonce to make room — doing so would reopen a replay window for the evicted nonce — it instead purges expired entries inline and, if still at capacity with live nonces, fails closed: the new request is refused rather than admitted without replay protection. A new `maxEntries` option tunes the ceiling (default 1,000,000)."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Agent idempotency in-memory backend no longer grows without bound",
+          "body": "The default in-memory backend for `b.agent.idempotency` is keyed on the request-supplied idempotency key, and its garbage collector only reclaims expired rows when an operator wires a scheduler to call it — so a flood of distinct keys could grow it until the process ran out of memory. It now caps its entry count and evicts oldest-first; a dropped record just means that one key re-executes on a later retry, never a crash. A new `maxInMemoryEntries` option tunes the ceiling (default 100,000); deployments needing a hard guarantee at scale still supply a durable `store`."
+        },
+        {
+          "title": "DNS resolver cache is bounded",
+          "body": "The positive and negative resolver caches in `b.network.dns` reclaimed an expired entry only when the same hostname was looked up again, so entries for never-requeried hostnames persisted — and hostnames reaching the resolver are request-influenced (outbound request targets, mail MX lookups). Both caches now cap their entry count and evict oldest-first; DNS simply re-resolves on the next miss."
+        },
+        {
+          "title": "i18n formatter cache is bounded",
+          "body": "Per-instance `Intl` formatter caches in `b.i18n` are keyed on the locale plus a hash of the format options. The format-options shape is open-ended and caller-supplied, so the key space was request-influenced and uncapped. The cache now enforces an entry ceiling and evicts oldest-first — a formatter is pure-derived and re-created on the next miss."
+        }
+      ]
+    }
+  ]
+}

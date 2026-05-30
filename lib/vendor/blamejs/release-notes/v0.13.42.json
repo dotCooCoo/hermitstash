@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.42",
+  "date": "2026-05-29",
+  "headline": "S/MIME trust-chain validation binds the leaf to the key that verified the signature",
+  "summary": "When b.mail.crypto.smime.verify is given trust anchors, it validates the supplied certificate chain — but it picked the chain leaf unconditionally (the first cert) and never tied it to signerPublicKey, the key that actually verified the signature. A SignedData blob could therefore carry a validly-chained certificate for one identity while the signature was verified under an unrelated key, and the chain-validated result would imply a cert↔signer binding the code never made. Chain validation now selects the leaf as the certificate whose public key matches signerPublicKey, and refuses (signer-not-in-chain) when no certificate in the chain carries that key — so a chain-validated signature is bound to the cert it claims.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Trust-chain leaf is bound to the verified signer key",
+          "body": "`smime.verify({ trustAnchorCertsPem })` validated the supplied chain starting from `chain[0]` without checking that the leaf's public key was the one that verified the signature (the operator-supplied `signerPublicKey`). A crafted `SignedData` could pair a validly-chained certificate for identity A with a signature verified under an unrelated key, and the chain-valid result would assert a binding that didn't hold. The chain walk now selects the leaf as the certificate whose public key equals `signerPublicKey` (matched against the certificate's SPKI, raw key or full-encoding form), and throws `mail-crypto/smime/signer-not-in-chain` when no certificate in `SignedData.certificates` carries that key. A certificate whose key cannot be extracted is treated as a non-match, so validation fails closed rather than trusting an unverifiable binding."
+        }
+      ]
+    }
+  ]
+}

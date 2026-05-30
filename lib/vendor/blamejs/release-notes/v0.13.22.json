@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.22",
+  "date": "2026-05-27",
+  "headline": "`b.archive.read.zip.fromTrustedStream` reads a ZIP from a Readable — no longer an experimental stub",
+  "summary": "fromTrustedStream was an experimental stub whose inspect / entries / extract methods threw, forcing callers to buffer the stream themselves and use the random-access reader. It now works, with the same shape as the tar trusted-stream reader: pass b.archive.adapters.trustedStream(readable) and the bytes are collected into a size-capped buffer (1 GiB hard ceiling) and read through the same bomb-cap, path-traversal, and entry-type decode as the random-access reader — so bombPolicy, guardProfile, entryTypePolicy, and audit all apply, and inspect / entries / extract / extractEntries all return data. This is a bounded-memory reader (the archive is held in memory under the ceiling), not zero-buffer streaming; a future forward-inflate walker shared with the tar reader would lift the ceiling.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.archive.read.zip.fromTrustedStream` now reads — `inspect` / `entries` / `extract` / `extractEntries`",
+          "body": "The ZIP trusted-stream reader is implemented (was an experimental stub that threw). Pass `b.archive.adapters.trustedStream(readable)` to read a ZIP straight from a Node Readable without buffering it yourself. The stream is collected into a size-capped buffer (1 GiB ceiling, matching `b.archive.read.tar`'s trusted-stream reader) and decoded through the same adversarial-safe path as the random-access reader, so `bombPolicy` / `guardProfile` / `entryTypePolicy` / `audit` are honored on decode. Adversarial archives remain fully bomb-capped; \"trusted\" refers only to the source-size bound. A non-trusted-stream adapter is refused with `archive-read/bad-adapter`."
+        }
+      ]
+    }
+  ]
+}

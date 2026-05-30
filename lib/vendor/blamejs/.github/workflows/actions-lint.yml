@@ -50,6 +50,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Install pinact (release binary + sha256 verify)
         # Install pinact directly from the upstream release binary
@@ -106,32 +108,43 @@ jobs:
     name: zizmor — workflow security audit
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions:
-      contents: read
-      security-events: write   # required for SARIF upload to Code Scanning
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
 
-      - name: Install uv (zizmor distribution)
-        uses: astral-sh/setup-uv@69d3e2780fa0ea7da961bfbb898be32a9b1d10b1  # v7.0.0
-
-      - name: Run zizmor (fail on level=low across every rule class)
-        # `--min-severity low` flags every documented class. Suppression
-        # requires an inline `# zizmor: ignore[<rule>] — <reason>` per
-        # the spec.
+      - name: Install zizmor (release binary + sha256 verify)
+        # Direct release-binary install instead of astral-sh/setup-uv + uvx.
+        # setup-uv (a third-party action) startup_failures the whole
+        # workflow on the current runner — the same class of failure as the
+        # raven-actions/actionlint composite that took down the actionlint
+        # job (no jobs, no logs). A run: step cannot startup_failure.
+        # zizmor publishes no checksums file, so the expected sha256 is
+        # pinned inline; a mismatch fails closed.
+        env:
+          ZIZMOR_VERSION: v1.18.0
+          ZIZMOR_SHA256:  8e7901319ab7b71c38d6d388a48e02ff65791e5971b2ee6577c9b5c3ab44c65f
         run: |
           set -euo pipefail
-          uvx zizmor@1.18.0 --min-severity low --format sarif . > zizmor.sarif || EXIT=$?
-          uvx zizmor@1.18.0 --min-severity low . || true   # human-readable output for the step log
-          if [ "${EXIT:-0}" != "0" ]; then exit "$EXIT"; fi
+          curl -fsSLo /tmp/zizmor.tar.gz "https://github.com/zizmorcore/zizmor/releases/download/${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz"
+          ACTUAL=$(sha256sum /tmp/zizmor.tar.gz | awk '{print $1}')
+          if [ "$ACTUAL" != "$ZIZMOR_SHA256" ]; then
+            echo "::error::zizmor tarball sha256 ${ACTUAL} does not match pinned ${ZIZMOR_SHA256}"
+            exit 1
+          fi
+          mkdir -p /tmp/zizmor-bin
+          tar -xzf /tmp/zizmor.tar.gz -C /tmp/zizmor-bin ./zizmor
+          sudo install -m 0755 /tmp/zizmor-bin/zizmor /usr/local/bin/zizmor
+          zizmor --version
 
-      - name: Upload SARIF to Code Scanning
-        if: always()
-        uses: github/codeql-action/upload-sarif@9e0d7b8d25671d64c341c19c0152d693099fb5ba  # v4.35.5
-        with:
-          sarif_file: zizmor.sarif
-          category: zizmor
+      - name: Run zizmor (fail on level=low across every rule class)
+        # Pure run-gate: zizmor exits non-zero on any finding, failing the
+        # job. Inline `# zizmor: ignore[<rule>] — <reason>` is the
+        # suppression mechanism for reviewed exceptions.
+        run: |
+          set -euo pipefail
+          zizmor --min-severity low --no-progress .github/workflows/
 
   actionlint:
     name: actionlint — YAML + expression + shellcheck on `run:` blocks
@@ -140,9 +153,44 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Run actionlint
-        uses: raven-actions/actionlint@205b530c5d9fa8f44ae9ed59f341a0db994aa6f8  # v2.1.2
         with:
-          fail_on_error: true
-          shellcheck: true
+          persist-credentials: false
+
+      - name: Install actionlint (release binary + sha256 verify)
+        # Direct release-binary install instead of the
+        # raven-actions/actionlint composite action. That composite (v2.1.2,
+        # the latest release) startup_failures on the current runner, taking
+        # the whole workflow down before any job runs — which is why this
+        # gate never ran from v0.11.21 onward. The binary path also drops the
+        # composite's transitive github-script / cache action surface, which
+        # fits the gate whose entire purpose is pinning discipline. Mirrors
+        # the pinact install step above.
+        env:
+          ACTIONLINT_VERSION: v1.7.12
+        run: |
+          set -euo pipefail
+          V="${ACTIONLINT_VERSION#v}"
+          curl -fsSLo /tmp/actionlint.tar.gz "https://github.com/rhysd/actionlint/releases/download/${ACTIONLINT_VERSION}/actionlint_${V}_linux_amd64.tar.gz"
+          curl -fsSLo /tmp/actionlint-checksums.txt "https://github.com/rhysd/actionlint/releases/download/${ACTIONLINT_VERSION}/actionlint_${V}_checksums.txt"
+          ACTUAL=$(sha256sum /tmp/actionlint.tar.gz | awk '{print $1}')
+          EXPECTED=$(grep "actionlint_${V}_linux_amd64.tar.gz\$" /tmp/actionlint-checksums.txt | awk '{print $1}')
+          if [ -z "$EXPECTED" ]; then
+            echo "::error::could not find actionlint_${V}_linux_amd64.tar.gz line in upstream checksums"
+            exit 1
+          fi
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::actionlint tarball sha256 ${ACTUAL} does not match upstream-published ${EXPECTED}"
+            exit 1
+          fi
+          mkdir -p /tmp/actionlint-bin
+          tar -xzf /tmp/actionlint.tar.gz -C /tmp/actionlint-bin actionlint
+          sudo install -m 0755 /tmp/actionlint-bin/actionlint /usr/local/bin/actionlint
+          actionlint --version
+
+      - name: Run actionlint (+ shellcheck on every run block)
+        # shellcheck ships preinstalled on ubuntu-latest; actionlint invokes
+        # it automatically on each `run:` block. Non-zero exit on any finding
+        # keeps this a hard gate (the raven composite's fail_on_error: true).
+        run: |
+          set -euo pipefail
+          actionlint -color

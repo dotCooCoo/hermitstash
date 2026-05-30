@@ -39,6 +39,7 @@ jobs:
       - name: Checkout (full history needed for first-parent walk)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
+          persist-credentials: false
           fetch-depth: 0
           fetch-tags: true
 
@@ -53,10 +54,15 @@ jobs:
       - name: Resolve tag + verify chain
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          # Hoisted: a workflow_dispatch input is operator-supplied text;
+          # inlining ${{ github.event.inputs.tag }} into the shell is the
+          # template-injection vector. Reference $INPUT_TAG instead.
+          INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ github.event.inputs.tag }}"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$INPUT_TAG"
           else
             TAG="${GITHUB_REF#refs/tags/}"
           fi
@@ -77,7 +83,20 @@ jobs:
           #    pass that test. The strict first-parent invariant is
           #    what the project's squash-merge policy actually
           #    produces; check it directly.
-          if ! git rev-list --first-parent origin/main | grep -qx "$SHA"; then
+          #
+          #    Capture rev-list output first, then grep against a
+          #    here-string. The obvious-looking
+          #      `git rev-list --first-parent origin/main | grep -qx "$SHA"`
+          #    is a `set -o pipefail` + `grep -q` trap: when grep -q
+          #    finds the match it exits early and closes its stdin,
+          #    rev-list gets SIGPIPE and exits 141, and pipefail then
+          #    propagates 141 as the pipeline's exit. The outer
+          #    `if !` negates 141 → enters the false-fail branch
+          #    every time on a long first-parent chain. (False-failed
+          #    every release v0.13.18-.22.) The here-string consumes
+          #    rev-list to completion first; no pipe, no SIGPIPE.
+          FIRST_PARENT=$(git rev-list --first-parent origin/main)
+          if ! grep -qFx "$SHA" <<<"$FIRST_PARENT"; then
             echo "::error::tag $TAG points at $SHA which is NOT on main's first-parent history"
             echo "::error::this means the tag was created from a side-branch commit that never merged via the project's squash-merge flow"
             echo "::error::the publish workflow refuses to proceed; investigate before re-tagging"

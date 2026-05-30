@@ -1,0 +1,27 @@
+{
+  "version": "1.11.19",
+  "date": "2026-05-29",
+  "headline": "Application logs scrub secret-shaped fields by default",
+  "summary": "Structured application log lines now pass their fields through a redactor before they are written, so password-, token-, and key-shaped values are stripped automatically. This release also refreshes the vendored framework to blamejs 0.13.43.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Redact secret-shaped fields from application logs by default",
+          "body": "Structured log lines now scrub password / token / key-shaped values automatically before they are written. Unicode bidi and format controls in log messages are escaped so a hostile value cannot reorder a log line in a terminal or syslog viewer."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Refresh the vendored framework to blamejs 0.13.43",
+          "body": "Picks up the current framework crypto, logging, and middleware primitives."
+        }
+      ]
+    }
+  ],
+  "references": []
+}

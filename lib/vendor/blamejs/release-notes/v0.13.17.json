@@ -1,0 +1,27 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.17",
+  "date": "2026-05-27",
+  "headline": "Template engine can render from a string with no views directory — for serverless / read-only filesystems",
+  "summary": "b.template.create previously required a viewsDir that exists on disk, and rendering always read the template (and its layout/partials) from that directory — unusable on a read-only or ephemeral serverless filesystem where the templates aren't on disk. The engine now accepts a source string directly: viewsDir is optional, and the returned engine exposes renderString(source, data?, opts?) and compileString(source, opts?) that compile and render from a string with no disk read. {% extends %} and {{> partial}} in a string source resolve through an operator-supplied opts.resolve(name) -> string callback (without it, an extends throws a clear error and a missing partial inlines empty, matching the file path). The same HTML-escaping, expression grammar, and extends/partial-depth caps apply. The file-backed render / compile / precompileAll still work exactly as before when a viewsDir is configured, and now refuse with a clear error when one isn't.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`engine.renderString` / `engine.compileString` — render templates from a string, no viewsDir",
+          "body": "`b.template.create({})` (no `viewsDir`) returns a string-only engine; `renderString(source, data?, { resolve })` and `compileString(source, { resolve })` compile and render from a source string with zero filesystem access — the read-only / serverless path. `{% extends %}` and `{{> partial}}` resolve through `opts.resolve(name) -> string`. The HTML escaping, grammar, and depth caps are identical to the file path. When a `viewsDir` IS configured, `render`/`compile`/`precompileAll` behave exactly as before; without one they refuse with `viewsDir not configured`. `renderString(source, { resolve })` may omit the data argument — an opts object carrying a function `resolve` is recognized as opts, not data."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Vendored `@simplewebauthn/server` refreshed 13.3.0 → 13.3.1",
+          "body": "The vendored WebAuthn server bundle (`b.auth.passkey`'s registration/authentication verification) is refreshed to the latest upstream patch, with the MANIFEST version, CPE, and SHA-256 integrity hashes updated and the bundle re-verified."
+        }
+      ]
+    }
+  ]
+}

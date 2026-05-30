@@ -1,0 +1,27 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.39",
+  "date": "2026-05-29",
+  "headline": "Dual-control approvals are atomic — no quorum bypass or double-consume under concurrency",
+  "summary": "The dual-control approval store read a grant, mutated it in memory, and wrote it back with an await in between — a non-atomic read-modify-write. Under concurrent calls (two approvals, or a retried one) each could act on a stale snapshot: the same approver could be appended twice and reach the M-of-N quorum with a single human, or a single-use grant could be consumed twice. approve / consume / revoke / cancel now commit through a new atomic cache.update primitive, so the check and the mutation are one indivisible step. The new b.cache.update is available to application code too — the memory backend is atomic by single-thread, and the cluster backend uses a transaction with compare-and-set so a concurrent writer on another node cannot lose an update.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Dual-control quorum and single-use guarantees hold under concurrent approvals",
+          "body": "`b.dualControl` persisted each grant through a cache read → in-memory mutate → write-back. Because the read and the write were separate awaited steps, two concurrent `approve` calls (or a retried one behind a load balancer) could each read the same pre-approval snapshot, so the duplicate-approver guard passed twice and the same approver was counted toward the M-of-N quorum twice — reaching quorum with one human. The same shape let two concurrent `consume` calls each see an unconsumed grant and both run the destructive operation. `approve` / `consume` / `revoke` / `cancel` now perform the check-and-mutate atomically via `cache.update`, so exactly one concurrent caller wins each transition."
+        }
+      ]
+    },
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "b.cache.update(key, mutatorFn, opts?) — atomic read-modify-write",
+          "body": "Reads the current value, calls `mutatorFn(current | null)`, and commits the result in one operation so a concurrent writer cannot clobber the change — the lost-update race that makes a plain `get` → mutate → `set` unsafe for counters, sets, and quorum state. The memory backend is atomic by single-thread; the cluster backend runs a transaction with a compare-and-set (and retries on contention) so the guarantee holds across nodes. `mutatorFn` returns `{ value }` to commit, `{ abort: data }` to leave the entry untouched and surface `data`, or `{ delete: true }` to remove it; the call resolves to `{ updated, value }`, `{ updated, deleted }`, or `{ aborted }`."
+        }
+      ]
+    }
+  ]
+}

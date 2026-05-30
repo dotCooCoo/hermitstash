@@ -1,0 +1,22 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.40",
+  "date": "2026-05-29",
+  "headline": "Redis client stops leaking a socket and blocking exit after close; DB exit-handler registers once",
+  "summary": "Two handle-lifecycle fixes. The Redis client's reconnect backoff used an untracked, non-unref'd timer: during a backoff window it alone could keep the event loop alive (a process that won't exit), and a reconnect scheduled before close() fired afterward and opened a fresh socket because the connect path didn't re-check the closing flag. The timer is now tracked, unref'd, cancelled in close(), and the connect path refuses to re-open once closing. Separately, the encrypted database registered its process-exit final-flush handler on every init(), so repeated init/close cycles (long test runs, hot reload) accumulated 'exit' listeners toward the MaxListenersExceeded warning; it now registers once for the process lifetime.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Redis client cancels its reconnect timer on close and won't re-open a closed connection",
+          "body": "The reconnect backoff scheduled `setTimeout(reconnect, delay)` without keeping a handle, without `unref()`, and the reconnect path checked only `connected`/`connecting` — not `closing`. So a backoff window could by itself hold the process open (it won't exit), and a reconnect scheduled before `close()` would fire afterward and open a fresh socket with listeners — a leak after explicit close. The timer is now tracked and `unref()`'d (a backoff no longer blocks exit), cancelled in `close()`, and the connect path returns early once closing so no socket is opened after close."
+        },
+        {
+          "title": "Encrypted DB registers its process-exit flush handler once, not per init()",
+          "body": "`b.db.init()` in encrypted mode added a `process.on(\"exit\")` final-flush handler on every call. Across repeated init/close cycles — long test suites, hot reload, embedded re-inits — these accumulated and tripped Node's MaxListenersExceeded warning (and grew memory slightly). The handler is now registered once for the process lifetime, guarded by a module flag, and still flushes whichever encrypted DB is open at exit time."
+        }
+      ]
+    }
+  ]
+}

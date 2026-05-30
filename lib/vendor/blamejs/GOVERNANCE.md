@@ -39,9 +39,8 @@ then, the maintainer is final on technical direction.
 - **Operator-impacting changes.** Pre-1.0 the framework reserves the
   right to break operator-facing surface in any minor version; major
   versions ship deprecation warnings at least one minor before
-  removal (per project rule §6 in `CLAUDE.md`). Post-1.0 the same
-  contract applies across majors with a 24-month LTS window per
-  [LTS-CALENDAR.md](LTS-CALENDAR.md).
+  removal. Post-1.0 the same contract applies across majors with a
+  24-month LTS window per [LTS-CALENDAR.md](LTS-CALENDAR.md).
 - **Releases.** Patch (`0.0.x`) is the default; minor (`0.x.0`)
   requires an explicit decision the maintainer documents in the
   release notes; major (`x.0.0`) requires a deprecation cycle. The

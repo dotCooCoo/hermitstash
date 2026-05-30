@@ -178,7 +178,7 @@ We coordinate with the reporter on disclosure — typical embargo is 14 days pos
 
 Pre-1.0, the supported version is the most-recent published patch on the most-recent minor. Older minors do not receive security backports unless the issue is critical AND the operator base on the older minor is non-trivial.
 
-Once 1.0 ships, the LTS calendar takes effect: each major gets 18 months of security-only patches after the next major's release.
+Once 1.0 ships, the LTS calendar takes effect: each major gets 24 months of security-only patches after the next major's release.
 
 | Version range | Security patches |
 |---|---|

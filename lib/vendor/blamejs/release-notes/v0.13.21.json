@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.21",
+  "date": "2026-05-27",
+  "headline": "`b.cose.exportKey` — serialize a public key as a COSE_Key, the inverse of `b.cose.importKey`",
+  "summary": "b.cose could import a COSE_Key (RFC 9052 §7) into a node:crypto key for verification, but had no way to produce one — so a key used with b.cose.sign could not be shipped to a verifier in COSE form without hand-building the CBOR map. b.cose.exportKey(keyObject, opts?) closes the round-trip: it serializes an EC2 (P-256 / P-384 / P-521) or OKP (Ed25519) public key as the CBOR-encoded COSE_Key map, with optional alg and kid common parameters. A private key has its public half exported; unsupported curves / key types are refused rather than emitting a COSE_Key no verifier here would accept. The bytes round-trip through b.cose.importKey, and feed the mdoc MSO / COSE_Key header / SCITT / C2PA verification-key paths.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.cose.exportKey(keyObject, { alg?, kid? })` — KeyObject → COSE_Key (RFC 9052 §7)",
+          "body": "Serialize a `node:crypto` public key as the CBOR-encoded COSE_Key map — the inverse of `b.cose.importKey`. Supports EC2 (P-256 / P-384 / P-521) and OKP (Ed25519), the same key types `b.cose.verify` accepts; `opts.alg` (e.g. `\"ES256\"`) and `opts.kid` populate the COSE_Key alg (label 3) and kid (label 2) common parameters. A private key exports its public half; unsupported curves / key types throw rather than producing a COSE_Key no verifier would accept. `b.cose.importKey(b.cbor.decode(exportKey(k)))` round-trips, so a key signed with `b.cose.sign` can be shipped to a verifier as bytes — the mdoc MSO / COSE_Key header / SCITT / C2PA verification-key paths."
+        }
+      ]
+    }
+  ]
+}

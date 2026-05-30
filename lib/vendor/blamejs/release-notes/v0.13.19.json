@@ -1,0 +1,27 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.19",
+  "date": "2026-05-27",
+  "headline": "`auditTools` export / archive / forensic-snapshot can return the bundle as bytes — no output directory for serverless / read-only filesystems",
+  "summary": "b.auditTools.exportSlice, b.auditTools.archive, and b.auditTools.forensicSnapshot required an `out` directory to write the encrypted bundle (rows.enc + optional checkpoint.enc + manifest.json), which is unusable on a read-only or ephemeral serverless filesystem. Each now accepts `returnBytes: true` instead of `out` and returns the bundle as an in-memory `{ filename: Buffer }` map — ready to stream to object storage or over the wire with no filesystem access. `out` and `returnBytes` are mutually exclusive. The on-disk path is unchanged. The bundle's encryption (XChaCha20-Poly1305 + Argon2id), chain-proof material, and manifest checksums are identical to the written bundle, so an in-memory bundle written to disk verifies exactly as one produced by the `out` path.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`returnBytes` on `auditTools.exportSlice` / `archive` / `forensicSnapshot` — in-memory bundles",
+          "body": "Pass `returnBytes: true` (and omit `out`) to get the encrypted audit bundle as an in-memory `{ filename: Buffer }` map instead of a directory write — the read-only / serverless path. `exportSlice` / `archive` return `{ manifest, files, rowCount, range }`; `forensicSnapshot` returns `{ ...manifest, files }` where `files` carries the slice's `rows.enc` + `manifest.json` plus the `forensic-snapshot.json` incident wrapper. The encryption, chain proof, and manifest checksums match the on-disk bundle byte-for-byte, so the bytes verify with `verifyBundle` once written out. `out` and `returnBytes` are mutually exclusive (passing both throws)."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "`auditTools.forensicSnapshot` now honors the `since` window instead of capturing the entire audit history",
+          "body": "`forensicSnapshot` passed its `since` bound to the slice exporter under the wrong option name, so the time filter was silently dropped and the snapshot bundled every audit row regardless of `since`. The window is now applied — a snapshot scoped to an incident window contains only that window's rows. The snapshot manifest's `auditSliceFile` field, previously always undefined, now records the slice location."
+        }
+      ]
+    }
+  ]
+}

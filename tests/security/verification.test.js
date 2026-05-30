@@ -41,10 +41,6 @@ describe("email verification flow", function () {
 
     client.clearCookies();
     await client.initApiKey();
-    var rateLimit = require(path.join(projectRoot, "lib", "rate-limit"));
-    rateLimit.reset("register", "127.0.0.1");
-    rateLimit.reset("register", "::1");
-    rateLimit.reset("register", "::ffff:127.0.0.1");
 
     var res = await client.post("/auth/register", {
       json: { displayName: "Pending User", email: "verify@test.com", password: "password123" },

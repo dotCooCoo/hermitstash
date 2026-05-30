@@ -1,0 +1,39 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.25",
+  "date": "2026-05-28",
+  "headline": "Agent idempotency results and orchestrator/tenant registry rows are sealed at rest",
+  "summary": "The b.agent.idempotency, b.agent.orchestrator, and b.agent.tenant primitives documented their stored rows as sealed at rest, but the values were written as plaintext JSON — a database dump could expose cached result payloads (which can carry mail-move / search data), the tenant ids that own each agent, and operator-supplied endpoint metadata. Those values are now sealed via b.cryptoField (XChaCha20-Poly1305 through the vault) before they reach the backing store and unsealed on read, when a vault is configured — which is the default in a booted app. Each ciphertext is AAD-bound to its row identity so a database-write attacker cannot copy a sealed value between rows. Reads of rows written before this release (plain JSON) continue to work unchanged, and a vault-less deployment stores rows as before. No API or call-site changes are required.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Agent idempotency / orchestrator / tenant rows sealed at rest",
+          "body": "`b.agent.idempotency` cached result blobs, `b.agent.orchestrator` registry rows (owning tenant id + endpoint metadata), and `b.agent.tenant` registry-row metadata are now sealed via `b.cryptoField` when a vault is configured (the default in a booted app via `b.start`). The fields were previously stored as plaintext despite the docs describing them as sealed, so a DB dump exposed cached payloads, agent↔tenant ownership, and endpoint detail. Each sealed value is AAD-bound to the row identity (the idempotency key hash / the agent name / the tenant id), so a sealed value cannot be copied between rows. Rows written before this release remain readable (a non-sealed value passes through unseal), and a vault-less deployment behaves as before. No call-site changes."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "`b.agent.saga` run() return/throw shape documented correctly",
+          "body": "The doc said `run()` resolves to `{ status: \"failed\", failedStep, lastCompensationError }` on failure and to a bare final state. In fact it resolves to `{ status: \"completed\", sagaId, state }` on success and rejects (throws) on step failure with an error carrying `failedStep`, `cause`, `compensationCause`, and `failedCompStepName`. The docs now describe the actual contract."
+        },
+        {
+          "title": "`b.agent.idempotency` put() example uses the real option name",
+          "body": "The example passed `{ argsFingerprint: ... }`, which the function does not read; the fingerprint option is `requestFingerprint` (or `args`). The example now uses `requestFingerprint`."
+        },
+        {
+          "title": "`b.agent.tenant.derivedKey` @since corrected to 0.9.26",
+          "body": "It was tagged `@since 0.9.25`, a version before the tenant module existed; it ships in 0.9.26 alongside `b.agent.tenant.create`."
+        },
+        {
+          "title": "`b.agent.trace.injectIntoEnvelope` documented as single-argument",
+          "body": "The doc listed a second `currentSpan` argument the function ignores — it always injects the currently-active span's trace context. The doc now shows `injectIntoEnvelope(envelope)` and notes it should be called while the intended span is active."
+        }
+      ]
+    }
+  ]
+}

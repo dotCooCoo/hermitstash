@@ -1,0 +1,31 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.26",
+  "date": "2026-05-28",
+  "headline": "`b.cryptoField.unsealRow` nulls a sealed column on unseal failure instead of returning the forged ciphertext",
+  "summary": "When a sealed column failed to unseal — a DB-write attacker's forged `vault:<…>` payload, or a valid ciphertext copied into a different row so the AAD no longer matches — unsealRow recorded the failure on the audit chain but then kept the original attacker-crafted string in the field rather than nulling it, despite the documented contract that downstream sees 'no value'. A write-back guard discarded the intended null on the failure path. The column is now nulled on any unseal failure, so a forged or cross-row-copied value never reaches downstream code as if it were a real plaintext. Valid values round-trip unchanged and genuinely-unsealed pass-through values are still kept. This hardens every sealed-column reader, including the agent idempotency / orchestrator / tenant rows sealed in 0.13.25.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Sealed columns are nulled on unseal failure (forged / cross-row ciphertext)",
+          "body": "`b.cryptoField.unsealRow` now nulls a sealed field when its value fails to unseal — a crafted `vault:`/`vault.aad:` payload written by a DB-write attacker, or a valid ciphertext copied to a different row (AAD mismatch). Previously the field kept the attacker-controlled string, so downstream code could read the forged ciphertext as if it were the plaintext. The audit emit (`system.crypto.unseal_failed`) is unchanged. Valid round-trips and not-actually-sealed pass-through values are unaffected. A regression test pins the forged-value, cross-row-copy, and pass-through cases."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Audit checkpoint docs name the actual signature algorithm",
+          "body": "`b.audit.checkpoint` / `b.audit.verifyCheckpoints` described the anchor signature as ML-DSA-87, but the checkpoint is signed with the configured `b.auditSign` algorithm — SLH-DSA-SHAKE-256f by default (ML-DSA-87 / ML-DSA-65 are opt-in). The docs and the verify-failure reason now refer to the post-quantum signature without naming a specific algorithm the operator may not be using."
+        },
+        {
+          "title": "`b.storage.chunkScratch` example and assembly description corrected",
+          "body": "The `assemble()` example omitted the mandatory `chunkEncryptionKeys` argument (one sealed key per chunk, returned by `saveChunk`), so it would have thrown as written; it now collects and passes the keys. The prose no longer claims the primitive writes a final file with an 'atomic finalize' — `assemble()` concatenates the chunks in order and returns the assembled bytes for the caller to persist."
+        }
+      ]
+    }
+  ]
+}

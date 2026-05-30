@@ -1,0 +1,22 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.20",
+  "date": "2026-05-27",
+  "headline": "`b.archive.wrap` can seal an archive for a tenant with no key-pair to manage — `recipient: \"tenant\"`",
+  "summary": "b.archive.wrap previously sealed only to an explicit hybrid-PQC key-pair or a peer certificate; the documented recipient: \"tenant\" strategy threw. It now works: pass { recipient: \"tenant\", tenantId } and the archive is sealed under a deterministic per-tenant key derived from the vault root (SHAKE256 KDF) with XChaCha20-Poly1305, the tenant id mixed into the AEAD additional-authenticated-data so one tenant's envelope cannot be opened under another tenant's key. There is no recipient key-pair for the operator to generate, store, or rotate — b.archive.unwrap re-derives the key from the same tenantId. Rotating the vault re-keys every tenant (rotation intent is re-seal). The derivation is exposed directly as b.agent.tenant.derivedKey(tenantId, purpose) for operators who need the raw per-tenant key for their own AEAD. Requires an initialized vault.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.archive.wrap` / `b.archive.unwrap` `recipient: \"tenant\"` — per-tenant archive sealing, no key-pair",
+          "body": "`b.archive.wrap(bytes, { recipient: \"tenant\", tenantId })` seals under a deterministic per-tenant key derived from the vault root with XChaCha20-Poly1305 (draft-irtf-cfrg-xchacha-03) and a SHAKE256 KDF (FIPS 202); the tenant id is bound into the AEAD AAD so a tenant-A envelope cannot decrypt under tenant-B's key even if an attacker swaps envelope headers. `b.archive.unwrap(sealed, { recipient: \"tenant\", tenantId })` (or just `{ tenantId }`) re-derives the key and recovers the bytes — no recipient key-pair to manage. The tenant envelope carries a distinct version byte so it is never fed to the hybrid-KEM decrypt path. The static-key and peer-cert recipient strategies are unchanged."
+        },
+        {
+          "title": "`b.agent.tenant.derivedKey(tenantId, purpose)` — direct per-tenant key derivation",
+          "body": "The deterministic, domain-separated per-tenant key derivation (vault root + tenantId + purpose, SHAKE256, NUL-separated) is now exported at the module level, returning a 64-char hex key. Previously reachable only as a method on a created tenant manager; operators who need the raw key for their own AEAD can now call it directly. Throws if the vault is not initialized."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.18",
+  "date": "2026-05-27",
+  "headline": "`bodyParser` multipart can buffer uploads in memory — no tmp directory for serverless / read-only filesystems",
+  "summary": "The multipart/form-data sub-parser previously streamed every file part to a tmp directory on disk (os.tmpdir() by default), which fails on a read-only or ephemeral serverless filesystem. A new multipart.storage option selects where file parts land: \"disk\" (default, unchanged — req.files[].path points at a tmp file cleaned up on response end) or \"memory\" (req.files[].buffer holds the assembled bytes, with no filesystem access at all). Both modes enforce the same per-file (fileSize), per-field, and total-request (totalSize) caps, so memory mode adds no new memory-exhaustion surface. The file object shape is stable across both modes — disk sets path with buffer null, memory sets buffer with path null — so a handler branches on whichever is non-null. An invalid storage value is rejected when the middleware is constructed.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`bodyParser` multipart `storage: \"memory\"` — buffer uploads in RAM instead of a tmp directory",
+          "body": "`b.middleware.bodyParser({ multipart: { storage: \"memory\" } })` buffers each uploaded file part in memory and exposes it as `req.files[].buffer` (a Buffer), with no `os.tmpdir()` write and no tmp-file cleanup — the read-only / serverless path. The default `storage: \"disk\"` is unchanged: file parts stream to a tmp file, `req.files[].path` points at it, and it is removed when the response finishes. Both modes apply the existing `fileSize` / per-field `maxBytes` / `totalSize` caps and SHA3-512 hash each part during streaming, so memory mode is bounded by the same limits and adds no new DoS surface. The `req.files[]` shape is stable across modes (disk: `path` set, `buffer` null; memory: `buffer` set, `path` null). A `storage` value other than `\"disk\"` or `\"memory\"` throws a `TypeError` at construction."
+        }
+      ]
+    }
+  ]
+}

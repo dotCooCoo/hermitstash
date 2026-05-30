@@ -1,17 +1,33 @@
 # pinact configuration — refuses any tag-shaped `uses:` reference EXCEPT
-# the documented exception below.
+# the documented exceptions below.
 #
-# The single exception is the SLSA reusable workflow. SLSA's internal
-# builder-fetch step refuses non-tag `BUILDER_REF` values ("Invalid ref:
-# <40-hex>. Expected ref of the form refs/tags/vX.Y.Z"), so the call
-# MUST be tag-pinned. Mitigated by slsa-framework's upstream tag-
-# protection + immutable-release rules. Same suppression also appears
-# as a per-line `# allow:slsa-framework-action-not-sha-pinned` marker in
-# `.github/workflows/npm-publish.yml` for the codebase-patterns gate.
+# 1. The SLSA reusable workflow. SLSA's internal builder-fetch step
+#    refuses non-tag `BUILDER_REF` values ("Invalid ref: <40-hex>.
+#    Expected ref of the form refs/tags/vX.Y.Z"), so the call MUST be
+#    tag-pinned. Mitigated by slsa-framework's upstream tag-protection +
+#    immutable-release rules. Same suppression also appears as a per-line
+#    `# allow:slsa-framework-action-not-sha-pinned` marker in
+#    `.github/workflows/npm-publish.yml` for the codebase-patterns gate.
+#
+# 2. aquasecurity/trivy-action. The aquasecurity org enables a GitHub
+#    org-level IP allow-list that returns 403 to GitHub Actions runner
+#    IPs on the commits API, so `pinact run --verify`'s online tag
+#    re-resolution cannot complete from CI (it succeeds from
+#    unrestricted IPs). The action stays SHA-pinned in the workflow
+#    (auditable inline); this entry only exempts it from the online
+#    re-verification that the upstream org makes impossible from a
+#    runner.
 #
 # See npm-publish.yml comment block + memory/specs/release-v0.10.19-plan.md.
 
 version: 3
 
 ignore_actions:
+  # pinact v3 treats both `name` and `ref` as regular expressions, and
+  # both are required (a name-only entry fails config load with
+  # "initialize ignore_action: ref is required"). `ref: .*` matches the
+  # tag-pinned ref this single exception carries (currently v2.1.0).
   - name: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml
+    ref: .*
+  - name: aquasecurity/trivy-action
+    ref: .*

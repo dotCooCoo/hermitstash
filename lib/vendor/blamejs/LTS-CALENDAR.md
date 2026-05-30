@@ -1,13 +1,13 @@
 # LTS calendar
 
 `@blamejs/core` ships on a published major cadence. Each major receives
-**18 months of security-only patches** starting the day the next major is
+**24 months of security-only patches** starting the day the next major is
 published. Feature backports are not promised.
 
 | Version       | First release | Security patches through    | Node minimum  | KEM                  | Cipher                | KDF      | Sigs                  |
 |---------------|---------------|-----------------------------|---------------|----------------------|-----------------------|----------|-----------------------|
 | `v0.x` (pre-1.0) | 2026-04-25  | until v1.0 ships            | 24            | ML-KEM-1024 + P-384  | XChaCha20-Poly1305    | SHAKE256 | SLH-DSA-SHAKE-256f    |
-| `v1.x`        | TBD           | first release + 18 months   | current LTS   | ML-KEM-1024 + P-384  | XChaCha20-Poly1305    | SHAKE256 | SLH-DSA-SHAKE-256f    |
+| `v1.x`        | TBD           | first release + 24 months   | current LTS   | ML-KEM-1024 + P-384  | XChaCha20-Poly1305    | SHAKE256 | SLH-DSA-SHAKE-256f    |
 
 ## What "security patches" means
 
@@ -27,3 +27,7 @@ The "Node minimum" column is the lowest Node major the framework supports for th
 ## Pre-1.0 caveat
 
 `v0.x` has no LTS commitment. Every release may change something operators depend on; the algorithm posture is intentionally evolving. Read [CHANGELOG.md](CHANGELOG.md) before upgrading across more than a few patches at a time. The LTS calendar takes effect at v1.0.
+
+## Experimental primitives are exempt
+
+Primitives documented `@status experimental` (shown as "experimental" on each wiki page, and via the `experimental` segment in namespaces such as `b.jose.jwe.experimental`) are **not** covered by the stability contract or the LTS window. They may change signature, behavior, or wire format — or be removed — in any minor, without the deprecation cycle that stable primitives get. This applies on the LTS line too. The exemption exists so the framework can ship primitives that track in-flight standards (draft RFCs, pre-IANA codepoints, newly published W3C surfaces) without freezing an unsettled format for a major's full support window. A primitive graduates to stable by dropping the `@status experimental` marker in a release whose notes call out the graduation.

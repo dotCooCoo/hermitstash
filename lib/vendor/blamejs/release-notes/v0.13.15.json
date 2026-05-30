@@ -1,0 +1,27 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.15",
+  "date": "2026-05-27",
+  "headline": "Corrected more source citations and made deferred/reserved options honest in their docs",
+  "summary": "A second accuracy pass over source threat-annotations and option docs. Three citation corrections: the base64url strict-decode guard cited CVE-2022-0235 (which is actually a node-fetch cookie-leak, unrelated) — it now names the weakness class it defends (CWE-347 / CWE-1286 signature canonicalization); the glob consecutive-wildcard ReDoS cap cited the wrong library (the CVE-2026-26996 ReDoS is minimatch, not picomatch — the adjacent picomatch one is CVE-2026-33671); and CVE-2026-32178 is reframed to the CWE-138 header-injection-spoofing class the public record actually documents (and dropped from the end-of-data SMTP-smuggling list, which is a different class). Several options/statuses are now honest about not-yet-implemented surface: b.archive.read.zip.fromTrustedStream is marked experimental (its methods throw and its options aren't honored yet — the example now shows the supported buffer-then-random-access path); b.acme revokeCert's useCertKey / certPrivateKey are marked reserved (the cert-key path throws; account-key signing is the supported default); and a stale message claiming passkey break-glass factors were a future feature is removed (passkeys are a live allowed factor). No runtime behaviour changes beyond message/doc text.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Corrected misattributed CVE citations in source threat-annotations",
+          "body": "`b.crypto.fromBase64Url`'s strict-decode guard cited CVE-2022-0235 (a node-fetch header-leak, unrelated to base64/JWT decoding); it now cites the weakness class it actually defends — CWE-347 / CWE-1286 signature canonicalization. `b.guardRegex`'s consecutive-`*` cap attributed CVE-2026-26996 to picomatch; that ReDoS is in minimatch (the picomatch ReDoS it also defends is CVE-2026-33671) — the library name is corrected. CVE-2026-32178 is reframed to the CWE-138 header-injection spoofing class the public advisory documents, and removed from the end-of-data SMTP-smuggling trio (a distinct class). No behaviour change — the defenses are unchanged."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Deferred / reserved surface now documented honestly",
+          "body": "`b.archive.read.zip.fromTrustedStream` is marked `experimental` — its `inspect`/`entries`/`extract` throw and its `bombPolicy`/`audit` options aren't honored yet; the documented example now shows the supported path (buffer the stream, then use the random-access reader). `b.acme` `revokeCert`'s `useCertKey` / `certPrivateKey` options are marked reserved (the cert-key-signed-revocation path throws; account-key signing, the default, covers mainstream CAs). A `b.breakGlass` policy error and comment that called passkey factors a future feature are corrected — passkeys are a live allowed factor."
+        }
+      ]
+    }
+  ]
+}

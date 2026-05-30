@@ -1,0 +1,27 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.41",
+  "date": "2026-05-29",
+  "headline": "Agent registry reads can be tenant-scoped; compliance-erasure docs clarify actor is an audit field",
+  "summary": "The agent orchestrator's registry reads (list and lookup) gated only on the flat agent-registry:read scope, so any holder could enumerate every tenant's agents and resolve a handle to one — even though the event bus already scopes subscribe and delivery by tenant. The orchestrator now mirrors that: with the new tenantScope option enabled, list returns only the actor's own tenant's agents and lookup refuses a cross-tenant name, unless the actor holds the framework cross-tenant-admin scope. Off by default, so single-tenant deployments are unaffected. Separately, the subject-erasure docs now state explicitly that the recorded actor is an audit field, not authentication — the caller must be authorized upstream.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "Tenant-scoped agent registry reads (opts.tenantScope)",
+          "body": "`b.agent.orchestrator.create({ tenantScope: true })` now scopes `list` and `lookup` to the calling actor's tenant: `list` filters out agents in other tenants and `lookup` returns null for a cross-tenant name, unless the actor holds the cross-tenant-admin scope (`b.agent.tenant.CROSS_TENANT_ADMIN_SCOPE`). This closes a cross-tenant metadata-enumeration and handle-acquisition path — `agent-registry:read` alone no longer exposes other tenants' agents — and mirrors the tenant scoping the event bus enforces on subscribe and delivery. The option defaults off; existing single-tenant orchestrators behave exactly as before. The `tenantId` argument to `list` remains a convenience filter, distinct from this authorization boundary."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Subject-erasure docs clarify the actor is an audit field, not authentication",
+          "body": "`b.subject.erase` and `b.subject.eraseHard` gate the deletion on operator acknowledgements and the legal-hold registry, not on caller identity. Their documentation now states explicitly that the recorded `actor` is an audit-record field, not authentication — the caller MUST be authenticated and authorized by the route before invoking. No behavior change; this removes an implicit assumption that could otherwise be read as the primitive authorizing the call."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.43",
+  "date": "2026-05-29",
+  "headline": "LTS window stated consistently as 24 months, experimental primitives declared semver-exempt, and stale version references cleaned up",
+  "summary": "Documentation and operator-facing string hygiene ahead of the 1.0 stability contract. The LTS support window is now stated as 24 months everywhere (GOVERNANCE.md and the LTS calendar previously disagreed — 24 vs 18). The LTS calendar gains an explicit clause that primitives marked experimental are exempt from the stability/LTS contract, so operators can tell at a glance which surfaces may change between minors. Several error messages and doc blocks that pinned to long-past version numbers (\"lands in v0.10.9\", \"not supported in v0.12.7\", \"ships in v0.6.45+\") are restated version-agnostically with their escape hatch, and the S/MIME module now points operators at the live PGP encrypt/decrypt path for confidentiality today. No API or behavior changes.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "LTS support window is consistently 24 months",
+          "body": "`GOVERNANCE.md` promised a 24-month LTS window while `LTS-CALENDAR.md` and `SECURITY.md` stated 18 — a six-month contradiction in the single most load-bearing number of the support contract. All three now state 24 months of security-only patches per major. The calendar table and the supported-versions prose are aligned."
+        },
+        {
+          "title": "Experimental primitives are declared exempt from the stability contract",
+          "body": "`LTS-CALENDAR.md` now states explicitly that primitives documented as experimental (shown as \"experimental\" on their wiki page, and via the `experimental` segment in namespaces like `b.jose.jwe.experimental`) are not covered by the stability contract or the LTS window — they may change signature, behavior, or wire format, or be removed, in any minor without a deprecation cycle. This lets the framework ship primitives that track in-flight standards without freezing an unsettled format, and tells operators precisely which surfaces are not yet frozen."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Stale version references removed from operator-facing errors and docs",
+          "body": "Error messages and documentation that pinned to long-past versions are restated version-agnostically with the relevant escape hatch: ZIP64 and unsupported-compression errors in archive reading, the CMS AuthEnvelopedData / fielded-decoder notes, the mTLS CRL-engine error, the safe-archive format-detection summary (which also now correctly lists the supported zip / tar / tar.gz set rather than claiming only zip), and the AI-content IPTC-reader note. None changed behavior; they no longer read as broken promises against the published version history."
+        },
+        {
+          "title": "S/MIME confidentiality deferral points to the working PGP path",
+          "body": "`b.mail.crypto.smime` ships sign + verify; encrypt/decrypt is deferred. The deferral note previously cited an open-ended internal condition; it now names the escape hatch directly — use `b.mail.crypto.pgp.encrypt` / `decrypt` for mail confidentiality today — and states the concrete trigger that would re-open S/MIME-specific (X.509-recipient) encryption."
+        },
+        {
+          "title": "Governance doc no longer references an internal file operators cannot see",
+          "body": "`GOVERNANCE.md` cited a rule number in a contributor-only file that does not ship in the repository. The deprecation-policy statement is now self-contained."
+        }
+      ]
+    }
+  ]
+}

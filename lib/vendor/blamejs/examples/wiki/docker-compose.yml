@@ -17,6 +17,13 @@ services:
     image: blamejs-wiki:0.11.45
     container_name: blamejs-wiki
     restart: unless-stopped
+    # Graceful-shutdown budget. The app's shutdown orchestrator runs its
+    # phases within a 30s grace (graceMs) — drain in-flight, close the HTTP
+    # server, then the DB phase that WAL-checkpoints and (in encrypted mode)
+    # re-encrypts to db.enc. Docker's default 10s stop grace SIGKILLs before
+    # the DB phase gets to run, losing the final flush. Allow more than
+    # graceMs plus the forced-exit watchdog margin.
+    stop_grace_period: 40s
     ports:
       - "3008:3008"
     environment:

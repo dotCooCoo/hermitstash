@@ -1,0 +1,34 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.27",
+  "date": "2026-05-28",
+  "headline": "Documentation corrected across api-encrypt, mail-crypto, mail-store, and calendar",
+  "summary": "A set of JSDoc corrections where the documented contract had drifted from the code. The most actionable: b.middleware.apiEncrypt's @opts named the keypair fields secretKey / ecSecretKey, but the middleware requires privateKey / ecPrivateKey (the shape b.crypto.generateEncryptionKeyPair returns), so a keypair built from the docs threw INVALID_KEYPAIR at construction; the same block documented a wrong custom-nonceStore interface and an example calling a non-existent b.crypto.keypair(). Also corrected: the b.mail.crypto facade and the PGP module described S/MIME sign/verify and PGP encrypt/decrypt/WKD as deferred when they ship and are live; b.mail.crypto.smime.checkCert documented a return shape whose field names did not match what it returns; and b.mailStore.create listed a destroy method it does not expose. No code behavior changed — only the docs were wrong.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "`b.middleware.apiEncrypt` options documented with the correct field names",
+          "body": "The `@opts` listed the keypair as `{ publicKey, secretKey, ecPublicKey, ecSecretKey }`, but the middleware requires `{ publicKey, privateKey, ecPublicKey, ecPrivateKey }` — the shape `b.crypto.generateEncryptionKeyPair()` returns — and threw `INVALID_KEYPAIR` for the documented shape. The custom `nonceStore` interface was documented as `{ has, add, prune }` but the middleware calls `{ checkAndInsert, purgeExpired, close }`, and the example called a non-existent `b.crypto.keypair()`. All three now match the implementation (`b.crypto.generateEncryptionKeyPair()`)."
+        },
+        {
+          "title": "`b.mail.crypto` S/MIME and PGP availability described accurately",
+          "body": "The `b.mail.crypto` facade said S/MIME `sign()` / `verify()` were deferred, and the PGP module's intro said in-process encrypt / decrypt and WKD discovery would 'ship in v0.10.14'. All of these are implemented and live (PGP encrypt/decrypt/WKD were promoted to the stable surface in v0.11.32; S/MIME sign/verify/verifyAll run on the `b.cms` substrate). The docs now describe them as available; the genuinely-deferred PGP v6-signature-packet support remains noted as deferred."
+        },
+        {
+          "title": "`b.mail.crypto.smime.checkCert` return shape documented correctly",
+          "body": "The doc and example described the result as `{ subjectCN, issuerCN, validFrom, validTo, keyAlg, keyBits, sigAlg }`; the function returns `{ subject, issuer, validFrom, validTo, sigAlgName, sigAlgOid, keyType, fingerprint256 }` (full DN strings, no key-size field). The documented shape now matches."
+        },
+        {
+          "title": "`b.mailStore.create` method list matches the returned handle",
+          "body": "The doc listed a `destroy` method the handle does not expose and omitted `search` / `moveMessages` / `hardExpunge` that it does. The list now reflects the actual methods."
+        },
+        {
+          "title": "Smaller doc corrections",
+          "body": "`b.calendar` fromIcal / toIcal / validate now document that they also handle Task (VTODO), Note (VJOURNAL), and Group, not just Event. `b.middleware.requireAuth`'s `prefersJson` default is documented as Accept / X-Requested-With only (Content-Type is intentionally not a signal, as the module already noted). The default CSP nonce is 24 base64 chars (16 bytes), not 22. `b.mail.bimi`'s returned `evidenceDocument` is noted as echoed from the operator-supplied option rather than pulled from the certificate."
+        }
+      ]
+    }
+  ]
+}

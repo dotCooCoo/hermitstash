@@ -1,0 +1,27 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.13.16",
+  "date": "2026-05-27",
+  "headline": "`b.mail.agent` docs now describe the facade accurately, and not-yet-wired verbs point to the primitive to use",
+  "summary": "b.mail.agent's module documentation claimed it was \"the standardization contract for every mail protocol\" that JMAP / IMAP / POP3 all route through — but no protocol server actually dispatches through the agent (the framework's own JMAP EmailSubmission handler composes b.mail.send.deliver directly), and the compose / send / reply / forward, sieve.list / sieve.activate, identity / vacation / mdn.* and export / job / import verbs throw mail-agent/not-implemented. The docs are corrected to describe what the agent is: a mailbox-access facade (RBAC + posture + audit + dispatch around a mail store) whose read surface plus the mailbox-mutation and Sieve-upload methods are wired, with the remaining verbs not yet routed through it. Those verbs' error message now names the underlying primitive to compose directly (b.mail.send.deliver, b.mail.sieve, b.mailMdn, …) instead of citing a version tag that had long passed. The public WIRED_AT export (a method→version map that no longer reflected reality) is replaced by COMPOSE_HINT (a method→primitive-to-compose map). No behaviour change: the same methods are wired or throw exactly as before.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "`b.mail.agent` documentation corrected; not-implemented errors point to the primitive to compose",
+          "body": "The `@module` / `@card` no longer claim the agent is the universal protocol-dispatch contract — it's documented as a mailbox-access facade with a wired read + mutation + Sieve-upload surface, and the compose/send/identity/vacation/MDN/export verbs documented as not yet routed through it (compose the underlying primitive directly until a protocol server adopts the agent). The `mail-agent/not-implemented` error now names that primitive (e.g. `b.mail.send.deliver`) rather than a passed version tag."
+        }
+      ]
+    },
+    {
+      "heading": "Removed",
+      "items": [
+        {
+          "title": "`b.mail.agent.WIRED_AT` export replaced by `COMPOSE_HINT`",
+          "body": "The `WIRED_AT` export mapped each method to a framework version that was supposed to \"light it up\" — versions that have all shipped without the wiring, so the map was misleading. It is replaced by `COMPOSE_HINT`, mapping each not-yet-wired method to the primitive an operator composes directly. Operators reading `b.mail.agent.WIRED_AT` should read `b.mail.agent.COMPOSE_HINT` instead (pre-1.0: no compatibility shim)."
+        }
+      ]
+    }
+  ]
+}

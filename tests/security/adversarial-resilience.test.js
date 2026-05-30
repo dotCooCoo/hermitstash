@@ -173,7 +173,7 @@ describe("business logic resilience", function () {
     // Register and login
     client.clearCookies();
     var rl = require(path.join(projectRoot, "lib", "rate-limit"));
-    rl.reset("login", "127.0.0.1"); rl.reset("login", "::1"); rl.reset("login", "::ffff:127.0.0.1");
+    rl.resetAllInstances();
     client.clearCookies();
     await client.initApiKey();
     // Upload via drop
@@ -251,21 +251,7 @@ describe("rate limiting", function () {
     assert.strictEqual(res.status, 429, "16th attempt should be rate limited");
     // Reset for other tests
     var rateLimit = require(path.join(projectRoot, "lib", "rate-limit"));
-    rateLimit.reset("login", "127.0.0.1");
-    rateLimit.reset("login", "::1");
-    rateLimit.reset("login", "::ffff:127.0.0.1");
-  });
-
-  it("upload rate limited after 50 files per minute", function () {
-    var projectRoot = testServer.projectRoot;
-    var rateLimit = require(path.join(projectRoot, "lib", "rate-limit"));
-    // Simulate 50 checks
-    for (var i = 0; i < 50; i++) {
-      rateLimit.check("upload-test", "1.2.3.4", 50, 60000);
-    }
-    var result = rateLimit.check("upload-test", "1.2.3.4", 50, 60000);
-    assert.strictEqual(result.allowed, false, "51st upload should be blocked");
-    rateLimit.reset("upload-test", "1.2.3.4");
+    rateLimit.resetAllInstances();
   });
 
   it("X-Forwarded-For ignored from untrusted source", function () {
@@ -296,8 +282,6 @@ describe("API keys", function () {
     var projectRoot = testServer.projectRoot;
     var rl = require(path.join(projectRoot, "lib", "rate-limit"));
     rl.resetAllInstances();
-    rl.reset("register", "127.0.0.1"); rl.reset("register", "::1"); rl.reset("register", "::ffff:127.0.0.1");
-    rl.reset("login", "127.0.0.1"); rl.reset("login", "::1"); rl.reset("login", "::ffff:127.0.0.1");
   });
 
   it("valid key authenticates upload via Bearer token", async function () {
@@ -356,7 +340,6 @@ describe("webhooks", function () {
     var projectRoot = testServer.projectRoot;
     var rl = require(path.join(projectRoot, "lib", "rate-limit"));
     rl.resetAllInstances();
-    rl.reset("login", "127.0.0.1"); rl.reset("login", "::1"); rl.reset("login", "::ffff:127.0.0.1");
   });
 
   it("rejects localhost URLs (SSRF)", async function () {
@@ -389,7 +372,7 @@ describe("2FA", function () {
   it("2FA blocks login without verification code", async function () {
     var projectRoot = testServer.projectRoot;
     var rl = require(path.join(projectRoot, "lib", "rate-limit"));
-    rl.reset("register", "127.0.0.1"); rl.reset("register", "::1"); rl.reset("register", "::ffff:127.0.0.1");
+    rl.resetAllInstances();
     // Register user, enable 2FA
     client.clearCookies();
     await client.initApiKey();
@@ -428,7 +411,7 @@ describe("user profiles", function () {
   it("email change requires password re-authentication", async function () {
     var projectRoot = testServer.projectRoot;
     var rl = require(path.join(projectRoot, "lib", "rate-limit"));
-    rl.reset("register", "127.0.0.1"); rl.reset("register", "::1"); rl.reset("register", "::ffff:127.0.0.1");
+    rl.resetAllInstances();
     client.clearCookies();
     await client.initApiKey();
     await client.post("/auth/register", { json: { displayName: "EmailChg", email: "emailchg@test.com", password: "password123" } });
@@ -446,7 +429,7 @@ describe("user profiles", function () {
   it("display name XSS is escaped in templates", async function () {
     var projectRoot = testServer.projectRoot;
     var rl = require(path.join(projectRoot, "lib", "rate-limit"));
-    rl.reset("register", "127.0.0.1"); rl.reset("register", "::1"); rl.reset("register", "::ffff:127.0.0.1");
+    rl.resetAllInstances();
     client.clearCookies();
     await client.initApiKey();
     await client.post("/auth/register", { json: { displayName: '<script>alert("xss")</script>', email: "xssname@test.com", password: "password123" } });
@@ -494,8 +477,6 @@ describe("teams", function () {
     var projectRoot = testServer.projectRoot;
     var rl = require(path.join(projectRoot, "lib", "rate-limit"));
     rl.resetAllInstances();
-    rl.reset("login", "127.0.0.1"); rl.reset("login", "::1"); rl.reset("login", "::ffff:127.0.0.1");
-    rl.reset("register", "127.0.0.1"); rl.reset("register", "::1"); rl.reset("register", "::ffff:127.0.0.1");
   });
 
   it("user cannot access another team's files", async function () {

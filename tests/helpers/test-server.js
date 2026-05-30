@@ -68,21 +68,10 @@ var allRoutes = [
 
 function resetAllRateLimits() {
   var rateLimit = require(path.join(projectRoot, "lib", "rate-limit"));
-  var actions = ["login", "register", "upload", "2fa", "bundle-unlock"];
-  var ips = ["127.0.0.1", "::1", "::ffff:127.0.0.1"];
-  for (var i = 0; i < actions.length; i++) {
-    for (var j = 0; j < ips.length; j++) {
-      rateLimit.reset(actions[i], ips[j]);
-    }
-  }
-  // Routes that use b.middleware.rateLimit (the framework limiter) live
-  // in their own per-instance window — lib/rate-limit.js's monkey-patch
-  // registry tracks every framework instance so the test helper can
-  // flush them with a single call per IP. Without this, /2fa/verify
-  // hits 429 mid-test even though the legacy reset above ran.
-  for (var k = 0; k < ips.length; k++) {
-    rateLimit.resetAllInstances(ips[k]);
-  }
+  // Every guarded route limits through b.middleware.rateLimit; resetAll()
+  // drops all keys across all limiter instances, so one call flushes login,
+  // register, upload, 2FA, and every other guarded route between cases.
+  rateLimit.resetAllInstances();
 }
 
 async function start(opts) {
@@ -115,11 +104,10 @@ async function start(opts) {
 
 function _continueStart(opts) {
   return new Promise(function (resolve) {
-    // Require lib/rate-limit BEFORE the routes so its monkey-patch on
-    // b.middleware.rateLimit lands before routes/auth.js, routes/two-
-    // factor.js, etc. construct their inline rate-limit middlewares.
-    // Without this ordering, the registry doesn't see the route
-    // instances and resetAllInstances() is a no-op for them.
+    // Require lib/rate-limit so resetAllRateLimits() can flush every
+    // b.middleware.rateLimit instance between cases. The routes below
+    // construct their own limiters as they load; the framework owns the
+    // registry resetAllInstances() clears.
     require(path.join(projectRoot, "lib", "rate-limit"));
     var { Router, serveStatic } = b.router;
     var { sessionMiddleware } = require(path.join(projectRoot, "lib", "session"));
