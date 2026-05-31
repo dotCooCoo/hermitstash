@@ -1214,7 +1214,7 @@ function createApiKey(){
   if(!name){alert('Enter a name for the API key');return}
   var perms=document.getElementById('apikeyPerms').value;
   fetch('/admin/apikeys/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,permissions:perms})}).then(function(r){return r.json()}).then(function(d){
-    if(d.error){alert(d.error);return}
+    if(d.detail||d.error){alert(d.detail||d.error||'Failed to create API key.');return}
     document.getElementById('apikeyName').value='';
     var box=document.getElementById('apikeyNewKey');box.style.display='block';
     document.getElementById('apikeyNewKeyValue').textContent=d.key;
@@ -1252,7 +1252,7 @@ function loadBrowserCerts(){
         if(!confirm('Revoke browser certificate "'+c.cn+'"? The holder will lose mTLS access immediately. This cannot be undone.'))return;
         fetch('/admin/apikeys/'+c._id+'/revoke',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(rd){
           if(rd.success){var el=document.getElementById('bc-'+c._id);if(el)el.remove();if(!tbody.children.length)empty.style.display='block'}
-          else{alert(rd.error||'Revoke failed')}
+          else{alert(rd.detail||rd.error||'Revoke failed')}
         });
       };
       td5.appendChild(btn);
@@ -1300,7 +1300,7 @@ function createBrowserCert(){
         _bcLoaded=false;loadBrowserCerts();
       });
     }
-    return r.json().then(function(d){alert(d.error||'Generation failed')});
+    return r.json().then(function(d){alert(d.detail||d.error||'Generation failed')});
   }).catch(function(){alert('Network error generating certificate')});
 }
 
@@ -1347,7 +1347,7 @@ function createWebhook(){
   if(!url){alert('Enter a webhook URL');return}
   var events=document.getElementById('webhookEvents').value;
   fetch('/admin/webhooks/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url,events:events})}).then(function(r){return r.json()}).then(function(d){
-    if(d.error){alert(d.error);return}
+    if(d.detail||d.error){alert(d.detail||d.error||'Failed to create webhook.');return}
     document.getElementById('webhookUrl').value='';
     var box=document.getElementById('webhookNewSecret');box.style.display='block';
     document.getElementById('webhookNewSecretValue').textContent=d.secret;
@@ -1378,7 +1378,7 @@ async function uploadLogo(){
     if(d.success){
       document.getElementById('s-customLogo').value=d.path;
       showLogoPreview(d.path);
-    }else{alert(d.error||'Upload failed.')}
+    }else{alert(d.detail||d.error||'Upload failed.')}
   }catch(e){alert('Upload failed.')}
   document.getElementById('logoFileInput').value='';
 }
@@ -1765,7 +1765,7 @@ function deleteBackup(timestamp,row){
   fetch('/admin/backup/delete',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({timestamp:timestamp})})
     .then(function(r){return r.json()})
     .then(function(d){
-      if(d.error){alert('Delete failed: '+d.error);return}
+      if(d.detail||d.error){alert('Delete failed: '+(d.detail||d.error));return}
       row.remove();
       _backupHistoryLoaded=false;loadBackupHistory();
     })
@@ -1835,8 +1835,8 @@ function startRestore(){
   fetch('/admin/restore/run',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({passphrase:pass,timestamp:ts})})
     .then(function(r){return r.json()})
     .then(function(d){
-      if(d.error){
-        result.textContent='Error: '+d.error;result.style.color='var(--red,#f24e6a)';
+      if(d.detail||d.error){
+        result.textContent='Error: '+(d.detail||d.error);result.style.color='var(--red,#f24e6a)';
         btn.disabled=false;btn.style.opacity='1';prog.style.display='none';
         return;
       }
@@ -1863,7 +1863,7 @@ function testStorageConnection(){
   var endpoint=document.getElementById('s-s3Endpoint').value;
   fetch('/admin/storage/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bucket:bucket,region:region,accessKey:accessKey,secretKey:secretKey,endpoint:endpoint})}).then(function(r){return r.json()}).then(function(d){
     if(d.success){el.textContent='Connected successfully';el.style.color='var(--success,#22c55e)'}
-    else{el.textContent=d.error||'Failed';el.style.color='var(--danger,#ef4444)'}
+    else{el.textContent=d.detail||d.error||'Failed';el.style.color='var(--danger,#ef4444)'}
   }).catch(function(e){el.textContent='Error: '+e.message;el.style.color='var(--danger,#ef4444)'});
 }
 function testBackupConnection(){
@@ -1876,7 +1876,7 @@ function testBackupConnection(){
   var endpoint=document.getElementById('s-backupS3Endpoint').value;
   fetch('/admin/backup/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bucket:bucket,region:region,accessKey:accessKey,secretKey:secretKey,endpoint:endpoint})}).then(function(r){return r.json()}).then(function(d){
     if(d.success){el.textContent='Connected successfully';el.style.color='var(--success,#22c55e)'}
-    else{el.textContent=d.error||'Failed';el.style.color='var(--danger,#ef4444)'}
+    else{el.textContent=d.detail||d.error||'Failed';el.style.color='var(--danger,#ef4444)'}
   }).catch(function(e){el.textContent='Error: '+e.message;el.style.color='var(--danger,#ef4444)'});
 }
 function runBackupNow(){
@@ -1886,7 +1886,7 @@ function runBackupNow(){
   el.textContent='Running backup...';el.style.color='var(--muted)';
   fetch('/admin/backup/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passphrase:passphrase})}).then(function(r){return r.json()}).then(function(d){
     if(d.success){el.textContent='Backup completed: '+(d.stats.totalSize/1048576).toFixed(1)+' MB in '+(d.stats.durationMs/1000).toFixed(1)+'s';el.style.color='var(--success,#22c55e)';_backupHistoryLoaded=false;loadBackupHistory()}
-    else{el.textContent=d.error||'Failed';el.style.color='var(--danger,#ef4444)'}
+    else{el.textContent=d.detail||d.error||'Failed';el.style.color='var(--danger,#ef4444)'}
   }).catch(function(e){el.textContent='Error: '+e.message;el.style.color='var(--danger,#ef4444)'});
 }
 
@@ -2063,7 +2063,7 @@ function executeSecurityAction(){
     .then(function(r){
       if(!r.d.success){
         btn.disabled=false;btn.firstChild.textContent=origLabel;
-        if(errEl)errEl.textContent=r.d.error||'Operation failed';return;
+        if(errEl)errEl.textContent=r.d.detail||r.d.error||'Operation failed';return;
       }
       _renderSecuritySuccess(r.d);
     }).catch(function(e){
@@ -2094,7 +2094,7 @@ function loadSecurityStatus(){
   var listEl=document.getElementById('securityStatusList');
   var notesEl=document.getElementById('securityStatusNotes');
   fetch('/admin/security/status').then(function(r){return r.json()}).then(function(d){
-    if(!d.success){listEl.textContent='Failed to load security status: '+(d.error||'unknown');return}
+    if(!d.success){listEl.textContent='Failed to load security status: '+(d.detail||d.error||'unknown');return}
     listEl.textContent='';
     d.items.forEach(function(item){
       var row=document.createElement('div');
@@ -2338,7 +2338,7 @@ function previewMigration(){
   fetch('/admin/storage/migration/preview?direction='+dir,{credentials:'same-origin'})
     .then(function(r){return r.json()})
     .then(function(d){
-      if(d.error){el.textContent='Error: '+d.error;el.style.color='var(--red)';return}
+      if(d.detail||d.error){el.textContent='Error: '+(d.detail||d.error);el.style.color='var(--red)';return}
       el.style.color='';
       if(d.toMigrate===0){el.textContent='No files to migrate. All '+d.total+' files already on target backend.';return}
       var bundleStr=d.bundlesAffected?(' across '+d.bundlesAffected+' bundle'+(d.bundlesAffected===1?'':'s')):'';
@@ -2367,7 +2367,7 @@ function startMigration(){
   fetch('/admin/storage/migration/start',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({direction:dir})})
     .then(function(r){return r.json()})
     .then(function(d){
-      if(d.error){st.textContent='Error: '+d.error;btn.disabled=false;btn.style.opacity='1';return}
+      if(d.detail||d.error){st.textContent='Error: '+(d.detail||d.error);btn.disabled=false;btn.style.opacity='1';return}
       _migPoll=setInterval(pollMig,2000);
     })
     .catch(function(e){st.textContent='Error: '+e.message;btn.disabled=false;btn.style.opacity='1'});
@@ -2392,7 +2392,7 @@ function pollMig(){
       }else if(d.status==='error'){
         clearInterval(_migPoll);_migPoll=null;
         bar.style.width='0%';
-        st.textContent='Error: '+(d.error||'unknown');st.style.color='var(--red)';
+        st.textContent='Error: '+(d.detail||d.error||'unknown');st.style.color='var(--red)';
         btn.disabled=false;btn.style.opacity='1';
         renderMigErrors(d.errors||[],d.failed||0);
       }
@@ -2430,7 +2430,7 @@ function scanOrphans(){
   fetch('/admin/storage/orphans/scan',{credentials:'same-origin'})
     .then(function(r){return r.json()})
     .then(function(d){
-      if(d.error){el.textContent='Error: '+d.error;el.style.color='var(--red)';return}
+      if(d.detail||d.error){el.textContent='Error: '+(d.detail||d.error);el.style.color='var(--red)';return}
       _orphanData=d;
       var emptyB=(d.emptyBundles&&d.emptyBundles.count)||0;
       var total=d.local.orphans+d.s3.orphans;
@@ -2469,7 +2469,7 @@ function cleanOrphans(){
   fetch('/admin/storage/orphans/clean',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({local:true,s3:true,dangling:d.dangling.records>0,emptyBundles:emptyB>0})})
     .then(function(r){return r.json()})
     .then(function(d){
-      if(d.error){el.textContent='Error: '+d.error;el.style.color='var(--red)';return}
+      if(d.detail||d.error){el.textContent='Error: '+(d.detail||d.error);el.style.color='var(--red)';return}
       var done=[];
       if(d.deleted.local>0)done.push(d.deleted.local+' local');
       if(d.deleted.s3>0)done.push(d.deleted.s3+' S3');
@@ -2630,7 +2630,7 @@ function saveTab(tab){
       if(tab==='storage'){toggleMigrationSection()}
     }else{
       msg.className='settings-msg-inline msg-err';
-      msg.textContent=d.error||'Failed to save.';
+      msg.textContent=d.detail||d.error||'Failed to save.';
     }
     msg.style.opacity='1';
     setTimeout(function(){msg.style.opacity='0'},4000);
@@ -2650,7 +2650,7 @@ function revokeAllSessions(){
   btn.disabled=true;dangerBtnText(btn,'Purging...');
   fetch('/admin/sessions/revoke-all',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
     if(d.success){alert('All sessions purged. You will be redirected to login.');window.location.href='/auth/login'}
-    else{alert(d.error||'Failed.');btn.disabled=false;dangerBtnText(btn,'Purge Sessions')}
+    else{alert(d.detail||d.error||'Failed.');btn.disabled=false;dangerBtnText(btn,'Purge Sessions')}
   }).catch(function(){alert('Network error.');btn.disabled=false;dangerBtnText(btn,'Purge Sessions')});
 }
 
@@ -2661,7 +2661,7 @@ function purgeUsers(){
   btn.disabled=true;dangerBtnText(btn,'Purging...');
   fetch('/admin/purge/users',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
     if(d.success){alert('Purged '+d.deleted+' users. Sessions cleared.');location.reload()}
-    else{alert(d.error||'Failed.');btn.disabled=false;dangerBtnText(btn,'Purge Users')}
+    else{alert(d.detail||d.error||'Failed.');btn.disabled=false;dangerBtnText(btn,'Purge Users')}
   }).catch(function(){alert('Network error.');btn.disabled=false;dangerBtnText(btn,'Purge Users')});
 }
 
@@ -2672,7 +2672,7 @@ function purgeFiles(){
   btn.disabled=true;dangerBtnText(btn,'Purging...');
   fetch('/admin/purge/files',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
     if(d.success){alert('Purged '+d.deletedFiles+' files and '+d.deletedBundles+' bundles.');location.reload()}
-    else{alert(d.error||'Failed.');btn.disabled=false;dangerBtnText(btn,'Purge Files')}
+    else{alert(d.detail||d.error||'Failed.');btn.disabled=false;dangerBtnText(btn,'Purge Files')}
   }).catch(function(){alert('Network error.');btn.disabled=false;dangerBtnText(btn,'Purge Files')});
 }
 
@@ -2682,7 +2682,7 @@ function purgeStash(){
   btn.disabled=true;dangerBtnText(btn,'Purging...');
   fetch('/admin/stash/purge',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
     if(d.success){alert('Purged '+d.deleted+' stash pages.');btn.disabled=false;dangerBtnText(btn,'Purge Stash')}
-    else{alert(d.error||'Failed.');btn.disabled=false;dangerBtnText(btn,'Purge Stash')}
+    else{alert(d.detail||d.error||'Failed.');btn.disabled=false;dangerBtnText(btn,'Purge Stash')}
   }).catch(function(){alert('Network error.');btn.disabled=false;dangerBtnText(btn,'Purge Stash')});
 }
 
@@ -2737,7 +2737,7 @@ function regenerateCa(){
       msg+='Server restarting in '+Math.round(s.restartInMs/1000)+'s. This page will lose connection.';
       alert(msg);
     }else{
-      alert(d.error||'Regeneration failed.');
+      alert(d.detail||d.error||'Regeneration failed.');
       btn.disabled=false;dangerBtnText(btn,'Regenerate &amp; Restart');
     }
   }).catch(function(){alert('Network error. Server may already be restarting.');});
@@ -2750,7 +2750,7 @@ function purgeDatabase(){
   btn.disabled=true;dangerBtnText(btn,'Purging...');
   fetch('/admin/purge/database',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:'PURGE'})}).then(function(r){return r.json()}).then(function(d){
     if(d.success){alert('Database purged. You will be redirected to login.');window.location.href='/auth/login'}
-    else{alert(d.error||'Failed.');btn.disabled=false;dangerBtnText(btn,'Factory Reset')}
+    else{alert(d.detail||d.error||'Failed.');btn.disabled=false;dangerBtnText(btn,'Factory Reset')}
   }).catch(function(){alert('Network error.');btn.disabled=false;dangerBtnText(btn,'Factory Reset')});
 }
 

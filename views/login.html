@@ -65,7 +65,7 @@ async function doLogin(e){
     var d=await r.json();
     if(d.success){window.location.href=d.redirect}
     else if(d.pending){window.location.href='/auth/pending?email='+encodeURIComponent(d.email||'')}
-    else{errEl.textContent=d.error;errEl.style.display='block';btn.disabled=false;btn.querySelector('span').textContent='Sign In'}
+    else{errEl.textContent=d.detail||d.error||'Sign in failed.';errEl.style.display='block';btn.disabled=false;btn.querySelector('span').textContent='Sign In'}
   }catch(err){errEl.textContent='Something went wrong.';errEl.style.display='block';btn.disabled=false;btn.querySelector('span').textContent='Sign In'}
   return false;
 }
@@ -80,7 +80,7 @@ async function passkeyLogin(){
   try{
     // Get authentication options from server
     var optRes=await fetch('/passkey/login/options',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-    if(!optRes.ok){var e=await optRes.json();throw new Error(e.error||'Failed')}
+    if(!optRes.ok){var e=await optRes.json();throw new Error(e.detail||e.error||'Failed')}
     var options=await optRes.json();
 
     // Convert challenge and allowCredentials from base64url to ArrayBuffer
@@ -99,7 +99,7 @@ async function passkeyLogin(){
     var verData=await verRes.json();
     if(verData.verified&&verData.redirect){window.location.href=verData.redirect}
     else if(verData.pending){window.location.href='/auth/pending?email='+encodeURIComponent(verData.email||'')}
-    else{errEl.textContent=verData.error||'Passkey verification failed.';errEl.style.display='block'}
+    else{errEl.textContent=verData.detail||verData.error||'Passkey verification failed.';errEl.style.display='block'}
   }catch(err){
     if(err.name==='NotAllowedError'){errEl.textContent='Passkey request was cancelled.'}
     else{errEl.textContent=err.message||'Passkey login failed.'}

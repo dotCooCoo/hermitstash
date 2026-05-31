@@ -314,7 +314,7 @@
     var rotateData = await rotateRes.json();
     if (!rotateData.success) {
       console.error("Vault rotate response:", rotateRes.status, rotateData);
-      throw new Error(rotateData.error || "Server returned: " + JSON.stringify(rotateData));
+      throw new Error(rotateData.detail || rotateData.error || "Server returned: " + JSON.stringify(rotateData));
     }
 
     // Step 5: Register new passkey

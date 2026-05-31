@@ -193,7 +193,7 @@ async function finishSetup(){
       document.getElementById('setupSuccess').style.display='block';
       setTimeout(function(){window.location.href=d.redirect},1500);
     }else{
-      err.textContent=d.error||'Setup failed.';err.style.display='block';
+      err.textContent=d.detail||d.error||'Setup failed.';err.style.display='block';
       btn.disabled=false;btn.querySelector('span').textContent='Complete Setup';
     }
   }catch(e){

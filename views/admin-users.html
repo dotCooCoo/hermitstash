@@ -171,24 +171,24 @@ function renderPagination(page,pages){
 
 function toggleRole(id){
   fetch('/admin/users/'+id+'/role',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
-    if(d.success)loadUsers(currentPage);else alert(d.error);
+    if(d.success)loadUsers(currentPage);else alert(d.detail||d.error||'Failed to change role.');
   });
 }
 function suspend(id){
   if(!confirm('Suspend this user?'))return;
   fetch('/admin/users/'+id+'/suspend',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
-    if(d.success)loadUsers(currentPage);else alert(d.error);
+    if(d.success)loadUsers(currentPage);else alert(d.detail||d.error||'Failed to suspend user.');
   });
 }
 function unsuspend(id){
   fetch('/admin/users/'+id+'/unsuspend',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
-    if(d.success)loadUsers(currentPage);else alert(d.error);
+    if(d.success)loadUsers(currentPage);else alert(d.detail||d.error||'Failed to reactivate user.');
   });
 }
 function deleteUser(id,email){
   if(!confirm('Delete user '+email+'? Their files will be preserved but unlinked.'))return;
   fetch('/admin/users/'+id+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
-    if(d.success)loadUsers(currentPage);else alert(d.error);
+    if(d.success)loadUsers(currentPage);else alert(d.detail||d.error||'Failed to delete user.');
   });
 }
 
@@ -198,7 +198,7 @@ function adminPasswordResetLink(id,email,btn){
   fetch('/admin/users/'+encodeURIComponent(id)+'/password-reset-link',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
     if(btn){btn.disabled=false;btn.querySelector('span').textContent='Reset link'}
     if(d.success){promptCopyLink('Password reset link for '+email+' (expires in 1 hour):',d.resetUrl)}
-    else{alert(d.error||'Failed to generate link')}
+    else{alert(d.detail||d.error||'Failed to generate link')}
   }).catch(function(){if(btn){btn.disabled=false;btn.querySelector('span').textContent='Reset link'}alert('Network error')});
 }
 
@@ -209,7 +209,7 @@ function adminResendVerification(id,email,btn){
     if(d.success){
       if(d.verifyUrl){promptCopyLink('Verification link for '+email+' (email delivery failed — share manually):',d.verifyUrl)}
       else{if(btn){btn.querySelector('span').textContent='Sent!';setTimeout(function(){btn.querySelector('span').textContent='Verify'},2000)}}
-    }else{alert(d.error||'Failed to resend')}
+    }else{alert(d.detail||d.error||'Failed to resend')}
   }).catch(function(){if(btn){btn.disabled=false;btn.querySelector('span').textContent='Verify'}alert('Network error')});
 }
 
@@ -240,7 +240,7 @@ function sendInvite(){
       msg.textContent='Invite sent';
       msg.style.display='block';
       setTimeout(function(){hideInviteModal();loadUsers(currentPage)},2000);
-    }else{msg.className='settings-msg settings-msg-err';msg.textContent=d.error;msg.style.display='block'}
+    }else{msg.className='settings-msg settings-msg-err';msg.textContent=d.detail||d.error||'Failed to send invite.';msg.style.display='block'}
   }).catch(function(){btn.disabled=false;btn.querySelector('span').textContent='Send Invite';msg.className='settings-msg settings-msg-err';msg.textContent='Network error';msg.style.display='block'});
 }
 
@@ -285,7 +285,7 @@ function resendInvite(email,btn){
     if(d.success){
       if(d.inviteUrl){promptCopyLink('Invite resent but email could not be delivered. Copy this link to share manually:',d.inviteUrl)}
       else{btn.querySelector('span').textContent='Sent!';setTimeout(function(){btn.querySelector('span').textContent='Resend'},2000)}
-    } else{alert(d.error||'Failed to resend')}
+    } else{alert(d.detail||d.error||'Failed to resend')}
   }).catch(function(){btn.disabled=false;btn.querySelector('span').textContent='Resend';alert('Network error')});
 }
 
@@ -294,7 +294,7 @@ function deleteInvite(id,email,btn){
   btn.disabled=true;btn.querySelector('span').textContent='Deleting...';
   fetch('/admin/users/invite/'+encodeURIComponent(id)+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
     if(d.success){loadInvites()}
-    else{btn.disabled=false;btn.querySelector('span').textContent='Delete';alert(d.error||'Failed to delete')}
+    else{btn.disabled=false;btn.querySelector('span').textContent='Delete';alert(d.detail||d.error||'Failed to delete')}
   }).catch(function(){btn.disabled=false;btn.querySelector('span').textContent='Delete';alert('Network error')});
 }
 

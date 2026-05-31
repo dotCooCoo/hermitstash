@@ -50,7 +50,7 @@ function startReEnroll(){
   var btn=document.getElementById('startBtn');
   btn.disabled=true;btn.querySelector('span').textContent='Generating...';
   fetch('/2fa/re-enroll/start',{method:'POST',headers:{'Content-Type':'application/json'}}).then(function(r){return r.json().then(function(d){return{status:r.status,body:d}})}).then(function(o){
-    if(o.status!==200){showError(o.body.error||'Failed to start re-enrollment.');btn.disabled=false;btn.querySelector('span').textContent='Generate new TOTP secret';return}
+    if(o.status!==200){showError(o.body.detail||o.body.error||'Failed to start re-enrollment.');btn.disabled=false;btn.querySelector('span').textContent='Generate new TOTP secret';return}
     document.getElementById('otpauthUri').value=o.body.uri;
     document.getElementById('step1').style.display='none';
     document.getElementById('step2').style.display='block';
@@ -64,7 +64,7 @@ function confirmReEnroll(ev){
   var code=document.getElementById('reenrollCode').value.trim();
   btn.disabled=true;btn.querySelector('span').textContent='Verifying...';
   fetch('/2fa/re-enroll/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code})}).then(function(r){return r.json().then(function(d){return{status:r.status,body:d}})}).then(function(o){
-    if(o.status!==200){showError(o.body.error||'Verification failed.');btn.disabled=false;btn.querySelector('span').textContent='Confirm and replace old secret';return}
+    if(o.status!==200){showError(o.body.detail||o.body.error||'Verification failed.');btn.disabled=false;btn.querySelector('span').textContent='Confirm and replace old secret';return}
     var list=document.getElementById('backupCodesList');clearChildren(list);
     (o.body.backupCodes||[]).forEach(function(c){var li=document.createElement('li');li.textContent=c;list.appendChild(li)});
     document.getElementById('step2').style.display='none';

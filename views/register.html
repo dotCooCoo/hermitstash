@@ -57,7 +57,7 @@ async function doRegister(e){
     var r=await fetch('/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({displayName:document.getElementById('regName').value,email:document.getElementById('regEmail').value,password:document.getElementById('regPassword').value})});
     var d=await r.json();
     if(d.success){window.location.href=d.redirect}
-    else{errEl.textContent=d.error;errEl.style.display='block';btn.disabled=false;btn.querySelector('span').textContent='Create Account'}
+    else{errEl.textContent=d.detail||d.error||'Account creation failed.';errEl.style.display='block';btn.disabled=false;btn.querySelector('span').textContent='Create Account'}
   }catch(err){errEl.textContent='Something went wrong.';errEl.style.display='block';btn.disabled=false;btn.querySelector('span').textContent='Create Account'}
   return false;
 }

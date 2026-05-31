@@ -57,7 +57,7 @@ async function requestCode(e){
       document.getElementById('gateCode').focus();
       startTimer(600);
     } else {
-      err.textContent=d.error||'Something went wrong.';err.style.display='block';
+      err.textContent=d.detail||d.error||'Something went wrong.';err.style.display='block';
     }
   }catch(_e){err.textContent='Something went wrong.';err.style.display='block'}
   btn.disabled=false;btn.querySelector('span').textContent='Send Code';
@@ -78,7 +78,7 @@ async function verifyCode(e){
     if(d.success){
       window.location.reload();
     } else {
-      err.textContent=d.error||'Incorrect code.';err.style.display='block';
+      err.textContent=d.detail||d.error||'Incorrect code.';err.style.display='block';
       btn.disabled=false;btn.querySelector('span').textContent='Verify';
     }
   }catch(_e){err.textContent='Something went wrong.';err.style.display='block';btn.disabled=false;btn.querySelector('span').textContent='Verify'}

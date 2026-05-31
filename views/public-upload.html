@@ -506,7 +506,7 @@ function uploadFile(file,rel,bundleId,onProgress){
       xhr.onload=function(){
         activeControllers=activeControllers.filter(function(x){return x!==xhr});
         if(xhr.status===200){resolve({ok:true,size:file.size,rel:rel})}
-        else{try{var d=JSON.parse(xhr.responseText);if(attempts<RETRIES)attempt();else resolve({ok:false,rel:rel,error:d.error||'fail'})}catch(e){if(attempts<RETRIES)attempt();else resolve({ok:false,rel:rel,error:'fail'})}}
+        else{try{var d=JSON.parse(xhr.responseText);if(attempts<RETRIES)attempt();else resolve({ok:false,rel:rel,error:d.detail||d.error||'fail'})}catch(e){if(attempts<RETRIES)attempt();else resolve({ok:false,rel:rel,error:'fail'})}}
       };
       xhr.onerror=function(){activeControllers=activeControllers.filter(function(x){return x!==xhr});if(attempts<RETRIES)attempt();else resolve({ok:false,rel:rel,error:'Network error'})};
       xhr.ontimeout=function(){activeControllers=activeControllers.filter(function(x){return x!==xhr});if(attempts<RETRIES)attempt();else resolve({ok:false,rel:rel,error:'Timeout'})};
@@ -531,7 +531,7 @@ function uploadChunked(file,rel,bundleId,onProgress){
       fm.append('mimeType',file.type||'application/octet-stream');
       try{
         var r=await fetch(uploadBase+'/chunk/'+bundleId,{method:'POST',body:fm});
-        if(!r.ok){var d=await r.json().catch(function(){return{}});return resolve({ok:false,rel:rel,error:d.error||'Chunk failed'})}
+        if(!r.ok){var d=await r.json().catch(function(){return{}});return resolve({ok:false,rel:rel,error:d.detail||d.error||'Chunk failed'})}
         uploaded+=blob.size;
         if(onProgress)onProgress(uploaded,file.size);
       }catch(e){return resolve({ok:false,rel:rel,error:'Chunk network error'})}
@@ -795,7 +795,7 @@ async function startVaultUpload(toUpload){
       var resp=await fetch('/vault/upload',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(payload)});
       var rd=await resp.json();
       if(resp.ok&&rd.success){up++;bUp+=item.file.size;setFileStatus(i,'done')}
-      else{errs.push({name:item.rel,error:rd.error||'Upload failed'});setFileStatus(i,'failed')}
+      else{errs.push({name:item.rel,error:rd.detail||rd.error||'Upload failed'});setFileStatus(i,'failed')}
     }catch(e){
       errs.push({name:item.rel,error:e.message||'Encryption failed'});setFileStatus(i,'failed');
     }

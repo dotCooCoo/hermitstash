@@ -1,0 +1,17 @@
+{
+  "version": "1.11.24",
+  "date": "2026-05-31",
+  "headline": "Surface problem-details error text in the web UI",
+  "summary": "The web UI now reads RFC 9457 problem-details error messages, so failed actions show the server's reason instead of a blank message.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Show problem-details error messages in the web UI",
+          "body": "Many web UI actions read only the legacy { error } field from a failed response, so when the server replied with an RFC 9457 problem-details body the on-screen message could be blank. The UI now reads the problem detail and falls back to the legacy field, and several actions that previously showed no message on failure (login, registration, user and stash management, and others) now display the server's reason."
+        }
+      ]
+    }
+  ]
+}

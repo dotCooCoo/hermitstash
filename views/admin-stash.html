@@ -186,7 +186,7 @@ function saveStashEdit(){
       if(pending&&stashId){
         uploadLogo(stashId,function(){msg.className='settings-msg settings-msg-ok';msg.textContent=isEdit?'Saved':'Created';msg.style.display='block';setTimeout(function(){closeStashEdit();loadStash()},600)});
       }else{msg.className='settings-msg settings-msg-ok';msg.textContent=isEdit?'Saved':'Created';msg.style.display='block';setTimeout(function(){closeStashEdit();loadStash()},600)}
-    }else{msg.className='settings-msg settings-msg-err';msg.textContent=d.error||'Failed';msg.style.display='block'}
+    }else{msg.className='settings-msg settings-msg-err';msg.textContent=d.detail||d.error||'Failed';msg.style.display='block'}
   }).catch(function(){btn.disabled=false;btn.querySelector('span').textContent=isEdit?'Save Changes':'Create Stash Page';msg.className='settings-msg settings-msg-err';msg.textContent='Network error';msg.style.display='block'});
 }
 function previewLogo(input){
@@ -304,7 +304,7 @@ function generateSyncToken(){
       html+='<p style="font-size:.75rem;color:var(--muted);margin-top:10px;line-height:1.5">Give this code to the sync client user. They enter it during <code>hermitstash-sync init</code> — the client exchanges it for the API key and certificates automatically. One-time use.</p>';
       el.innerHTML=html;
       el.style.display='block';
-    } else { alert(d.error||'Failed to create token') }
+    } else { alert(d.detail||d.error||'Failed to create token') }
   }).catch(function(){btn.disabled=false;alert('Failed')});
 }
 function loadSyncKeys(stashId){
@@ -352,7 +352,7 @@ function reissueCert(stashId,apiKeyId){
     if(d.success){
       alert('Certificate reissued.\n\nRepair code (give to client):\n\n'+d.enrollmentCode+'\n\nExpires in 1 hour.');
       loadSyncKeys(stashId);
-    }else{alert(d.error||'Failed')}
+    }else{alert(d.detail||d.error||'Failed')}
   }).catch(function(){alert('Failed')});
 }
 function renameStashBundleName(shareId,el){
@@ -363,7 +363,7 @@ function renameStashBundleName(shareId,el){
     var name=input.value.trim();
     fetch('/bundles/'+shareId+'/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})}).then(function(r){return r.json()}).then(function(d){
       if(d.success){el.textContent=d.name||name||'Unnamed';el.style.display='';input.remove()}
-      else{showRenameError(input,d.error||'Rename failed')}
+      else{showRenameError(input,d.detail||d.error||'Rename failed')}
     }).catch(function(){el.style.display='';input.remove()});
   };
   input.onkeydown=function(e){if(e.key==='Enter'){e.preventDefault();input.blur()}if(e.key==='Escape'){el.style.display='';input.remove()}};
@@ -377,7 +377,7 @@ function renameStashFile(shareId,el){
     var name=input.value.trim();
     fetch('/files/'+shareId+'/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})}).then(function(r){return r.json()}).then(function(d){
       if(d.success){el.textContent=d.name||name;el.title='Click to rename';el.style.display='';input.remove()}
-      else{showRenameError(input,d.error||'Rename failed')}
+      else{showRenameError(input,d.detail||d.error||'Rename failed')}
     }).catch(function(){el.style.display='';input.remove()});
   };
   input.onkeydown=function(e){if(e.key==='Enter'){e.preventDefault();input.blur()}if(e.key==='Escape'){el.style.display='';input.remove()}};
@@ -388,14 +388,14 @@ function deleteStashBundle(stashId,bundleId,btn){
   btn.querySelector('span').textContent='Deleting...';btn.disabled=true;
   fetch('/admin/stash/'+stashId+'/bundles/'+bundleId+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
     if(d.success){btn.closest('.admin-user-row').remove();loadStash()}
-    else{alert(d.error||'Failed');btn.querySelector('span').textContent='Delete';btn.disabled=false}
+    else{alert(d.detail||d.error||'Failed');btn.querySelector('span').textContent='Delete';btn.disabled=false}
   }).catch(function(){btn.querySelector('span').textContent='Delete';btn.disabled=false});
 }
 function cpBundle(shareId,btn){
   Helpers.copyText(location.origin+'/b/'+shareId).then(function(){var s=btn.querySelector('span');s.textContent='Copied!';setTimeout(function(){s.textContent='Copy'},2000)});
 }
-function toggleStash(id){fetch('/admin/stash/'+id+'/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){if(d.success)loadStash();else alert(d.error)})}
-function deleteStash(id,name){if(!confirm('Delete stash page "'+name+'"?'))return;fetch('/admin/stash/'+id+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){if(d.success)loadStash();else alert(d.error)})}
+function toggleStash(id){fetch('/admin/stash/'+id+'/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){if(d.success)loadStash();else alert(d.detail||d.error||'Failed to toggle stash page.')})}
+function deleteStash(id,name){if(!confirm('Delete stash page "'+name+'"?'))return;fetch('/admin/stash/'+id+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){if(d.success)loadStash();else alert(d.detail||d.error||'Failed to delete stash page.')})}
 function cpStash(slug,btn){Helpers.copyText(location.origin+'/stash/'+slug).then(function(){var s=btn.querySelector('span');s.textContent='Copied!';setTimeout(function(){s.textContent='Copy'},2000)})}
 document.getElementById('seColor').addEventListener('input',function(){document.getElementById('seColorText').value=this.value});
 document.getElementById('seColorText').addEventListener('input',function(){if(/^#[0-9a-fA-F]{6}$/.test(this.value))document.getElementById('seColor').value=this.value});

@@ -67,7 +67,7 @@ async function acceptInvite(e){
     var r=await fetch('/auth/invite/accept',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     var d=await r.json();
     if(d.success){window.location.href=d.redirect}
-    else{err.textContent=d.error||'Failed.';err.style.display='block';btn.disabled=false;btn.querySelector('span').textContent='Create Account'}
+    else{err.textContent=d.detail||d.error||'Failed.';err.style.display='block';btn.disabled=false;btn.querySelector('span').textContent='Create Account'}
   }catch(ex){
     err.textContent='Network error.';err.style.display='block';btn.disabled=false;btn.querySelector('span').textContent='Create Account';
   }

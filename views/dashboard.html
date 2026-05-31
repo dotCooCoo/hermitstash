@@ -146,7 +146,7 @@
 <script>
 function showRenameError(input,msg){if(window.Helpers)return Helpers.showRenameError(input,msg);var err=input.parentNode.querySelector('.rename-error');if(!err){err=document.createElement('div');err.className='rename-error';err.style.cssText='font-size:.72rem;color:var(--danger);margin-top:2px';input.parentNode.appendChild(err)}err.textContent=msg;input.style.borderColor='var(--danger)';setTimeout(function(){if(err.parentNode)err.remove();input.style.borderColor=''},3000)}
 async function del(id){if(!confirm('Delete?'))return;const r=await fetch('/files/'+id+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});if(r.ok){document.getElementById('file-'+id).remove();if(!document.querySelector('.admin-user-row'))location.reload()}}
-async function delBundle(shareId,count){if(!confirm('Delete this bundle and all '+count+' file'+(count!==1?'s':'')+'?'))return;var r=await fetch('/bundles/'+shareId+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});var d=await r.json();if(d.success){var el=document.getElementById('bundle-'+shareId);var fl=document.getElementById('bfiles-'+shareId);if(el)el.remove();if(fl)fl.remove();if(!document.querySelector('.admin-user-row'))location.reload()}else{alert(d.error||'Delete failed')}}
+async function delBundle(shareId,count){if(!confirm('Delete this bundle and all '+count+' file'+(count!==1?'s':'')+'?'))return;var r=await fetch('/bundles/'+shareId+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});var d=await r.json();if(d.success){var el=document.getElementById('bundle-'+shareId);var fl=document.getElementById('bfiles-'+shareId);if(el)el.remove();if(fl)fl.remove();if(!document.querySelector('.admin-user-row'))location.reload()}else{alert(d.detail||d.error||'Delete failed')}}
 function toggleDashFiles(shareId,btn){var el=document.getElementById('bfiles-'+shareId);if(el.style.display!=='none'){el.style.display='none';btn.querySelector('span').textContent='Files'}else{el.style.display='block';btn.querySelector('span').textContent='Hide'}}
 function renameBundle(shareId,el){
   var current=el.textContent;
@@ -160,7 +160,7 @@ function saveBundleRename(shareId,input,el){
   var name=input.value.trim();
   fetch('/bundles/'+shareId+'/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})}).then(function(r){return r.json()}).then(function(d){
     if(d.success){el.textContent=d.name||name||'Unnamed Bundle';el.style.display='';input.remove()}
-    else{showRenameError(input,d.error||'Rename failed')}
+    else{showRenameError(input,d.detail||d.error||'Rename failed')}
   }).catch(function(){el.style.display='';input.remove()});
 }
 function renameFile(shareId,el){
@@ -179,7 +179,7 @@ function renameVaultBatch(batchId,el){
     var name=input.value.trim();
     fetch('/vault/batch/'+batchId+'/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})}).then(function(r){return r.json()}).then(function(d){
       if(d.success){el.textContent=d.name||name||'Unnamed Batch';el.style.display='';input.remove()}
-      else{showRenameError(input,d.error||'Rename failed')}
+      else{showRenameError(input,d.detail||d.error||'Rename failed')}
     }).catch(function(){el.style.display='';input.remove()});
   };
   input.onkeydown=function(e){if(e.key==='Enter'){e.preventDefault();input.blur()}if(e.key==='Escape'){el.style.display='';input.remove()}};
@@ -197,14 +197,14 @@ function saveVaultFileRename(shareId,input,el){
   var name=input.value.trim();
   fetch('/vault/file/'+shareId+'/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})}).then(function(r){return r.json()}).then(function(d){
     if(d.success){el.textContent=d.name||name;el.title='Click to rename';el.style.display='';input.remove()}
-    else{showRenameError(input,d.error||'Rename failed')}
+    else{showRenameError(input,d.detail||d.error||'Rename failed')}
   }).catch(function(){el.style.display='';input.remove()});
 }
 function saveFileRename(shareId,input,el){
   var name=input.value.trim();
   fetch('/files/'+shareId+'/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})}).then(function(r){return r.json()}).then(function(d){
     if(d.success){el.textContent=d.name||name;el.title=d.name||name;el.style.display='';input.remove()}
-    else{showRenameError(input,d.error||'Rename failed')}
+    else{showRenameError(input,d.detail||d.error||'Rename failed')}
   }).catch(function(){el.style.display='';input.remove()});
 }
 
@@ -265,7 +265,7 @@ function confirmDisableVault(){
       document.getElementById('vaultRotateBtn').style.display='none';
       document.getElementById('vaultDisableBtn').style.display='none';
       document.getElementById('vaultNotEnabled').style.display='block';
-    }else{alert(d.error||'Failed to disable vault')}
+    }else{alert(d.detail||d.error||'Failed to disable vault')}
   }).catch(function(){btn.disabled=false;btn.querySelector('span').textContent='Disable Vault';alert('Network error')});
 }
 
@@ -332,7 +332,7 @@ async function enableVault(){
       var regResp=WebAuthnHelpers.formatCreateResponse(credential);
       var verRes=await fetch('/passkey/register/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(regResp)});
       var verData=await verRes.json();
-      if(!verData.verified){throw new Error(verData.error||'Passkey registration failed')}
+      if(!verData.verified){throw new Error(verData.detail||verData.error||'Passkey registration failed')}
       isNewPasskey=true;
     }
 
@@ -371,7 +371,7 @@ async function enableVault(){
       document.getElementById('vaultUploadBtn').style.display='';
       document.getElementById('vaultDisableBtn').style.display='';
       loadVaultFiles();
-    }else{alert(d.error||'Failed')}
+    }else{alert(d.detail||d.error||'Failed')}
   }catch(e){console.error('Vault enable error:',e);alert('Failed: '+e.message)}
   btn.disabled=false;btn.querySelector('span').textContent='Enable with Passkey';
 }
@@ -501,7 +501,7 @@ async function vaultDownload(shareId){
   if(!getVaultKey()){var kp=await unlockVault();if(!kp){alert('Passkey authentication required to decrypt.');return}}
   try{
     var r=await fetch('/vault/download/'+shareId);var d=await r.json();
-    if(!d.ciphertext){alert(d.error||'Download failed');return}
+    if(!d.ciphertext){alert(d.detail||d.error||'Download failed');return}
     var encKey=VaultPQ.fromBase64(d.encapsulatedKey);
     var iv=VaultPQ.fromBase64(d.iv);
     var ct=VaultPQ.fromBase64(d.ciphertext);
@@ -569,14 +569,14 @@ async function vaultBatchDel(batchId,count){
   var r=await fetch('/vault/batch/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({batchId:batchId})});
   var d=await r.json();
   if(d.success){var el=document.getElementById('vbatch-'+batchId);if(el)el.remove();var fl=document.getElementById('vbfiles-'+batchId);if(fl)fl.remove();if(!document.querySelector('#vaultFileList .admin-user-row'))document.getElementById('vaultEmpty').style.display='block'}
-  else{alert(d.error||'Delete failed')}
+  else{alert(d.detail||d.error||'Delete failed')}
 }
 
 async function vaultDel(shareId){
   if(!confirm('Delete this vault file? This cannot be undone.'))return;
   var r=await fetch('/vault/delete/'+shareId,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
   if(r.ok){var el=document.getElementById('vf-'+shareId);if(el)el.remove();if(!document.querySelector('#vaultFileList .admin-user-row'))document.getElementById('vaultEmpty').style.display='block'}
-  else{var d=await r.json().catch(function(){return{}});alert(d.error||'Delete failed')}
+  else{var d=await r.json().catch(function(){return{}});alert(d.detail||d.error||'Delete failed')}
 }
 
 async function forceResetVault(){
@@ -585,7 +585,7 @@ async function forceResetVault(){
   if(!window.confirm('This will PERMANENTLY DELETE all vault-encrypted files. This cannot be undone. Proceed?'))return;
   fetch('/vault/force-reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:'RESET'})}).then(function(r){return r.json()}).then(function(d){
     if(d.success){alert('Vault reset. '+d.filesDeleted+' encrypted files deleted.');location.reload()}
-    else alert(d.error||'Reset failed.');
+    else alert(d.detail||d.error||'Reset failed.');
   }).catch(function(){alert('Network error.')});
 }
 

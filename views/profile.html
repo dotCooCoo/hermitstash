@@ -99,7 +99,7 @@ function saveName(){
   var name=document.getElementById('profName').value.trim();
   if(!name)return msg('Name is required',false);
   fetch('/profile/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({displayName:name})}).then(function(r){return r.json()}).then(function(d){
-    if(d.success)msg('Name updated',true);else msg(d.error,false);
+    if(d.success)msg('Name updated',true);else msg(d.detail||d.error||'Update failed.',false);
   }).catch(function(){msg('Network error',false)});
 }
 
@@ -109,7 +109,7 @@ function changePwd(){
   if(!cur||!nw)return msg('Both fields required',false);
   if(nw.length<8)return msg('New password must be at least 8 characters',false);
   fetch('/profile/password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({currentPassword:cur,newPassword:nw})}).then(function(r){return r.json()}).then(function(d){
-    if(d.success){msg('Password changed',true);document.getElementById('profCurPwd').value='';document.getElementById('profNewPwd').value=''}else msg(d.error,false);
+    if(d.success){msg('Password changed',true);document.getElementById('profCurPwd').value='';document.getElementById('profNewPwd').value=''}else msg(d.detail||d.error||'Password change failed.',false);
   }).catch(function(){msg('Network error',false)});
 }
 
@@ -169,7 +169,7 @@ async function registerPasskey(){
   btn.disabled=true;btn.querySelector('span').textContent='Waiting for passkey...';
   try{
     var optRes=await fetch('/passkey/register/options',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-    if(!optRes.ok){var e=await optRes.json();throw new Error(e.error||'Failed')}
+    if(!optRes.ok){var e=await optRes.json();throw new Error(e.detail||e.error||'Failed')}
     var options=await optRes.json();
 
     WebAuthnHelpers.prepareCreateOptions(options);
@@ -183,7 +183,7 @@ async function registerPasskey(){
     var verRes=await fetch('/passkey/register/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(regResp)});
     var verData=await verRes.json();
     if(verData.verified){msg('Passkey added!',true);loadPasskeys()}
-    else{msg(verData.error||'Registration failed.',false)}
+    else{msg(verData.detail||verData.error||'Registration failed.',false)}
   }catch(err){
     if(err.name==='NotAllowedError')msg('Passkey request was cancelled.',false);
     else msg(err.message||'Failed to add passkey.',false);
@@ -202,7 +202,7 @@ function removePasskey(id,confirmVault){
         removePasskey(id,true);
       }
     }
-    else msg(d.error,false);
+    else msg(d.detail||d.error||'Failed to remove passkey.',false);
   }).catch(function(){msg('Network error',false)});
 }
 
@@ -225,7 +225,7 @@ function deleteAccount(){
   var confirm=document.getElementById('profDeleteConfirm').value;
   if(confirm!=='DELETE')return msg('Type DELETE to confirm',false);
   fetch('/profile/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:confirm})}).then(function(r){return r.json()}).then(function(d){
-    if(d.success)window.location.href=d.redirect;else msg(d.error,false);
+    if(d.success)window.location.href=d.redirect;else msg(d.detail||d.error||'Account deletion failed.',false);
   }).catch(function(){msg('Network error',false)});
 }
 
@@ -262,7 +262,7 @@ async function toggleStealth(){
       tog.checked=d.stealth;
       document.getElementById('stealthLabel').textContent=d.stealth?'Stealth active — vault ops hidden from audit log':'Stealth off — vault ops are logged';
       msg('Stealth mode '+(d.stealth?'enabled':'disabled'),true);
-    }else{msg(d.error,false)}
+    }else{msg(d.detail||d.error||'Failed to change stealth mode.',false)}
   }).catch(function(){msg('Network error',false)});
 }
 
