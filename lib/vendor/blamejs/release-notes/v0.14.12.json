@@ -1,0 +1,95 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.14.12",
+  "date": "2026-05-31",
+  "headline": "Vault key rotation re-seals AAD-bound storage under the new root instead of silently orphaning it",
+  "summary": "Every AAD-sealed cell derives its key from the live vault root, so rotating the vault keypair changes those keys. `b.vaultRotate.rotate` previously re-sealed only legacy `vault:`-prefixed cells in `db.enc` and skipped `vault.aad:` cells, AAD-bound at-rest files, and operator-supplied AAD stores — leaving them encrypted under the retired keypair while still returning a success result and a passing round-trip verify, so the loss was invisible until the old keypair was discarded and the cells became permanently undecryptable. Rotation now re-seals `db.enc` (preserving its dataDir-bound AAD), `db.key.enc` (location-bound), every `{ aad: true }` table column, and the overflow store under the new root; refuses up front with a fail-closed error when operator-supplied AAD stores (agent idempotency / orchestrator / tenant / snapshot) are reachable unless each has been re-sealed via its module hook and explicitly acknowledged; and the round-trip verify now decrypts AAD-sealed cells under the new root and treats any cell that still opens under the old root as a regression. New explicit-root `b.vault.aad` seal / unseal / reseal primitives carry a cell from the old root to the new one while preserving its AAD tuple; `b.archive.rewrapTenant` re-wraps tenant-scoped archive envelopes; and `b.cluster` can adopt a rotated vault-key fingerprint instead of partitioning the membership during a rolling rotation.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.vault.aad.sealRoot` / `unsealRoot` / `resealRoot`",
+          "body": "Explicit-root variants of the AAD seal / unseal that take a root-keypair JSON (`b.vault.getKeysJson()` output) instead of reading the live vault singleton. `resealRoot(value, aadParts, oldRootJson, newRootJson)` opens a cell under the old root and re-seals it under the new one while preserving the same AAD tuple (`table` / `rowId` / `column` / `schemaVersion`), which is what lets a rotation worker move AAD-bound state across a keypair change without altering the bound context. The default-root `b.vault.aad.seal` / `unseal` behaviour is unchanged."
+        },
+        {
+          "title": "Per-store AAD re-seal hooks on the agent primitives",
+          "body": "`b.agent.idempotency.reseal`, `b.agent.orchestrator.reseal`, `b.agent.snapshot.reseal`, and the `b.agent.tenant` registry / tenant-cell reseal paths re-seal that module's AAD-bound rows from an old root to a new root over the operator's own store. Each module also exposes an `AAD_ROTATION` descriptor naming the store the rotation pipeline cannot reach on its own, so an operator can enumerate exactly what to re-seal before a rotation."
+        },
+        {
+          "title": "`b.archive.rewrapTenant`",
+          "body": "Re-wraps a `recipient: \"tenant\"` archive envelope from an old vault root to a new one for a given `tenantId`, so a keypair rotation does not strand tenant-scoped archives. Opens the blob under the old root + tenantId, refuses a blob that is not a tenant-recipient envelope or that does not open under the supplied old root, and emits a fresh envelope bound to the new root. This is offered alongside the documented re-export path (decrypt with the old keypair, re-archive with the new one) for operators who hold the envelope but not the source."
+        },
+        {
+          "title": "Cluster vault-key rotation acceptance",
+          "body": "A vault-key rotation changes the public-key fingerprint recorded in the canonical cluster-state row, which a peer would otherwise report as `VAULT_KEY_DRIFT`. `b.cluster` configuration gains `acceptVaultKeyRotation: true` to declare the change legitimate — the node adopts the rotated fingerprint and bumps a rotation epoch instead of refusing — and an optional `expectedVaultKeyFp` that narrows acceptance to a single blessed post-rotation fingerprint. The drift guard stays in force whenever a rotation is not declared; supplying `expectedVaultKeyFp` without `acceptVaultKeyRotation` is rejected at configuration time as a misconfiguration."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "`b.vaultRotate.rotate` refuses when reachable AAD stores are not acknowledged",
+          "body": "Because the rotation pipeline walks only `db.enc` and cannot introspect an operator's own AAD-backed stores, it now detects which AAD-store modules are loadable and throws `vault-rotate/external-aad-unresealed` unless `opts.externalAadResealed` is either `true` (you do not use those features) or an array naming every detected store (you have re-sealed each via its hook). This converts a path that previously discarded data and reported success into a fail-closed gate. The error names each store and the hook to call."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Rotation re-seals `vault.aad:` cells and AAD-bound at-rest files",
+          "body": "`db.enc` is re-written bound to its dataDir-scoped AAD (it was previously re-written un-bound, silently stripping the at-rest AAD binding on every rotation), `db.key.enc` retains its location-bound AAD, and every `{ aad: true }` table column plus the overflow store is re-sealed under the new root. Previously only `vault:`-prefixed cells were carried across, so AAD-sealed data was left encrypted under the retired keypair and lost once it was discarded."
+        },
+        {
+          "title": "Round-trip verify no longer reports a false success",
+          "body": "`b.vaultRotate.verify` now samples and decrypts AAD-sealed cells under the new root and treats any cell that still decrypts under the old root as a regression, so an incomplete rotation fails verification instead of passing it. The prior verify checked only `vault:` cells and therefore reported `ok` even when AAD-sealed cells had been orphaned."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "A vault key rotation can no longer silently destroy encrypted data",
+          "body": "The orphaning path lost agent idempotency / orchestrator / tenant / snapshot state, `{ aad: true }` columns, and tenant archives with no error and a passing verify; the data became unrecoverable the moment the old keypair was retired. Rotation is now fail-closed end to end: it re-seals what it can reach, refuses to proceed past what it cannot until you acknowledge it, and verifies the result under the new root. If you performed a rotation on v0.14.11 or earlier and still hold the retired keypair, re-seal the affected cells under the current root with the explicit-root primitives before discarding it."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "AAD-backed store modules must expose a rotation reseal path",
+          "body": "A new check flags a module that registers an external `{ aad: true }` store but does not expose an `AAD_ROTATION` descriptor and reseal hook, which would leave its state unreachable by the rotation pipeline."
+        },
+        {
+          "title": "A root-keyed seal family must ship its reseal",
+          "body": "A new check flags adding a `sealRoot` / `unsealRoot` pair without the matching `resealRoot`, since without it a rotated cell cannot be carried from the old root to the new one."
+        },
+        {
+          "title": "Live-root AAD seals need a reseal path",
+          "body": "A new check flags a primitive that AAD-seals under the live vault root without a way to re-seal that state under a new root during rotation."
+        },
+        {
+          "title": "Tenant archive re-wrapping must compose `b.archive.rewrapTenant`",
+          "body": "A new check flags tenant-scoped archive re-wrapping that opens and re-seals a tenant envelope by hand instead of routing through `b.archive.rewrapTenant`."
+        },
+        {
+          "title": "Cluster vault-key drift needs the rotation-epoch accept gate",
+          "body": "A new check flags a cluster vault-key fingerprint comparison that hard-rejects a mismatch without honouring the `acceptVaultKeyRotation` epoch window."
+        }
+      ]
+    },
+    {
+      "heading": "Migration",
+      "items": [
+        {
+          "title": "Re-seal operator AAD stores before rotating",
+          "body": "Before calling `b.vaultRotate.rotate`, re-seal each AAD-backed store you use via its hook (`b.agent.idempotency.reseal`, `b.agent.orchestrator.reseal`, `b.agent.snapshot.reseal`, the `b.agent.tenant` `AAD_ROTATION` reseal paths) with the old and new root JSON, re-wrap tenant archives with `b.archive.rewrapTenant`, then pass `opts.externalAadResealed` as an array naming each re-sealed store. If you use none of these features, pass `opts.externalAadResealed: true`. Declare the rotation to each cluster node with `acceptVaultKeyRotation: true` so the membership adopts the new fingerprint rather than reporting drift."
+        }
+      ]
+    }
+  ]
+}

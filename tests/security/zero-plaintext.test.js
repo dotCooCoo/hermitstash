@@ -20,7 +20,13 @@ var { hashEmail, sha3Hash } = require(path.join(testEnv.projectRoot, "lib", "cry
 var hashPassword = function (p) { return b.auth.password.hash(String(p)); };
 var db = require(path.join(testEnv.projectRoot, "lib", "db"));
 var audit = require(path.join(testEnv.projectRoot, "lib", "audit"));
+// Sealed values are AEAD-bound (vault.aad: prefix); vault.unseal only reads the
+// legacy vault: prefix, so unseal AAD-bound cells through the row-aware helper.
+var { isSealed, unsealField } = require("../helpers/seal-assert");
 
+// b.vault.aad (the AEAD-bound seal/unseal path) has no sync fallback, so the
+// vault must be awaited-initialized before unsealing AAD-bound cells.
+before(async function () { await vault.init(); });
 after(function () { testEnv.cleanup(); });
 
 describe("zero-plaintext database verification", function () {
@@ -34,15 +40,15 @@ describe("zero-plaintext database verification", function () {
         createdAt: new Date().toISOString(),
       });
       var raw = db.users.raw().findOne({ _id: doc._id });
-      assert.ok(raw.email.startsWith("vault:"), "email should be vault-sealed");
-      assert.ok(raw.displayName.startsWith("vault:"), "displayName should be vault-sealed");
-      assert.ok(raw.passwordHash.startsWith("vault:"), "passwordHash should be vault-sealed (HS defense-in-depth — see lib/field-crypto.js users.seal)");
-      assert.ok(vault.unseal(raw.passwordHash).startsWith("$argon2id$"), "unsealed passwordHash should be Argon2id PHC");
+      assert.ok(isSealed(raw.email), "email should be vault-sealed");
+      assert.ok(isSealed(raw.displayName), "displayName should be vault-sealed");
+      assert.ok(isSealed(raw.passwordHash), "passwordHash should be vault-sealed (HS defense-in-depth — see lib/field-crypto.js users.seal)");
+      assert.ok(unsealField("users", doc._id, "passwordHash", raw.passwordHash).startsWith("$argon2id$"), "unsealed passwordHash should be Argon2id PHC");
       assert.ok(raw.emailHash.length > 50, "emailHash should be SHA3 hash");
-      assert.ok(!raw.emailHash.startsWith("vault:"), "emailHash should be hash not sealed");
+      assert.ok(!isSealed(raw.emailHash), "emailHash should be hash not sealed");
       // Verify unseal roundtrip
-      assert.strictEqual(vault.unseal(raw.email), "alice@example.com");
-      assert.strictEqual(vault.unseal(raw.displayName), "Alice");
+      assert.strictEqual(unsealField("users", doc._id, "email", raw.email), "alice@example.com");
+      assert.strictEqual(unsealField("users", doc._id, "displayName", raw.displayName), "Alice");
       db.users.remove({ _id: doc._id });
     });
 
@@ -68,8 +74,8 @@ describe("zero-plaintext database verification", function () {
         authType: "google", role: "user", status: "active", createdAt: new Date().toISOString(),
       });
       var raw = db.users.raw().findOne({ _id: doc._id });
-      assert.ok(raw.googleId.startsWith("vault:"), "googleId should be sealed");
-      assert.ok(raw.avatar.startsWith("vault:"), "avatar should be sealed");
+      assert.ok(isSealed(raw.googleId), "googleId should be sealed");
+      assert.ok(isSealed(raw.avatar), "avatar should be sealed");
       db.users.remove({ _id: doc._id });
     });
   });
@@ -85,12 +91,12 @@ describe("zero-plaintext database verification", function () {
         size: 1024, status: "complete", createdAt: new Date().toISOString(),
       });
       var raw = db.files.raw().findOne({ _id: doc._id });
-      assert.ok(raw.originalName.startsWith("vault:"), "originalName should be sealed");
-      assert.ok(raw.relativePath.startsWith("vault:"), "relativePath should be sealed");
-      assert.ok(raw.storagePath.startsWith("vault:"), "storagePath should be sealed");
-      assert.ok(raw.mimeType.startsWith("vault:"), "mimeType should be sealed");
-      assert.ok(raw.uploaderEmail.startsWith("vault:"), "uploaderEmail should be sealed");
-      assert.strictEqual(vault.unseal(raw.originalName), "secret-report.pdf");
+      assert.ok(isSealed(raw.originalName), "originalName should be sealed");
+      assert.ok(isSealed(raw.relativePath), "relativePath should be sealed");
+      assert.ok(isSealed(raw.storagePath), "storagePath should be sealed");
+      assert.ok(isSealed(raw.mimeType), "mimeType should be sealed");
+      assert.ok(isSealed(raw.uploaderEmail), "uploaderEmail should be sealed");
+      assert.strictEqual(unsealField("files", doc._id, "originalName", raw.originalName), "secret-report.pdf");
       db.files.remove({ _id: doc._id });
     });
   });
@@ -103,8 +109,8 @@ describe("zero-plaintext database verification", function () {
         status: "complete", createdAt: new Date().toISOString(),
       });
       var raw = db.bundles.raw().findOne({ _id: doc._id });
-      assert.ok(raw.uploaderName.startsWith("vault:"), "uploaderName should be sealed");
-      assert.ok(raw.uploaderEmail.startsWith("vault:"), "uploaderEmail should be sealed");
+      assert.ok(isSealed(raw.uploaderName), "uploaderName should be sealed");
+      assert.ok(isSealed(raw.uploaderEmail), "uploaderEmail should be sealed");
       db.bundles.remove({ _id: doc._id });
     });
   });
@@ -122,11 +128,11 @@ describe("zero-plaintext database verification", function () {
         return audit.unsealEntry(e).action === "login_success";
       }).pop();
       assert.ok(entry, "should find a login_success audit entry");
-      assert.ok(entry.action.startsWith("vault:"), "action should be sealed");
-      assert.ok(entry.targetEmail.startsWith("vault:"), "targetEmail should be sealed");
-      assert.ok(entry.performedByEmail.startsWith("vault:"), "performedByEmail should be sealed");
-      assert.ok(entry.details.startsWith("vault:"), "details should be sealed");
-      assert.ok(entry.ip && entry.ip.startsWith("vault:"), "IP should be vault-sealed");
+      assert.ok(isSealed(entry.action), "action should be sealed");
+      assert.ok(isSealed(entry.targetEmail), "targetEmail should be sealed");
+      assert.ok(isSealed(entry.performedByEmail), "performedByEmail should be sealed");
+      assert.ok(isSealed(entry.details), "details should be sealed");
+      assert.ok(entry.ip && isSealed(entry.ip), "IP should be vault-sealed");
       assert.ok(!entry.userAgent, "userAgent should not be stored");
       // Verify unseal
       var unsealed = audit.unsealEntry(entry);
@@ -143,10 +149,10 @@ describe("zero-plaintext database verification", function () {
         userId: "u1", createdAt: new Date().toISOString(),
       });
       var raw = db.apiKeys.raw().findOne({ _id: doc._id });
-      assert.ok(raw.name.startsWith("vault:"), "name should be sealed");
-      assert.ok(raw.prefix.startsWith("vault:"), "prefix should be sealed");
-      assert.ok(raw.permissions.startsWith("vault:"), "permissions should be sealed");
-      assert.ok(!raw.keyHash.startsWith("vault:"), "keyHash should be SHA3 hash not sealed");
+      assert.ok(isSealed(raw.name), "name should be sealed");
+      assert.ok(isSealed(raw.prefix), "prefix should be sealed");
+      assert.ok(isSealed(raw.permissions), "permissions should be sealed");
+      assert.ok(!isSealed(raw.keyHash), "keyHash should be SHA3 hash not sealed");
       db.apiKeys.remove({ _id: doc._id });
     });
   });
@@ -160,9 +166,9 @@ describe("zero-plaintext database verification", function () {
         active: "true", createdBy: "u1", createdAt: new Date().toISOString(),
       });
       var raw = db.webhooks.raw().findOne({ _id: doc._id });
-      assert.ok(raw.url.startsWith("vault:"), "url should be sealed");
-      assert.ok(raw.events.startsWith("vault:"), "events should be sealed");
-      assert.ok(raw.secret.startsWith("vault:"), "secret should be sealed");
+      assert.ok(isSealed(raw.url), "url should be sealed");
+      assert.ok(isSealed(raw.events), "events should be sealed");
+      assert.ok(isSealed(raw.secret), "secret should be sealed");
       db.webhooks.remove({ _id: doc._id });
     });
   });
@@ -174,9 +180,9 @@ describe("zero-plaintext database verification", function () {
         blockedBy: "u1", createdAt: new Date().toISOString(),
       });
       var raw = db.blockedIps.raw().findOne({ _id: doc._id });
-      assert.ok(!raw.ip.startsWith("vault:"), "ip should be hash not sealed");
+      assert.ok(!isSealed(raw.ip), "ip should be hash not sealed");
       assert.ok(raw.ip.length > 50, "ip should be full SHA3 hash");
-      assert.ok(raw.reason.startsWith("vault:"), "reason should be sealed");
+      assert.ok(isSealed(raw.reason), "reason should be sealed");
       db.blockedIps.remove({ _id: doc._id });
     });
   });
@@ -189,8 +195,8 @@ describe("zero-plaintext database verification", function () {
         counter: 0, deviceType: "multiDevice", createdAt: new Date().toISOString(),
       });
       var raw = db.credentials.raw().findOne({ _id: doc._id });
-      assert.ok(raw.credentialId.startsWith("vault:"), "credentialId should be sealed");
-      assert.ok(raw.publicKey.startsWith("vault:"), "publicKey should be sealed");
+      assert.ok(isSealed(raw.credentialId), "credentialId should be sealed");
+      assert.ok(isSealed(raw.publicKey), "publicKey should be sealed");
       db.credentials.remove({ _id: doc._id });
     });
   });
@@ -205,7 +211,7 @@ describe("zero-plaintext database verification", function () {
         createdAt: new Date().toISOString(),
       });
       var raw = db.verificationTokens.findOne({ _id: doc._id });
-      assert.ok(!raw.token.startsWith("vault:"), "token should be hash not sealed");
+      assert.ok(!isSealed(raw.token), "token should be hash not sealed");
       assert.strictEqual(raw.token.length, 128, "should be SHA3-512 hash (128 hex)");
       assert.notStrictEqual(raw.token, rawToken, "should not store raw token");
       db.verificationTokens.remove({ _id: doc._id });

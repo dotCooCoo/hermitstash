@@ -777,6 +777,11 @@ module.exports = function (app) {
     audit.log(audit.ACTIONS.RESTORE_STARTED, { details: "Restore initiated from backup: " + timestamp + (dryRun ? " (dry-run)" : ""), req: req });
 
     try {
+      // A missing backup is a 404 the operator can act on; the worker's other
+      // curated failures (wrong passphrase, corrupt backup) are classified as
+      // 4xx below rather than surfacing as an opaque, detail-suppressed 500.
+      var manifest = await backup.getBackupManifest(timestamp);
+      if (!manifest) throw new NotFoundError("Backup not found for timestamp " + timestamp + ".");
       var result = await backup.runRestore(passphrase, timestamp, { dryRun: dryRun });
       res.json({ success: true, restarting: !dryRun, dryRun: dryRun, stats: result.stats });
       if (!dryRun) {
@@ -784,8 +789,23 @@ module.exports = function (app) {
         setTimeout(function () { process.exit(0); }, 500);
       }
     } catch (err) {
+      if (err && err.isAppError) throw err;
       logger.error("Restore failed", { error: err.message });
-      throw new AppError("Restore failed: " + err.message, 500);
+      // The restore worker raises curated, user-actionable failures (missing
+      // backup, wrong passphrase, corrupt archive). Surface those as a 4xx the
+      // operator can act on — a 5xx suppresses the detail. The raw err.message
+      // stays in the log, never in the response.
+      var rmsg = String((err && err.message) || "");
+      if (/not found|no such|does not exist/i.test(rmsg)) {
+        throw new NotFoundError("Backup not found for timestamp " + timestamp + ".");
+      }
+      if (/passphrase|could not decrypt|decrypt|aead|authentication/i.test(rmsg)) {
+        throw new ForbiddenError("Invalid passphrase — the backup could not be decrypted.");
+      }
+      if (/checksum|corrupt|integrity/i.test(rmsg)) {
+        throw new AppError("The backup failed integrity verification and may be corrupt.", 422);
+      }
+      throw new AppError("Restore failed.", 500);
     }
   });
 

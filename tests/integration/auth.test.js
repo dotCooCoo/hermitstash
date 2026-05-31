@@ -4,6 +4,7 @@ const path = require("path");
 
 var testServer = require("../helpers/test-server");
 var { TestClient } = require("../helpers/http-client");
+var { isSealed, unsealField } = require("../helpers/seal-assert");
 var client;
 
 before(async function () {
@@ -33,9 +34,9 @@ describe("auth integration", function () {
       var { hashEmail } = require(path.join(testServer.projectRoot, "lib", "crypto"));
       var user = users.raw().findOne({ emailHash: hashEmail("test@test.com") });
       assert.ok(user, "user should exist");
-      assert.ok(user.email.startsWith("vault:"), "email should be sealed in DB");
-      assert.ok(user.displayName.startsWith("vault:"), "displayName should be sealed in DB");
-      assert.strictEqual(vault.unseal(user.email), "test@test.com");
+      assert.ok(isSealed(user.email), "email should be sealed in DB");
+      assert.ok(isSealed(user.displayName), "displayName should be sealed in DB");
+      assert.strictEqual(unsealField("users", user._id, "email", user.email), "test@test.com");
     });
 
     it("rejects duplicate email", async function () {

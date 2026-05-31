@@ -6,6 +6,7 @@ const b = require("../../lib/vendor/blamejs");
 
 var testServer = require("../helpers/test-server");
 var { TestClient } = require("../helpers/http-client");
+var { isSealed, unsealField } = require("../helpers/seal-assert");
 var client;
 
 before(async function () {
@@ -65,8 +66,8 @@ describe("bundle password protection", function () {
     var vault = require(path.join(testServer.projectRoot, "lib", "vault"));
     var bundle = bundles.raw().findOne({ _id: res.json.bundleId });
     assert.ok(bundle.message, "bundle should have message in DB");
-    assert.ok(bundle.message.startsWith("vault:"), "message should be vault-sealed");
-    assert.strictEqual(vault.unseal(bundle.message), "Hello from the uploader");
+    assert.ok(isSealed(bundle.message), "message should be vault-sealed");
+    assert.strictEqual(unsealField("bundles", res.json.bundleId, "message", bundle.message), "Hello from the uploader");
   });
 
   it("upload file and finalize the password-protected bundle", async function () {

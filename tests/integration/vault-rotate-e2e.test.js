@@ -27,7 +27,14 @@ var { DatabaseSync } = require("node:sqlite");
 var REPO_ROOT = path.resolve(__dirname, "..", "..");
 var cryptoLib = require(path.join(REPO_ROOT, "lib", "crypto"));
 var b = require(path.join(REPO_ROOT, "lib", "vendor", "blamejs"));
+var fieldCrypto = require(path.join(REPO_ROOT, "lib", "field-crypto"));
 var { VAULT_PREFIX } = require(path.join(REPO_ROOT, "lib", "constants"));
+
+// Register HS's field-crypto schemas (users → aad:true, rowIdField:"_id",
+// schemaVersion:"1") so this parent test process can build a REAL AAD-bound
+// cell whose AAD tuple matches what the rotate pipeline reconstructs in its
+// child process (it calls the same registerWithBlamejs()).
+fieldCrypto.registerWithBlamejs();
 
 var testRoot = path.join(os.tmpdir(), "vault-rotate-e2e-" + b.crypto.generateToken(4));
 fs.mkdirSync(testRoot, { recursive: true });
@@ -43,6 +50,24 @@ function sealWith(keys, plaintext) {
   // through b.crypto.decrypt which rejects 0xE1 (it predates the
   // FixedInfo KDF binding from NIST SP 800-56C r2 §4.1).
   return VAULT_PREFIX + b.crypto.encrypt(plaintext, keys);
+}
+
+// Build the canonical column AAD for a (table, rowId, column) under HS's
+// registered schema (rowIdField "_id", schemaVersion "1") via the SAME
+// builder the seal path and the rotate pipeline use (cryptoField._aadParts),
+// so the rotation walker reconstructs the identical AAD tuple and recognizes
+// the cell.
+function aadPartsFor(table, column, rowId) {
+  var schema = b.cryptoField.getSchema(table);
+  return b.cryptoField._aadParts(schema, table, column, { _id: rowId });
+}
+
+// Seal a REAL AAD-bound ("vault.aad:") cell under an explicit vault root.
+// rootKeysJson matches getKeysJson() exactly (JSON.stringify(keys, null, 2))
+// so a cell sealed here under oldKeys is recognized + re-sealed by rotate.
+function sealAadWith(keys, table, column, rowId, plaintext) {
+  return b.vault.aad.sealRoot(plaintext, aadPartsFor(table, column, rowId),
+    JSON.stringify(keys, null, 2));
 }
 
 function buildFixture(dataDir, oldKeys, opts) {
@@ -65,9 +90,18 @@ function buildFixture(dataDir, oldKeys, opts) {
   db.prepare("CREATE TABLE audit_log (_id TEXT PRIMARY KEY, action TEXT, details TEXT, createdAt TEXT, data TEXT)").run();
 
   for (var i = 0; i < 20; i++) {
+    var rowId = "u" + i;
+    // When the caller asks for an AAD cell on this row, seal the email column
+    // as a REAL "vault.aad:" cell (AEAD-bound to table+_id+column+schemaVersion)
+    // instead of the legacy "vault:" envelope, so the fixture exercises the
+    // rotate pipeline's AAD re-seal branch alongside the legacy branch.
+    var emailPlain = "user" + i + "@example.com";
+    var emailSealed = (opts.aadCell && opts.aadCell.rowId === rowId)
+      ? sealAadWith(oldKeys, "users", "email", rowId, emailPlain)
+      : sealWith(oldKeys, emailPlain);
     db.prepare("INSERT INTO users (_id, email, displayName, status, createdAt, data) VALUES (?, ?, ?, ?, ?, ?)").run(
-      "u" + i,
-      sealWith(oldKeys, "user" + i + "@example.com"),
+      rowId,
+      emailSealed,
       sealWith(oldKeys, "User " + i),
       "active",
       new Date().toISOString(),
@@ -123,14 +157,28 @@ async function unwrapVaultKey(dataDir, passphrase) {
   return JSON.parse(plain.toString("utf8"));
 }
 
-function decryptLiveDb(dataDir, keys) {
+// Decrypt hermitstash.db.enc → plaintext SQLite bytes. The live (rotated) DB
+// is XChaCha20-Poly1305 AEAD-bound to its dataDir (db.js _dbEncAad); the
+// untouched data.old/ backup was written by the fixture without that AAD.
+// Mirror db.js's own read path: try the dataDir AAD first, fall back to no AAD.
+function decryptDbBytes(dataDir, dbKey) {
+  var packed = fs.readFileSync(path.join(dataDir, "hermitstash.db.enc"));
+  var aad = b.db._dbEncAad(dataDir);
+  try { return b.crypto.decryptPacked(packed, dbKey, aad); }
+  catch (_e) { return b.crypto.decryptPacked(packed, dbKey); }
+}
+
+function readDbKey(dataDir, keys) {
   var sealedDbKey = fs.readFileSync(path.join(dataDir, "db.key.enc"), "utf8").trim();
-  var dbKey = Buffer.from(
+  return Buffer.from(
     b.crypto.decrypt(sealedDbKey.substring(VAULT_PREFIX.length), keys),
     "base64"
   );
-  var packed = fs.readFileSync(path.join(dataDir, "hermitstash.db.enc"));
-  var plain = b.crypto.decryptPacked(packed, dbKey);
+}
+
+function decryptLiveDb(dataDir, keys) {
+  var dbKey = readDbKey(dataDir, keys);
+  var plain = decryptDbBytes(dataDir, dbKey);
   var tmpPath = path.join(dataDir, ".probe-" + Date.now() + ".db");
   fs.writeFileSync(tmpPath, plain);
   var db = new DatabaseSync(tmpPath);
@@ -138,6 +186,21 @@ function decryptLiveDb(dataDir, keys) {
   db.close();
   try { fs.unlinkSync(tmpPath); } catch {}
   return { rows: rows, dbKey: dbKey };
+}
+
+// Read one specific cell's RAW stored value (the sealed string as-is, no
+// unseal) from the live encrypted DB. Used to capture an AAD cell's ciphertext
+// before vs. after rotation so the test can prove the bytes actually changed.
+function readRawCell(dataDir, keys, table, rowId, column) {
+  var dbKey = readDbKey(dataDir, keys);
+  var plain = decryptDbBytes(dataDir, dbKey);
+  var tmpPath = path.join(dataDir, ".rawcell-" + Date.now() + "-" + b.crypto.generateToken(3) + ".db");
+  fs.writeFileSync(tmpPath, plain);
+  var db = new DatabaseSync(tmpPath);
+  var row = db.prepare("SELECT " + column + " AS v FROM " + table + " WHERE _id = ?").get(rowId);
+  db.close();
+  try { fs.unlinkSync(tmpPath); } catch {}
+  return row ? row.v : null;
 }
 
 function findDataOldDir(parent, dataBasename) {
@@ -199,6 +262,59 @@ describe("vault-rotate E2E: plaintext mode", function () {
     var oldUnderlying = b.crypto.decrypt(oldDbKeySealed.substring(VAULT_PREFIX.length), oldKeys);
     var newUnderlying = b.crypto.decrypt(newSealedDbKey.substring(VAULT_PREFIX.length), newKeys);
     assert.strictEqual(oldUnderlying, newUnderlying);
+  });
+
+  it("AAD-bound (vault.aad:) cell survives rotation — re-sealed old→new root", function () {
+    var dataDir = path.join(testRoot, "aad-" + b.crypto.generateToken(3));
+    var oldKeys = cryptoLib.generateEncryptionKeyPair();
+    var aadRowId = "u1";        // present in decryptLiveDb's first-5 sample
+    var aadPlain = "user1@example.com";
+    buildFixture(dataDir, oldKeys, { aadCell: { rowId: aadRowId } });
+
+    var aadParts = aadPartsFor("users", "email", aadRowId);
+    var oldRootJson = JSON.stringify(oldKeys, null, 2);
+
+    // Capture the AAD cell's ciphertext BEFORE rotation. Confirm the fixture
+    // really planted a vault.aad: cell that opens under the old root.
+    var before = readRawCell(dataDir, oldKeys, "users", aadRowId, "email");
+    assert.ok(b.vault.aad.isAadSealed(before), "fixture must plant a vault.aad: cell");
+    assert.strictEqual(b.vault.aad.unsealRoot(before, aadParts, oldRootJson), aadPlain,
+      "AAD cell must open under the OLD root before rotation");
+
+    // (1) Rotation succeeds. rotate self-verifies AAD cells under the new root
+    // (verify() in rotate.js) and would EXIT NON-ZERO if the cell could not be
+    // re-sealed — so exit 0 already implies the AAD cell was handled.
+    var r = runRotate(dataDir, {}, []);
+    assert.strictEqual(r.status, 0, "rotate exit: " + r.status + "\nstdout: " + r.stdout + "\nstderr: " + r.stderr);
+
+    var newKeys = readVaultKey(dataDir);
+    assert.ok(newKeys);
+    assert.notStrictEqual(newKeys.privateKey, oldKeys.privateKey, "new keys must be distinct");
+    var newRootJson = JSON.stringify(newKeys, null, 2);
+
+    // (2) Cell is still AAD-shaped AND its ciphertext bytes CHANGED — proving
+    // it was actually re-encrypted, not passed through verbatim.
+    var after = readRawCell(dataDir, newKeys, "users", aadRowId, "email");
+    assert.ok(b.vault.aad.isAadSealed(after), "rotated cell must keep the vault.aad: prefix");
+    assert.notStrictEqual(after, before, "AAD ciphertext must change — the cell was RE-SEALED, not copied through");
+
+    // (3) Cell decrypts to the original plaintext under the NEW root.
+    assert.strictEqual(b.vault.aad.unsealRoot(after, aadParts, newRootJson), aadPlain,
+      "rotated AAD cell must open to the original plaintext under the NEW root");
+
+    // (4) Cell does NOT decrypt under the OLD root (true rotation).
+    assert.throws(function () {
+      b.vault.aad.unsealRoot(after, aadParts, oldRootJson);
+    }, /aead-mismatch|authentication failed/, "OLD root must not open the rotated AAD cell");
+
+    // The data.old.<ts>/ backup still holds the pre-rotation cell under the old root.
+    var parent = path.dirname(dataDir);
+    var oldDir = findDataOldDir(parent, path.basename(dataDir));
+    assert.ok(oldDir, "data.old.<ts>/ should exist");
+    var oldBackupKeys = readVaultKey(oldDir);
+    var backupCell = readRawCell(oldDir, oldBackupKeys, "users", aadRowId, "email");
+    assert.strictEqual(backupCell, before, "backup must retain the original AAD ciphertext");
+    assert.strictEqual(b.vault.aad.unsealRoot(backupCell, aadParts, JSON.stringify(oldBackupKeys, null, 2)), aadPlain);
   });
 
   it("--dry-run leaves data/ untouched and doesn't create data.old.*", function () {

@@ -615,7 +615,13 @@ function cmdE2e() {
   if (!fs.existsSync(SYNC_REPO)) { console.log(red("  ✗ ../hermitstash-sync not found")); return 1; }
   console.log(dim("  node tests/run-all.js  (cwd ../hermitstash-sync, OPENSSL_CONF cleared)"));
   try {
-    run("node", ["tests/run-all.js"], { cwd: SYNC_REPO, env: cleanEnv() });
+    // Point the sync runner's server harness at THIS working tree, not its
+    // default (../hermitstash, the public mirror = the last synced release).
+    // Without this the pre-release E2E silently exercises already-shipped code
+    // instead of the changes being cut.
+    var e2eEnv = cleanEnv();
+    e2eEnv.HERMITSTASH_SERVER_DIR = REPO;
+    run("node", ["tests/run-all.js"], { cwd: SYNC_REPO, env: e2eEnv });
     console.log(green("\n  E2E passed"));
     return 0;
   } catch (_e) {

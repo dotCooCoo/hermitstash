@@ -1,0 +1,52 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.14.13",
+  "date": "2026-05-31",
+  "headline": "Close advertised-but-missing surface: SRS1 chained forwarding, DCQL array-wildcard claim paths, and in-memory safe-archive extraction",
+  "summary": "Three primitives advertised a capability in their documentation or card but refused or omitted it at runtime; this release implements each. b.mail.srs gains srs1Rewrite for the SRS1 double-forward (and multi-hop) case — previously the @intro described SRS1 and create() threw, pointing at a function that was never exported. b.safeArchive gains extractToMemory, the in-memory counterpart to extract for read-only / serverless filesystems — previously the card advertised in-memory extraction but the orchestrator required a destination directory. b.auth.oid4vp.matchDcql now honours a null claims-path segment as the array wildcard the OpenID4VP DCQL spec defines, rather than refusing it as unsupported while the card advertised DCQL. A stale version-pinned wording in a safe-archive error message is corrected. Every change is additive or message-only — no existing caller changes behaviour.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.mail.srs` SRS1 chained forwarding — `srs1Rewrite`",
+          "body": "`b.mail.srs.create(...)` now returns `srs1Rewrite` alongside `rewrite` / `reverse`. `srs1Rewrite(srsAddress)` chains an already-SRS0 (or SRS1) envelope-from for a further forwarding hop: it keeps the original SRS0 body verbatim, prepends the SRS0 originator's domain, and binds the pair with this forwarder's own HMAC-SHA-256 tag — no new timestamp, no repeated original local-part — emitting `SRS1=tag=originator==<SRS0-body>@thisForwarder`. `reverse()` now detects an SRS1 address, verifies this hop's tag and forwarder-domain binding, and unwraps exactly one hop back to the originator's SRS0 so a multi-hop bounce routes straight to the forwarder that can recover the original sender. Typed failure modes: `srs/not-srs0` (input not SRS-encoded), `srs/malformed` (missing the `==` separator), `srs/bad-tag` (tampered), `srs/too-long` (chain exceeds the RFC 5321 256-octet path limit). Implements the Sender Rewriting Scheme SRS1 wire format; the second-hop SPF rationale is RFC 7208 §2.4."
+        },
+        {
+          "title": "`b.safeArchive.extractToMemory` — in-memory safe extraction",
+          "body": "An async generator counterpart to `b.safeArchive.extract` for read-only / serverless filesystems: it resolves the source, sniffs the format, auto-unwraps recipient (`BAWRP`) / passphrase (`BAWPP`) envelopes, and dispatches to the zip / tar / tar.gz reader's in-memory `extractEntries()`, yielding `{ name, bytes, size }` per regular-file entry without ever writing to disk. It takes no `destination`. Every defense the disk path runs applies unchanged: the zip-bomb caps (entry-count / per-entry / total / expansion-ratio), the `b.guardArchive` metadata cascade (Zip-Slip / path-traversal / symlink-escape / encrypted-entry refusal, CVE-2025-3445 class), and the entry-type policy. The disk-only realpath-agreement check (CVE-2025-4517 PATH_MAX TOCTOU defense) is intentionally absent — there is no extraction root — so the archive-level name refusals carry containment. Trusted-stream sources are refused upfront (the adversarial-safe central-directory walk needs random access). gzip magic per RFC 1952 §2.3.1."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "OID4VP DCQL `null` claim-path segment now resolves the array wildcard",
+          "body": "`b.auth.oid4vp.matchDcql` previously threw `auth-oid4vp/null-path-segment-not-supported` for a `null` claims-path segment while the namespace card advertised DCQL — under-disclosing a legitimate presentation (CWE-863). Per OpenID4VP 1.0 §7.1.1 a `null` segment selects all elements of the array at that depth; the matcher now recurses over array elements with existence semantics (with DCQL value-matching applied to any selected leaf), composed to arbitrary depth. A `null` segment on a non-array node — like an integer index into a non-array, or a string key into an array — is a clean non-match, not a thrown error, because the matcher walks holder credential data rather than operator config. String and integer claim paths are byte-identical to before; only queries that previously threw now succeed or fail cleanly."
+        },
+        {
+          "title": "safe-archive trusted-stream refusal message no longer cites a stale version",
+          "body": "The thrown `safe-archive/trusted-stream-unsupported` message and its comment claimed trusted-stream extraction was \"deferred to v0.12.8 / when the v0.12.8 sequential extract path lands.\" That path shipped long ago — `b.archive.read.zip.fromTrustedStream` and the tar sequential mode exist — so the message now points at them as present capabilities and drops the version-pinned wording. The error code is unchanged."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "A primitive may not advertise a capability and then throw an unimplemented stub",
+          "body": "A new check flags a bare `not yet supported` / `operator demand TBD` / `not supported in v1` refusal in a lib throw string (comments excluded). A defer is only complete with a written re-open condition; the SRS1 and DCQL stubs that this release implements both carried this bare-defer shape, and the detector keeps it from re-entering."
+        },
+        {
+          "title": "DCQL `null` path segments must recurse, never refuse",
+          "body": "A new check flags the `null path segment not supported` refusal shape in `lib/auth/oid4vp.js`, so the spec-mandated array wildcard cannot be re-stubbed."
+        },
+        {
+          "title": "`extractToMemory` must stay disk-free",
+          "body": "A new check flags any `writeFileSync` / `renameSync` / `mkdirSync` / `createWriteStream` inside the `extractToMemory` generator body, so the read-only / serverless contract cannot regress into a disk write."
+        }
+      ]
+    }
+  ]
+}

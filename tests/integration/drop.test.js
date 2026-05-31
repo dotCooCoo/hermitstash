@@ -4,6 +4,7 @@ const path = require("path");
 
 var testServer = require("../helpers/test-server");
 var { TestClient } = require("../helpers/http-client");
+var { isSealed, unsealField } = require("../helpers/seal-assert");
 var client;
 
 before(async function () {
@@ -37,12 +38,12 @@ describe("drop integration", function () {
     var vault = require(path.join(testServer.projectRoot, "lib", "vault"));
     var { bundles } = require(path.join(testServer.projectRoot, "lib", "db"));
     var bundle = bundles.raw().findOne({ _id: bundleId });
-    assert.ok(bundle.uploaderName.startsWith("vault:"), "uploaderName should be sealed");
-    assert.ok(bundle.uploaderEmail.startsWith("vault:"), "uploaderEmail should be sealed");
+    assert.ok(isSealed(bundle.uploaderName), "uploaderName should be sealed");
+    assert.ok(isSealed(bundle.uploaderEmail), "uploaderEmail should be sealed");
     assert.ok(bundle.emailHash, "emailHash should exist");
     assert.ok(bundle.emailHash.length > 50, "emailHash should be SHA3 hash");
-    assert.strictEqual(vault.unseal(bundle.uploaderName), "Tester");
-    assert.strictEqual(vault.unseal(bundle.uploaderEmail), "tester@test.com");
+    assert.strictEqual(unsealField("bundles", bundle._id, "uploaderName", bundle.uploaderName), "Tester");
+    assert.strictEqual(unsealField("bundles", bundle._id, "uploaderEmail", bundle.uploaderEmail), "tester@test.com");
   });
 
   it("POST /drop/file uploads a file with sealed metadata", async function () {
@@ -61,13 +62,13 @@ describe("drop integration", function () {
     var allFiles = files.raw().find({ bundleShareIdHash: sha3Hash("hs-share:" + bundleShareId) });
     assert.ok(allFiles.length >= 1);
     var f = allFiles[0];
-    assert.ok(f.originalName.startsWith("vault:"), "originalName should be sealed");
-    assert.ok(f.relativePath.startsWith("vault:"), "relativePath should be sealed");
-    assert.ok(f.storagePath.startsWith("vault:"), "storagePath should be sealed");
-    assert.ok(f.mimeType.startsWith("vault:"), "mimeType should be sealed");
-    assert.ok(f.uploaderEmail.startsWith("vault:"), "uploaderEmail should be sealed");
-    assert.strictEqual(vault.unseal(f.originalName), "test.txt");
-    assert.strictEqual(vault.unseal(f.relativePath), "folder/test.txt");
+    assert.ok(isSealed(f.originalName), "originalName should be sealed");
+    assert.ok(isSealed(f.relativePath), "relativePath should be sealed");
+    assert.ok(isSealed(f.storagePath), "storagePath should be sealed");
+    assert.ok(isSealed(f.mimeType), "mimeType should be sealed");
+    assert.ok(isSealed(f.uploaderEmail), "uploaderEmail should be sealed");
+    assert.strictEqual(unsealField("files", f._id, "originalName", f.originalName), "test.txt");
+    assert.strictEqual(unsealField("files", f._id, "relativePath", f.relativePath), "folder/test.txt");
   });
 
   it("POST /drop/file uploads a second file", async function () {

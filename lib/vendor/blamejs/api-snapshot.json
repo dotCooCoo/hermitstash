@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.14.11",
-  "createdAt": "2026-05-31T13:01:57.420Z",
+  "frameworkVersion": "0.14.13",
+  "createdAt": "2026-05-31T19:14:46.873Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -271,6 +271,31 @@
         "idempotency": {
           "type": "object",
           "members": {
+            "AAD_ROTATION": {
+              "type": "object",
+              "members": {
+                "backend": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "reseal": {
+                  "type": "function",
+                  "arity": 1
+                },
+                "rowIdField": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "schemaVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "table": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "AgentIdempotencyError": {
               "type": "function",
               "arity": 4
@@ -373,12 +398,41 @@
                   }
                 }
               }
+            },
+            "reseal": {
+              "type": "function",
+              "arity": 1
             }
           }
         },
         "orchestrator": {
           "type": "object",
           "members": {
+            "AAD_ROTATION": {
+              "type": "object",
+              "members": {
+                "backend": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "reseal": {
+                  "type": "function",
+                  "arity": 1
+                },
+                "rowIdField": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "schemaVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "table": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "AgentOrchestratorError": {
               "type": "function",
               "arity": 4
@@ -502,6 +556,10 @@
                   }
                 }
               }
+            },
+            "reseal": {
+              "type": "function",
+              "arity": 1
             },
             "shardFor": {
               "type": "function",
@@ -748,6 +806,31 @@
         "snapshot": {
           "type": "object",
           "members": {
+            "AAD_ROTATION": {
+              "type": "object",
+              "members": {
+                "backend": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "reseal": {
+                  "type": "function",
+                  "arity": 1
+                },
+                "rowIdField": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "schemaVersion": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "table": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
             "AgentSnapshotError": {
               "type": "function",
               "arity": 4
@@ -755,6 +838,10 @@
             "SCHEMA_VERSION": {
               "type": "primitive",
               "valueType": "number"
+            },
+            "SEALED_PREFIX": {
+              "type": "primitive",
+              "valueType": "string"
             },
             "create": {
               "type": "function",
@@ -854,6 +941,10 @@
                   }
                 }
               }
+            },
+            "reseal": {
+              "type": "function",
+              "arity": 1
             }
           }
         },
@@ -980,6 +1071,10 @@
         "tenant": {
           "type": "object",
           "members": {
+            "AAD_ROTATION": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
             "AgentTenantError": {
               "type": "function",
               "arity": 4
@@ -1987,6 +2082,10 @@
               "arity": 2
             }
           }
+        },
+        "rewrapTenant": {
+          "type": "function",
+          "arity": 1
         },
         "sniffEnvelope": {
           "type": "function",
@@ -46461,6 +46560,10 @@
           "type": "function",
           "arity": 1
         },
+        "extractToMemory": {
+          "type": "function",
+          "arity": 1
+        },
         "inspect": {
           "type": "function",
           "arity": 1
@@ -49820,13 +49923,25 @@
               "type": "function",
               "arity": 3
             },
+            "resealRoot": {
+              "type": "function",
+              "arity": 4
+            },
             "seal": {
               "type": "function",
               "arity": 2
             },
+            "sealRoot": {
+              "type": "function",
+              "arity": 3
+            },
             "unseal": {
               "type": "function",
               "arity": 2
+            },
+            "unsealRoot": {
+              "type": "function",
+              "arity": 3
             }
           }
         },

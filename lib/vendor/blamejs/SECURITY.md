@@ -282,6 +282,7 @@ This is the minimum-viable security posture for a production deployment. The fra
 - [ ] Confirm `vault: { mode: "wrapped" }` in the app's config (not `"plaintext"`)
 - [ ] Store the passphrase in a secret manager (1Password / Vault / AWS Secrets Manager / sops) — never in git, never in shell history
 - [ ] Rotate the vault passphrase quarterly: `blamejs vault rotate`
+- [ ] When rotating the vault *keypair* (not just the passphrase) with `b.vaultRotate.rotate`, first re-seal every AAD-backed store you use via its hook (`b.agent.idempotency.reseal` / `b.agent.orchestrator.reseal` / `b.agent.snapshot.reseal` / the `b.agent.tenant` `AAD_ROTATION` reseal paths) and re-wrap tenant archives with `b.archive.rewrapTenant`, then pass `externalAadResealed` naming each re-sealed store (or `true` if you use none of them). Rotation refuses rather than silently orphaning a store it cannot reach, and its round-trip verify decrypts AAD-sealed cells under the new keypair and flags any that still open under the old one. Declare the rotation to each cluster node with `acceptVaultKeyRotation: true` so the membership adopts the new fingerprint instead of reporting `VAULT_KEY_DRIFT`
 - [ ] In FIPS / regulated deployments, run `b.crypto.selfTest()` at start-up as a power-on integrity gate — it KATs SHA3/SHAKE against NIST FIPS 202 vectors and pairwise-tests ML-KEM-1024 / ML-DSA-87 / SLH-DSA-SHAKE-256f, throwing `crypto/self-test-failed` (fail closed) if the crypto stack is broken
 
 **Audit chain**

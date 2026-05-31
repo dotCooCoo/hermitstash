@@ -1,0 +1,30 @@
+{
+  "version": "1.11.26",
+  "date": "2026-05-31",
+  "headline": "Vault-key rotation re-seals row-bound values; actionable restore errors",
+  "summary": "Vault-key rotation again works on deployments that hold row-bound sealed values, and a failed restore now returns an actionable status code instead of a generic 500.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Re-seal row-bound values during vault-key rotation",
+          "body": "Vault-key rotation now re-seals the AEAD row-bound sealed values under the new key and verifies that the old key can no longer open them. The earlier safeguard that refused to rotate while such values were present — added when row-bound sealing shipped — is removed, so rotation works again on any deployment."
+        },
+        {
+          "title": "Update the vendored framework to blamejs 0.14.13",
+          "body": "Refreshes the vendored blamejs framework from 0.14.11 to 0.14.13, which adds the explicit-root re-seal the rotation tool relies on for row-bound values."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Return an actionable status code from a failed restore",
+          "body": "A failed backup restore previously reported a generic 500 with no detail. A missing backup now returns 404, a wrong passphrase or undecryptable archive returns 403, and a failed integrity check returns 422 — each with an operator-facing message — while genuinely internal failures remain a 500 with the detail suppressed."
+        }
+      ]
+    }
+  ]
+}
