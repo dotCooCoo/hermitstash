@@ -12,6 +12,7 @@ var bundleService = require("../app/domain/uploads/bundle.service");
 var { requireScope } = require("../app/security/scope-policy");
 var { resolveUploadConfig, handleFileUpload, handleChunkUpload, handleFinalize } = require("../app/domain/uploads/upload.handler");
 var idempotency = require("../middleware/idempotency");
+var { AppError, ValidationError, ForbiddenError, NotFoundError } = require("../app/shared/errors");
 
 module.exports = function (app) {
   // Drop page
@@ -67,10 +68,10 @@ module.exports = function (app) {
 
   // Upload single file
   app.post("/drop/file/:bundleId", rateLimit.guard({ scope: "upload", max: 200, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), requireScope("upload"), async (req, res) => {
-    if (!config.publicUpload) return res.status(403).json({ error: "Disabled." });
+    if (!config.publicUpload) throw new ForbiddenError("Disabled.");
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
-      if (!bundle || (bundle.status === "complete" && bundle.bundleType !== "sync")) return res.status(404).json({ error: "Bundle not found." });
+      if (!bundle || (bundle.status === "complete" && bundle.bundleType !== "sync")) throw new NotFoundError("Bundle not found.");
       // Stash-owned bundles must go through the /stash/:slug/file/:bundleId path,
       // which applies per-stash upload caps and isStashLocked() access checks —
       // EXCEPT for sync clients whose API key is already bound to this stash.
@@ -78,12 +79,12 @@ module.exports = function (app) {
       // stash endpoint runs; routing them through /stash/:slug/file would just
       // require the client to know the slug, which it doesn't carry.
       if (bundle.stashId && !(req.apiKey && req.apiKey.boundStashId === bundle.stashId)) {
-        return res.status(403).json({ error: "This bundle must be uploaded via its stash endpoint." });
+        throw new ForbiddenError("This bundle must be uploaded via its stash endpoint.");
       }
       var limits = resolveUploadConfig(null);
       var { fields, files: uploaded } = await parseMultipart(req, limits.maxFileSize);
       var file = uploaded[0];
-      if (!file) return res.status(400).json({ error: "No file." });
+      if (!file) throw new ValidationError("No file.");
 
       var result = await handleFileUpload({
         bundle: bundle, file: file, fields: fields, limits: limits,
@@ -91,9 +92,10 @@ module.exports = function (app) {
         expiresAt: config.fileExpiryDays > 0 ? new Date(Date.now() + config.fileExpiryDays * C.TIME.days(1)).toISOString() : null,
         req: req,
       });
-      if (result.error) return res.status(400).json({ error: result.error });
+      if (result.error) throw new AppError(result.error, result.status || 400);
       res.json(result);
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Drop file error", { error: e.message || String(e) });
       res.status(500).json({ error: "Upload failed." });
     }
@@ -101,17 +103,17 @@ module.exports = function (app) {
 
   // Chunked upload
   app.post("/drop/chunk/:bundleId", rateLimit.guard({ scope: "chunk", max: 500, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), requireScope("upload"), async (req, res) => {
-    if (!config.publicUpload) return res.status(403).json({ error: "Disabled." });
+    if (!config.publicUpload) throw new ForbiddenError("Disabled.");
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
-      if (!bundle || (bundle.status === "complete" && bundle.bundleType !== "sync")) return res.status(404).json({ error: "Bundle not found." });
+      if (!bundle || (bundle.status === "complete" && bundle.bundleType !== "sync")) throw new NotFoundError("Bundle not found.");
       if (bundle.stashId && !(req.apiKey && req.apiKey.boundStashId === bundle.stashId)) {
-        return res.status(403).json({ error: "This bundle must be uploaded via its stash endpoint." });
+        throw new ForbiddenError("This bundle must be uploaded via its stash endpoint.");
       }
       var limits = resolveUploadConfig(null);
       var { fields, files: uploaded } = await parseMultipart(req, limits.maxFileSize);
       var chunk = uploaded[0];
-      if (!chunk) return res.status(400).json({ error: "No chunk." });
+      if (!chunk) throw new ValidationError("No chunk.");
 
       var result = await handleChunkUpload({
         bundle: bundle, chunk: chunk, fields: fields, limits: limits,
@@ -119,9 +121,10 @@ module.exports = function (app) {
         expiresAt: bundle.expiresAt || null,
         req: req,
       });
-      if (result.error) return res.status(400).json({ error: result.error });
+      if (result.error) throw new AppError(result.error, result.status || 400);
       res.json(result);
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Chunk upload error", { error: e.message || String(e) });
       res.status(500).json({ error: "Chunk upload failed." });
     }

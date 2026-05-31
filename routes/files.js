@@ -12,6 +12,7 @@ var bundlesRepo = require("../app/data/repositories/bundles.repo");
 var C = require("../lib/constants");
 var syncGuards = require("../middleware/sync-guards");
 var rateLimit = require("../lib/rate-limit");
+var { AppError, ValidationError, ForbiddenError, NotFoundError } = require("../app/shared/errors");
 
 module.exports = function (app) {
   // Share page
@@ -111,13 +112,13 @@ module.exports = function (app) {
   app.post("/files/:shareId/rename", async (req, res) => {
     if (!requireAuth(req, res)) return;
     var doc = filesRepo.findAll({ shareId: req.params.shareId, status: "complete" })[0];
-    if (!doc) return res.status(404).json({ error: "Not found." });
+    if (!doc) throw new NotFoundError("Not found.");
     if (!canEditOwned(doc, req.user, "uploadedBy")) {
-      return res.status(403).json({ error: "Not authorized." });
+      throw new ForbiddenError("Not authorized.");
     }
     var body = (await b.parsers.json(req)) || {};
     var result = sanitizeRename(body.name, { originalName: doc.originalName });
-    if (!result.valid) return res.status(400).json({ error: result.error });
+    if (!result.valid) throw new ValidationError(result.error);
     filesRepo.update(doc._id, { $set: { originalName: result.name } });
     res.json({ success: true, name: result.name });
   });
@@ -129,12 +130,12 @@ module.exports = function (app) {
     try {
       doc = fileService.lookupFile(req.params.shareId);
     } catch (_e) {
-      return res.status(404).json({ error: "Not found." });
+      throw new NotFoundError("Not found.");
     }
     try {
       fileService.assertCanDelete(doc, req.user);
     } catch (authErr) {
-      return res.status(403).json({ error: authErr.message });
+      throw new ForbiddenError(authErr.message);
     }
     await fileService.deleteFile(doc);
     audit.log(audit.ACTIONS.FILE_DELETED, { targetId: doc._id, targetEmail: doc.uploaderEmail, details: "file: " + doc.originalName + ", deletedBy: " + (doc.uploadedBy === req.user._id ? "owner" : "admin"), req: req });
@@ -171,16 +172,16 @@ module.exports = function (app) {
         // sync client doesn't have to care which event shape it's responding to.
         var doc = filesRepo.findById(req.params.fileId)
                   || filesRepo.findByShareId(req.params.fileId);
-        if (!doc) return res.status(404).json({ error: "File not found." });
+        if (!doc) throw new NotFoundError("File not found.");
 
         var bundle = doc.bundleShareId ? bundlesRepo.findByShareId(doc.bundleShareId) : null;
-        if (!bundle) return res.status(404).json({ error: "Bundle not found." });
+        if (!bundle) throw new NotFoundError("Bundle not found.");
 
         var bindErr = syncGuards.enforceBundleBinding(req.apiKey, bundle._id);
-        if (bindErr) return res.status(bindErr.status).json({ error: bindErr.error });
+        if (bindErr) throw new AppError(bindErr.error, bindErr.status);
 
         var ownerErr = syncGuards.enforceBundleOwnership(req.apiKey, bundle);
-        if (ownerErr) return res.status(ownerErr.status).json({ error: ownerErr.error });
+        if (ownerErr) throw new AppError(ownerErr.error, ownerErr.status);
 
         var result = await fileService.getDownloadStream(doc);
         res.writeHead(200, {
@@ -191,6 +192,11 @@ module.exports = function (app) {
         req.on("close", function () { if (stream.destroy) stream.destroy(); });
         stream.pipe(res);
       } catch (err) {
+        // Auth/lookup guards throw AppError subclasses — let the centralized
+        // error handler render them as RFC 9457 problem-details with their
+        // real status (404/403/...). Only storage/stream failures fall through
+        // to the generic 500 below.
+        if (err && err.isAppError) throw err;
         logger.error("[files/sync-download] Error", { error: err.message });
         if (!res.writableEnded) { res.writeHead(500); res.end("File unavailable"); }
       }
@@ -209,17 +215,17 @@ module.exports = function (app) {
     async (req, res) => {
       try {
         var doc = filesRepo.findById(req.params.fileId);
-        if (!doc) return res.status(404).json({ error: "File not found." });
+        if (!doc) throw new NotFoundError("File not found.");
 
         // Resolve the file's bundle so binding + ownership can run.
         var bundle = doc.bundleShareId ? bundlesRepo.findByShareId(doc.bundleShareId) : null;
-        if (!bundle) return res.status(404).json({ error: "Bundle not found." });
+        if (!bundle) throw new NotFoundError("Bundle not found.");
 
         var bindErr = syncGuards.enforceBundleBinding(req.apiKey, bundle._id);
-        if (bindErr) return res.status(bindErr.status).json({ error: bindErr.error });
+        if (bindErr) throw new AppError(bindErr.error, bindErr.status);
 
         var ownerErr = syncGuards.enforceBundleOwnership(req.apiKey, bundle);
-        if (ownerErr) return res.status(ownerErr.status).json({ error: ownerErr.error });
+        if (ownerErr) throw new AppError(ownerErr.error, ownerErr.status);
 
         await fileService.deleteFile(doc);
         audit.log(audit.ACTIONS.FILE_DELETED, {
@@ -230,6 +236,11 @@ module.exports = function (app) {
         });
         res.json({ success: true });
       } catch (err) {
+        // Auth/lookup guards throw AppError subclasses — let the centralized
+        // error handler render them as RFC 9457 problem-details with their
+        // real status (404/403/...). Only the delete/storage failure falls
+        // through to the generic 500 below.
+        if (err && err.isAppError) throw err;
         logger.error("[files DELETE] Error", { error: err.message, stack: err.stack });
         res.status(500).json({ error: "Delete failed." });
       }

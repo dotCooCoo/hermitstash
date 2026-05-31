@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.14.13",
-  "createdAt": "2026-05-31T19:14:46.873Z",
+  "frameworkVersion": "0.14.14",
+  "createdAt": "2026-05-31T19:48:38.125Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -13409,6 +13409,40 @@
           "type": "instance",
           "ctorName": "Array"
         },
+        "PURPOSES": {
+          "type": "object",
+          "members": {
+            "educational-only": {
+              "type": "object",
+              "members": {
+                "citation": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "commercialUseProhibited": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "dataMinimization": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "forbidsLawfulBasis": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
+                "notes": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "purpose": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            }
+          }
+        },
         "grant": {
           "type": "function",
           "arity": 1
@@ -13418,6 +13452,14 @@
           "arity": 1
         },
         "isGranted": {
+          "type": "function",
+          "arity": 1
+        },
+        "listPurposes": {
+          "type": "function",
+          "arity": 0
+        },
+        "recognizedPurpose": {
           "type": "function",
           "arity": 1
         },
@@ -16311,6 +16353,10 @@
           "arity": 4
         },
         "PermissionsError": {
+          "type": "function",
+          "arity": 4
+        },
+        "PrivacyError": {
           "type": "function",
           "arity": 4
         },
@@ -45687,6 +45733,27 @@
               "arity": 3
             }
           }
+        }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "members": {
+        "PrivacyError": {
+          "type": "function",
+          "arity": 4
+        },
+        "VENDOR_REVIEW_CLAUSES": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "listVendorReviewClauses": {
+          "type": "function",
+          "arity": 0
+        },
+        "vendorReview": {
+          "type": "function",
+          "arity": 1
         }
       }
     },

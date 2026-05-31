@@ -1,6 +1,6 @@
 {
   "name": "@blamejs/core",
-  "version": "0.14.13",
+  "version": "0.14.14",
   "description": "The Node framework that owns its stack.",
   "license": "Apache-2.0",
   "author": "blamejs contributors",
