@@ -16,7 +16,6 @@ Object.keys(require.cache).forEach(function (k) {
 });
 
 var storage = require("../../lib/storage");
-var vault = require("../../lib/vault");
 
 // Track created test directories for cleanup
 var testSubDir = "test-storage-" + testId;
@@ -69,7 +68,12 @@ describe("storage", function () {
       var result = await storage.saveFile(buffer, storagePath);
       assert.ok(result.path, "should return file path");
       assert.ok(result.encryptionKey, "should return encryptionKey");
-      assert.ok(String(result.encryptionKey).startsWith("vault:"), "encryptionKey should be vault-sealed");
+      // saveFile returns the plaintext base64 key; the DB layer (field-crypto)
+      // AAD-seals it at rest when the file row is written.
+      assert.ok(!String(result.encryptionKey).startsWith("vault:"),
+        "encryptionKey should be plaintext (not vault-sealed) — sealing is the DB layer's job");
+      assert.strictEqual(Buffer.from(result.encryptionKey, "base64").length, 32,
+        "encryptionKey should decode to a 32-byte key");
 
       // The file on disk should be encrypted (not plaintext)
       var onDisk = fs.readFileSync(path.join(storage.uploadDir, result.path));
@@ -197,8 +201,8 @@ describe("storage", function () {
 
       var result = await storage.saveFile(buffer, storagePath);
 
-      // Create a different sealed key
-      var wrongKey = vault.seal(crypto.randomBytes(32).toString("base64"));
+      // A different plaintext base64 key (saveFile now returns plaintext keys)
+      var wrongKey = crypto.randomBytes(32).toString("base64");
 
       try {
         var stream = await storage.getFileStream(storagePath, wrongKey);

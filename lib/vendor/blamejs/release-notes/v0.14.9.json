@@ -1,0 +1,40 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.14.9",
+  "date": "2026-05-30",
+  "headline": "Corrects EU AI Act doc paths that named an uncallable namespace, plus source-comment hygiene and two new codebase checks",
+  "summary": "A documentation fix and internal hygiene. The `@primitive` / `@signature` / `@example` blocks for the EU AI Act fundamental-rights-impact-assessment and GPAI training-data-summary helpers advertised `b.complianceAiAct.*`, which is undefined — the callable path is `b.compliance.aiAct.*` — so an operator copying the documented call got `undefined is not a function`. The documented paths now match the real surface. Alongside that: a duplicate parser entry in a doc block is removed, version stamps embedded in section-divider comments are stripped, and two codebase checks are added — one that fails the build when a `@primitive` block documents a wholly-unresolvable namespace (the gap that hid the AI Act paths), and one that flags a version stamp left inside a section divider. No exported API, error code, wire format, or runtime behaviour changes.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "EU AI Act helper documentation named an uncallable path",
+          "body": "`b.compliance.aiAct.fundamentalRightsImpactAssessment` and `b.compliance.aiAct.gpai.trainingDataSummary` were documented as `b.complianceAiAct.*` in their `@primitive` / `@signature` / `@example` blocks (and one returned reference string). `b.complianceAiAct` is undefined, so the documented call failed; the documented paths now match the callable surface."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Source-comment hygiene",
+          "body": "Removed a duplicate `env` entry from the parsers `@module` doc block, and stripped internal version stamps (`vX.Y.Z`) from `// ---- ... ----` section-divider comments across several files, keeping the descriptive label. Comment-only; no behaviour change."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "`@primitive` reachability covers wrong-namespace paths",
+          "body": "The reachability check previously only flagged a missing leaf on a resolved namespace; a `@primitive` whose entire dotted prefix is unresolvable (the shape that hid the AI Act doc paths) was silently skipped. It now walks each prefix segment and fails the build on any unresolvable one, while preserving the factory-instance-shorthand exemption."
+        },
+        {
+          "title": "Version-stamp-in-divider check",
+          "body": "A new check flags a version stamp (`vX.Y.Z`) left immediately after a section divider's dashes (`// ---- vX.Y.Z ...`) — internal release vocabulary that does not belong in shipped source comments — without matching legitimate `@since` tags or prose version references."
+        }
+      ]
+    }
+  ]
+}

@@ -172,7 +172,7 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 
 | Data | Encryption | Key Protection |
 |------|-----------|----------------|
-| **File contents** | XChaCha20-Poly1305 (random key per file) | Key sealed with hybrid ML-KEM-1024 + P-384 vault |
+| **File contents** | XChaCha20-Poly1305 (random key per file) | Per-file key AEAD-bound to its file row at rest (derived from the hybrid ML-KEM-1024 + P-384 vault root) |
 | **Vault files** | ML-KEM-1024 + SHAKE256 + XChaCha20-Poly1305 (client-side) | Key derived from passkey (never leaves browser) |
 | **API request/response bodies** | XChaCha20-Poly1305 (random key per session) | Key sealed with hybrid vault |
 | **Database file on disk** | XChaCha20-Poly1305 (random key) | Key sealed with hybrid vault |

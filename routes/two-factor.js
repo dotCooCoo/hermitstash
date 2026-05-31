@@ -56,10 +56,10 @@ module.exports = function (app) {
       var backupCodes = totp.generateBackupCodes();
       var hashedCodes = backupCodes.map(function (c) { return b.crypto.sha3Hash(c); });
 
-      // Save to user (vault-sealed secret, hashed backup codes, explicit algorithm)
+      // Save to user (AAD-sealed secret via sealDoc, hashed backup codes, explicit algorithm)
       usersRepo.update(req.user._id, {
         $set: {
-          totpSecret: vault.seal(secret),
+          totpSecret: secret,
           totpEnabled: "true",
           totpBackupCodes: JSON.stringify(hashedCodes),
           totpAlgorithm: totp.DEFAULT_ALGORITHM,
@@ -243,7 +243,7 @@ module.exports = function (app) {
 
       usersRepo.update(req.user._id, {
         $set: {
-          totpSecret: vault.seal(secret),
+          totpSecret: secret,
           totpEnabled: "true",
           totpBackupCodes: JSON.stringify(hashedCodes),
           totpAlgorithm: totp.DEFAULT_ALGORITHM,

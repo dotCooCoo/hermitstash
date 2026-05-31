@@ -408,6 +408,7 @@ var PATTERNS_NA = {
   "list-without-pagination": "HS centralizes object-store pagination in the s3-client.js walker; callers delegate via S3Client.list",
   "inline-numeric-bounds-cascade": "blamejs opts-factory primitive shape; HS authors no framework primitives (consumes b.* via the public surface)",
   "inline-require-non-empty-string-validation": "blamejs opts-factory primitive shape; HS authors no framework primitives (consumes b.* via the public surface)",
+  "internal-narrative-comment": "blamejs-specific label vocabulary (SUBSTRATE-/MAIL-/Codex P#/blamejs PR #N); HS lib/ comments carry none (0 sites); HS's no-internal-narrative discipline targets Phase/Sweep/Tier/Slice, enforced via the release-notes leak-vocabulary blocklist — a HS gate, if wanted, is a new detector, not this port.",
 };
 
 // Extract the detector class-id set from a codebase-patterns gate file.

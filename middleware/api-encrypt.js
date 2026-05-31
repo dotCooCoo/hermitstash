@@ -121,7 +121,6 @@ module.exports = function apiEncrypt(req, res, next) {
   if (req.method === "POST") {
     var contentType = req.headers["content-type"] || "";
     if (contentType.includes("application/json")) {
-      var chunks = [];
       var origOn = req.on.bind(req);
       var listeners = { data: [], end: [], error: [] };
       var bodyReady = false;
@@ -134,12 +133,16 @@ module.exports = function apiEncrypt(req, res, next) {
         return origOn(event, fn);
       };
 
-      var bodySize = 0;
       var isVaultUpload = req.pathname && (req.pathname === "/vault/upload" || req.pathname === "/vault/rotate");
       var MAX_JSON_BODY = isVaultUpload ? config.maxFileSize * 2 : b.constants.BYTES.mib(1);
+      var collector = b.safeBuffer.boundedChunkCollector({ maxBytes: MAX_JSON_BODY });
+      var aborted = false;
       origOn("data", function (c) {
-        bodySize += c.length;
-        if (bodySize > MAX_JSON_BODY) {
+        if (aborted) return;
+        try {
+          collector.push(c);
+        } catch (_e) {
+          aborted = true;
           req.destroy();
           b.problemDetails.send(res, {
             type: "https://hermitstash.com/problems/payload-too-large",
@@ -147,12 +150,11 @@ module.exports = function apiEncrypt(req, res, next) {
             status: 413,
             detail: "Request body too large.",
           });
-          return;
         }
-        chunks.push(c);
       });
       origOn("end", function () {
-        var raw = Buffer.concat(chunks).toString();
+        if (aborted) return;
+        var raw = collector.result().toString();
         // b.safeJson.parseOrDefault — bounded depth + key-count + null-
         // prototype output object that defends against __proto__ /
         // constructor / prototype keys polluting the chain before

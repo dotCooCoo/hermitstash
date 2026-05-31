@@ -1,0 +1,30 @@
+{
+  "version": "1.11.21",
+  "date": "2026-05-31",
+  "headline": "Row-bound sealing for the remaining sealed columns",
+  "summary": "The TOTP secret, the per-file content-encryption key, and operator settings values now AEAD-bind to their row identity, completing the row-binding the other sealed columns received in the prior release. The request-id middleware moves to the framework primitive.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Adopt the framework request-id middleware",
+          "body": "The X-Request-Id middleware now uses the framework primitive: it honors a well-formed trusted upstream X-Request-Id and mints a longer random id otherwise, while preserving the per-request log-correlation context."
+        },
+        {
+          "title": "Update the vendored framework to blamejs 0.14.9",
+          "body": "Refreshes the vendored blamejs framework from 0.14.8 to 0.14.9."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Row-bind the remaining sealed columns",
+          "body": "The TOTP secret, the per-file content-encryption key, and operator settings values are now AEAD-bound to their (table, primary key, column) identity — the same protection the other sealed columns received in the prior release. A value copied into another row or column fails authentication and reads as absent instead of decrypting. Existing values read unchanged and are rewritten to the bound form the next time each row is written."
+        }
+      ]
+    }
+  ]
+}
