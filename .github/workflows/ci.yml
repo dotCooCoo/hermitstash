@@ -21,10 +21,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           # Match the runtime floor enforced by server.js + package.json.
           # 24.14.1 pins the latest active 24.x patch series — covers OpenSSL
@@ -61,7 +61,7 @@ jobs:
       - name: Run Hadolint
         if: always()
         id: hadolint
-        uses: hadolint/hadolint-action@v3.3.0
+        uses: hadolint/hadolint-action@2332a7b74a6de0dda2e2221d575162eba76ba5e5 # v3.3.0
         with:
           dockerfile: Dockerfile
           failure-threshold: style
@@ -128,6 +128,34 @@ jobs:
             echo "::error::codebase-patterns found violations"
           fi
           exit $EXIT_CODE
+
+      # ── Currency visibility (non-blocking) ─────────────────────
+      # Surfaces stale GitHub Action pins / vendored blamejs on every push so
+      # drift is caught continuously. NON-blocking here (exit 0): the release
+      # is gated HARD by docker-publish.yml's lint job + the local
+      # `node scripts/release.js preflight`. Blocking every PR on an unrelated
+      # upstream release would be noise — the fix is the paste-ready line.
+      - name: Currency visibility (actions + vendored blamejs)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NO_COLOR: '1'
+        run: |
+          {
+            echo "### Currency (informational — release is gated in docker-publish.yml)"
+            echo ""
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          set +e
+          node scripts/release.js actions >> "$GITHUB_STEP_SUMMARY" 2>&1
+          A=$?
+          node scripts/release.js vendor >> "$GITHUB_STEP_SUMMARY" 2>&1
+          V=$?
+          set -e
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          if [ "$A" -ne 0 ]; then echo "::warning::A pinned GitHub Action is behind its latest release — see the run summary for the paste-ready SHA pin."; fi
+          if [ "$V" -ne 0 ]; then echo "::warning::Vendored blamejs is behind the latest release — run scripts/vendor-update.sh blamejs."; fi
+          exit 0
 
       # ── Summary + PR comment ───────────────────────────────────
       - name: Build summary
@@ -225,7 +253,7 @@ jobs:
 
       - name: Comment on PR
         if: always() && github.event_name == 'pull_request'
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const body = process.env.PR_BODY;

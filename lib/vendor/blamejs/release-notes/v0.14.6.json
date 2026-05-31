@@ -1,0 +1,60 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.14.6",
+  "date": "2026-05-30",
+  "headline": "Access-refusal middleware can return RFC 9457 problem+json or a custom response, and several documented-but-uncallable APIs are now reachable",
+  "summary": "Every access-refusal middleware — the auth gates (bearer, DPoP, mTLS, AAL, bound-key), CSRF, CORS, rate-limit, bot-guard, age-gate, the host and network allowlists, and the method and content-type gates — now accepts two uniform options: `problemDetails: true` returns an RFC 9457 `application/problem+json` body, and `onDeny(req, res, info)` hands the response to the caller. With neither set the refusal is byte-for-byte what it was, so this is a drop-in change that lets a service standardize one error envelope across its API instead of working around each middleware's hardcoded body. Alongside that: `b.middleware.requireBoundKey` is now exported (it was documented and tested but never wired into the middleware surface), `b.middleware.bearerAuth` accepts `requiredScopes` (previously rejected at construction, which made its scope-enforcement path unreachable), API-key refusals send the RFC 6750 challenge code that matches the failure, two documented call paths that named a missing namespace segment are corrected, and the release flow now flags stale GitHub Actions and vendored bundles — with a ready-to-paste pin — before a dependency PR is needed.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "Uniform `onDeny` and `problemDetails` options on every access-refusal middleware",
+          "body": "Each request-lifecycle middleware that refuses a request now takes `problemDetails: true` to emit an RFC 9457 `application/problem+json` body (composing `b.problemDetails`) and `onDeny(req, res, info)` to take over the response entirely; `info` carries the status, a machine reason, and the middleware-specific fields. The deny-path response headers (`Allow`, `WWW-Authenticate`, `Retry-After`, `Accept`) survive every mode. When neither option is set the response is unchanged. Covers `requireAuth`, `requireAal`, `requireMethods`, `requireContentType`, `requireMtls`, `requireBoundKey`, `bearerAuth`, `dpop`, `csrfProtect`, `fetchMetadata`, `botGuard`, `ageGate`, `hostAllowlist`, `networkAllowlist`, `cors`, `rateLimit`, and `dailyByteQuota` (whose existing `onExceeded` keeps working as an alias of `onDeny`)."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "`b.middleware.requireBoundKey` is now callable",
+          "body": "The Bearer-API-key middleware was documented (with examples and tests) but never exported on `b.middleware`, so `b.middleware.requireBoundKey(...)` threw `undefined is not a function`. It is now wired into the middleware surface."
+        },
+        {
+          "title": "`b.middleware.bearerAuth` accepts `requiredScopes`",
+          "body": "The RFC 6750 scope-enforcement path read `opts.requiredScopes`, but the option was rejected at construction with `unknown option`, making the 403 `insufficient_scope` behavior unreachable. `requiredScopes` is now an accepted option."
+        },
+        {
+          "title": "RFC 6750 challenge codes on API-key refusals",
+          "body": "`b.middleware.requireBoundKey` now sends the `WWW-Authenticate` error code that matches the failure: `insufficient_scope` on a 403 missing-scope, `invalid_token` on an unknown or revoked token, and no error code on a 401 that presented no credentials (RFC 6750 §3). It previously sent `invalid_request` for every refusal."
+        },
+        {
+          "title": "Corrected two documented call paths",
+          "body": "The compliance and network references named a path that dropped a namespace segment: the conformity-assessment scaffold is at `b.cra.report.conformityAssessment` (not `b.cra.conformityAssessment`), and the per-socket tuning helper is at `b.network.socket.applyToSocket` (not `b.network.applyToSocket`). The documented signatures now match the callable paths."
+        },
+        {
+          "title": "GitHub Actions pins refreshed",
+          "body": "`github/codeql-action` 4.35.5 to 4.36.0, and `docker/login-action`, `docker/setup-buildx-action`, and `docker/setup-qemu-action` to their latest releases."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "`@primitive` reachability gate",
+          "body": "A new check resolves every documented `b.X.Y` primitive against the actual public surface and fails the build when a documented path is not callable (factory-instance shorthands excluded). This is the gate that would have caught the `requireBoundKey` and call-path issues above."
+        },
+        {
+          "title": "Deny-path composition gate",
+          "body": "A new check requires every access-refusal middleware to route its refusal through the shared deny-response writer, so a future middleware cannot reintroduce a hardcoded body that locks callers out of `onDeny` / `problemDetails`."
+        },
+        {
+          "title": "Actions and vendor currency in the release flow",
+          "body": "The release flow now fails the cut when a SHA-pinned GitHub Action or a vendored bundle is behind its latest upstream release. The actions report prints a ready-to-paste `owner/repo@<sha>  # vX.Y.Z` pin and every file and line that uses it, so the bump is copy-paste rather than an after-the-fact dependency PR. Transient registry or API errors stay advisory so a flaky network response does not block an unrelated release."
+        }
+      ]
+    }
+  ]
+}

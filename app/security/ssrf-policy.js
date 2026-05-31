@@ -1,86 +1,62 @@
 /**
- * SSRF Policy — comprehensive URL validation and IP denylist.
- * Replaces ad-hoc checks scattered across routes and lib/webhook.js.
+ * SSRF policy — outbound URL validation + private-address denial.
  *
- * Covers all reserved/special-use ranges from IANA:
- *   RFC 1918, RFC 6598 (CGNAT), RFC 5737 (doc), RFC 3927 (link-local),
- *   RFC 2544 (benchmarking), RFC 5771 (multicast), RFC 6890 (reserved),
- *   IPv6 ULA (RFC 4193), IPv6 link-local, IPv6 multicast, loopback.
+ * IP classification is delegated to b.ssrfGuard. It refuses every
+ * reserved / non-routable class: RFC 1918 private, RFC 6598 CGNAT,
+ * loopback, link-local, the RFC 5737 documentation nets, RFC 2544
+ * benchmarking, multicast, and the reserved 240/4 block; IPv6 ULA,
+ * link-local, multicast, documentation, and discard prefixes; and the
+ * NAT64, 6to4, and IPv4-mapped wrappers — each reclassified to its
+ * embedded IPv4 address so a wrapped private or metadata target is
+ * refused for the same reason its bare form would be. Cloud-metadata
+ * IPs (AWS/GCP/Azure 169.254.169.254, the AWS ECS task-role
+ * 169.254.170.2, and the IMDS-over-IPv6 fd00:ec2::254) are refused as
+ * their own class.
  *
- * Uses Node's built-in net.BlockList for proper CIDR matching. The earlier
- * implementation used string-prefix checks ("240.", etc.) which missed
- * 241.0.0.0 through 254.255.255.255 — 14 /8 ranges inside the reserved
- * 240.0.0.0/4 allocation. A hostname resolving to e.g. 250.1.2.3 previously
- * passed through as public; this version blocks the whole /4.
+ * Hostnames are resolved and refused if ANY resolved address classifies
+ * as non-public, which defeats DNS-rebinding to an internal target. The
+ * resolved address is returned so the caller can pin its TCP connect to
+ * the validated IP (TOCTOU defence against a rebind between check and
+ * connect).
  */
 var dns = require("dns");
 var net = require("net");
 var b = require("../../lib/vendor/blamejs");
 
-var blockList = new net.BlockList();
-
-// IPv4 reserved / private / special-use ranges
-blockList.addAddress("0.0.0.0", "ipv4");
-blockList.addSubnet("10.0.0.0", 8, "ipv4");              // RFC 1918
-blockList.addSubnet("100.64.0.0", 10, "ipv4");           // RFC 6598 CGNAT
-blockList.addSubnet("127.0.0.0", 8, "ipv4");             // loopback
-blockList.addSubnet("169.254.0.0", 16, "ipv4");          // link-local
-blockList.addSubnet("172.16.0.0", 12, "ipv4");           // RFC 1918
-blockList.addSubnet("192.0.0.0", 24, "ipv4");            // IETF protocol assignments
-blockList.addSubnet("192.0.2.0", 24, "ipv4");            // RFC 5737 doc TEST-NET-1
-blockList.addSubnet("192.168.0.0", 16, "ipv4");          // RFC 1918
-blockList.addSubnet("198.18.0.0", 15, "ipv4");           // RFC 2544 benchmarking (198.18+198.19)
-blockList.addSubnet("198.51.100.0", 24, "ipv4");         // RFC 5737 doc TEST-NET-2
-blockList.addSubnet("203.0.113.0", 24, "ipv4");          // RFC 5737 doc TEST-NET-3
-blockList.addSubnet("224.0.0.0", 4, "ipv4");             // multicast (224.0.0.0 – 239.255.255.255)
-blockList.addSubnet("240.0.0.0", 4, "ipv4");             // reserved + broadcast (240.0.0.0 – 255.255.255.255)
-
-// IPv6 reserved / private / special-use ranges
-blockList.addAddress("::1", "ipv6");                     // loopback
-blockList.addAddress("::", "ipv6");                      // unspecified
-blockList.addSubnet("fc00::", 7, "ipv6");                // ULA (RFC 4193) — fc00::/7 covers fc + fd
-blockList.addSubnet("fe80::", 10, "ipv6");               // link-local (RFC 4291)
-blockList.addSubnet("ff00::", 8, "ipv6");                // multicast (RFC 4291)
-blockList.addSubnet("2001:db8::", 32, "ipv6");           // RFC 3849 documentation
-blockList.addSubnet("64:ff9b::", 96, "ipv6");            // RFC 6052 well-known prefix
-blockList.addSubnet("100::", 64, "ipv6");                // RFC 6666 discard prefix
-blockList.addSubnet("2002::", 16, "ipv6");               // 6to4 (RFC 3056)
-
-// Hostnames that must always be blocked (cloud metadata endpoints).
-// The IP addresses behind these are in link-local / ULA ranges which
-// blockList already catches, but denying by name prevents DNS-level
-// tricks where a public name resolves to the metadata IP.
+// Hostnames that must always be blocked (cloud metadata endpoints). The
+// IPs behind these are already caught by b.ssrfGuard.classify, but denying
+// by name as well stops a DNS trick where a public name resolves to a
+// metadata IP only at connect time.
 var DENIED_HOSTNAMES = [
   "metadata.google.internal",
   "metadata.google",
   "metadata",
-  "169.254.169.254",     // AWS/GCP/Azure metadata (also caught by link-local /16)
-  "fd00:ec2::254",       // AWS IMDSv2 IPv6 (also caught by ULA /7)
+  "169.254.169.254",
+  "fd00:ec2::254",
 ];
 
 /**
- * Check if an IP literal falls in a reserved/private range.
+ * Check if an IP literal falls in a reserved / private / metadata range.
+ * Non-IP input is treated as blocked (fail-closed) so a malformed or
+ * unresolved value can never pass through as public.
  */
 function isPrivateIp(ip) {
   if (!ip) return true;
-  var h = String(ip).toLowerCase().replace(/^\[|\]$/g, "");
+  var h = String(ip).toLowerCase().replace(/^\[|\]$/g, "").replace(/\.+$/, "");
   if (h === "localhost" || h === "") return true;
-  // IPv6-mapped IPv4 → delegate to the IPv4 path
-  if (h.startsWith("::ffff:")) return isPrivateIp(h.substring(7));
-
-  if (net.isIPv4(h)) return blockList.check(h, "ipv4");
-  if (net.isIPv6(h)) return blockList.check(h, "ipv6");
-  // Not a valid IP literal — treat as blocked to be safe.
-  return true;
+  if (net.isIP(h) === 0) return true;        // not a valid IP literal → blocked
+  return b.ssrfGuard.classify(h) !== null;   // any non-public class → blocked
 }
 
 /**
  * Resolve a hostname and block if any resolved address is private.
- * Prevents DNS-rebinding to internal addresses.
+ * Prevents DNS-rebinding to internal addresses. Returns
+ * { blocked, address?, family? }; on a clean result, address/family pin
+ * the validated IP for the caller's connect (TOCTOU defence).
  */
 function isPrivateHost(hostname) {
   if (!hostname) return Promise.resolve({ blocked: true });
-  var h = String(hostname).toLowerCase();
+  var h = String(hostname).toLowerCase().replace(/\.+$/, "");
 
   for (var i = 0; i < DENIED_HOSTNAMES.length; i++) {
     if (h === DENIED_HOSTNAMES[i]) return Promise.resolve({ blocked: true });
@@ -106,9 +82,9 @@ function isPrivateHost(hostname) {
  *
  * b.safeUrl.parse with ALLOW_HTTP_TLS pre-frozen ["https:"] enforces the
  * HTTPS-only constraint at parse time. parse also bounds the input
- * length (8 KiB default), refuses NUL/CR/LF in the input, and runs
- * the URL through Node's WHATWG parser — same bytes the runtime
- * would dispatch on, no double-parse drift.
+ * length (8 KiB default), refuses NUL/CR/LF in the input, and runs the
+ * URL through Node's WHATWG parser — same bytes the runtime would
+ * dispatch on, no double-parse drift.
  */
 function validateOutboundUrl(urlStr) {
   var u;

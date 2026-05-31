@@ -94,6 +94,21 @@ function _walk(dir, files) {
 
 function _libFiles() { return _walk(LIB_ROOT); }
 
+// App-tree files outside lib/: app/, middleware/, routes/, and the
+// server-main.js entry point. Most detectors scan lib/ only (_libFiles).
+// A few guard shapes that live in the request-handling tree — deny-path
+// problem+json denials, reserved-hostname SSRF compares — and scan
+// _libFiles().concat(_appFiles()) so those dirs are covered too.
+var APP_ROOTS = ["app", "middleware", "routes"];
+function _appFiles() {
+  var root = path.resolve(__dirname, "..", "..");
+  var files = [];
+  for (var i = 0; i < APP_ROOTS.length; i++) _walk(path.join(root, APP_ROOTS[i]), files);
+  var entry = path.join(root, "server-main.js");
+  if (fs.existsSync(entry)) files.push(entry);
+  return files;
+}
+
 // Scope: every `*.test.js` under `tests/` + non-underscore-prefixed
 // `tests/helpers/*.js`. Excludes:
 //   - tests/node_modules/         (vendored test deps)
@@ -3873,596 +3888,33 @@ function testNoStateStampsInPublicDocs() {
 
 // KNOWN_ANTIPATTERNS — n=1 hard gate.
 //
-// Each entry registers the inline shape of code that has been replaced
-// by a framework primitive. Any future file matching the regex
-// hard-fails with a pointer to the primitive — even at n=1, before the
-// duplicate-block detector (which needs n>=5) would notice.
+// Each entry registers an inline code shape that should instead route
+// through a framework primitive (the vendored blamejs public surface,
+// `b.*`) or a project convention. Any file matching the regex hard-fails
+// with a pointer to the correct form — at n=1, before the duplicate-block
+// detector (which needs n>=5) would notice.
 //
-// Why this exists: the duplicate-block detector catches drift that has
-// already proliferated; the catalog catches drift the moment it tries
-// to land. When a new primitive is extracted from N call sites, the
-// inline shape is registered here in the SAME patch so a subsequent
-// file written from muscle memory hits the gate immediately.
+// Scope: this catalog guards HermitStash-authored code only. HS consumes
+// blamejs primitives via `b.*` rather than authoring framework primitives,
+// so the inline shapes here are the ones HS could plausibly hand-roll
+// (and the test-discipline guards below). Each entry carries `scanScope`:
+//   - default (omitted) — scans lib/ (excluding lib/vendor/)
+//   - "test"            — scans tests/ (see testKnownAntipatterns)
 //
 // Discipline:
-//   1. Every primitive extraction adds an entry here in the same patch.
-//   2. `allowlist` is the audit trail. New entries default to []
-//      because the extraction was complete at registration time.
-//   3. Adding a file to `allowlist` later requires a documented reason
-//      in the entry's `reason` field. The pre-ship rules audit calls
-//      out every allowlist change.
-//   4. The catalog scans whole-file content (multiline regex) so
+//   1. `allowlist` is the audit trail; new entries default to [].
+//   2. Adding a file to `allowlist` later requires a documented reason
+//      in the entry's `reason` field.
+//   3. The catalog scans whole-file content (multiline regex) so
 //      patterns split across lines still match.
 var KNOWN_ANTIPATTERNS = [
   {
-    id: "inline-codepoint-class-table",
-    primitive: "codepointClass.BIDI_RE / C0_CTRL_RE / ZERO_WIDTH_RE / NULL_RE_G / hex4 / charClass / fromCp",
-    regex: /var\s+BIDI_RANGES\s*=\s*\[\s*0x200E[\s\S]{0,500}?function\s+_charClass/,
-    allowlist: ["lib/codepoint-class.js"],
-    reason: "Extracted across guard-csv / guard-html / guard-svg. The BIDI_RANGES + C0_CTRL_RANGES + ZERO_WIDTH_RANGES literal tables plus the _hex4 / _charClass / _fromCp helpers plus the `new RegExp(\"[\" + _charClass(...) + \"]\")` regex compilations were identical across 3 guard primitives by design. Centralized so the codepoint catalog has a single source of truth and future guards (filename / archive / mime / ...) consume the shared module instead of re-defining the tables.",
-  },
-  {
-    id: "inline-resolve-profile-and-posture",
-    primitive: "gateContract.resolveProfileAndPosture(opts, { profiles, compliancePostures, defaults, errorClass, errCodePrefix })",
-    regex: /typeof\s+opts\.profile\s*===\s*["']string["'][\s\S]{0,300}?compliancePosture[\s\S]{0,300}?Object\.assign\(\{\}\s*,\s*[A-Z]+/,
-    allowlist: ["lib/gate-contract.js"],
-    reason: "Extracted across guard-csv / guard-html / guard-svg. Every guard primitive's _resolveOpts opens with the identical `if (opts.profile) overlay = PROFILES[opts.profile]; if (opts.compliancePosture) overlay = Object.assign(overlay, COMPLIANCE_POSTURES[...]); return Object.assign({}, DEFAULTS, overlay, opts);` cascade. Centralized in gateContract so future guards consume the shared resolver — keeps the family resolution shape identical across members.",
-  },
-  {
-    id: "inline-char-strip-policy-cascade",
-    primitive: "codepointClass.applyCharStripPolicies(text, opts)",
-    regex: /opts\.bidiPolicy\s*===\s*["']strip["'][\s\S]{0,200}?opts\.controlPolicy\s*===\s*["']strip["'][\s\S]{0,200}?opts\.nullBytePolicy/,
-    allowlist: ["lib/codepoint-class.js"],
-    reason: "Extracted across guard-html / guard-svg sanitize paths — the 4-line `if (opts.bidiPolicy === 'strip') s = s.replace(BIDI_RE_G, '')` cascade was identical. guard-csv uses different opt-name vocabulary (bidiCharPolicy / nullByteHandling) so it keeps its inline strip block; that's a single-vendor occurrence, below the duplicate-detector floor.",
-  },
-  {
-    id: "inline-detect-char-threats",
-    primitive: "codepointClass.detectCharThreats(text, opts, codePrefix)",
-    regex: /var\s+bidiMatch\s*=\s*\w+\.match\(BIDI_RE\)[\s\S]{0,200}?bidi-override[\s\S]{0,300}?nullBytePolicy[\s\S]{0,200}?null-byte/,
-    allowlist: ["lib/codepoint-class.js"],
-    reason: "Extracted across guard-html / guard-svg detection passes — the bidi/null-byte/control-char issue-emit cascade was identical at the head of every _detectIssues. guard-csv keeps its inline form because it uses different opt-name vocabulary (bidiCharPolicy / nullByteHandling) and additionally classifies homoglyphs as a CSV-specific threat.",
-  },
-  {
-    id: "inline-profile-builder-forwarder",
-    primitive: "gateContract.makeProfileBuilder(profiles)",
-    regex: /function\s+buildProfile\s*\(opts\)\s*\{\s*return\s+gateContract\.buildProfile\(Object\.assign\(\{\}\s*,\s*opts,\s*\{[\s\S]{0,150}?resolveProfile:\s*function\s*\(name\)\s*\{\s*return\s+PROFILES\[name\]/,
-    allowlist: ["lib/gate-contract.js"],
-    reason: "Extracted across guard-csv / guard-html / guard-svg buildProfile(opts) wrappers — every guard exposed a 4-line passthrough that injected the per-guard PROFILES into gateContract.buildProfile's resolveProfile callback. Centralized into a closure factory.",
-  },
-  {
-    id: "inline-compliance-posture-lookup",
-    primitive: "gateContract.lookupCompliancePosture(name, postures, errorFactory, codePrefix)",
-    regex: /if\s*\(!COMPLIANCE_POSTURES\[name\]\)[\s\S]{0,150}?bad-posture[\s\S]{0,200}?Object\.assign\(\{\}\s*,\s*COMPLIANCE_POSTURES\[name\]\)/,
-    allowlist: ["lib/gate-contract.js"],
-    reason: "Extracted across guard-csv / guard-html / guard-svg compliancePosture(name) entry points. Identical 5-line `if (!COMPLIANCE_POSTURES[name]) throw; return Object.assign({}, COMPLIANCE_POSTURES[name])` shape consolidated.",
-  },
-  {
-    id: "inline-rule-pack-loader",
-    primitive: "gateContract.makeRulePackLoader(errorClass, codePrefix)",
-    regex: /var\s+_\w*[Rr]ulePacks?\s*=\s*\{\}[\s\S]{0,80}function\s+loadRulePack\s*\(\s*pack\s*\)\s*\{[\s\S]{0,200}?validateOpts\.requireObject[\s\S]{0,200}?validateOpts\.requireNonEmptyString[\s\S]{0,100}?_\w*[Rr]ulePacks?\[pack\.id\]\s*=\s*pack/,
-    allowlist: ["lib/gate-contract.js"],
-    reason: "Extracted across guard-csv / guard-html / guard-svg loadRulePack(pack) entry. Identical scaffolding (closed-over store + validateOpts cascade + pack.id keyed insert) consolidated into a closure factory.",
-  },
-  {
-    id: "inline-extract-bytes-as-text",
-    primitive: "gateContract.extractBytesAsText(ctx)",
-    regex: /var\s+bytes\s*=\s*ctx\.bytes\s*;\s*if\s*\(!bytes\)\s*return\s*\{\s*ok:\s*true,\s*action:\s*["']serve["'][\s\S]{0,40}\s*var\s+text\s*=\s*Buffer\.isBuffer\(bytes\)/,
-    allowlist: ["lib/gate-contract.js"],
-    reason: "Extracted across guard-csv / guard-html check(ctx) entries. The ctx.bytes → Buffer-or-string → utf8 string normalization with empty-bytes-serve early-return was identical. guard-svg keeps the inline shape because it passes bytes (Buffer) directly to validate() for SVGZ magic-byte detection.",
-  },
-  {
-    id: "inline-build-guard-gate-forwarder",
-    primitive: "gateContract.buildGuardGate(name, opts, check)",
-    regex: /forensicEvidenceStore:\s*opts\.forensicEvidenceStore[\s\S]{0,400}?onAudit:\s*opts\.onAudit/,
-    allowlist: ["lib/gate-contract.js"],
-    reason: "Extracted across guard-csv / guard-html / guard-svg gate(opts) factories. Every guard's gate() body forwarded the same ~16-key opts bag (mode / audit / observability / forensicEvidenceStore / cache / hooks / runtime cap / ...) to gateContract.defineGate; centralized so each guard's gate() body is just the check function plus a label.",
-  },
-  {
-    id: "inline-bad-input-issue-result",
-    primitive: "gateContract.badInputResultIfNotStringOrBuffer(input)",
-    regex: /typeof\s+input\s*!==\s*["']string["']\s*&&\s*!Buffer\.isBuffer\(input\)\s*\)\s*\{\s*return\s*\{\s*ok:\s*false,\s*issues:\s*\[\s*\{\s*kind:\s*["']bad-input["']/,
-    allowlist: ["lib/gate-contract.js"],
-    reason: "Extracted across guard-svg / guard-filename validate paths that need raw-Buffer input pre-conversion (svg for SVGZ magic, filename for overlong-UTF-8 byte scan). The bad-input fallback `{ ok: false, issues: [{ kind: bad-input, ... }] }` return shape was identical. Sanitize throw paths (different control-flow) are distinct and stay inline.",
-  },
-  {
-    id: "inline-aggregate-issues",
-    primitive: "gateContract.aggregateIssues(issues)",
-    regex: /return\s*\{\s*ok:\s*!issues\.some\(function\s*\(i\)\s*\{\s*return\s+i\.severity\s*===\s*["']critical["']\s*\|\|\s*i\.severity\s*===\s*["']high["']/,
-    allowlist: ["lib/gate-contract.js"],
-    reason: "Extracted across guard-* validate paths that build the { ok, issues } result. The 5-line ok-aggregation tail (no critical/high → ok=true) was identical across guards; consolidated.",
-  },
-  {
-    id: "inline-issue-validator-entry",
-    primitive: "gateContract.runIssueValidator(input, opts, detector)",
-    regex: /typeof\s+input\s*===\s*["']string["'][\s\S]{0,80}?Buffer\.isBuffer\(input\)[\s\S]{0,200}?bad-input[\s\S]{0,300}?return\s*\{[\s\S]{0,80}?ok:\s*!issues\.some/,
-    allowlist: ["lib/gate-contract.js"],
-    reason: "Extracted across guard-csv / guard-html validate() entry points. The string|Buffer normalization + bad-input fallback + issue-aggregation return shape was identical across guards; centralized into gate-contract. guard-svg keeps its inline form because SVGZ magic-byte detection needs the raw Buffer (utf8 conversion would lose the gzip header).",
-  },
-  {
-    id: "inline-batch-positive-int-validation",
-    primitive: "numericBounds.requireAllPositiveFiniteIntIfPresent(opts, names, labelPrefix, ErrorClass, code)",
-    regex: /numericBounds\.requirePositiveFiniteIntIfPresent\([\s\S]{0,300}?numericBounds\.requirePositiveFiniteIntIfPresent\([\s\S]{0,300}?numericBounds\.requirePositiveFiniteIntIfPresent\(/,
-    allowlist: ["lib/numeric-bounds.js"],
-    reason: "Extracted across guard-csv / guard-html / guard-svg validate-entry numeric-opt cascades. Three or more consecutive `numericBounds.requirePositiveFiniteIntIfPresent(opts.X, ...)` calls in a row is exactly the shape this batch helper consolidates. Other primitives with 1-2 cap-opts can keep the single-call form; the batch helper kicks in at the 3+ threshold.",
-  },
-  {
-    id: "inline-assert-no-char-threats",
-    primitive: "codepointClass.assertNoCharThreats(text, opts, errorFactory, codePrefix)",
-    regex: /opts\.bidiPolicy\s*===\s*["']reject["'][\s\S]{0,150}?BIDI_RE\.test[\s\S]{0,200}?opts\.nullBytePolicy\s*===\s*["']reject["']/,
-    allowlist: ["lib/codepoint-class.js"],
-    reason: "Extracted across guard-html / guard-svg sanitize entry — every guard's reject-on-character-class threats opens with the same `if (opts.bidiPolicy === 'reject' && BIDI_RE.test(s)) throw; if (opts.nullBytePolicy === 'reject' && s.indexOf(NULL_BYTE) !== -1) throw; if (opts.controlPolicy === 'reject' && C0_CTRL_RE.test(s)) throw;` cascade. Centralized so the reject-policy contract is identical across the family. guard-csv keeps its own inline cell-level reject for opt-name vocabulary reasons (bidiCharPolicy etc.).",
-  },
-  {
-    id: "inline-audit-shape-validation",
-    primitive: "validateOpts.auditShape(audit, label, ErrorClass)",
-    regex: /opts\.audit\s*!==\s*undefined\s*&&\s*opts\.audit\s*!==\s*null[\s\S]{0,200}?safeEmit\s*!==\s*["']function["']/,
+    id: "fs-path-from-operator-identifier-without-traversal-refusal",
+    primitive: "compose b.safePath.resolve(rootDir, name) (refuses traversal at the boundary), or validate the identifier against a strict character class + explicit \"..\" refusal before path.join / fs.*",
+    regex: /\bpath\.join\s*\([^)]*\b\w+\.(?:name|id)\b[^)]*\)/,
+    requires: /safePath\.resolve|\/\\\.\\\.|"\.\."|'\.\.'|allow:fs-path-from-operator-identifier-without-traversal-refusal/,
     allowlist: [],
-    reason: "Extracted across api-key / cache / notify / permissions / seeders / webhook (signer + verifier) / auth/lockout / middleware/db-role-for / external-db-migrate. The inline shape was identical 10x.",
-  },
-  {
-    id: "inline-observability-shape-validation",
-    primitive: "validateOpts.observabilityShape(observability, label, ErrorClass)",
-    regex: /opts\.observability\s*!==\s*undefined\s*&&\s*opts\.observability\s*!==\s*null[\s\S]{0,200}?event\s*!==\s*["']function["']/,
-    allowlist: [],
-    reason: "Extracted parallel to auditShape — opts.observability shape validation across i18n / cache / auth.lockout.",
-  },
-  {
-    id: "inline-optional-boolean-validation",
-    primitive: "validateOpts.optionalBoolean(value, label, ErrorClass, code?)",
-    regex: /opts\.\w+\s*!==\s*undefined\s*&&\s*typeof\s+opts\.\w+\s*!==\s*["']boolean["']/,
-    allowlist: [
-      "lib/validate-opts.js",
-      // http-client.js's configurePool throws raw Error, not a
-      // framework-error class. Surfaced earlier in the session as a
-      // harmonization candidate. Allowlist until a framework-error
-      // class is wired into http-client.
-      "lib/http-client.js",
-    ],
-    reason: "Extracted across api-key / cache / notify / permissions / seeders / webhook / db-role-for. Centralized boolean type-check.",
-  },
-  {
-    id: "inline-optional-function-validation",
-    primitive: "validateOpts.optionalFunction(value, label, ErrorClass, code?)",
-    regex: /opts\.\w+\s*!==\s*undefined\s*&&\s*typeof\s+opts\.\w+\s*!==\s*["']function["']/,
-    allowlist: [
-      "lib/validate-opts.js",
-      // http-client.js uses bare `throw new Error(...)` for several opts —
-      // doesn't fit the framework-error class signature optionalFunction
-      // requires. Tracked in the cross-module follow-ups list.
-      "lib/http-client.js",
-      // i18n.js's onMissingKey / notify.js's redact include extra
-      // signature context in the message ("(key, locale)" /
-      // "returning a redacted message") — not a clean shape match.
-      "lib/i18n.js",
-      "lib/notify.js",
-      // retry.js uses raw TypeError, not framework-error.
-      "lib/retry.js",
-    ],
-    reason: "Extracted across api-key / cache / seeders / webhook / db-role-for / permissions / auth/lockout. Centralized function type-check.",
-  },
-  {
-    id: "inline-optional-positive-int-validation",
-    primitive: "validateOpts.optionalPositiveInt(value, label, ErrorClass, code?)",
-    regex: /opts\.\w+\s*!==\s*undefined\s*&&\s*!_isPositiveInt\s*\(\s*opts\.\w+\s*\)/,
-    allowlist: ["lib/validate-opts.js"],
-    reason: "Extracted across api-key / others. Routes through numericChecks.isPositiveInt; the helper bakes in the throw semantics.",
-  },
-  {
-    id: "inline-optional-positive-finite-validation",
-    primitive: "validateOpts.optionalPositiveFinite(value, label, ErrorClass, code?)",
-    // Match the literal shape `if (X !== undefined && (typeof X !== "number"
-    // || !isFinite(X) || X <= 0))` — the strict positive-finite gate that
-    // the optionalPositiveFinite helper bakes in.
-    regex: /opts\.\w+\s*!==\s*undefined\s*&&\s*\(\s*typeof\s+opts\.\w+\s*!==\s*["']number["']\s*\|\|\s*!isFinite\s*\(\s*opts\.\w+\s*\)\s*\|\|\s*opts\.\w+\s*<=\s*0\s*\)/,
-    allowlist: ["lib/validate-opts.js"],
-    reason: "Centralizes the > 0 finite-number check. Every primitive that gates on a positive finite numeric (e.g. mfaWindowMs, ttlMs minimums) routes through here.",
-  },
-  {
-    id: "inline-optional-non-empty-string-validation",
-    primitive: "validateOpts.optionalNonEmptyString(value, label, ErrorClass, code?)",
-    // Match the OPTIONAL shape only — `X !== undefined && (typeof X !==
-    // "string" || X.length === 0)`. The required form (no undefined
-    // guard) is a separate primitive (requireNonEmptyString) below.
-    regex: /opts\.\w+\s*!==\s*undefined\s*&&\s*\(?\s*typeof\s+opts\.\w+\s*!==\s*["']string["']\s*\|\|\s*opts\.\w+\.length\s*===\s*0/,
-    allowlist: ["lib/validate-opts.js"],
-    reason: "Centralizes the optional non-empty-string gate for fields that may be omitted but must be a non-empty string when present.",
-  },
-  {
-    id: "inline-require-non-empty-string-validation",
-    primitive: "validateOpts.requireNonEmptyString(value, label, ErrorClass, code?)",
-    // Match the REQUIRED shape — `if (typeof X !== "string" ||
-    // X.length === 0) throw` at the top of a validation block. The
-    // regex also matches inner if-blocks nested inside outer `X !==
-    // undefined &&` guards (compound-optional shape) — those sites are
-    // allowlisted below because the helper doesn't compose with the
-    // adjacent _validateIdent / format check.
-    regex: /\bif\s*\(\s*typeof\s+opts\.\w+\s*!==\s*["']string["']\s*\|\|\s*opts\.\w+\.length\s*===\s*0\s*\)/,
-    allowlist: [
-      "lib/validate-opts.js",
-      // Compound validators — type-check + _validateIdent / format
-      // check / URL example combined. Splitting the type check out
-      // would scatter validation across two helpers and lose
-      // operator-readable error messages.
-      "lib/backup/bundle.js",                    // line 92 — operator-meaningful "(use vault.getKeysJson() ...)" hint
-      "lib/cache.js",                            // line 192 — backend === "redis" precondition + URL example
-      "lib/cli-helpers.js",                      // raw Error (no framework class)
-      "lib/db-declare-row-policy.js",            // optional + _validateIdent compound
-      "lib/db-declare-view.js",                  // optional + _validateIdent compound
-      "lib/middleware/csp-nonce.js",             // optional-with-default + operator hint
-      "lib/middleware/db-role-for.js",           // optional + _validateRoleIdentifier compound
-      "lib/middleware/nel.js",                   // operator-readable "collectorUrl is required" prose tested by /collectorUrl is required/ regex; validateOpts emits "validate-opts/missing-non-empty-string" instead
-      "lib/protocol-dispatcher.js",              // optional fallbackProtocol guard
-      "lib/pubsub-redis.js",                     // raw Error (no framework class)
-      "lib/restore-rollback.js",                 // compound: derives rollbackRoot from opts.dataDir
-      // permanent: true 3rd-arg sites — helper signature doesn't
-      // expose the permanent flag. Refactoring would silently drop it.
-      "lib/migrations.js",
-      "lib/queue-redis.js",
-      "lib/queue-sqs.js",
-    ],
-    reason: "Required non-empty-string fields. Most primitives' create() functions start with this shape for opts.namespace / opts.dir / opts.url / opts.region / etc. Centralizes the throw + message format. 13 sites allowlisted with documented per-site reasons (compound validators, raw Error, permanent-arg, operator-meaningful extra context).",
-  },
-  {
-    id: "inline-optional-finite-non-negative-validation",
-    primitive: "validateOpts.optionalFiniteNonNegative(value, label, ErrorClass, code?)",
-    // Match either `!_isFiniteNonNegative(opts.X)` or the full inline form
-    // `typeof opts.X !== "number" || !isFinite(opts.X) || opts.X < 0`.
-    regex: /opts\.\w+\s*!==\s*undefined\s*&&\s*\(\s*typeof\s+opts\.\w+\s*!==\s*["']number["']\s*\|\|\s*!isFinite\s*\(\s*opts\.\w+\s*\)\s*\|\|\s*opts\.\w+\s*<\s*0\s*\)/,
-    allowlist: ["lib/validate-opts.js"],
-    reason: "Extracted across primitives. Centralizes the non-negative-finite numeric check.",
-  },
-  {
-    id: "inline-optional-non-empty-string-array-validation",
-    primitive: "validateOpts.optionalNonEmptyStringArray(value, label, ErrorClass, code?)",
-    // Match the four-line cascade `if (opts.X !== undefined) { if
-    // (!Array.isArray(opts.X)) throw ... ; for (i...) if (typeof opts.X[i]
-    // !== "string" || opts.X[i].length === 0) throw }` — recurring across
-    // api-key (scopes), file-upload (allowedFileTypes), seeders (dependsOn),
-    // i18n (rtlLanguages / eagerLocales), and others.
-    regex: /!\s*Array\.isArray\s*\(\s*\w+\.\w+\s*\)[\s\S]{0,400}?typeof\s+\w+\.\w+\s*\[\s*\w+\s*\]\s*!==\s*["']string["']\s*\|\|\s*\w+\.\w+\s*\[\s*\w+\s*\]\.length\s*===\s*0/,
-    allowlist: ["lib/validate-opts.js"],
-    reason: "Extracted to validateOpts.optionalNonEmptyStringArray. Replaces the per-file `if (X !== undefined) { if (!Array.isArray) throw; for (i) if (typeof !== string || === '') throw }` cascade with one call.",
-  },
-  {
-    id: "inline-optional-object-with-method-validation",
-    primitive: "validateOpts.optionalObjectWithMethod(value, method, label, ErrorClass, code?, description?)",
-    // Match the literal duck-typed-handle shape: `if (opts.X !== undefined
-    // && opts.X !== null) { if (typeof opts.X !== "object" || typeof
-    // opts.X.method !== "function") throw }` — recurring across file-upload
-    // (permissions.check), notify (queue.enqueue), seeders (db.prepare),
-    // webhook (nonceStore.checkAndInsert).
-    regex: /\w+\.\w+\s*!==\s*undefined\s*&&\s*\w+\.\w+\s*!==\s*null[\s\S]{0,200}?typeof\s+\w+\.\w+\s*!==\s*["']object["']\s*\|\|\s*typeof\s+\w+\.\w+\.\w+\s*!==\s*["']function["']/,
-    allowlist: [
-      "lib/validate-opts.js",
-      // http-client.jar checks TWO methods (cookieHeaderFor + setFromResponse)
-      // — the helper validates a single method, so refactoring would
-      // silently drop one of the two checks.
-      "lib/http-client.js",
-      // mail.dkimSigner uses MailError(code, msg, permanent) — the
-      // 3-arg constructor signature drops the permanent flag if routed
-      // through validateOpts._throw which calls new errorClass(code, msg).
-      "lib/mail.js",
-    ],
-    reason: "Extracted to validateOpts.optionalObjectWithMethod. Replaces the recurring `if (X !== undefined && X !== null) { if (typeof X !== 'object' || typeof X.method !== 'function') throw }` shape used to validate optional duck-typed handles. Allowlisted sites either check multiple methods or use a 3-arg error constructor that the helper would drop.",
-  },
-  {
-    id: "inline-audit-emit-wrapper",
-    primitive: "validateOpts.makeAuditEmitter(audit)",
-    // Detect the literal `audit.safeEmit(Object.assign({ action: action },
-    // info))` shape inside a try/catch — the boilerplate every primitive
-    // previously rolled to wrap the operator-supplied audit handle.
-    regex: /audit\.safeEmit\s*\(\s*Object\.assign\s*\(\s*\{\s*action\s*:\s*action\s*\}/,
-    allowlist: ["lib/validate-opts.js"],
-    reason: "Extracted to validateOpts.makeAuditEmitter — closure factory parallel to safeAsync.makeDropCallback. Replaces the per-file `function _emit(action, info) { if (!audit) return; try { ... } catch ... }` boilerplate.",
-  },
-  {
-    id: "inline-default-resolution-cascade",
-    primitive: "validateOpts.applyDefaults(opts, DEFAULTS)",
-    // Detect the literal shape `(opts.X === undefined) ? DEFAULTS.X : opts.X`
-    // — the cascade every primitive's create() previously ran 5–10 times
-    // in a row to layer DEFAULTS over operator opts.
-    regex: /\(\s*opts\.\w+\s*===\s*undefined\s*\)\s*\?\s*DEFAULTS\.\w+\s*:\s*opts\.\w+/,
-    allowlist: [
-      "lib/validate-opts.js",
-      // testing.js's runMiddleware uses opts.timeoutMs but
-      // DEFAULTS.runMiddlewareTimeoutMs — different key names, single
-      // field. applyDefaults requires same-key on both sides; this site
-      // legitimately keeps the inline ternary.
-      "lib/testing.js",
-    ],
-    reason: "Extracted to validateOpts.applyDefaults — single helper that resolves opts against DEFAULTS in one call. Replaces 5–10 line cascades.",
-  },
-  {
-    id: "inline-require-object-prelude",
-    primitive: "validateOpts.requireObject(opts, label, ErrorClass)",
-    regex: /if\s*\(\s*!opts\s*\|\|\s*typeof\s+opts\s*!==\s*["']object["']\s*\)\s*\{[\s\S]{0,200}?opts\s+must\s+be\s+an\s+object/,
-    allowlist: [
-      "lib/validate-opts.js",
-      // The three call sites below pass `permanent: true` as the 3rd
-      // arg to `_err(code, msg, permanent)`. validateOpts.requireObject
-      // doesn't expose that arg — refactoring would silently drop the
-      // permanence flag (which controls retry classification). Keep
-      // these inline until requireObject grows opts.permanent or these
-      // sites move to an alwaysPermanent error class.
-      "lib/external-db.js",
-      "lib/http-client.js",
-      "lib/object-store/sigv4-bucket-ops.js",
-    ],
-    reason: "Extracted across api-key / cache / i18n / notify / permissions / seeders / webhook. Files with custom error codes or divergent messages (break-glass / config / deprecate / etc.) keep their bespoke shape — those preludes use module-namespaced codes that don't fit the generic helper.",
-  },
-  {
-    id: "inline-onDrop-callback-wrapper",
-    primitive: "safeAsync.safeInvoke(callback, payload, onError?)",
-    // Detect the literal `onDrop({...})` call wrapped in try/catch — the
-    // shape every log-stream sink previously rolled by hand.
-    regex: /try\s*\{\s*onDrop\s*\(\s*\{[\s\S]{0,200}?\}\s*\)\s*;?\s*\}\s*catch/,
-    allowlist: [],
-    reason: "Extracted to safeAsync.safeInvoke — operator-supplied callbacks must invoke through the framework wrapper so throws can't cascade into the sink's flush loop.",
-  },
-  {
-    id: "inline-object-store-http-request",
-    primitive: "require('./http-request') (lib/object-store/http-request.js)",
-    // Detect the literal `httpClient.request({ method, url, headers, body,
-    // idleTimeoutMs, errorClass: ObjectStoreError, allowedProtocols })`
-    // shape every protocol backend previously rolled by hand.
-    regex: /errorClass\s*:\s*ObjectStoreError\s*,\s*allowedProtocols\s*:/,
-    allowlist: ["lib/object-store/http-request.js"],
-    reason: "Extracted across azure-blob / gcs / sigv4 / http-put. The shared helper threads the same five opts (idleTimeoutMs / maxResponseBytes / errorClass / allowedProtocols / allowInternal) through httpClient.request.",
-  },
-  {
-    id: "inline-sql-transaction-wrapper",
-    primitive: "dbSchema.runInTransaction(db, fn, opts?) — also dbSchema.runSqlOnHandle(db, sql)",
-    // The literal BEGIN / COMMIT / ROLLBACK try/catch shape every
-    // SQL-touching primitive previously rolled by hand. Match the
-    // distinctive `_runSql ( ... , "BEGIN"` followed by COMMIT in the
-    // same scope. Tokenized: `_ID ( _ID , _STR )` where _STR is "BEGIN".
-    // Hard to match _STR contents post-tokenization; match the
-    // surrounding shape instead: a `try { ... "BEGIN" ... "COMMIT" ...
-    // } catch ... "ROLLBACK"` shape.
-    regex: /"BEGIN"[\s\S]{0,400}?"COMMIT"[\s\S]{0,200}?\}\s*catch[\s\S]{0,300}?"ROLLBACK"/,
-    allowlist: [
-      "lib/db-schema.js",   // definition site (runInTransaction itself)
-      // db.js's `transaction(fn)` is the framework's PUBLIC transaction
-      // primitive — operates on the singleton `database` and is the
-      // call shape operators use. It already routes through the
-      // shared runSql; re-routing through runInTransaction would change
-      // semantics (passing module.exports vs database). Keep as-is.
-      "lib/db.js",
-    ],
-    reason: "Extracted to dbSchema.runInTransaction. Replaces the inline BEGIN / COMMIT / ROLLBACK try/catch boilerplate in migrations / seeders / db-schema. Handles both raw better-sqlite3 and b.db framework wrapper handles via runSqlOnHandle.",
-  },
-  {
-    id: "inline-numeric-bounds-cascade",
-    primitive: "numericBounds.requirePositiveFiniteIntIfPresent / requireNonNegativeFiniteIntIfPresent",
-    // Detect the literal `if (opts.X !== undefined) { if (!nb.isYFiniteInt(opts.X)) throw new XError(code, ... + nb.shape(opts.X)); }`
-    // shape that every primitive's create() rolled by hand. Tokenized:
-    // `! _ID . _ID ( _ID . _ID ) ) { throw new _ID ( _STR , _STR + _ID . _ID ( _ID . _ID )`
-    // — the distinctive `+ nb.shape(opts.X)` tail fingerprints it.
-    regex: /!\s*\w+\.is\w*FiniteInt\s*\(\s*\w+\.\w+\s*\)[\s\S]{0,200}?\w+\.shape\s*\(\s*\w+\.\w+\s*\)/,
-    allowlist: [
-      "lib/numeric-bounds.js",   // definition site
-      // The helper signature is `new errorClass(code, message)`. Sites
-      // below use one of: factory call `_err(code, msg)`, raw
-      // `new Error(...)`, 3rd-arg `permanent: true`, or a reversed
-      // `(message, code)` constructor signature. Refactoring would
-      // either drop semantics or flip a public error constructor.
-      // Tracked as follow-ups in the agent's report.
-      "lib/http-client-cookie-jar.js",
-      "lib/mail-bounce.js",
-      "lib/migrations.js",
-      "lib/object-store/gcs.js",
-      "lib/object-store/sigv4.js",
-      "lib/parsers/safe-env.js",
-      "lib/parsers/safe-toml.js",
-      "lib/parsers/safe-yaml.js",
-      "lib/pqc-gate.js",
-      "lib/queue-local.js",
-      "lib/safe-buffer.js",
-      "lib/safe-url.js",
-    ],
-    reason: "Extracted to numericBounds.requirePositiveFiniteIntIfPresent / requireNonNegativeFiniteIntIfPresent. Replaces the per-file `if (opts.X !== undefined) { if (!nb.isYFiniteInt(opts.X)) throw }` cascade with a single call.",
-  },
-  {
-    id: "inline-log-via-or-fallback",
-    primitive: "log.makeViaOrFallback(operatorLog, fallbackLog)",
-    // Detect the literal `if (log && typeof log[level] === "function")
-    // { try { log[level](message, fields); } catch ... } return; ...
-    // fallback;` shape every log-routing primitive previously rolled
-    // by hand. Tokenized: `if ( _ID && typeof _ID [ _ID ] === _STR ) {
-    // try { _ID [ _ID ] ( _ID , _ID ) ; } catch`.
-    regex: /if\s*\(\s*\w+\s*&&\s*typeof\s+\w+\s*\[\s*\w+\s*\]\s*===\s*["']function["']\s*\)\s*\{\s*try\s*\{\s*\w+\s*\[\s*\w+\s*\]\s*\(/,
-    allowlist: [
-      "lib/log.js",   // definition site of makeViaOrFallback
-      // dev.js + pqc-gate.js — module-level _logVia(log, level, ...)
-      // helpers that take log per-call. Refactoring would either
-      // allocate a fresh closure per invocation (wasteful) or require
-      // restructuring the file to thread log through closures.
-      // Cluster broken (2 files < n=3 threshold); keep until a
-      // refactor that consolidates them is justified.
-      "lib/dev.js",
-      "lib/pqc-gate.js",
-    ],
-    reason: "Extracted to log.makeViaOrFallback. Replaces the per-file `_logVia` boilerplate that bundler / error-page rolled by hand around an operator-supplied logger with a per-module fallback.",
-  },
-  {
-    id: "inline-flush-timer-scheduler",
-    primitive: "safeAsync.makeScheduledFlush(delayMs, flushFn)",
-    // The literal `var flushTimer = null;` followed by setTimeout idempotent-schedule shape
-    // every batched-write sink previously rolled by hand.
-    regex: /var\s+flushTimer\s*=\s*null\s*;[\s\S]{0,300}?if\s*\(\s*flushTimer/,
-    allowlist: ["lib/safe-async.js"],
-    reason: "Extracted to safeAsync.makeScheduledFlush — idempotent setTimeout coalesce-and-flush helper used by every log-stream sink.",
-  },
-  {
-    id: "inline-emit-event-wrapper",
-    primitive: "observability.safeEvent(name, value, labels) — already wraps event() in try/catch",
-    // Detect any function that wraps observability.event in try/catch
-    // instead of calling the framework helper. The shape is symmetric
-    // across every consumer module that needs hot-path emission with
-    // drop-silent semantics — extraction was complete, no allowlist.
-    regex: /try\s*\{[\s\S]{0,150}?observability\.event\s*\([^)]*\)\s*;?\s*\}\s*catch/,
-    allowlist: [],
-    reason: "Extracted to observability.safeEvent — drop-silent semantics for hot-path event emission. Any module wrapping observability.event in try/catch should call observability.safeEvent instead.",
-  },
-  {
-    id: "inline-hex-string-validator",
-    primitive: "safeBuffer.isHex(s, expectedLength?) — returns boolean",
-    regex: /\/\^\[0-9a-fA-F\]\+\$\/\s*\.\s*test\s*\(/,
-    allowlist: ["lib/safe-buffer.js"],
-    reason: "Hex-string validation is now safeBuffer.isHex / safeBuffer.HEX_RE. The lib/safe-buffer.js definition retains the literal regex.",
-  },
-  {
-    id: "inline-crlf-string-test",
-    primitive: "safeBuffer.hasCrlf(s) / safeBuffer.CRLF_RE",
-    regex: /\/\[\\r\\n\]\/\s*\.\s*test\s*\(/,
-    allowlist: ["lib/safe-buffer.js"],
-    reason: "CRLF-injection guards now route through safeBuffer.hasCrlf / safeBuffer.CRLF_RE. The lib/safe-buffer.js definition retains the literal regex.",
-  },
-  {
-    id: "inline-trailing-hspace-strip",
-    primitive: "safeBuffer.stripTrailingHspace(s) / safeBuffer.TRAILING_HSPACE_RE",
-    regex: /\.replace\s*\(\s*\/\[\s\\t\]\+\$\/\s*,/,
-    allowlist: ["lib/safe-buffer.js"],
-    reason: "Trailing horizontal-whitespace strip is now safeBuffer.stripTrailingHspace. The lib/safe-buffer.js definition keeps the literal regex.",
-  },
-  {
-    id: "inline-iso8601-millisecond-strip",
-    primitive: "time.toIso8601NoMs(date)",
-    regex: /\.toISOString\s*\(\s*\)\s*\.\s*replace\s*\(\s*\/\\\.\\d\{3\}Z\$\//,
-    allowlist: ["lib/time.js"],
-    reason: "ISO-8601 millisecond stripping is now time.toIso8601NoMs(). The helper definition in lib/time.js keeps the inline form.",
-  },
-  {
-    id: "inline-migration-filename-regex",
-    primitive: "migrationFiles.MIGRATION_FILE_RE / migrationFiles.isMigrationFileName(name)",
-    regex: /\/\^\\\?\(\\d\+\)-\(\[A-Za-z0-9_-\]\+\)\\\.js\$\//,
-    allowlist: ["lib/migration-files.js"],
-    reason: "Migration filename pattern is now migrationFiles.MIGRATION_FILE_RE. The migration-files module owns the literal.",
-  },
-  {
-    id: "inline-sql-identifier-regex",
-    primitive: "safeSql.DEFAULT_IDENTIFIER_RE / safeSql.MAX_IDENTIFIER_LENGTH",
-    regex: /\/\^\[A-Za-z_\]\[A-Za-z0-9_\]\*\$\//,
-    allowlist: ["lib/safe-sql.js"],
-    reason: "SQL identifier validation is now safeSql.DEFAULT_IDENTIFIER_RE. The lib/safe-sql.js definition keeps the literal.",
-  },
-  {
-    id: "raw-sql-identifier-interpolation",
-    primitive: "safeSql.quoteIdentifier(name, dialect?) — runs validateIdentifier + emits the dialect-correct quoted form",
-    // Match `<KEYWORD> " + <variable> +` shapes where:
-    //   - the keyword is a known SQL DDL/DML position that takes an
-    //     identifier next (FROM / INTO / UPDATE / TABLE / INDEX /
-    //     TRIGGER / VIEW / JOIN — SELECT/INSERT are too column-heavy
-    //     to flag cleanly, but they reach an identifier via FROM/INTO);
-    //   - the next concatenated variable's name does NOT start with
-    //     `q[A-Z_]` (the project's "quoted identifier" prefix
-    //     convention, e.g. `qTable`, `q_Table`).
-    // Hits raw `"CREATE TABLE " + tableName +` shapes where the table
-    // is interpolated unquoted; the safeSql.quoteIdentifier helper
-    // emits the dialect-correct `"tableName"` (sqlite/postgres) or
-    // `` `tableName` `` (mysql) form and runs validateIdentifier
-    // internally, so future SQL-keyword + raw identifier
-    // concatenations are defense-in-depth covered too.
-    //
-    // Skips variables that signal already-quoted identifiers:
-    //   - `q` followed by letter/digit/underscore (qTable, qt, q_Table)
-    //   - `Q` followed by letter/digit/underscore (Q_TABLE, QTable)
-    //   - `quoted...` (quotedTable, quotedColumn)
-    regex: /\b(FROM|INTO|UPDATE|TABLE|INDEX|TRIGGER|VIEW|JOIN)\s+["']\s*\+\s*(?![qQ][A-Za-z0-9_]|quoted)\w+\s*\+/,
-    allowlist: [
-      "lib/safe-sql.js",   // the helper itself emits quote chars
-    ],
-    reason: "Identifier ALWAYS reaches SQL through safeSql.quoteIdentifier(name, dialect). Validates shape + quotes for the dialect; a future shape-regex bypass can't reach raw concatenation. Local variables holding quoted identifiers use a `q`/`Q`/`quoted` prefix so the detector can skip them.",
-  },
-  {
-    id: "inline-optional-plain-object-validation",
-    primitive: "validateOpts.optionalPlainObject(value, label, ErrorClass, code?, description?)",
-    // Match the literal three-line cascade `if (X !== undefined && X !==
-    // null) { if (typeof X !== "object" || Array.isArray(X)) throw ... }`
-    // — the recurring "optional plain object (not array)" validator
-    // shape shared by api-key (metadata), db-declare-view (hashColumns),
-    // db-declare-row-policy, static.js (contentSafety).
-    regex: /\w+\.\w+\s*!==\s*undefined\s*&&\s*\w+\.\w+\s*!==\s*null[\s\S]{0,200}?typeof\s+\w+\.\w+\s*!==\s*["']object["']\s*\|\|\s*Array\.isArray/,
-    allowlist: [
-      "lib/validate-opts.js",
-      // external-db throws ExternalDbError with a 3rd `permanent: true`
-      // arg that the validateOpts._throw factory signature doesn't carry
-      // through. Routing through the helper would silently drop the
-      // permanence flag (which controls retry classification).
-      "lib/external-db.js",
-      // protocol-dispatcher constructs the error inline with multi-line
-      // formatted message details that don't fit the helper's
-      // (label + description) shape.
-      "lib/protocol-dispatcher.js",
-    ],
-    reason: "Extracted to validateOpts.optionalPlainObject. Replaces the recurring `if (X !== undefined && X !== null) { if (typeof X !== 'object' || Array.isArray(X)) throw }` shape used to validate optional plain-object opts. Two sites allowlisted: external-db needs the permanent-flag 3rd arg the helper drops; protocol-dispatcher uses multi-line formatted error messages that don't fit the helper's description slot.",
-  },
-  {
-    id: "inline-redis-client-opts-forwarding",
-    primitive: "redisClient.pickClientOpts(cfg, prefix?)",
-    // Match the literal 9-key opts construction `{ url, password, username,
-    // tls, ca, servername, connectTimeoutMs, commandTimeoutMs,
-    // maxReconnectAttempts }` that cache-redis / pubsub-redis / queue-redis
-    // / etc. previously each rolled by hand to forward to redisClient.create.
-    // Detect via the distinctive triple `connectTimeoutMs ... commandTimeoutMs
-    // ... maxReconnectAttempts` appearing within a small window (those three
-    // keys uniquely identify a redis-client opts bag — no other framework
-    // primitive uses all three together).
-    regex: /connectTimeoutMs[\s\S]{0,300}?commandTimeoutMs[\s\S]{0,300}?maxReconnectAttempts/,
-    allowlist: ["lib/redis-client.js"],
-    reason: "Extracted to redisClient.pickClientOpts(cfg, prefix?) — single helper that returns the 9-key opts bag. cache-redis / pubsub-redis / queue-redis route through it. New redis-using primitives must call pickClientOpts; never hand-roll the 9-key forward.",
-  },
-  {
-    id: "inline-buffer-byte-equality-loop",
-    primitive: "Buffer.compare(a, b) === 0 (for non-crypto byte equality)",
-    // Hand-rolled loop walking two buffers byte-by-byte and OR-ing into
-    // a diff accumulator. Crypto-equality belongs in timingSafeEqual;
-    // non-crypto equality belongs in Buffer.compare.
-    regex: /for\s*\([^)]*\)\s*\{[\s\S]{0,150}?\|=\s*\w+\[\w+\]\s*\^\s*\w+\[\w+\]/,
-    allowlist: [
-      // timingSafeEqual implementation legitimately walks both buffers.
-      "lib/safe-buffer.js",
-      "lib/crypto.js",
-    ],
-    reason: "Non-crypto byte equality is Buffer.compare(a, b) === 0. ssrf-guard / address-equality call sites migrated. New code must use Buffer.compare or timingSafeEqual; never hand-roll the loop.",
-  },
-  {
-    id: "audit-action-with-hyphen",
-    primitive: "audit action `[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+`",
-    // Audit actions with a hyphen segment (e.g. "system.pubsub.publish-failed")
-    // fail the action regex enforced by audit.record(); safeEmit catches the
-    // throw and the event silently drops. The convention is dot-separated
-    // identifiers with underscores, not hyphens. safeEmit normalizes today as
-    // a safety net; new sites should follow the convention directly.
-    regex: /\baction\s*:\s*["'][a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+-/,
-    allowlist: [
-      // The detector itself defines the canonical pattern for documentation;
-      // no production code needs to ship a hyphenated action.
-    ],
-    reason: "Audit action segments use underscores, not hyphens. The action regex in audit.record() rejects hyphens; safeEmit normalizes hyphens to underscores as a safety net but operators reading audit rows expect canonical underscore-form names. The detector requires at least one `.<segment>` before the hyphen to avoid false-positives on domain-level enum keys (e.g. sanitize-action: 'audit-only').",
-  },
-  {
-    id: "non-canonical-audit-outcome",
-    primitive: "outcome ∈ {success, failure, denied}",
-    // Non-canonical outcomes (`ok` / `fail` / `warn` / `warning` / `duplicate` /
-    // `skipped` / `error`) get normalized by safeEmit but reach record() as
-    // strings the strict validator rejects. Use the canonical triple at the
-    // call site so reviewers reading the code see the audit outcome directly.
-    regex: /\boutcome\s*:\s*["'](?:ok|okay|fail|failed|err|error|warn|warning|duplicate|skip|skipped|pass|passed|succeeded|refused|deny)["']/,
-    allowlist: [
-      // safeEmit's normalizer table is the canonical source of the mapping.
-      "lib/audit.js",
-      // observability.js + permissions.js use observability-event outcomes
-      // (deny / ok / fail) for metrics labels — separate vocabulary from the
-      // audit-chain outcome triple. Detector cannot distinguish call shapes.
-      "lib/observability.js",
-      "lib/permissions.js",
-      // dsr.js sourceResult.outcome is a per-source per-ticket outcome with
-      // its own vocabulary (queried / erased / marked-restricted / failed /
-      // skipped) — distinct from the audit-chain outcome triple.
-      "lib/dsr.js",
-    ],
-    reason: "Audit outcomes are the literal strings 'success' / 'failure' / 'denied' at call sites. safeEmit normalizes the common typos as a safety net but the canonical form belongs in code so reviewers reading a primitive see exactly what audit row will land on the chain.",
+    reason: "An operator-supplied identifier used as a filesystem path segment must be sanitized at the boundary — compose b.safePath.resolve, or enforce a strict character class plus an explicit \"..\" refusal before passing it to path.join / fs.*. path.join semantics alone do not constrain traversal payloads.",
   },
 
   // ---- Test-scoped antipatterns (scanScope: "test") ----
@@ -5043,6 +4495,107 @@ function testNoInlineRequireInDeferred() {
     bad);
 }
 
+// ---- Pattern: vault.seal() in a sealed-column primitive without AAD ----
+//
+// A bare `vault.seal(plaintext)` produces ciphertext that decrypts in ANY
+// row of the same vault — a DB-write attacker can copy a sealed value from
+// a benign row into a sensitive one and it decrypts cleanly. Files that
+// register a sealed table (cryptoField.registerTable) and seal per-row
+// columns should bind the AEAD tag to the row identity via
+// `vault.aad.seal({ table, k, column })`. Whole-value envelopes (DB key,
+// session token, settings) have no row identity and use bare vault.seal —
+// they don't register a sealed table, so they don't fire. Document any
+// intentional bare seal in a sealed-column file with
+// `// allow:seal-without-aad — <reason>`.
+function testSealWithoutAad() {
+  // class: seal-without-aad
+  var files = _libFiles();
+  var bad = [];
+  for (var fi = 0; fi < files.length; fi++) {
+    var rel = _relPath(files[fi]);
+    var content;
+    try { content = fs.readFileSync(files[fi], "utf8"); }
+    catch (_e) { continue; }
+    if (!/cryptoField\.registerTable\s*\(/.test(content)) continue;
+    if (content.indexOf("vault.seal(") === -1) continue;
+    var lines = content.split(/\r?\n/);
+    for (var j = 0; j < lines.length; j++) {
+      if (/^\s*(\/\/|\*|\/\*)/.test(lines[j])) continue;
+      if (/\bvault\.seal\(/.test(lines[j]) && !/vault\.aad\.seal\(/.test(lines[j])) {
+        bad.push({ file: rel, line: j + 1, content: lines[j].trim() });
+      }
+    }
+  }
+  bad = _filterMarkers(bad, "seal-without-aad");
+  _report("sealed-row column writes bind AAD via vault.aad.seal (or carry an allow:seal-without-aad marker) — cross-row swap defense", bad);
+}
+
+// ---- Pattern: reserved-hostname compare without trailing-dot strip ----
+//
+// `localhost.` resolves to the same target as `localhost` (RFC 1034 §3.1),
+// so an SSRF gate that compares a parsed hostname against a reserved-name
+// set without first stripping trailing root-zone dots is bypassable by
+// appending a dot. Strip trailing dots (`.replace(/\.+$/, "")`) before the
+// equality check. Scans lib/ + the app tree (the SSRF policy lives under
+// app/security/).
+function testHostnameCompareTrailingDot() {
+  // class: hostname-compare-trailing-dot
+  var files = _libFiles().concat(_appFiles());
+  var bad = [];
+  var reservedHostLiteralRe = /===\s*"(localhost|localhost\.localdomain|ip6-localhost|ip6-loopback)"/;
+  for (var fi = 0; fi < files.length; fi++) {
+    var rel = _relPath(files[fi]);
+    var content;
+    try { content = fs.readFileSync(files[fi], "utf8"); }
+    catch (_e) { continue; }
+    if (!reservedHostLiteralRe.test(content)) continue;
+    var hasStrip = /\.charAt\([^)]*length\s*-\s*1\)\s*===\s*"\."/.test(content) ||
+                   /while[\s\S]{0,80}length\s*>\s*0[\s\S]{0,80}charAt[\s\S]{0,80}===\s*"\."/.test(content) ||
+                   /\.replace\(\s*\/\\\.[+*]?\$\//.test(content);
+    if (hasStrip) continue;
+    var m = content.match(reservedHostLiteralRe);
+    var lineNum = content.slice(0, m.index).split(/\r?\n/).length;
+    bad.push({
+      file: rel,
+      line: lineNum,
+      content: "reserved-hostname equality compare without trailing-dot normalize — strip trailing root-zone dots before the check (RFC 1034 §3.1; SSRF gate bypass)",
+    });
+  }
+  bad = _filterMarkers(bad, "hostname-compare-trailing-dot");
+  _report("reserved-hostname equality compare must strip trailing root-zone dot first (RFC 1034 §3.1; SSRF bypass class)", bad);
+}
+
+// ---- Pattern: hardcoded res.end(JSON.stringify({ error })) denial ----
+//
+// Non-HTML denials must go through `b.problemDetails.send` (RFC 9457
+// application/problem+json), not a hardcoded `res.end(JSON.stringify({
+// error: ... }))` body — the retired `{ error }` wire shape. Pattern-2
+// inline `res.status(4xx).json({ error })` (route-handler request-shape
+// validation) is a separate, currently-accepted form and does NOT match
+// this regex. Scans lib/ + the app tree (denials live in middleware/ and
+// server-main.js). Success responses (`{ success: ... }`) don't match.
+function testDenyPathHardcodedResponse() {
+  // class: deny-path-hardcoded-response
+  var files = _libFiles().concat(_appFiles());
+  var bad = [];
+  var denyRe = /\.end\s*\(\s*JSON\.stringify\s*\(\s*\{\s*error\b/;
+  for (var fi = 0; fi < files.length; fi++) {
+    var rel = _relPath(files[fi]);
+    var content;
+    try { content = fs.readFileSync(files[fi], "utf8"); }
+    catch (_e) { continue; }
+    var lines = content.split(/\r?\n/);
+    for (var j = 0; j < lines.length; j++) {
+      if (/^\s*(\/\/|\*|\/\*)/.test(lines[j])) continue;
+      if (denyRe.test(lines[j])) {
+        bad.push({ file: rel, line: j + 1, content: lines[j].trim() });
+      }
+    }
+  }
+  bad = _filterMarkers(bad, "deny-path-hardcoded-response");
+  _report("non-HTML denials use b.problemDetails.send (RFC 9457 problem+json), not res.end(JSON.stringify({ error }))", bad);
+}
+
 function testKnownAntipatterns() {
   // class: known-antipattern
   // Fires at n=1. Per-entry `scanScope` selects the file set:
@@ -5156,6 +4709,9 @@ async function run() {
   testNoUncappedSearchParamsObject();
   testNoHexShaCompareEquals();
   testNoInlineRequireInDeferred();
+  testSealWithoutAad();
+  testHostnameCompareTrailingDot();
+  testDenyPathHardcodedResponse();
   testKnownAntipatterns();
 
   // Final cumulative assertion — every detector is a hard gate.

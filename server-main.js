@@ -30,6 +30,7 @@ function rejectUpgrade(socket, statusCode, message) {
   } catch (_e) { /* socket may have already closed — rejection complete either way */ }
 }
 var syncEmitter = require("./lib/sync-emitter");
+var rateLimit = require("./lib/rate-limit");
 
 // -- vendored framework --
 var b = require("./lib/vendor/blamejs");
@@ -233,13 +234,17 @@ app.get("/sitemap.xml", function (req, res) {
 // one-time-use one-hour-expiry, so the lower bound on attacker brute-force
 // stays cosmically out of reach at any reasonable cap. Default stays 5.
 var SYNC_ENROLL_MAX = parseInt(process.env.SYNC_ENROLL_MAX, 10) || 5;
-app.post("/sync/enroll", b.middleware.rateLimit({ scope: "sync-enroll", max: SYNC_ENROLL_MAX, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async function (req, res) {
+app.post("/sync/enroll", rateLimit.guard({ scope: "sync-enroll", max: SYNC_ENROLL_MAX, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async function (req, res) {
   try {
     var body = (await b.parsers.json(req)) || {};
     var code = String(body.code || "").trim().toUpperCase();
     if (!code) {
-      res.writeHead(400, { "Content-Type": "application/json" });
-      return res.end(JSON.stringify({ error: "Enrollment code required." }));
+      return b.problemDetails.send(res, {
+        type: "https://hermitstash.com/problems/validation-error",
+        title: "Validation Error",
+        status: 400,
+        detail: "Enrollment code required.",
+      });
     }
 
     // Look up by hash
@@ -248,8 +253,12 @@ app.post("/sync/enroll", b.middleware.rateLimit({ scope: "sync-enroll", max: SYN
       .filter(function (r) { return r.codeHash === codeHash && r.expiresAt > new Date().toISOString(); });
 
     if (records.length === 0) {
-      res.writeHead(401, { "Content-Type": "application/json" });
-      return res.end(JSON.stringify({ error: "Invalid or expired enrollment code." }));
+      return b.problemDetails.send(res, {
+        type: "https://hermitstash.com/problems/auth-required",
+        title: "Auth Required",
+        status: 401,
+        detail: "Invalid or expired enrollment code.",
+      });
     }
 
     var record = records[0];
@@ -305,8 +314,12 @@ app.post("/sync/enroll", b.middleware.rateLimit({ scope: "sync-enroll", max: SYN
     // crypto state, etc.) — but log it so operators can diagnose failed
     // enrollment attempts.
     logger.error("[sync/enroll] Error", { error: err.message, stack: err.stack });
-    res.writeHead(500, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Enrollment failed." }));
+    b.problemDetails.send(res, {
+      type: "https://hermitstash.com/problems/internal-error",
+      title: "Internal Error",
+      status: 500,
+      detail: "Enrollment failed.",
+    });
   }
 });
 
@@ -316,7 +329,7 @@ app.post("/sync/enroll", b.middleware.rateLimit({ scope: "sync-enroll", max: SYN
 // no certFingerprint — the cert proof-of-possession IS the second factor),
 // revocation check, and actual cert generation.
 app.post("/sync/renew-cert",
-  b.middleware.rateLimit({ scope: "sync-renew", max: 5, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }),
+  rateLimit.guard({ scope: "sync-renew", max: 5, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }),
   require("./middleware/sync-guards").requireSyncAuth({ requireBundle: false }),
   async function (req, res) {
     try {
@@ -325,22 +338,34 @@ app.post("/sync/renew-cert",
       // the cert is the second authn factor for this specific operation.
       var peerCert = req.socket && req.socket.getPeerCertificate ? req.socket.getPeerCertificate() : null;
       if (!peerCert || !peerCert.subject || !req.socket.authorized) {
-        res.writeHead(403, { "Content-Type": "application/json" });
-        return res.end(JSON.stringify({ error: "mTLS client certificate required for renewal." }));
+        return b.problemDetails.send(res, {
+          type: "https://hermitstash.com/problems/forbidden",
+          title: "Forbidden",
+          status: 403,
+          detail: "mTLS client certificate required for renewal.",
+        });
       }
 
       // Check cert is not revoked (indexed lookup, not full-table scan)
       if (certUtils.isCertRevoked(peerCert.fingerprint256)) {
-        res.writeHead(403, { "Content-Type": "application/json" });
-        return res.end(JSON.stringify({ error: "Certificate has been revoked." }));
+        return b.problemDetails.send(res, {
+          type: "https://hermitstash.com/problems/forbidden",
+          title: "Forbidden",
+          status: 403,
+          detail: "Certificate has been revoked.",
+        });
       }
 
       // Generate new client certificate
       await mtlsCa.initCA();
       var newCert = await mtlsCa.generateClientCert({ cn: req.apiKey.prefix });
       if (!newCert) {
-        res.writeHead(500, { "Content-Type": "application/json" });
-        return res.end(JSON.stringify({ error: "Certificate generation failed." }));
+        return b.problemDetails.send(res, {
+          type: "https://hermitstash.com/problems/internal-error",
+          title: "Internal Error",
+          status: 500,
+          detail: "Certificate generation failed.",
+        });
       }
 
       // Update cert tracking on the API key
@@ -363,8 +388,12 @@ app.post("/sync/renew-cert",
       audit.log(audit.ACTIONS.CERT_RENEWED, { details: "Sync client auto-renewed certificate: " + req.apiKey.prefix, req: req });
     } catch (err) {
       logger.error("[sync/renew-cert] Error", { error: err.message, stack: err.stack });
-      res.writeHead(500, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "Certificate renewal failed." }));
+      b.problemDetails.send(res, {
+        type: "https://hermitstash.com/problems/internal-error",
+        title: "Internal Error",
+        status: 500,
+        detail: "Certificate renewal failed.",
+      });
     }
   }
 );
@@ -541,8 +570,14 @@ app.use(function (req, res, next) {
     res.writeHead(302, { Location: "/2fa/re-enroll" });
     return res.end();
   }
-  res.writeHead(403, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ error: "TOTP re-enrollment required.", code: "TOTP_REENROLL_REQUIRED", redirect: "/2fa/re-enroll" }));
+  b.problemDetails.send(res, {
+    type: "https://hermitstash.com/problems/forbidden",
+    title: "Forbidden",
+    status: 403,
+    detail: "TOTP re-enrollment required.",
+    code: "TOTP_REENROLL_REQUIRED",
+    redirect: "/2fa/re-enroll",
+  });
 });
 
 // Routes
@@ -570,7 +605,7 @@ require("./routes/stash")(app);
 // All pre-checks (scope / ownership / boundBundleId / certFingerprint) run in
 // middleware/sync-guards.js so every /sync/* endpoint inherits the same gate chain.
 app.post("/sync/rename",
-  b.middleware.rateLimit({ scope: "sync-file-rename", max: 100, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }),
+  rateLimit.guard({ scope: "sync-file-rename", max: 100, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }),
   require("./middleware/sync-guards").requireSyncAuth({ requireBundle: true }),
   async function (req, res) {
     try {
@@ -580,12 +615,24 @@ app.post("/sync/rename",
         newRelativePath: req.body.newRelativePath,
         req: req,
       });
-      if (result.error) { res.writeHead(result.status || 400, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: result.error })); }
+      if (result.error) {
+        var rs = result.status || 400;
+        return b.problemDetails.send(res, {
+          type: "https://hermitstash.com/problems/" + (rs === 404 ? "not-found" : rs === 403 ? "forbidden" : rs === 409 ? "conflict" : "validation-error"),
+          title: rs === 404 ? "Not Found" : rs === 403 ? "Forbidden" : rs === 409 ? "Conflict" : "Validation Error",
+          status: rs,
+          detail: result.error,
+        });
+      }
       res.json(result);
     } catch (err) {
       logger.error("[sync/rename] Error", { error: err.message, stack: err.stack });
-      res.writeHead(500, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "Rename failed." }));
+      b.problemDetails.send(res, {
+        type: "https://hermitstash.com/problems/internal-error",
+        title: "Internal Error",
+        status: 500,
+        detail: "Rename failed.",
+      });
     }
   }
 );
@@ -861,9 +908,9 @@ var apiKeyConnectionCount = syncRegistry.apiKeyConnectionCount;
 var caRotationAckCallbacks = syncRegistry.caRotationAckCallbacks;
 
 var SYNC_MAX_CONNECTIONS_PER_KEY = 5;
-var SYNC_HEARTBEAT_INTERVAL = 30000;
+var SYNC_HEARTBEAT_INTERVAL = C.TIME.seconds(30);
 var SYNC_MAX_MESSAGES_PER_MIN = 60;
-var SYNC_MAX_MESSAGE_SIZE = 65536;
+var SYNC_MAX_MESSAGE_SIZE = C.BYTES.kib(64);
 
 server.on("upgrade", function (req, socket, head) {
   // Parse URL
@@ -1001,6 +1048,7 @@ server.on("upgrade", function (req, socket, head) {
   // Inbound message rate limiting
   var msgCount = 0;
   var msgResetTimer = setInterval(function () { msgCount = 0; }, C.TIME.minutes(1));
+  msgResetTimer.unref();
   var violations = 0;
 
   // Catch-up: send events since the given seq
@@ -1038,6 +1086,7 @@ server.on("upgrade", function (req, socket, head) {
       ws.ping();
     } catch (_e) { /* client disconnected between heartbeats — close handler runs next tick */ }
   }, SYNC_HEARTBEAT_INTERVAL);
+  heartbeatTimer.unref();
 
   // Pong timeout detection
   var pongReceived = true;
@@ -1048,6 +1097,7 @@ server.on("upgrade", function (req, socket, head) {
     }
     pongReceived = false;
   }, SYNC_HEARTBEAT_INTERVAL);
+  pongCheckTimer.unref();
 
   ws.on("pong", function () { pongReceived = true; });
 
@@ -1152,7 +1202,7 @@ function gracefulShutdown(signal) {
   var forceTimer = setTimeout(function () {
     logger.warn("Shutdown timeout reached, forcing exit");
     process.exit(1);
-  }, 10000);
+  }, C.TIME.seconds(10));
   forceTimer.unref();
 }
 

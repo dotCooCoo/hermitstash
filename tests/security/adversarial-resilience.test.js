@@ -249,6 +249,11 @@ describe("rate limiting", function () {
     }
     var res = await client.post("/auth/login", { json: { email: "nobody@test.com", password: "wrong" } });
     assert.strictEqual(res.status, 429, "16th attempt should be rate limited");
+    // Every rate-limit 429 is RFC 9457 application/problem+json (lib/rate-limit
+    // mounts via guard({ problemDetails: true })), not the framework default
+    // text/plain.
+    assert.ok((res.headers["content-type"] || "").indexOf("application/problem+json") !== -1,
+      "rate-limit 429 is RFC 9457 problem+json, got " + res.headers["content-type"]);
     // Reset for other tests
     var rateLimit = require(path.join(projectRoot, "lib", "rate-limit"));
     rateLimit.resetAllInstances();

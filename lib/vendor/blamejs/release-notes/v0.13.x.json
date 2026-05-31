@@ -1,0 +1,1248 @@
+{
+  "$schema": "../scripts/release-notes-consolidated-schema.json",
+  "minor": "0.13",
+  "releases": [
+    {
+      "version": "0.13.46",
+      "date": "2026-05-29",
+      "headline": "`createApp` now wires the documented security middleware ON by default — CSRF, CSP nonce, cookie parser, fetch-metadata, and body parser",
+      "summary": "The README has long described a security middleware stack as \"wired by createApp\", but createApp only mounted request-ID, security-headers, and bot-guard by default — CSRF protection, the CSP nonce, the threat-aware cookie parser, the fetch-metadata guard, and the body parser were documented but not actually wired. This release closes that gap: createApp now mounts all of them by default, in dependency order (cookies, CSP nonce, fetch-metadata, then body parser, then CSRF last so it can read a body-field token). This is a behavior change — apps built with createApp now enforce CSRF on state-changing requests by default. Each layer is configurable via opts.middleware.<name> (operator cookie and field names flow straight through — nothing is hardcoded) or can be turned off with false, and disabling a security default now emits an app.middleware.disabled audit event. Every layer is idempotent: an operator who also mounts one of these inside opts.routes gets a no-op second mount rather than a double-apply. The default CSRF is a double-submit cookie that auto-skips requests carrying an Authorization header or no cookies at all, which are not CSRF-able, so token-authenticated API clients are not rejected. The README middleware list is now an accurate description of what createApp wires.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "createApp wires CSRF, CSP nonce, cookie parser, fetch-metadata, and body parser by default (breaking)",
+              "body": "Applications constructed with b.createApp now mount, in order: the threat-aware cookie parser, the CSP nonce generator, the fetch-metadata resource-isolation guard, the body parser (JSON / urlencoded / text / multipart), and CSRF protection — in addition to the request-ID, security-headers, and bot-guard layers already wired. The ordering guarantees CSRF runs after the body parser so a body-field token is available. This is a behavior change: state-changing requests (POST / PUT / DELETE / PATCH) that carry a session cookie are now CSRF-validated by default. Each layer is configured through opts.middleware.<name> (an object passes operator options straight through; cookie and field names are not hardcoded) or disabled with false. Operators who were mounting these middleware themselves inside opts.routes do not need to change anything — the second mount is now a no-op (see idempotency below)."
+            },
+            {
+              "title": "Default CSRF auto-skips token-authenticated and cookieless requests",
+              "body": "The CSRF middleware gains a skipStateless option (default false; createApp's default wiring sets it true). When on, token validation is skipped for requests that carry an Authorization header or no Cookie header at all — such requests are not CSRF-able, because CSRF abuses a victim's ambient cookie credential and these have none. The token is still issued on safe methods so a later cookie-authenticated browser flow works. Cross-site form CSRF is unaffected: the browser auto-sends the victim's cookies, so an attack request always carries a Cookie header and is validated."
+            },
+            {
+              "title": "Disabling a default security middleware is audited",
+              "body": "Passing false for one of the security-on-by-default middleware (for example middleware: { csrf: false }) now emits an app.middleware.disabled audit event naming the middleware, so a weakened posture leaves a trace in the audit chain rather than being silent."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Idempotent security middleware",
+              "body": "The cookie parser, CSP nonce, fetch-metadata, and CSRF middleware are now idempotent within a request: if one has already run (because createApp wired it and an operator also mounted it), the second instance is a no-op rather than re-parsing, re-generating a nonce, or issuing a second CSRF cookie. This lets an application compose its own middleware order on top of createApp's defaults without double-applying. The body parser already had this behavior."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.45",
+      "date": "2026-05-29",
+      "headline": "`b.cert` now fetches and staples a validated OCSP response per certificate, and validates declared compliance postures at create()",
+      "summary": "Two capabilities that b.cert documented but did not act on are now wired through. OCSP stapling: the cert manager fetches the leaf's OCSP response from the responder named in its Authority Information Access extension, validates it against the issuer (status, nonce, serial) via b.network.tls.ocsp, caches the DER, and exposes it on getContext().ocspResponse so a TLS server's OCSPRequest handler can staple it. The fetch runs in the background on a refresh timer and never blocks cert.start() — a slow or unreachable responder produces an audited per-certificate failure, not a stalled boot. Compliance postures: opts.compliance names are now validated against b.compliance.KNOWN_POSTURES at create() (an unknown name throws cert/unknown-compliance-posture instead of being silently recorded) and are surfaced on getContext().compliance for an auditor. Storage-confidentiality postures hold by construction because cert keys and certificates are always sealed at rest. The supporting composition primitive b.network.tls.ocsp.fetch (build request, POST to the responder through b.httpClient, validate the response) is now part of the public OCSP surface.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "b.network.tls.ocsp.fetch — fetch and validate an OCSP response",
+              "body": "The OCSP helper set previously built requests and evaluated responses but had no way to actually retrieve one. b.network.tls.ocsp.fetch({ leafPem, issuerPem, nonce?, timeoutMs? }) reads the responder URL from the leaf certificate's Authority Information Access extension, builds the request, POSTs it through b.httpClient (so the SSRF guard and pinned DNS apply), and validates the response against the issuer — returning the validated DER plus the parsed evaluation. It rejects when the leaf carries no OCSP responder URL or the response fails validation."
+            },
+            {
+              "title": "b.cert staples a validated OCSP response per certificate",
+              "body": "With ocsp.stapling enabled (the default), the cert manager refreshes each certificate's OCSP response on a timer (ocsp.refreshMs, default 12h) and caches the validated DER. getContext(serverName).ocspResponse returns that DER for a TLS server to hand back from its OCSPRequest handler. The refresh runs in the background and is never on the path of cert.start(): an unreachable or slow responder is recorded as an audited cert.ocsp.refresh failure for that certificate and leaves the rest of the manager running."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "opts.compliance posture names are validated at create()",
+              "body": "b.cert.create now checks each name in opts.compliance against b.compliance.KNOWN_POSTURES and throws cert/unknown-compliance-posture on an unrecognized name, so a typo is caught at construction rather than being silently recorded. The declared postures are surfaced on getContext().compliance. Cert keys and certificates are always sealed at rest, so storage-confidentiality postures are satisfied by construction."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.44",
+      "date": "2026-05-29",
+      "headline": "Error codes on the consent, compliance, and protocol namespaces now follow the namespace/kebab-case contract",
+      "summary": "The framework's error contract is `err.code = \"namespace/kebab-case\"`, and the vast majority of namespaces already followed it. This release normalizes the holdouts: fifteen namespaces that threw bare UPPER_SNAKE codes with no namespace, and nine that used a camelCase namespace prefix. After this release every error these namespaces throw carries a `namespace/kebab-case` code, so an operator switching on `err.code` no longer has to special-case them. This is a breaking change for code that matches the old strings — pre-1.0, there is no compatibility shim, so update any `err.code` comparisons against the listed namespaces. A codebase check now enforces the convention so it cannot regress. A small set of older codes (the cluster, scheduler, circuit-breaker, object-store, and upload subsystems) is intentionally left for the 1.0 release, where it will carry a deprecation cycle.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Bare UPPER_SNAKE error codes are now namespaced (breaking)",
+              "body": "Fifteen namespaces threw bare UPPER_SNAKE error codes with no namespace prefix (for example `mcp` threw `BAD_JSON`, `BAD_ENVELOPE`, `BAD_METHOD`). Their `err.code` values are now `namespace/kebab-case` — `mcp/bad-json`, `mcp/bad-envelope`, and so on. The affected namespaces are `b.a2a`, `b.aiInput`, `b.aiPref`, `b.budr`, `b.contentCredentials`, `b.darkPatterns`, `b.fapi2`, `b.fdx`, `b.graphqlFederation`, `b.iabTcf`, `b.iabMspa`, `b.mcp`, `b.secCyber`, `b.sse`, and `b.tcpa10dlc`. Operators matching the old bare codes on `err.code` must update those comparisons; the error message text is unchanged."
+            },
+            {
+              "title": "camelCase error-code namespaces are now kebab-case (breaking)",
+              "body": "Nine namespaces emitted error codes whose namespace segment was camelCase (for example `aiDp/bad-bound`, `argParser/flag-duplicate`). The namespace segment is now kebab-case to match every other code: `ai-dp/`, `ai-capability/`, `ai-quota/`, `arg-parser/`, `audit-sign/`, `auth-step-up/`, `ddl-change-control/`, `dr-runbook/`, `tenant-quota/`, and `boot-gates/`. The `b.*` API namespace keys themselves are unchanged (those remain camelCase, e.g. `b.argParser`); only the `err.code` string changed. Operators matching these `err.code` strings must update them."
+            }
+          ]
+        },
+        {
+          "heading": "Detectors",
+          "items": [
+            {
+              "title": "Error-code shape is enforced",
+              "body": "A codebase check now flags any error code constructed via `new XError(...)` or the per-class `factory(...)` whose value is a bare UPPER_SNAKE string or carries a camelCase namespace segment, so the `namespace/kebab-case` contract cannot silently regress. It correctly ignores native error constructors (whose first argument is the message, not a code)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.43",
+      "date": "2026-05-29",
+      "headline": "LTS window stated consistently as 24 months, experimental primitives declared semver-exempt, and stale version references cleaned up",
+      "summary": "Documentation and operator-facing string hygiene ahead of the 1.0 stability contract. The LTS support window is now stated as 24 months everywhere (GOVERNANCE.md and the LTS calendar previously disagreed — 24 vs 18). The LTS calendar gains an explicit clause that primitives marked experimental are exempt from the stability/LTS contract, so operators can tell at a glance which surfaces may change between minors. Several error messages and doc blocks that pinned to long-past version numbers (\"lands in v0.10.9\", \"not supported in v0.12.7\", \"ships in v0.6.45+\") are restated version-agnostically with their escape hatch, and the S/MIME module now points operators at the live PGP encrypt/decrypt path for confidentiality today. No API or behavior changes.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "LTS support window is consistently 24 months",
+              "body": "`GOVERNANCE.md` promised a 24-month LTS window while `LTS-CALENDAR.md` and `SECURITY.md` stated 18 — a six-month contradiction in the single most load-bearing number of the support contract. All three now state 24 months of security-only patches per major. The calendar table and the supported-versions prose are aligned."
+            },
+            {
+              "title": "Experimental primitives are declared exempt from the stability contract",
+              "body": "`LTS-CALENDAR.md` now states explicitly that primitives documented as experimental (shown as \"experimental\" on their wiki page, and via the `experimental` segment in namespaces like `b.jose.jwe.experimental`) are not covered by the stability contract or the LTS window — they may change signature, behavior, or wire format, or be removed, in any minor without a deprecation cycle. This lets the framework ship primitives that track in-flight standards without freezing an unsettled format, and tells operators precisely which surfaces are not yet frozen."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Stale version references removed from operator-facing errors and docs",
+              "body": "Error messages and documentation that pinned to long-past versions are restated version-agnostically with the relevant escape hatch: ZIP64 and unsupported-compression errors in archive reading, the CMS AuthEnvelopedData / fielded-decoder notes, the mTLS CRL-engine error, the safe-archive format-detection summary (which also now correctly lists the supported zip / tar / tar.gz set rather than claiming only zip), and the AI-content IPTC-reader note. None changed behavior; they no longer read as broken promises against the published version history."
+            },
+            {
+              "title": "S/MIME confidentiality deferral points to the working PGP path",
+              "body": "`b.mail.crypto.smime` ships sign + verify; encrypt/decrypt is deferred. The deferral note previously cited an open-ended internal condition; it now names the escape hatch directly — use `b.mail.crypto.pgp.encrypt` / `decrypt` for mail confidentiality today — and states the concrete trigger that would re-open S/MIME-specific (X.509-recipient) encryption."
+            },
+            {
+              "title": "Governance doc no longer references an internal file operators cannot see",
+              "body": "`GOVERNANCE.md` cited a rule number in a contributor-only file that does not ship in the repository. The deprecation-policy statement is now self-contained."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.42",
+      "date": "2026-05-29",
+      "headline": "S/MIME trust-chain validation binds the leaf to the key that verified the signature",
+      "summary": "When b.mail.crypto.smime.verify is given trust anchors, it validates the supplied certificate chain — but it picked the chain leaf unconditionally (the first cert) and never tied it to signerPublicKey, the key that actually verified the signature. A SignedData blob could therefore carry a validly-chained certificate for one identity while the signature was verified under an unrelated key, and the chain-validated result would imply a cert↔signer binding the code never made. Chain validation now selects the leaf as the certificate whose public key matches signerPublicKey, and refuses (signer-not-in-chain) when no certificate in the chain carries that key — so a chain-validated signature is bound to the cert it claims.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Trust-chain leaf is bound to the verified signer key",
+              "body": "`smime.verify({ trustAnchorCertsPem })` validated the supplied chain starting from `chain[0]` without checking that the leaf's public key was the one that verified the signature (the operator-supplied `signerPublicKey`). A crafted `SignedData` could pair a validly-chained certificate for identity A with a signature verified under an unrelated key, and the chain-valid result would assert a binding that didn't hold. The chain walk now selects the leaf as the certificate whose public key equals `signerPublicKey` (matched against the certificate's SPKI, raw key or full-encoding form), and throws `mail-crypto/smime/signer-not-in-chain` when no certificate in `SignedData.certificates` carries that key. A certificate whose key cannot be extracted is treated as a non-match, so validation fails closed rather than trusting an unverifiable binding."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.41",
+      "date": "2026-05-29",
+      "headline": "Agent registry reads can be tenant-scoped; compliance-erasure docs clarify actor is an audit field",
+      "summary": "The agent orchestrator's registry reads (list and lookup) gated only on the flat agent-registry:read scope, so any holder could enumerate every tenant's agents and resolve a handle to one — even though the event bus already scopes subscribe and delivery by tenant. The orchestrator now mirrors that: with the new tenantScope option enabled, list returns only the actor's own tenant's agents and lookup refuses a cross-tenant name, unless the actor holds the framework cross-tenant-admin scope. Off by default, so single-tenant deployments are unaffected. Separately, the subject-erasure docs now state explicitly that the recorded actor is an audit field, not authentication — the caller must be authorized upstream.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Tenant-scoped agent registry reads (opts.tenantScope)",
+              "body": "`b.agent.orchestrator.create({ tenantScope: true })` now scopes `list` and `lookup` to the calling actor's tenant: `list` filters out agents in other tenants and `lookup` returns null for a cross-tenant name, unless the actor holds the cross-tenant-admin scope (`b.agent.tenant.CROSS_TENANT_ADMIN_SCOPE`). This closes a cross-tenant metadata-enumeration and handle-acquisition path — `agent-registry:read` alone no longer exposes other tenants' agents — and mirrors the tenant scoping the event bus enforces on subscribe and delivery. The option defaults off; existing single-tenant orchestrators behave exactly as before. The `tenantId` argument to `list` remains a convenience filter, distinct from this authorization boundary."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Subject-erasure docs clarify the actor is an audit field, not authentication",
+              "body": "`b.subject.erase` and `b.subject.eraseHard` gate the deletion on operator acknowledgements and the legal-hold registry, not on caller identity. Their documentation now states explicitly that the recorded `actor` is an audit-record field, not authentication — the caller MUST be authenticated and authorized by the route before invoking. No behavior change; this removes an implicit assumption that could otherwise be read as the primitive authorizing the call."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.40",
+      "date": "2026-05-29",
+      "headline": "Redis client stops leaking a socket and blocking exit after close; DB exit-handler registers once",
+      "summary": "Two handle-lifecycle fixes. The Redis client's reconnect backoff used an untracked, non-unref'd timer: during a backoff window it alone could keep the event loop alive (a process that won't exit), and a reconnect scheduled before close() fired afterward and opened a fresh socket because the connect path didn't re-check the closing flag. The timer is now tracked, unref'd, cancelled in close(), and the connect path refuses to re-open once closing. Separately, the encrypted database registered its process-exit final-flush handler on every init(), so repeated init/close cycles (long test runs, hot reload) accumulated 'exit' listeners toward the MaxListenersExceeded warning; it now registers once for the process lifetime.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Redis client cancels its reconnect timer on close and won't re-open a closed connection",
+              "body": "The reconnect backoff scheduled `setTimeout(reconnect, delay)` without keeping a handle, without `unref()`, and the reconnect path checked only `connected`/`connecting` — not `closing`. So a backoff window could by itself hold the process open (it won't exit), and a reconnect scheduled before `close()` would fire afterward and open a fresh socket with listeners — a leak after explicit close. The timer is now tracked and `unref()`'d (a backoff no longer blocks exit), cancelled in `close()`, and the connect path returns early once closing so no socket is opened after close."
+            },
+            {
+              "title": "Encrypted DB registers its process-exit flush handler once, not per init()",
+              "body": "`b.db.init()` in encrypted mode added a `process.on(\"exit\")` final-flush handler on every call. Across repeated init/close cycles — long test suites, hot reload, embedded re-inits — these accumulated and tripped Node's MaxListenersExceeded warning (and grew memory slightly). The handler is now registered once for the process lifetime, guarded by a module flag, and still flushes whichever encrypted DB is open at exit time."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.39",
+      "date": "2026-05-29",
+      "headline": "Dual-control approvals are atomic — no quorum bypass or double-consume under concurrency",
+      "summary": "The dual-control approval store read a grant, mutated it in memory, and wrote it back with an await in between — a non-atomic read-modify-write. Under concurrent calls (two approvals, or a retried one) each could act on a stale snapshot: the same approver could be appended twice and reach the M-of-N quorum with a single human, or a single-use grant could be consumed twice. approve / consume / revoke / cancel now commit through a new atomic cache.update primitive, so the check and the mutation are one indivisible step. The new b.cache.update is available to application code too — the memory backend is atomic by single-thread, and the cluster backend uses a transaction with compare-and-set so a concurrent writer on another node cannot lose an update.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Dual-control quorum and single-use guarantees hold under concurrent approvals",
+              "body": "`b.dualControl` persisted each grant through a cache read → in-memory mutate → write-back. Because the read and the write were separate awaited steps, two concurrent `approve` calls (or a retried one behind a load balancer) could each read the same pre-approval snapshot, so the duplicate-approver guard passed twice and the same approver was counted toward the M-of-N quorum twice — reaching quorum with one human. The same shape let two concurrent `consume` calls each see an unconsumed grant and both run the destructive operation. `approve` / `consume` / `revoke` / `cancel` now perform the check-and-mutate atomically via `cache.update`, so exactly one concurrent caller wins each transition."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "b.cache.update(key, mutatorFn, opts?) — atomic read-modify-write",
+              "body": "Reads the current value, calls `mutatorFn(current | null)`, and commits the result in one operation so a concurrent writer cannot clobber the change — the lost-update race that makes a plain `get` → mutate → `set` unsafe for counters, sets, and quorum state. The memory backend is atomic by single-thread; the cluster backend runs a transaction with a compare-and-set (and retries on contention) so the guarantee holds across nodes. `mutatorFn` returns `{ value }` to commit, `{ abort: data }` to leave the entry untouched and surface `data`, or `{ delete: true }` to remove it; the call resolves to `{ updated, value }`, `{ updated, deleted }`, or `{ aborted }`."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.38",
+      "date": "2026-05-29",
+      "headline": "Atomic cache tag invalidation, and a clusterStorage.transaction primitive for multi-statement framework writes",
+      "summary": "The cluster cache stored a value and its tag index with separate statements, so two concurrent writes to the same key could interleave their tag updates and leave the index out of step with the value — a later tag-based invalidation would then miss the key, letting a stale (possibly authorization-bearing) value survive a wipe. The value and tag writes now commit as one atomic unit. The enabling piece is a new b.clusterStorage.transaction primitive that runs a multi-statement read-modify-write all-or-nothing against the active backend — the external DB's pooled transaction in cluster mode, and a serialized transaction on the shared SQLite connection in single-node mode (so no concurrent statement can interleave into an open transaction).",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "b.clusterStorage.transaction(fn) — atomic multi-statement framework-state writes",
+              "body": "Runs `fn` inside one transaction against the active backend so a multi-statement read-modify-write commits all-or-nothing. `fn` receives a transaction handle with the same `execute` / `executeOne` / `executeAll` surface, scoped to the open transaction. Cluster mode uses the external DB's pooled transaction (with its deadlock retry); single-node mode serializes against other transactions and against `execute` on the shared SQLite connection, so a concurrent statement cannot interleave into an open transaction. Use the handle's methods inside `fn` — calling the module-level `execute` from within `fn` would wait on the very transaction it is running."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Cluster cache tag invalidation can no longer miss a key under concurrent writes",
+              "body": "The cluster cache wrote a value (`INSERT ... ON CONFLICT DO UPDATE`) and then rewrote its tag index (`DELETE` prior tags, `INSERT` new ones) as separate statements. Two concurrent `set()`s on the same key could interleave those tag statements, leaving the tag index inconsistent with the value — so a later `invalidateTag` could miss the key and a stale value would survive the wipe. The value and tag writes now run inside a single `clusterStorage.transaction`, so a concurrent writer observes either the whole prior state or the whole new state, never a mix."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.37",
+      "date": "2026-05-29",
+      "headline": "Encrypted-mode DB refuses writes before a full tmpfs corrupts it",
+      "summary": "In encrypted-at-rest mode the live SQLite working copy is on a tmpfs (Docker's /dev/shm defaults to 64 MiB). If that fills — an append-only audit chain and session rows grow over time — SQLite hits ENOSPC and the working copy is corrupted. Earlier releases made that corruption self-heal on the next boot by rolling back to the last encrypted snapshot, but the rollback still loses writes since the last flush. This adds the prevention side: a periodic free-space probe refuses growth writes (INSERT / UPDATE / REPLACE) with a clear db/storage-low error once free space drops below a threshold, before the tmpfs fills. DELETE and reads stay available so retention can reclaim space and the application keeps serving, and the refusal lifts automatically once free space recovers. The threshold defaults to 16 MiB of headroom and is tunable; the guard is encrypted-mode only.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Free-space guard refuses growth writes before the tmpfs working copy fills",
+              "body": "`b.db` in encrypted-at-rest mode now probes free space on the tmpfs holding the working copy and, when it falls below `minFreeBytes` (default 16 MiB), refuses `INSERT` / `UPDATE` / `REPLACE` with a clear `db/storage-low` error instead of letting the write run the mount out of space and corrupt the database. `DELETE`, reads, and DDL stay available so retention can prune and the app keeps serving; the refusal clears automatically when free space recovers. The error message points at the cause (Docker's 64 MiB `/dev/shm` default) and the fix (`shm_size` / `--shm-size`, or pruning). Set `minFreeBytes` to tune the headroom, or `0` to disable. This complements the existing boot-time recovery: prevention (fail clear, keep recent writes) ahead of recovery (roll back to the last snapshot)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.36",
+      "date": "2026-05-29",
+      "headline": "Certificate renewal trusts the sealed cert's own expiry, not the plaintext index",
+      "summary": "The managed-certificate renewal check decided a cached cert was still fresh by reading expiresAt from the plaintext meta.json index that sits beside the sealed cert, rather than from the certificate itself. If that index drifted from — or was tampered relative to — the actual cert (a far-future expiry recorded over a certificate that is in fact near expiry), the manager would skip renewal and keep serving a cert that was about to expire or already had. Renewal now re-derives the expiry and fingerprint from the sealed certificate itself; meta.json is treated as an advisory convenience copy. A sealed cert that no longer parses is re-issued (the same recovery as an unreadable one), and a corrupt meta.json over a valid cert now loads cleanly from the cert instead of forcing a needless re-issue. The local job queue also bounds the size of a job payload it parses back from a stored row, matching the cap the dead-letter listing already used.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Cert renewal re-derives expiry from the sealed certificate, not the meta.json index",
+              "body": "`b.cert`'s renewal short-circuit read `expiresAt` from the plaintext `meta.json` written beside each sealed cert. Because that index can drift from the actual certificate (or be altered independently of it), a far-future value over an actually-expiring cert would suppress renewal and serve a cert past — or about to pass — its validity. The renewal decision now parses the expiry and fingerprint from the sealed certificate itself on load, so `meta.json` is advisory only. A sealed cert that will not parse is treated as corrupt and re-issued; a corrupt `meta.json` over an otherwise-valid cert loads from the cert without a needless re-issue."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Local job queue bounds the size of a payload parsed back from a stored row",
+              "body": "When the local queue leased a job or re-enqueued a repeating one, it parsed the job payload back from its stored row without an upper size bound, unlike the dead-letter listing which already capped it. A row with an oversized payload (a corrupted or tampered store) could force an unbounded parse. Both paths now cap the parse at the same 64 MiB ceiling the dead-letter path uses."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.35",
+      "date": "2026-05-29",
+      "headline": "In-memory replay, idempotency, DNS, and i18n stores gain entry-count ceilings",
+      "summary": "Several framework caches keyed on request-influenced input grew without an upper bound between their periodic sweeps, so a flood of unique keys could exhaust process memory faster than the sweep reclaimed it. Each now enforces a hard entry ceiling. The replay-protection nonce store is the security-sensitive one: rather than evict a live nonce to admit a new one — which would reopen a replay window for the evicted nonce — it purges expired entries and then fails closed at capacity, refusing the unrecordable request instead of admitting it unprotected. The idempotency, DNS, and i18n caches hold re-derivable values, so they evict the oldest entry instead (the worst case is a recomputed value or a single re-executed retry under flood). Ceilings are generous defaults that normal traffic never reaches; the nonce store and the agent idempotency in-memory backend expose options to tune them.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Replay-nonce store bounds memory and fails closed under a nonce flood",
+              "body": "The in-memory `b.nonceStore` backend recorded every request-supplied nonce until a periodic sweep ran, so a stream of unique nonces could exhaust memory between sweeps (a memory-amplification denial of service). It now caps its entry count. Because a replay-protection store must never evict a live nonce to make room — doing so would reopen a replay window for the evicted nonce — it instead purges expired entries inline and, if still at capacity with live nonces, fails closed: the new request is refused rather than admitted without replay protection. A new `maxEntries` option tunes the ceiling (default 1,000,000)."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Agent idempotency in-memory backend no longer grows without bound",
+              "body": "The default in-memory backend for `b.agent.idempotency` is keyed on the request-supplied idempotency key, and its garbage collector only reclaims expired rows when an operator wires a scheduler to call it — so a flood of distinct keys could grow it until the process ran out of memory. It now caps its entry count and evicts oldest-first; a dropped record just means that one key re-executes on a later retry, never a crash. A new `maxInMemoryEntries` option tunes the ceiling (default 100,000); deployments needing a hard guarantee at scale still supply a durable `store`."
+            },
+            {
+              "title": "DNS resolver cache is bounded",
+              "body": "The positive and negative resolver caches in `b.network.dns` reclaimed an expired entry only when the same hostname was looked up again, so entries for never-requeried hostnames persisted — and hostnames reaching the resolver are request-influenced (outbound request targets, mail MX lookups). Both caches now cap their entry count and evict oldest-first; DNS simply re-resolves on the next miss."
+            },
+            {
+              "title": "i18n formatter cache is bounded",
+              "body": "Per-instance `Intl` formatter caches in `b.i18n` are keyed on the locale plus a hash of the format options. The format-options shape is open-ended and caller-supplied, so the key space was request-influenced and uncapped. The cache now enforces an entry ceiling and evicts oldest-first — a formatter is pure-derived and re-created on the next miss."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.34",
+      "date": "2026-05-29",
+      "headline": "Corrupt TLS certs self-heal at boot, and graceful shutdown no longer loses the final DB flush",
+      "summary": "Two failure-mode fixes in the same family as the encrypted-DB recovery in 0.13.33. The cert manager treated a corrupt sealed cert or key worse than a missing one: a missing file re-issues via ACME, but a corrupt one let a raw decrypt error escape out of start(), so the same bad file was read on every boot — an unrecoverable crash loop. A corrupt sealed cert/key is now treated like an absent one and re-issued, and a corrupt derived meta.json is re-derived rather than fatal; the ACME account key (which binds order history) instead fails with an actionable error rather than a raw throw. On the shutdown side, an encrypted database that failed its final re-encrypt used to delete its plaintext working copy anyway, discarding every write since the last periodic flush; it now keeps the working copy so the next boot recovers it. The shutdown orchestrator also gains a hard-deadline watchdog: when the operator delegates signal handling to it, a phase that never settles can no longer hold the process open until the supervisor SIGKILLs it (which would skip the final DB re-encrypt) — the watchdog forces a clean exit, so exit handlers still flush. The wiki production and base compose files set a stop_grace_period above that budget so a docker stop or rolling redeploy lets the re-encrypt finish.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "A corrupt sealed TLS cert or key re-issues instead of crash-looping at boot",
+              "body": "`b.cert`'s start path read the sealed `cert.pem`/`key.pem` and let a raw unseal/decrypt error escape if the file was truncated or corrupt, so a managed restart read the same bad file on every boot — a crash loop, and worse handling than an absent file (which already re-issues). A corrupt sealed cert/key is now treated like a missing one: it is logged, an audit event is emitted, and the certificate is re-issued via ACME. A corrupt derived `meta.json` is likewise re-derived rather than throwing `cert/bad-meta`."
+            },
+            {
+              "title": "Unreadable ACME account key fails with an actionable error, not a raw decrypt throw",
+              "body": "Unlike a re-issuable certificate, the ACME account key binds existing order and authorization history, so it is not silently regenerated on corruption. An unreadable `account/jwk.json.sealed` now raises `cert/account-key-unreadable` naming the file and the recovery (restore from backup, or delete to register a fresh account) instead of letting a raw decrypt/parse error escape out of start()."
+            },
+            {
+              "title": "Encrypted DB keeps its working copy when the final shutdown re-encrypt fails",
+              "body": "`db.close()` re-encrypts the tmpfs working copy to `db.enc`, then deletes the working copy. If that final re-encrypt failed (a full `/dev/shm`, a full disk), the delete still ran, discarding every write since the last periodic flush and leaving only the older `db.enc`. The working copy is now kept whenever the re-encrypt fails, so the next boot's integrity-probed recovery picks up the latest writes (and still falls back to `db.enc` if the working copy is itself corrupt). `db.enc` is never modified by this path."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Shutdown watchdog forces a clean, DB-flushing exit if a phase hangs",
+              "body": "The graceful-shutdown orchestrator uses soft per-phase timeouts — on expiry the underlying work keeps running — so a phase that never settles could hold the event loop open past the grace window, after which a container supervisor SIGKILLs the process and skips the final DB re-encrypt. When the operator opts into signal handling, a watchdog now forces `process.exit` `graceMs + forceExitMarginMs` after the signal; exit runs the registered handlers (the DB re-encrypt), so the last flush still happens. A new `forceExitMarginMs` option (default 5000) tunes the headroom; set the container stop grace above `graceMs + forceExitMarginMs`."
+            },
+            {
+              "title": "Wiki compose sets stop_grace_period above the shutdown budget",
+              "body": "`examples/wiki/docker-compose.yml` and `docker-compose.prod.yml` now set `stop_grace_period: 40s`. Docker's 10s default would SIGKILL the container before the 30s shutdown budget reaches the DB re-encrypt phase, losing the final flush on a `docker stop` or rolling redeploy. The production note also reminds PaaS platforms that regenerate the compose (Coolify, Dokku, CapRover) to set the stop grace via the platform UI alongside the persistent-storage mount and `--shm-size`."
+            }
+          ]
+        },
+        {
+          "heading": "Detectors",
+          "items": [
+            {
+              "title": "Cross-artifact guard that stop_grace_period covers the shutdown budget",
+              "body": "A new codebase check fails if either wiki compose file omits `stop_grace_period` or sets it below the orchestrator's `graceMs` plus the watchdog margin read from `lib/app-shutdown.js`, so raising the shutdown budget without bumping the compose — or dropping the setting — cannot silently reopen the SIGKILL-before-re-encrypt data-loss window."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.33",
+      "date": "2026-05-28",
+      "headline": "Encrypted-mode DB recovers from a corrupt tmpfs working copy instead of crash-looping",
+      "summary": "In encrypted-at-rest mode the live SQLite copy is decrypted into a tmpfs working file and re-encrypted to db.enc periodically. If that working copy was corrupted (an unclean shutdown, or a full tmpfs — Docker's /dev/shm defaults to 64 MiB), the boot path trusted it because its mtime was newer than db.enc, so db.init failed its integrity gate with \"database disk image is malformed\" identically on every boot — an unrecoverable crash loop. db now integrity-probes the newer working copy before trusting it: if it is unreadable, the working copy is discarded and db.enc (the last-good encrypted snapshot) is re-decrypted, so the next boot self-heals. db.enc is never modified by this path, and a genuinely-corrupt db.enc still fails loudly rather than wiping data. The boot error on an unreadable database is now actionable (it names the tmpfs-size cause and the recovery). The wiki production compose also gains the storage settings encrypted mode needs.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Corrupt tmpfs working copy no longer causes a boot crash loop (encrypted-at-rest mode)",
+              "body": "`db.init`'s crash-recovery path preferred a newer tmpfs working copy over `db.enc` unconditionally. When that copy was corrupt (truncated by an unclean shutdown or a full `/dev/shm`), every boot trusted it and failed the integrity gate the same way — an unrecoverable loop. The newer working copy is now integrity-probed (`PRAGMA quick_check`); if it is unreadable it is discarded and `db.enc` — the last-good encrypted snapshot — is re-decrypted, so boot self-heals. `db.enc` is never modified, so this only ever rolls back to the persistent copy; if `db.enc` is also corrupt, boot still fails loudly (no silent data loss). A regression test pins the recovery."
+            },
+            {
+              "title": "Actionable boot error when the database is unreadable",
+              "body": "When SQLite reports a database too corrupt to even run an integrity check, the boot error now names the likely cause and recovery instead of surfacing the raw \"database disk image is malformed\": in encrypted mode it points at the tmpfs working copy and the most common operational cause (Docker's 64 MiB `/dev/shm` default — raise it via `shm_size` / `--shm-size`), or restoring `db.enc` / the DB file from backup."
+            },
+            {
+              "title": "Wiki production compose ships the storage encrypted mode needs",
+              "body": "`examples/wiki/docker-compose.prod.yml` now sets `shm_size: '512m'` (so the encrypted-mode tmpfs working copy has headroom above Docker's 64 MiB default) and mounts a persistent `wiki-data` volume at `/data` (so `db.enc` + sealed keys survive container recreate, host reboot, and image redeploys, and give a restore point). A note flags that PaaS platforms which regenerate the compose on deploy (Coolify, Dokku, CapRover, …) must set both via the platform UI — a persistent-storage mount for `/data` and a `--shm-size 512m` custom option."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.32",
+      "date": "2026-05-28",
+      "headline": "`b.auditDailyReview` enforces notify under the sox-404 posture; compliance doc corrections",
+      "summary": "b.auditDailyReview documented `sox-404` (SOX §404 ICFR — the internal-controls regime this primitive serves) as one of the postures that make a `notify` callback mandatory at construction, but the enforcement set used only `sox`, so pinning `posture: \"sox-404\"` without a notify channel was silently accepted. `sox-404` is now in the mandatory-notify set, so the advertised guarantee holds (a regression test pins it). The rest are documentation corrections with no behavior change: b.compliance.posturesByDomain / posturesByJurisdiction examples showed small fixed arrays where the functions return every matching posture (the catalog has grown); b.dataAct's surface list named two methods that do not exist (the real surface is declareProduct / recordUserAccess / shareWithThirdParty / recordSwitchRequest, with gatekeeper refusal folded into shareWithThirdParty); b.secCyber.eightKArtifact's documented return key `audit` is actually `deadlineBusinessDays`; and b.compliance.aiAct.transparency's helper summary named `cspMetaTag` / a `watermark({ kind })` argument that are really `metaTags` / `watermark({ mediaKind })`.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`b.auditDailyReview` requires a notify channel under the `sox-404` posture",
+              "body": "The docs listed `sox-404` among the postures that make a `notify` callback mandatory at create-time, but the enforcement set contained only `sox` — so `posture: \"sox-404\"` without `notify` was accepted instead of refused. `sox-404` (SOX §404 ICFR) is now in the mandatory-notify set, matching the documented guarantee; constructing without a notify channel under it throws `auditDailyReview/notify-required-under-posture`."
+            },
+            {
+              "title": "`b.compliance` jurisdiction/domain lister examples no longer enumerate a stale fixed set",
+              "body": "`posturesByDomain` and `posturesByJurisdiction` return every posture matching the domain/jurisdiction, but their `@example`s showed small fixed arrays from before the posture catalog grew. The examples now show a representative prefix with `...` and note they return the full matching set."
+            },
+            {
+              "title": "`b.dataAct` surface list matches the real methods",
+              "body": "The module surface listed `userAccessible(...)` and `refuseGatekeeper(...)`, neither of which exists. The real surface is `declareProduct` / `recordUserAccess` / `shareWithThirdParty` / `recordSwitchRequest`, and DMA-gatekeeper refusal (Art 32 §1) is enforced inside `shareWithThirdParty`. The doc now reflects that."
+            },
+            {
+              "title": "`b.secCyber.eightKArtifact` documented return shape corrected",
+              "body": "The signature line showed `{ artifact, deadline, audit }`; the function returns `{ artifact, deadline, deadlineBusinessDays }` (there is no `audit` key). The doc now matches."
+            },
+            {
+              "title": "`b.compliance.aiAct.transparency` helper names corrected",
+              "body": "The helper summary named a `cspMetaTag(...)` function and a `watermark({ kind })` argument; the real names are `metaTags(...)` and `watermark({ mediaKind })`. Calling the documented names threw. Also corrected: a `b.aiAdverseDecision` illustration showed an ECOA `statutoryDeadlines` shape that didn't match the regime's actual deadlines."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.31",
+      "date": "2026-05-28",
+      "headline": "Circuit-breaker onStateChange callback now fires; mcp / vault-aad doc corrections",
+      "summary": "b.circuitBreaker documented an `onStateChange` callback (both an option and an `onStateChange(handler)` registration method) plus a state-change payload, but the callback was never invoked — only an observability event fired. The callback is now implemented: it fires on every transition with `{ name, from, to, at }`, the registration method works, and a non-function handler is rejected at construction. The same primitive's docs are corrected to name the real accessor (`getState()`, not `state()`) and drop a never-read `audit` option. Plus two doc-only corrections: b.mcp.toolResult.sanitize described composing b.guardHtml / b.ai.input.classify (it uses built-in detection) and documented a `classifyInput` option it never read; and b.vault.aad's prose said HKDF-SHAKE256 where the derivation is SHAKE256 (the AEAD AAD-binding itself is unchanged and sound).",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`b.circuitBreaker` onStateChange callback is invoked on every transition",
+              "body": "The `onStateChange` option and the `onStateChange(handler)` registration method are now wired: each registered handler is called with `{ name, from, to, at }` on every state transition (closed→open, open→half, half→closed/open), alongside the existing `breaker.state.change` observability event. A non-function `onStateChange` is rejected at construction. Previously the documented callback never fired. The docs are also corrected to name the real state accessor `getState()` (there is a `state` property, so `state()` was never a method) and to drop a never-read `audit` option."
+            },
+            {
+              "title": "`b.mcp.toolResult.sanitize` documents its actual detection and options",
+              "body": "The prose said the sanitizer composes `b.guardHtml`'s strict profile and `b.ai.input.classify`; it uses built-in dangerous-HTML and prompt-injection-marker detection. The `@opts` also listed a `classifyInput` override the function never read. The prose now describes the built-in detection and the unwired `classifyInput` option is removed. The fail-closed refusal behavior (default `posture: \"refuse\"`) is unchanged."
+            },
+            {
+              "title": "`b.vault.aad` derivation named correctly (SHAKE256)",
+              "body": "The module prose described the per-binding key derivation as HKDF-SHAKE256; it is SHAKE256 over the vault root concatenated with the binding inputs (no HKDF extract/expand). The AEAD AAD-binding to (table, row, column, schema version) — the file's actual security guarantee — is unchanged and sound; only the KDF name in the doc was wrong."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.30",
+      "date": "2026-05-28",
+      "headline": "Doc corrections in the safe-* parsers (defaults, an error code, an example, a status list)",
+      "summary": "Four documentation corrections in the safe-* input parsers; no code behavior changed. The parsers' enforced limits and controls are unchanged — these align the docs with what the code already does. b.safeMime.parse's documented default transfer-encoding allowlist listed `binary`, which is excluded by default (opt-in per RFC 3030 BINARYMIME). b.safeDecompress documented a refusal code (`output-too-large`) it never emits — an absolute-size bomb surfaces under `decompress-failed`. b.safeSmtp.findDotTerminator's example output was off by one. b.safeIcap's intro status-code summary omitted 404 / 405 / 408 (the detailed block already listed them).",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`b.safeMime.parse` documents the actual default transfer-encoding allowlist",
+              "body": "The `@opts` default listed `7bit/8bit/binary/qp/base64`, but `binary` is deliberately excluded by default (RFC 3030 BINARYMIME is opt-in); the default is `7bit/8bit/quoted-printable/base64`. The doc now matches, so operators don't expect inbound `Content-Transfer-Encoding: binary` parts to pass without opting in."
+            },
+            {
+              "title": "`b.safeDecompress` names the real absolute-size-bomb refusal code",
+              "body": "The refusal-posture list documented `safe-decompress/output-too-large` for a bomb-by-absolute-size, but that code is never emitted — zlib's `maxOutputLength` throws before allocation and the failure surfaces as `safe-decompress/decompress-failed`. The doc now names the code an operator branching on the result will actually see (the ratio, output-byte, and compressed-input caps are unchanged and enforced)."
+            },
+            {
+              "title": "`b.safeSmtp.findDotTerminator` example output corrected",
+              "body": "The example claimed the `\\r\\n.\\r\\n` terminator in `\"Hello world.\\r\\n.\\r\\n\"` is at index 13; it is at index 12. The example now shows 12 (the implementation was already correct)."
+            },
+            {
+              "title": "`b.safeIcap` intro status-code summary lists 404 / 405 / 408",
+              "body": "The intro summary said only `100 / 200 / 204 / 400 / 403 / 5xx` are honored, but the parser also accepts `404 / 405 / 408` (legitimate RFC 3507 §4.3.3 codes, already listed in the detailed `parse` block). The intro summary now matches."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.29",
+      "date": "2026-05-28",
+      "headline": "Doc corrections: AI Act disclosure kind values, SQS queue model, age-gate coupling",
+      "summary": "Documentation corrections. The most actionable: b.middleware.aiActDisclosure's @opts listed two EU AI Act transparency `kind` values (`deepfake` and `synthetic-content`) that the middleware does not accept, so they threw at construction; the accepted values use the hyphenated Art. 50 spellings (e.g. `deep-fake`) and include a text-public-interest variant the enum omitted — an operator copying the documented values crashed a compliance middleware at boot. The b.queue docs implied the SQS backend is driven by the generic b.queue.consume loop like local/redis; SQS is actually an SQS-native adapter (complete/fail by message receipt handle, server-side redrive) driven directly, and the docs now say so. b.middleware.ageGate's `requireAge` 451 floor is documented as taking effect only alongside `consentRequired` (it was silently inert without it). Plus a compose-pipeline @since and a flag-context @related correction. No code behavior changed.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`b.middleware.aiActDisclosure` documents the accepted `kind` values",
+              "body": "The `@opts` listed `kind` as `ai-interaction | deepfake | emotion-recognition | biometric-categorisation | synthetic-content`. Two of those — `deepfake` and `synthetic-content` — are not accepted and threw at construction; the EU AI Act Art. 50 values use hyphenated spellings (e.g. `deep-fake`, the generated-content variant) and include `ai-text-public-interest`, which the documented enum omitted. The `@opts` now lists the full set the middleware accepts."
+            },
+            {
+              "title": "`b.queue` SQS backend documented as SQS-native, not consume-driven",
+              "body": "The module docs implied the `sqs` backend is interchangeable with `local`/`redis` under the generic `b.queue.consume` loop. SQS is an SQS-native adapter: `complete` / `fail` act on the message's `receiptHandle` (returned by `lease()`, threaded back by the caller), and DLQ + visibility-expiry are handled server-side by the queue's RedrivePolicy. The docs now state that `sqs` is driven directly (lease → handle → complete/fail) rather than by `b.queue.consume`, and does not use the framework DLQ / sweep."
+            },
+            {
+              "title": "`b.middleware.ageGate` documents the `requireAge` / `consentRequired` coupling",
+              "body": "`requireAge` (the HTTP 451 legal floor) is evaluated within the consent classification, so it takes effect only when `consentRequired` is also set — `requireAge` alone, with `consentRequired: null`, never classifies a request as below-threshold and the 451 never fires. The `@opts` and prose now state this coupling instead of presenting `requireAge` as a standalone threshold."
+            },
+            {
+              "title": "Smaller doc corrections",
+              "body": "`b.middleware.composePipeline`'s `@since` is corrected to 0.9.43 (its actual ship version). `b.middleware.flagContext`'s `@related` pointed at a non-existent `b.flagClient.getBoolean`; it now references `b.flag.create`."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.28",
+      "date": "2026-05-28",
+      "headline": "Queue retry backoff now applies on the Redis backend; static-serve path-containment edge closed",
+      "summary": "Two behavioral fixes plus doc corrections. The Redis queue backend silently discarded the documented retry backoff: b.queue.consume passes the delay as `{ retryDelayMs }` (the shape the local backend reads), but the Redis backend's fail() accepted only a bare-number third argument, so the object failed its numeric check and the delay was forced to 0 — a failing job re-leased immediately instead of waiting 1s/2s/4s/…, a retry storm under failure. The Redis backend now accepts the object form, so the exponential backoff applies as documented (verified by an integration test against real Redis). Separately, b.router.serveStatic's path-containment check used a bare string prefix, so a sibling directory whose name extends the root (root `/srv/public` vs `/srv/public-evil`) could pass; it now anchors on a path separator. Also: b.fileUpload now surfaces (via an observability counter) when a configured content-safety gate is skipped because an upload streamed past the reassembly cap, and documents that boundary; and b.cookies.parse's example output is corrected.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Redis queue backend honors the documented retry backoff",
+              "body": "`b.queue.consume` re-pends a failed job with deterministic exponential backoff (1s base, 5min cap) by calling the backend's `fail()` with `{ retryDelayMs }`. The Redis backend's `fail()` accepted only a bare-number third argument, so the object failed its `typeof === \"number\"` check and the delay was reset to 0 — a failing job became immediately re-leasable, hot-looping instead of backing off. `fail()` now accepts both the object form (as the local backend does) and a bare number, so the backoff applies on Redis. An integration test against real Redis pins it."
+            },
+            {
+              "title": "`b.router.serveStatic` path-containment anchors on a separator",
+              "body": "The containment check was `resolvedPath.startsWith(root)`, which a sibling directory sharing the root's name as a prefix (root `/srv/public` vs `/srv/public-evil`) could satisfy. It now requires the resolved path to equal `root` or start with `root + path.sep`, closing the sibling-prefix edge (`b.staticServe.create` remains the hardened serving path, with realpath + filename gating)."
+            },
+            {
+              "title": "`b.fileUpload` surfaces content-safety gate skips on oversized streamed uploads",
+              "body": "The byte-level content-safety gate inspects the reassembled buffer, so it runs on uploads up to `maxStreamReassemblyBytes` (default 64 MiB); a larger upload is handed to `onFinalize` as a stream and the byte-content gate is skipped (MIME-sniff and filename gates still run). That skip now emits a `fileUpload.content_safety_skipped_streamed` observability counter instead of passing silently, and the limit is documented. To guarantee content-gating of a type, cap `maxFileBytes` at or below `maxStreamReassemblyBytes`."
+            },
+            {
+              "title": "`b.cookies.parse` example output corrected",
+              "body": "The example claimed `theme=%22dark%22` parses to `theme: \"dark\"`, but quote-stripping runs before percent-decoding, so the literal quotes survive. The example now uses `theme=dark%20mode` → `theme: \"dark mode\"`, which demonstrates percent-decoding without the quote-strip-ordering quirk."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.27",
+      "date": "2026-05-28",
+      "headline": "Documentation corrected across api-encrypt, mail-crypto, mail-store, and calendar",
+      "summary": "A set of JSDoc corrections where the documented contract had drifted from the code. The most actionable: b.middleware.apiEncrypt's @opts named the keypair fields secretKey / ecSecretKey, but the middleware requires privateKey / ecPrivateKey (the shape b.crypto.generateEncryptionKeyPair returns), so a keypair built from the docs threw INVALID_KEYPAIR at construction; the same block documented a wrong custom-nonceStore interface and an example calling a non-existent b.crypto.keypair(). Also corrected: the b.mail.crypto facade and the PGP module described S/MIME sign/verify and PGP encrypt/decrypt/WKD as deferred when they ship and are live; b.mail.crypto.smime.checkCert documented a return shape whose field names did not match what it returns; and b.mailStore.create listed a destroy method it does not expose. No code behavior changed — only the docs were wrong.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`b.middleware.apiEncrypt` options documented with the correct field names",
+              "body": "The `@opts` listed the keypair as `{ publicKey, secretKey, ecPublicKey, ecSecretKey }`, but the middleware requires `{ publicKey, privateKey, ecPublicKey, ecPrivateKey }` — the shape `b.crypto.generateEncryptionKeyPair()` returns — and threw `INVALID_KEYPAIR` for the documented shape. The custom `nonceStore` interface was documented as `{ has, add, prune }` but the middleware calls `{ checkAndInsert, purgeExpired, close }`, and the example called a non-existent `b.crypto.keypair()`. All three now match the implementation (`b.crypto.generateEncryptionKeyPair()`)."
+            },
+            {
+              "title": "`b.mail.crypto` S/MIME and PGP availability described accurately",
+              "body": "The `b.mail.crypto` facade said S/MIME `sign()` / `verify()` were deferred, and the PGP module's intro said in-process encrypt / decrypt and WKD discovery would 'ship in v0.10.14'. All of these are implemented and live (PGP encrypt/decrypt/WKD were promoted to the stable surface in v0.11.32; S/MIME sign/verify/verifyAll run on the `b.cms` substrate). The docs now describe them as available; the genuinely-deferred PGP v6-signature-packet support remains noted as deferred."
+            },
+            {
+              "title": "`b.mail.crypto.smime.checkCert` return shape documented correctly",
+              "body": "The doc and example described the result as `{ subjectCN, issuerCN, validFrom, validTo, keyAlg, keyBits, sigAlg }`; the function returns `{ subject, issuer, validFrom, validTo, sigAlgName, sigAlgOid, keyType, fingerprint256 }` (full DN strings, no key-size field). The documented shape now matches."
+            },
+            {
+              "title": "`b.mailStore.create` method list matches the returned handle",
+              "body": "The doc listed a `destroy` method the handle does not expose and omitted `search` / `moveMessages` / `hardExpunge` that it does. The list now reflects the actual methods."
+            },
+            {
+              "title": "Smaller doc corrections",
+              "body": "`b.calendar` fromIcal / toIcal / validate now document that they also handle Task (VTODO), Note (VJOURNAL), and Group, not just Event. `b.middleware.requireAuth`'s `prefersJson` default is documented as Accept / X-Requested-With only (Content-Type is intentionally not a signal, as the module already noted). The default CSP nonce is 24 base64 chars (16 bytes), not 22. `b.mail.bimi`'s returned `evidenceDocument` is noted as echoed from the operator-supplied option rather than pulled from the certificate."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.26",
+      "date": "2026-05-28",
+      "headline": "`b.cryptoField.unsealRow` nulls a sealed column on unseal failure instead of returning the forged ciphertext",
+      "summary": "When a sealed column failed to unseal — a DB-write attacker's forged `vault:<…>` payload, or a valid ciphertext copied into a different row so the AAD no longer matches — unsealRow recorded the failure on the audit chain but then kept the original attacker-crafted string in the field rather than nulling it, despite the documented contract that downstream sees 'no value'. A write-back guard discarded the intended null on the failure path. The column is now nulled on any unseal failure, so a forged or cross-row-copied value never reaches downstream code as if it were a real plaintext. Valid values round-trip unchanged and genuinely-unsealed pass-through values are still kept. This hardens every sealed-column reader, including the agent idempotency / orchestrator / tenant rows sealed in 0.13.25.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Sealed columns are nulled on unseal failure (forged / cross-row ciphertext)",
+              "body": "`b.cryptoField.unsealRow` now nulls a sealed field when its value fails to unseal — a crafted `vault:`/`vault.aad:` payload written by a DB-write attacker, or a valid ciphertext copied to a different row (AAD mismatch). Previously the field kept the attacker-controlled string, so downstream code could read the forged ciphertext as if it were the plaintext. The audit emit (`system.crypto.unseal_failed`) is unchanged. Valid round-trips and not-actually-sealed pass-through values are unaffected. A regression test pins the forged-value, cross-row-copy, and pass-through cases."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Audit checkpoint docs name the actual signature algorithm",
+              "body": "`b.audit.checkpoint` / `b.audit.verifyCheckpoints` described the anchor signature as ML-DSA-87, but the checkpoint is signed with the configured `b.auditSign` algorithm — SLH-DSA-SHAKE-256f by default (ML-DSA-87 / ML-DSA-65 are opt-in). The docs and the verify-failure reason now refer to the post-quantum signature without naming a specific algorithm the operator may not be using."
+            },
+            {
+              "title": "`b.storage.chunkScratch` example and assembly description corrected",
+              "body": "The `assemble()` example omitted the mandatory `chunkEncryptionKeys` argument (one sealed key per chunk, returned by `saveChunk`), so it would have thrown as written; it now collects and passes the keys. The prose no longer claims the primitive writes a final file with an 'atomic finalize' — `assemble()` concatenates the chunks in order and returns the assembled bytes for the caller to persist."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.25",
+      "date": "2026-05-28",
+      "headline": "Agent idempotency results and orchestrator/tenant registry rows are sealed at rest",
+      "summary": "The b.agent.idempotency, b.agent.orchestrator, and b.agent.tenant primitives documented their stored rows as sealed at rest, but the values were written as plaintext JSON — a database dump could expose cached result payloads (which can carry mail-move / search data), the tenant ids that own each agent, and operator-supplied endpoint metadata. Those values are now sealed via b.cryptoField (XChaCha20-Poly1305 through the vault) before they reach the backing store and unsealed on read, when a vault is configured — which is the default in a booted app. Each ciphertext is AAD-bound to its row identity so a database-write attacker cannot copy a sealed value between rows. Reads of rows written before this release (plain JSON) continue to work unchanged, and a vault-less deployment stores rows as before. No API or call-site changes are required.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Agent idempotency / orchestrator / tenant rows sealed at rest",
+              "body": "`b.agent.idempotency` cached result blobs, `b.agent.orchestrator` registry rows (owning tenant id + endpoint metadata), and `b.agent.tenant` registry-row metadata are now sealed via `b.cryptoField` when a vault is configured (the default in a booted app via `b.start`). The fields were previously stored as plaintext despite the docs describing them as sealed, so a DB dump exposed cached payloads, agent↔tenant ownership, and endpoint detail. Each sealed value is AAD-bound to the row identity (the idempotency key hash / the agent name / the tenant id), so a sealed value cannot be copied between rows. Rows written before this release remain readable (a non-sealed value passes through unseal), and a vault-less deployment behaves as before. No call-site changes."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`b.agent.saga` run() return/throw shape documented correctly",
+              "body": "The doc said `run()` resolves to `{ status: \"failed\", failedStep, lastCompensationError }` on failure and to a bare final state. In fact it resolves to `{ status: \"completed\", sagaId, state }` on success and rejects (throws) on step failure with an error carrying `failedStep`, `cause`, `compensationCause`, and `failedCompStepName`. The docs now describe the actual contract."
+            },
+            {
+              "title": "`b.agent.idempotency` put() example uses the real option name",
+              "body": "The example passed `{ argsFingerprint: ... }`, which the function does not read; the fingerprint option is `requestFingerprint` (or `args`). The example now uses `requestFingerprint`."
+            },
+            {
+              "title": "`b.agent.tenant.derivedKey` @since corrected to 0.9.26",
+              "body": "It was tagged `@since 0.9.25`, a version before the tenant module existed; it ships in 0.9.26 alongside `b.agent.tenant.create`."
+            },
+            {
+              "title": "`b.agent.trace.injectIntoEnvelope` documented as single-argument",
+              "body": "The doc listed a second `currentSpan` argument the function ignores — it always injects the currently-active span's trace context. The doc now shows `injectIntoEnvelope(envelope)` and notes it should be called while the intended span is active."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.24",
+      "date": "2026-05-28",
+      "headline": "`b.guard*` docs corrected: the compliance-posture opt key, the gate API, and validate return shapes",
+      "summary": "Documentation corrections across the b.guard* family. The most consequential: the posture-selection option was documented as `compliance:` in many guards' @opts, but the working key is `compliancePosture:` — passing the documented `{ compliance: \"hipaa\" }` was silently ignored, so a compliance posture (e.g. HIPAA PII redaction) never activated. If you select a posture via the gate/validate/sanitize options, use `compliancePosture:`; `compliance:` had no effect. The guard docs now name the correct key uniformly. Also corrected: gate examples and prose that invoked the gate as a callable or via `.run` / `.inspect` (the gate is an object whose method is `.check(ctx)`), and validate() return shapes that listed `severities` / `summary` / `refusal` fields the function never returned (it returns `{ ok, issues }`).",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "guard posture option is `compliancePosture:`, not `compliance:`",
+              "body": "Many `b.guard*` primitives documented the compliance-posture selector as `compliance: \"hipaa\"|\"pci-dss\"|\"gdpr\"|\"soc2\"` in their `@opts`, but the family resolver reads `compliancePosture:`. Passing `{ compliance: \"hipaa\" }` was accepted and silently ignored — the posture overlay (e.g. CSV `piiPolicy: \"redact\"` under HIPAA) never applied, leaving the default policy in force. The docs across the guard family now name `compliancePosture:` consistently (the key the resolver and `b.guardX.compliancePosture(name)` already used). Action: if you selected a posture with `compliance:`, switch to `compliancePosture:` — the posture was not taking effect before."
+            },
+            {
+              "title": "guard gate is an object with `.check(ctx)`, not a callable",
+              "body": "Several guards' gate `@example`s and prose invoked the gate as a function (`g({...})`), via `.run(...)`, or via `.inspect(...)`, and a few described it as \"an async function\". `b.guardX.gate(opts)` returns an object whose async method is `.check(ctx)`; the examples and prose now use `.check`, so they run as written."
+            },
+            {
+              "title": "guard validate() returns `{ ok, issues }`",
+              "body": "Several guards documented `validate()` as returning `{ ok, issues, severities }`, `{ ok, issues, summary }`, or `{ ok, issues, refusal? }`. The function returns `{ ok, issues }` (each issue carries its own `severity` / `kind`); the documented extra top-level fields were never present. The docs now state the actual shape."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.23",
+      "date": "2026-05-28",
+      "headline": "Documentation corrected to match actual behavior across several primitives",
+      "summary": "A set of JSDoc / doc-comment corrections where the documented contract had drifted from what the code does. No behavior changes — the implementations already behaved as now documented; only the docs were wrong. The most operator-relevant is the JWT signer doc: an expiring token signed without an explicit jti receives an auto-minted 128-bit jti (so the replay-defense path has the jti it needs), which the sign-opts doc previously denied. Also corrected: did.resolve's unsupported-method error now names did:jwk (always supported); b.cose.verify is marked stable to match its stable sign sibling and the CWT / EAT / SCITT / mdoc verifiers built on it; b.linkHeader.serialize's doc now states every parameter value is double-quoted; b.auth.saml verifyResponse's documented return shape now lists inResponseTo and issuer (both always returned); and the rate-limit custom-backend contract drops a gc member the middleware never invoked.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "JWT signer doc now describes the auto-minted jti on expiring tokens",
+              "body": "`b.auth.jwt.sign`'s opts doc claimed that omitting `jti` adds no jti. In fact, when a token carries an `exp` and no operator-supplied `jti`, the signer auto-mints a random 128-bit `jti` so a replay-protected token always carries the identifier `verify`'s replay store requires. The doc now describes this; pass an explicit `jti` for a deterministic value. Behavior is unchanged."
+            },
+            {
+              "title": "`b.did.resolve` unsupported-method error now names did:jwk",
+              "body": "The thrown error for an unsupported DID method listed only `did:key` and `did:web`, omitting `did:jwk`, which `resolve` fully supports. The message now reads `(did:key, did:jwk, and did:web only)`."
+            },
+            {
+              "title": "`b.cose.verify` marked stable",
+              "body": "`b.cose.verify` carried `@status experimental` while its `b.cose.sign` sibling is stable and the CWT / EAT / SCITT / mdoc verifiers that depend on it are stable and shipped. The verifier is the same maturity as the rest of the COSE_Sign1 round-trip; its status now reflects that."
+            },
+            {
+              "title": "`b.linkHeader.serialize` doc matches its quoting behavior",
+              "body": "The doc said parameters are token-encoded when they fit RFC 7230 token grammar and double-quoted otherwise. The serializer always double-quotes every value (valid under RFC 8288, and required for space-separated multi-rel and media-type values). The doc now states that."
+            },
+            {
+              "title": "`b.auth.saml` verifyResponse documented return shape lists all fields",
+              "body": "The prose and the example each omitted a different field that `verifyResponse` always returns. The documented shape now lists all of `nameId`, `nameIdFormat`, `sessionIndex`, `attributes`, `audience`, `inResponseTo`, and `issuer`."
+            },
+            {
+              "title": "rate-limit custom-backend contract is `{ take, reset }`",
+              "body": "The custom-backend opts doc listed a `gc` member that the middleware never reads or invokes (the runtime contract is `take` / `reset` / `close`, and the error message already said `{ take, reset }`). The documented shape now matches; an operator-supplied `gc` was always silently ignored."
+            },
+            {
+              "title": "`b.mail.agent.create` doc no longer lists consumer as a method",
+              "body": "The created agent's method list named `consumer`, which is not a method on the returned object — the queue consumer is the sibling export `b.mail.agent.consumer`. The doc now says so."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.22",
+      "date": "2026-05-27",
+      "headline": "`b.archive.read.zip.fromTrustedStream` reads a ZIP from a Readable — no longer an experimental stub",
+      "summary": "fromTrustedStream was an experimental stub whose inspect / entries / extract methods threw, forcing callers to buffer the stream themselves and use the random-access reader. It now works, with the same shape as the tar trusted-stream reader: pass b.archive.adapters.trustedStream(readable) and the bytes are collected into a size-capped buffer (1 GiB hard ceiling) and read through the same bomb-cap, path-traversal, and entry-type decode as the random-access reader — so bombPolicy, guardProfile, entryTypePolicy, and audit all apply, and inspect / entries / extract / extractEntries all return data. This is a bounded-memory reader (the archive is held in memory under the ceiling), not zero-buffer streaming; a future forward-inflate walker shared with the tar reader would lift the ceiling.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.archive.read.zip.fromTrustedStream` now reads — `inspect` / `entries` / `extract` / `extractEntries`",
+              "body": "The ZIP trusted-stream reader is implemented (was an experimental stub that threw). Pass `b.archive.adapters.trustedStream(readable)` to read a ZIP straight from a Node Readable without buffering it yourself. The stream is collected into a size-capped buffer (1 GiB ceiling, matching `b.archive.read.tar`'s trusted-stream reader) and decoded through the same adversarial-safe path as the random-access reader, so `bombPolicy` / `guardProfile` / `entryTypePolicy` / `audit` are honored on decode. Adversarial archives remain fully bomb-capped; \"trusted\" refers only to the source-size bound. A non-trusted-stream adapter is refused with `archive-read/bad-adapter`."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.21",
+      "date": "2026-05-27",
+      "headline": "`b.cose.exportKey` — serialize a public key as a COSE_Key, the inverse of `b.cose.importKey`",
+      "summary": "b.cose could import a COSE_Key (RFC 9052 §7) into a node:crypto key for verification, but had no way to produce one — so a key used with b.cose.sign could not be shipped to a verifier in COSE form without hand-building the CBOR map. b.cose.exportKey(keyObject, opts?) closes the round-trip: it serializes an EC2 (P-256 / P-384 / P-521) or OKP (Ed25519) public key as the CBOR-encoded COSE_Key map, with optional alg and kid common parameters. A private key has its public half exported; unsupported curves / key types are refused rather than emitting a COSE_Key no verifier here would accept. The bytes round-trip through b.cose.importKey, and feed the mdoc MSO / COSE_Key header / SCITT / C2PA verification-key paths.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.cose.exportKey(keyObject, { alg?, kid? })` — KeyObject → COSE_Key (RFC 9052 §7)",
+              "body": "Serialize a `node:crypto` public key as the CBOR-encoded COSE_Key map — the inverse of `b.cose.importKey`. Supports EC2 (P-256 / P-384 / P-521) and OKP (Ed25519), the same key types `b.cose.verify` accepts; `opts.alg` (e.g. `\"ES256\"`) and `opts.kid` populate the COSE_Key alg (label 3) and kid (label 2) common parameters. A private key exports its public half; unsupported curves / key types throw rather than producing a COSE_Key no verifier would accept. `b.cose.importKey(b.cbor.decode(exportKey(k)))` round-trips, so a key signed with `b.cose.sign` can be shipped to a verifier as bytes — the mdoc MSO / COSE_Key header / SCITT / C2PA verification-key paths."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.20",
+      "date": "2026-05-27",
+      "headline": "`b.archive.wrap` can seal an archive for a tenant with no key-pair to manage — `recipient: \"tenant\"`",
+      "summary": "b.archive.wrap previously sealed only to an explicit hybrid-PQC key-pair or a peer certificate; the documented recipient: \"tenant\" strategy threw. It now works: pass { recipient: \"tenant\", tenantId } and the archive is sealed under a deterministic per-tenant key derived from the vault root (SHAKE256 KDF) with XChaCha20-Poly1305, the tenant id mixed into the AEAD additional-authenticated-data so one tenant's envelope cannot be opened under another tenant's key. There is no recipient key-pair for the operator to generate, store, or rotate — b.archive.unwrap re-derives the key from the same tenantId. Rotating the vault re-keys every tenant (rotation intent is re-seal). The derivation is exposed directly as b.agent.tenant.derivedKey(tenantId, purpose) for operators who need the raw per-tenant key for their own AEAD. Requires an initialized vault.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.archive.wrap` / `b.archive.unwrap` `recipient: \"tenant\"` — per-tenant archive sealing, no key-pair",
+              "body": "`b.archive.wrap(bytes, { recipient: \"tenant\", tenantId })` seals under a deterministic per-tenant key derived from the vault root with XChaCha20-Poly1305 (draft-irtf-cfrg-xchacha-03) and a SHAKE256 KDF (FIPS 202); the tenant id is bound into the AEAD AAD so a tenant-A envelope cannot decrypt under tenant-B's key even if an attacker swaps envelope headers. `b.archive.unwrap(sealed, { recipient: \"tenant\", tenantId })` (or just `{ tenantId }`) re-derives the key and recovers the bytes — no recipient key-pair to manage. The tenant envelope carries a distinct version byte so it is never fed to the hybrid-KEM decrypt path. The static-key and peer-cert recipient strategies are unchanged."
+            },
+            {
+              "title": "`b.agent.tenant.derivedKey(tenantId, purpose)` — direct per-tenant key derivation",
+              "body": "The deterministic, domain-separated per-tenant key derivation (vault root + tenantId + purpose, SHAKE256, NUL-separated) is now exported at the module level, returning a 64-char hex key. Previously reachable only as a method on a created tenant manager; operators who need the raw key for their own AEAD can now call it directly. Throws if the vault is not initialized."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.19",
+      "date": "2026-05-27",
+      "headline": "`auditTools` export / archive / forensic-snapshot can return the bundle as bytes — no output directory for serverless / read-only filesystems",
+      "summary": "b.auditTools.exportSlice, b.auditTools.archive, and b.auditTools.forensicSnapshot required an `out` directory to write the encrypted bundle (rows.enc + optional checkpoint.enc + manifest.json), which is unusable on a read-only or ephemeral serverless filesystem. Each now accepts `returnBytes: true` instead of `out` and returns the bundle as an in-memory `{ filename: Buffer }` map — ready to stream to object storage or over the wire with no filesystem access. `out` and `returnBytes` are mutually exclusive. The on-disk path is unchanged. The bundle's encryption (XChaCha20-Poly1305 + Argon2id), chain-proof material, and manifest checksums are identical to the written bundle, so an in-memory bundle written to disk verifies exactly as one produced by the `out` path.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`returnBytes` on `auditTools.exportSlice` / `archive` / `forensicSnapshot` — in-memory bundles",
+              "body": "Pass `returnBytes: true` (and omit `out`) to get the encrypted audit bundle as an in-memory `{ filename: Buffer }` map instead of a directory write — the read-only / serverless path. `exportSlice` / `archive` return `{ manifest, files, rowCount, range }`; `forensicSnapshot` returns `{ ...manifest, files }` where `files` carries the slice's `rows.enc` + `manifest.json` plus the `forensic-snapshot.json` incident wrapper. The encryption, chain proof, and manifest checksums match the on-disk bundle byte-for-byte, so the bytes verify with `verifyBundle` once written out. `out` and `returnBytes` are mutually exclusive (passing both throws)."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`auditTools.forensicSnapshot` now honors the `since` window instead of capturing the entire audit history",
+              "body": "`forensicSnapshot` passed its `since` bound to the slice exporter under the wrong option name, so the time filter was silently dropped and the snapshot bundled every audit row regardless of `since`. The window is now applied — a snapshot scoped to an incident window contains only that window's rows. The snapshot manifest's `auditSliceFile` field, previously always undefined, now records the slice location."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.18",
+      "date": "2026-05-27",
+      "headline": "`bodyParser` multipart can buffer uploads in memory — no tmp directory for serverless / read-only filesystems",
+      "summary": "The multipart/form-data sub-parser previously streamed every file part to a tmp directory on disk (os.tmpdir() by default), which fails on a read-only or ephemeral serverless filesystem. A new multipart.storage option selects where file parts land: \"disk\" (default, unchanged — req.files[].path points at a tmp file cleaned up on response end) or \"memory\" (req.files[].buffer holds the assembled bytes, with no filesystem access at all). Both modes enforce the same per-file (fileSize), per-field, and total-request (totalSize) caps, so memory mode adds no new memory-exhaustion surface. The file object shape is stable across both modes — disk sets path with buffer null, memory sets buffer with path null — so a handler branches on whichever is non-null. An invalid storage value is rejected when the middleware is constructed.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`bodyParser` multipart `storage: \"memory\"` — buffer uploads in RAM instead of a tmp directory",
+              "body": "`b.middleware.bodyParser({ multipart: { storage: \"memory\" } })` buffers each uploaded file part in memory and exposes it as `req.files[].buffer` (a Buffer), with no `os.tmpdir()` write and no tmp-file cleanup — the read-only / serverless path. The default `storage: \"disk\"` is unchanged: file parts stream to a tmp file, `req.files[].path` points at it, and it is removed when the response finishes. Both modes apply the existing `fileSize` / per-field `maxBytes` / `totalSize` caps and SHA3-512 hash each part during streaming, so memory mode is bounded by the same limits and adds no new DoS surface. The `req.files[]` shape is stable across modes (disk: `path` set, `buffer` null; memory: `buffer` set, `path` null). A `storage` value other than `\"disk\"` or `\"memory\"` throws a `TypeError` at construction."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.17",
+      "date": "2026-05-27",
+      "headline": "Template engine can render from a string with no views directory — for serverless / read-only filesystems",
+      "summary": "b.template.create previously required a viewsDir that exists on disk, and rendering always read the template (and its layout/partials) from that directory — unusable on a read-only or ephemeral serverless filesystem where the templates aren't on disk. The engine now accepts a source string directly: viewsDir is optional, and the returned engine exposes renderString(source, data?, opts?) and compileString(source, opts?) that compile and render from a string with no disk read. {% extends %} and {{> partial}} in a string source resolve through an operator-supplied opts.resolve(name) -> string callback (without it, an extends throws a clear error and a missing partial inlines empty, matching the file path). The same HTML-escaping, expression grammar, and extends/partial-depth caps apply. The file-backed render / compile / precompileAll still work exactly as before when a viewsDir is configured, and now refuse with a clear error when one isn't.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`engine.renderString` / `engine.compileString` — render templates from a string, no viewsDir",
+              "body": "`b.template.create({})` (no `viewsDir`) returns a string-only engine; `renderString(source, data?, { resolve })` and `compileString(source, { resolve })` compile and render from a source string with zero filesystem access — the read-only / serverless path. `{% extends %}` and `{{> partial}}` resolve through `opts.resolve(name) -> string`. The HTML escaping, grammar, and depth caps are identical to the file path. When a `viewsDir` IS configured, `render`/`compile`/`precompileAll` behave exactly as before; without one they refuse with `viewsDir not configured`. `renderString(source, { resolve })` may omit the data argument — an opts object carrying a function `resolve` is recognized as opts, not data."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Vendored `@simplewebauthn/server` refreshed 13.3.0 → 13.3.1",
+              "body": "The vendored WebAuthn server bundle (`b.auth.passkey`'s registration/authentication verification) is refreshed to the latest upstream patch, with the MANIFEST version, CPE, and SHA-256 integrity hashes updated and the bundle re-verified."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.16",
+      "date": "2026-05-27",
+      "headline": "`b.mail.agent` docs now describe the facade accurately, and not-yet-wired verbs point to the primitive to use",
+      "summary": "b.mail.agent's module documentation claimed it was \"the standardization contract for every mail protocol\" that JMAP / IMAP / POP3 all route through — but no protocol server actually dispatches through the agent (the framework's own JMAP EmailSubmission handler composes b.mail.send.deliver directly), and the compose / send / reply / forward, sieve.list / sieve.activate, identity / vacation / mdn.* and export / job / import verbs throw mail-agent/not-implemented. The docs are corrected to describe what the agent is: a mailbox-access facade (RBAC + posture + audit + dispatch around a mail store) whose read surface plus the mailbox-mutation and Sieve-upload methods are wired, with the remaining verbs not yet routed through it. Those verbs' error message now names the underlying primitive to compose directly (b.mail.send.deliver, b.mail.sieve, b.mailMdn, …) instead of citing a version tag that had long passed. The public WIRED_AT export (a method→version map that no longer reflected reality) is replaced by COMPOSE_HINT (a method→primitive-to-compose map). No behaviour change: the same methods are wired or throw exactly as before.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`b.mail.agent` documentation corrected; not-implemented errors point to the primitive to compose",
+              "body": "The `@module` / `@card` no longer claim the agent is the universal protocol-dispatch contract — it's documented as a mailbox-access facade with a wired read + mutation + Sieve-upload surface, and the compose/send/identity/vacation/MDN/export verbs documented as not yet routed through it (compose the underlying primitive directly until a protocol server adopts the agent). The `mail-agent/not-implemented` error now names that primitive (e.g. `b.mail.send.deliver`) rather than a passed version tag."
+            }
+          ]
+        },
+        {
+          "heading": "Removed",
+          "items": [
+            {
+              "title": "`b.mail.agent.WIRED_AT` export replaced by `COMPOSE_HINT`",
+              "body": "The `WIRED_AT` export mapped each method to a framework version that was supposed to \"light it up\" — versions that have all shipped without the wiring, so the map was misleading. It is replaced by `COMPOSE_HINT`, mapping each not-yet-wired method to the primitive an operator composes directly. Operators reading `b.mail.agent.WIRED_AT` should read `b.mail.agent.COMPOSE_HINT` instead (pre-1.0: no compatibility shim)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.15",
+      "date": "2026-05-27",
+      "headline": "Corrected more source citations and made deferred/reserved options honest in their docs",
+      "summary": "A second accuracy pass over source threat-annotations and option docs. Three citation corrections: the base64url strict-decode guard cited CVE-2022-0235 (which is actually a node-fetch cookie-leak, unrelated) — it now names the weakness class it defends (CWE-347 / CWE-1286 signature canonicalization); the glob consecutive-wildcard ReDoS cap cited the wrong library (the CVE-2026-26996 ReDoS is minimatch, not picomatch — the adjacent picomatch one is CVE-2026-33671); and CVE-2026-32178 is reframed to the CWE-138 header-injection-spoofing class the public record actually documents (and dropped from the end-of-data SMTP-smuggling list, which is a different class). Several options/statuses are now honest about not-yet-implemented surface: b.archive.read.zip.fromTrustedStream is marked experimental (its methods throw and its options aren't honored yet — the example now shows the supported buffer-then-random-access path); b.acme revokeCert's useCertKey / certPrivateKey are marked reserved (the cert-key path throws; account-key signing is the supported default); and a stale message claiming passkey break-glass factors were a future feature is removed (passkeys are a live allowed factor). No runtime behaviour changes beyond message/doc text.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Corrected misattributed CVE citations in source threat-annotations",
+              "body": "`b.crypto.fromBase64Url`'s strict-decode guard cited CVE-2022-0235 (a node-fetch header-leak, unrelated to base64/JWT decoding); it now cites the weakness class it actually defends — CWE-347 / CWE-1286 signature canonicalization. `b.guardRegex`'s consecutive-`*` cap attributed CVE-2026-26996 to picomatch; that ReDoS is in minimatch (the picomatch ReDoS it also defends is CVE-2026-33671) — the library name is corrected. CVE-2026-32178 is reframed to the CWE-138 header-injection spoofing class the public advisory documents, and removed from the end-of-data SMTP-smuggling trio (a distinct class). No behaviour change — the defenses are unchanged."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Deferred / reserved surface now documented honestly",
+              "body": "`b.archive.read.zip.fromTrustedStream` is marked `experimental` — its `inspect`/`entries`/`extract` throw and its `bombPolicy`/`audit` options aren't honored yet; the documented example now shows the supported path (buffer the stream, then use the random-access reader). `b.acme` `revokeCert`'s `useCertKey` / `certPrivateKey` options are marked reserved (the cert-key-signed-revocation path throws; account-key signing, the default, covers mainstream CAs). A `b.breakGlass` policy error and comment that called passkey factors a future feature are corrected — passkeys are a live allowed factor."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.14",
+      "date": "2026-05-27",
+      "headline": "DNSSEC chain validation now bounds KeyTrap (CVE-2023-50387) amplification with hard caps",
+      "summary": "b.network.dns.dnssec.verifyChain tried every DNSKEY whose 16-bit key tag matched an RRSIG, with no cap on how many candidates or total signature verifications a single response could drive. A hostile zone publishing many DNSKEYs sharing one key tag (plus matching RRSIGs) could force O(keys x signatures) full public-key verifications from one query — the KeyTrap denial-of-service (CVE-2023-50387). Validation is now bounded by non-configurable caps that match the BIND / Unbound mitigations: at most 4 same-tag candidate keys are tried per RRSIG, at most 64 DNSKEYs per zone link and 16 DS records per delegation are accepted, the chain is at most 128 links deep, and the whole response is held to a signature-validation budget that scales with chain depth (so a legitimate deep delegation is never false-rejected while bounded collisions stay bounded); exceeding any of these refuses the response rather than performing the work. Separately, a domain name that encodes to more than 255 octets is now refused at canonicalization (RFC 1035 §2.3.4), which also bounds the NSEC3 closest-encloser label enumeration, and the NSEC3 iteration ceiling is lowered from 500 to 150 to match the BIND 9.16.33+ / Unbound 1.17.1 fix for the sibling CVE-2023-50868.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "`verifyChain` caps colliding-key fan-out and total signature validations (KeyTrap / CVE-2023-50387)",
+              "body": "A zone advertising many same-key-tag DNSKEYs and RRSIGs can no longer drive unbounded public-key verifications. New refusals: `dnssec/too-many-colliding-keys` (>4 same-tag candidates per RRSIG), `dnssec/too-many-dnskeys` (>64 DNSKEYs per zone link), `dnssec/too-many-ds` (>16 DS records per delegation), `dnssec/too-many-links` (chain deeper than 128), and `dnssec/validation-budget-exceeded` (signature validations beyond the depth-scaled budget). The caps are intentionally non-configurable — they sit well above any legitimate zone, and the budget scales with chain depth so deep delegations validate normally."
+            },
+            {
+              "title": "Domain-name octet cap + lower NSEC3 iteration ceiling",
+              "body": "A name that canonicalizes to more than 255 octets is refused (`dnssec/bad-name`, RFC 1035 §2.3.4), which bounds the per-label NSEC3 closest-encloser enumeration (CVE-2023-50868 class). The default NSEC3 iteration ceiling drops from 500 to 150, matching the BIND 9.16.33+ / Unbound 1.17.1 post-CVE defaults (RFC 9276 recommends 0)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.13",
+      "date": "2026-05-27",
+      "headline": "Archive extraction-path verification now refuses Windows reserved names, NTFS data streams, and trailing-dot/space per segment",
+      "summary": "b.guardFilename.verifyExtractionPath (the per-entry gate b.archive.read.zip.extract / b.safeArchive run on every extracted file) checked traversal, absolute paths, drive-letter and UNC prefixes, null bytes, PATH_MAX overflow, and realpath containment — but not the per-segment Windows write-target hazards the disk validate / sanitize paths already reject. An archive entry named CON, NUL.txt, subdir/LPT1, file.txt:hidden, or secret.txt. stayed inside the extraction root, so the containment and realpath checks passed it, yet on Windows it would resolve to a device, write a hidden NTFS stream, or (after Windows strips the trailing dot/space) overwrite a sibling file. These are now refused: any path segment that collides with a Windows reserved device name, uses NTFS alternate-data-stream syntax (name:stream), or carries a trailing dot or leading/trailing whitespace. The checks are platform-unconditional — a verifier running on Linux still refuses names that are only dangerous on the Windows host that ultimately extracts the archive — with a per-check opt-out (reservedNamePolicy / adsPolicy / leadingTrailingPolicy: \"allow\") for Linux-only targets.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "`verifyExtractionPath` refuses per-segment Windows extraction hazards (reserved names / NTFS ADS / trailing dot-space)",
+              "body": "Closes a within-root write-target-redirection gap: an extracted entry could stay inside the destination yet, on Windows, resolve to a device (`CON` / `NUL` / `COM1` / `LPT1`), write a hidden alternate data stream (`file.txt:payload`), or overwrite a sibling after Windows strips a trailing dot/space (`config.`). The verification gate now rejects all three per path segment. Refusal is platform-unconditional (the verifier may run on a different OS than the extractor); set `reservedNamePolicy` / `adsPolicy` / `leadingTrailingPolicy` to `\"allow\"` to opt a check out on a Linux-only target. Single-entry, name-only residuals — 8.3 short-name aliasing, case-insensitive cross-entry collisions, and archive symlink/hardlink entry-target validation — remain the extract orchestrator's responsibility (it owns the case-folded seen-set and the link-target gate)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.12",
+      "date": "2026-05-27",
+      "headline": "Inbound MX listener now runs the connection-level gate cascade it documented — HELO identity, DNS blocklist, and greylisting",
+      "summary": "b.mail.server.mx.create documented helo / rbl / greylist gate options, but the listener never invoked them — an operator who wired them got silent acceptance of mail those gates would have rejected. They are now wired into the live SMTP state machine: the HELO-identity gate evaluates at HELO/EHLO and refuses a spoofed or malformed identity with 550; the DNS-blocklist gate evaluates the connecting IP once per connection and refuses a listed source with 554; the greylisting gate defers a first-seen (ip, sender, recipient) tuple with a 450 tempfail so legitimate senders retry and pass. Each gate is skipped when the operator doesn't wire it. Because these gates do DNS and store lookups, the per-connection command pump was reworked to process commands asynchronously and strictly in arrival order, so pipelined commands (RFC 2920) cannot overtake a gate still resolving and the existing SMTP-smuggling and STARTTLS-stripping defenses are unchanged. The message-authentication gate (SPF/DKIM/DMARC alignment via b.guardEnvelope) needs the inbound SPF + DKIM verification results as inputs; that inbound-auth pipeline lands as a follow-up, and the documentation no longer implies that gate is active today.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "HELO-identity / RBL / greylist gates wired into `b.mail.server.mx`",
+              "body": "When wired, `opts.helo` (FCrDNS / HELO-shape / self-name checks) refuses a bad HELO identity at HELO/EHLO with 550; `opts.rbl` refuses a connecting IP found on a DNS blocklist with 554 (evaluated once per connection); `opts.greylist` defers a first-seen (ip, sender, recipient) tuple with 450 4.7.1. Their verdicts surface on the `rcpt_to` event (`rblListed`, `greylist`) and the `helo` event (`heloVerdict`), with dedicated `helo_gate_refused` / `rbl_refused` / `greylist_deferred` audit events. A gate the operator doesn't supply is skipped, never synthesized."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "MX command pump processes commands asynchronously and in arrival order",
+              "body": "Gate evaluation involves DNS and store lookups, so the per-connection command pump now awaits each command before the next. Pipelined commands are serialized so a gate resolving cannot let a later command answer ahead of an earlier one; reply ordering, the bare-LF SMTP-smuggling refusal, and the STARTTLS-stripping defense are unchanged. No change to the listener's external behaviour when no gates are wired."
+            }
+          ]
+        },
+        {
+          "heading": "Deprecated",
+          "items": [
+            {
+              "title": "SPF/DKIM/DMARC-alignment gate documentation corrected to match what is active",
+              "body": "The `envelope` (SPF/DKIM/DMARC alignment) and `dmarc` gate options were documented as wireable but require inbound SPF + DKIM verification results the listener does not yet produce. They are removed from the documented option set until the inbound-authentication pipeline (composing `b.mail.spf` + `b.mail.dmarc` + DKIM verification) lands; run those checks on the delivered message via the agent handoff in the meantime."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.11",
+      "date": "2026-05-27",
+      "headline": "Test-suite reliability: replaced fixed-delay waits in the rate-limiter and scheduler suites with condition polling",
+      "summary": "No runtime behaviour changes. The rate-limiter, scheduler, and websocket-channel test suites waited for asynchronous work to settle by draining a fixed number of event-loop ticks before asserting. Under heavily parallel CI that budget was occasionally too short, so an assertion read state before the async work (a cluster-backend counter update, a scheduler tick-claim) had landed — an intermittent failure unrelated to the code under test. Those waits now poll the observable condition (helpers.waitUntil) and exit as soon as it holds, with a generous upper bound, so they pass quickly on fast machines and reliably under load. A build gate is added so the fixed-tick-drain shape cannot be reintroduced.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Flaky fixed-budget waits in the rate-limiter / scheduler / sandbox test suites made contention-tolerant",
+              "body": "The rate-limit-cluster and scheduler-exactly-once suites drained a fixed count of event-loop ticks before asserting on asynchronously-updated state; under contended CI the budget could expire before the work settled, producing intermittent failures. They now wait on the actual observable condition (a written response, a settled counter). The sandbox suite's success-path cases gave the worker a 5 s execution budget that cold worker-thread startup under heavily parallel Windows CI could just exceed; those are raised to the framework's 10 s ceiling. Affects test code only — no change to shipped framework behaviour. The unused tick-drain helper in the websocket-channel suite was removed."
+            }
+          ]
+        },
+        {
+          "heading": "Detectors",
+          "items": [
+            {
+              "title": "Build gate rejects the fixed-tick-drain wait shape in tests",
+              "body": "A new test-suite lint rule flags the counted microtask/tick-drain idiom (reassigning a promise to its own `.then()` in a loop to wait a fixed number of ticks), the sibling of the existing fixed-`setTimeout`-sleep rule. A single event-loop yield is unaffected; only the drain-as-wait shape is rejected, directing the wait to condition polling instead."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.10",
+      "date": "2026-05-27",
+      "headline": "Documented-but-inert options wired up, a non-existent CVE reference removed, and a silent iCalendar cap-bypass fixed",
+      "summary": "A sweep for places where a documented option or citation did not match what the code does. The most operator-relevant fix: b.calendar.fromIcal documented a safeIcalOpts option that forwards parser caps (byte size, RRULE limits, nesting depth) to b.safeIcal.parse, but the value was never forwarded — so an operator who set tight caps through it got the default profile instead, silently. That is corrected; the nested options now reach the parser. b.archive.read.zip documented an AbortSignal option that was never honored; it now aborts the read at the entry boundary. b.auth.fal documented a bearerOnly alias that had no effect; it now forces the no-proof-of-possession path and refuses the contradictory combination of bearerOnly:true with a holder-of-key binding. Separately, the auth verification paths cited CVE-2026-23993 (13 places) for the \"reject an unknown alg before key lookup\" guard — that CVE id does not exist (the registry has no record of it); the citation is replaced with the weakness class (CWE-347 / CWE-757) and the real, verifiable neighboring CVEs. The circuit-breaker error-code note that promised a rename \"in v0.10\" is corrected to the actual plan (v1.0), and the build gate that catches overdue version promises now also catches two-part version numbers.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`b.calendar.fromIcal` now forwards `safeIcalOpts` to the parser",
+              "body": "The documented `safeIcalOpts` option (parser caps: max bytes, RRULE COUNT/BYxxx limits, nesting depth) was not being passed to `b.safeIcal.parse` — when supplied under the documented nested key it was silently ignored and the parser ran with its default profile. Both forms now reach the parser: the documented nested `{ safeIcalOpts: { ... } }` and the top-level `{ profile, ... }` that earlier releases accepted, with the nested form winning on conflict. No caller regresses."
+            },
+            {
+              "title": "`b.archive.read.zip` honors the documented `signal` (AbortSignal)",
+              "body": "The `signal` option was documented but never read. A large or slow archive read can now be aborted cooperatively — the reader checks the signal at each entry boundary (`inspect`, `entries`, `extractEntries`, `extract`) and rejects with an `archive-read/aborted` error."
+            },
+            {
+              "title": "Removed a non-existent CVE reference from the JWT/JWE verification paths",
+              "body": "The \"reject an unknown/unsupported `alg` before any key lookup\" guard in `b.auth.jwt.verifyExternal`, `b.auth.oauth.verifyIdToken`, `b.auth.oid4vci`, and `b.auth.sd-jwt-vc` cited a CVE id that the registry has no record of. The behaviour is unchanged; the citation is now the weakness class it defends (CWE-347 improper signature verification / CWE-757 algorithm downgrade) alongside the real, verifiable alg-confusion / JWE-bypass CVEs already cited beside it."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`b.auth.fal` `bearerOnly` is now a real alias and refuses contradictions",
+              "body": "`bearerOnly: true` now forces the no-proof-of-possession path (equivalent to `hokBinding: null`), as documented. Passing `bearerOnly: true` together with a non-null `hokBinding` is a contradictory assurance request and is now refused at the call rather than silently resolved one way."
+            }
+          ]
+        },
+        {
+          "heading": "Detectors",
+          "items": [
+            {
+              "title": "Overdue-version-promise gate now catches two-part version numbers",
+              "body": "The build gate that flags a deferral whose promised landing version has already shipped previously matched only three-part versions (`vN.N.N`); a two-part promise (`vN.N`) slipped past it. It now matches both. The `b.circuitBreaker` `CIRCUIT_OPEN` error-code note that pointed at a passed version is corrected to its actual plan (rename at v1.0, with a deprecation warning a minor ahead)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.9",
+      "date": "2026-05-26",
+      "headline": "Corrected CVE citations in source threat annotations + a build gate that refuses malformed CVE identifiers",
+      "summary": "Several source-comment threat annotations cited CVE identifiers that were rejected by the numbering authority (never assigned to a real issue), attributed to the wrong product, or structurally malformed (a placeholder with a non-numeric sequence). The annotated defenses are unchanged — every cap, refusal, and constant-time comparison behaves exactly as before; only the reference labels were corrected, each to a verifiable CVE or to the underlying weakness class (CWE / RFC) where no single CVE fits. Notable corrections: the S/MIME SHA-1 / MD5 certificate-signature refusal now cites the SHAttered collision and RFC 8551 §2.5 instead of a rejected candidate id; decompression-output caps cite CWE-409 and CVE-2025-0725 instead of a fabricated placeholder; the iCalendar RRULE / nesting / byte caps describe the calendar-bomb recursion-DoS class instead of an unrelated SSRF advisory; and the SAML signature-wrapping (XSW) defense now cites the actively-exploited CVE-2024-45409 (ruby-saml, CVSS 10.0) and CVE-2025-25291 / -25292 that the duplicate-element refusal defeats. A new build-time detector refuses any CVE token whose sequence number is not all-numeric, so a placeholder identifier can never reach a release again.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Corrected rejected / misattributed / malformed CVE references in source threat annotations",
+              "body": "Threat-annotation comments across the mail, crypto, auth, guard, and safe modules carried CVE identifiers that were rejected by the CVE numbering authority, attributed to the wrong product, or written as non-numeric placeholders. Each was corrected to a verifiable CVE or to the weakness class (CWE / RFC) it defends. No runtime behaviour changed — the defenses these comments describe are unchanged. The S/MIME certificate check's SHA-1 / MD5 refusal message now names the SHAttered collision and RFC 8551 §2.5; the SAML XSW defense now names CVE-2024-45409 and CVE-2025-25291 / -25292."
+            }
+          ]
+        },
+        {
+          "heading": "Detectors",
+          "items": [
+            {
+              "title": "`malformed-cve-identifier` — refuses structurally-invalid CVE tokens at build time",
+              "body": "A CVE identifier's sequence number is always numeric (`CVE-<year>-<digits>`). The new detector refuses any CVE token whose post-year segment contains a letter — the placeholder shape that lets a fabricated reference slip past review. It cannot verify that a well-formed id is real or correctly attributed (that stays a review responsibility), but it makes the structurally-invalid class impossible to ship."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.8",
+      "date": "2026-05-26",
+      "headline": "In-memory archive extraction for read-only / serverless filesystems",
+      "summary": "Archive readers gain an in-memory extraction path so an uploaded archive can be opened and its contents read without writing anything to disk — the case a read-only or ephemeral serverless filesystem requires. b.archive.read.zip(...).extractEntries() and b.archive.read.tar(...).extractEntries() are async generators that yield each regular file entry as { name, bytes, size }, applying the same bomb-policy caps, b.guardArchive metadata cascade (which refuses a Zip-Slip / traversal archive wholesale), and entry-type-policy refusals as the disk extract() — only the disk realpath agreement check is omitted, since nothing is written and the caller owns where the returned bytes land. Directory and link entries carry no content and are not yielded. The guard cascade is factored into one shared path so disk and in-memory extraction refuse identically. Also a documentation fix: b.archive.gz no longer claims a b.archive.zip().toGzip() convenience exists — a ZIP is already DEFLATE-compressed per entry, so gzip-wrapping it gains nothing; gzip the uncompressed tar stream (the canonical .tar.gz) instead.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`extractEntries()` — in-memory archive extraction (ZIP + tar)",
+              "body": "`b.archive.read.zip(source).extractEntries(opts?)` and `b.archive.read.tar(source).extractEntries(opts?)` are async generators yielding `{ name, bytes, size }` per regular file entry, never touching disk — for serverless / read-only filesystems where the disk `extract({ destination })` path cannot run. Same bomb-policy, guard-archive cascade, and entry-type-policy refusals as disk extraction; the bytes are byte-identical to what `extract()` writes."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Removed the inaccurate `b.archive.zip().toGzip()` doc claim",
+              "body": "The `b.archive.gz` documentation described a `b.archive.zip().toGzip()` convenience method that does not (and should not) exist: a ZIP is already DEFLATE-compressed per entry, so gzip-wrapping it would compress already-compressed data for no benefit. `b.archive.tar().toGzip()` (the real `.tar.gz`) is unchanged."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.7",
+      "date": "2026-05-26",
+      "headline": "Documentation accuracy — several primitives described shipped features as deferred",
+      "summary": "A documentation sweep corrected primitive descriptions that still called features deferred after they shipped, so the wiki and inline docs now match the code. b.mdoc documents that device authentication (the ISO 18013-5 §9.1.3 signature variant, verifyDeviceAuth) is verified, not deferred — only the COSE_Mac0 device-auth variant remains refused. b.network.dns.dnssec documents that the root-to-zone chain walk against the IANA trust anchors (verifyChain) and NSEC / NSEC3 denial of existence (verifyDenial / nsec3Hash) ship, where the card previously said they were deferred. b.cose lists COSE_Mac0 and COSE_Encrypt0 among what it ships. The JMAP server documents its push channel, blob upload/download, and EmailSubmission handlers as present, and the submission server documents CHUNKING / BDAT as supported. A new test detector keeps this class of drift from recurring: it fails the build when a comment promises a feature lands in a version that has already shipped.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Corrected `deferred`/`does-not-ship` docs for features that have shipped",
+              "body": "`b.mdoc` (device authentication, §9.1.3), `b.network.dns.dnssec` (chain walk + NSEC/NSEC3), `b.cose` (COSE_Mac0 + COSE_Encrypt0), the JMAP server (push, blob, EmailSubmission), and the submission server (BDAT/CHUNKING) all carried `@card`/`@intro` text describing shipped capabilities as deferred or not-shipped. The descriptions now match the implemented surface; genuinely-deferred items (the mdoc MAC variant, DNSSEC in-RDATA name canonicalization, COSE multi-signer/multi-recipient) remain documented as such."
+            }
+          ]
+        },
+        {
+          "heading": "Detectors",
+          "items": [
+            {
+              "title": "Overdue-defer detector in the codebase-pattern gate",
+              "body": "A new check fails the build when a comment promises a feature \"lands in\" / is \"deferred to\" / is \"not supported in\" a version that the package has already reached — catching stale deferral notes (a feature that shipped but whose comment still says otherwise, or a missed deadline) before they reach a release. An allowlist records the deliberate defer-with-condition exceptions."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.6",
+      "date": "2026-05-26",
+      "headline": "`b.ai.frontierModelProtocol` — California SB 53 frontier-AI obligations",
+      "summary": "b.ai.frontierModelProtocol assesses a developer's obligations under California's Transparency in Frontier Artificial Intelligence Act — SB 53, Cal. Bus. & Prof. Code §22757.10, effective 2026-01-01 — from a model's training compute and the developer's revenue. It reports whether the model crosses the frontier threshold (more than 10^26 training FLOPs), whether the developer is a large frontier developer (prior-year revenue, with affiliates, above $500M), and the resulting obligations: every frontier developer must report critical safety incidents and publish a transparency report, and a large frontier developer must additionally publish an annual safety framework and disclose its catastrophic-risk assessment. Passing a candidate safety framework reports which required elements (risk identification, mitigation, governance, cybersecurity, standards alignment) are missing. b.ai.frontierModelProtocol.incidentReport validates a critical-incident type against the Act's four categories and computes the notification deadline to the California Office of Emergency Services — 15 days from discovery, or 24 hours when there is an imminent risk of death or serious physical injury. The ca-tfaia compliance posture was already in the catalog.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.ai.frontierModelProtocol` — SB 53 threshold classification, obligations, and incident reporting",
+              "body": "`b.ai.frontierModelProtocol({ trainingFlops, annualRevenueUsd, framework? })` returns `isFrontierModel`, `isLargeFrontierDeveloper`, the `obligations` list, and (when a framework is supplied) its `frameworkGaps`. `b.ai.frontierModelProtocol.incidentReport({ type, discoveredAt, imminentRiskToLife? })` builds a critical-safety-incident report with the California OES recipient and a `dueAt` / `deadlineHours` computed from the 15-day (or 24-hour imminent-risk) statutory window; `type` must be one of the four categories in `INCIDENT_TYPES`. Throws `FrontierProtocolError` on malformed input."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.5",
+      "date": "2026-05-26",
+      "headline": "`b.ai.aedtBiasAudit` — NYC Local Law 144 bias audit",
+      "summary": "b.ai.aedtBiasAudit computes the bias-audit figures New York City Local Law 144 requires before an Automated Employment Decision Tool may screen candidates (NYC Admin. Code §20-870 et seq.; DCWP rules 6 RCNY §5-300). Given the per-category counts an independent auditor collected — selected/total for a pass-fail tool, or scored-above-the-overall-median/total for a continuous-score tool — it returns the selection (or scoring) rate, the impact ratio (each group's rate divided by the most-selected group's rate), and an adverse-impact flag (impact ratio below the EEOC four-fifths threshold of 0.8) for every group, across the sex, race/ethnicity, and intersectional dimensions, plus the most-selected group per dimension and an overall flag. Categories under 2% of the audited data are marked excluded per DCWP discretion. It is a pure calculation that produces exactly the figures the annual published summary must contain — the law mandates the calculation, not any particular remediation. The relevant compliance postures (nyc-ll144, and ca-tfaia for California SB 53) were already in the catalog.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.ai.aedtBiasAudit` — Local Law 144 selection/scoring rates and four-fifths impact ratios",
+              "body": "`b.ai.aedtBiasAudit({ type, metadata, categories, minCategoryShare? })` where `type` is `\"selection\"` (group entries `{ selected, total }`) or `\"scoring\"` (`{ scoredAboveMedian, total }`). Returns per-group rate, impact ratio, and `adverseImpact` flag across the `sex`, `raceEthnicity`, and `intersectional` dimensions, plus the most-selected group per dimension and an `anyAdverseImpact` summary. Categories below `minCategoryShare` (2% default) are excluded from the impact-ratio basis. Throws `AedtBiasAuditError` on malformed input."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.4",
+      "date": "2026-05-26",
+      "headline": "`b.crdt` — conflict-free replicated data types",
+      "summary": "b.crdt adds state-based Conflict-free Replicated Data Types: data structures that independent replicas update without coordination and still converge to the same value once they have exchanged state. Each type's merge is a join over a semilattice — commutative, associative, and idempotent — so replicas can merge in any order, any number of times, and agree, which makes these the substrate for active/active cluster state, offline-first clients that reconcile on reconnect, and eventually-consistent counters, sets, and maps. The release ships the full state-based family: grow-only and positive-negative counters (gCounter / pnCounter), grow-only, two-phase, and observed-remove sets (gSet / twoPSet / orSet), a last-write-wins register (lwwRegister), and an observed-remove map (orMap). Every type exposes the same contract — local mutators, merge(other) that returns a converged instance without mutating either operand, value() for the materialized value, and state() / fromState() for a JSON-serializable form to snapshot via b.archive or b.backup or ship to a peer — and carries a replicaId so per-replica contributions stay distinct.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.crdt` — state-based CvRDT counters, sets, register, and map",
+              "body": "`b.crdt.gCounter` / `pnCounter` (grow-only and increment/decrement counters), `b.crdt.gSet` / `twoPSet` / `orSet` (grow-only, two-phase, and observed-remove sets — `orSet` supports re-add and resolves a concurrent add-vs-remove as add-wins), `b.crdt.lwwRegister` (last-write-wins with a deterministic replicaId tie-break), and `b.crdt.orMap` (observed-remove keys with last-write-wins values). Each exposes `merge` / `value` / `state` / `fromState` and converges by the CvRDT laws. `orSet` and `orMap` accept `tombstoneRetention` to bound tombstone memory against a remove flood."
+            }
+          ]
+        }
+      ],
+      "outOfScope": [
+        "Operation-based sequence CRDTs (RGA) — a different formal class (CmRDT) requiring a causal-delivery channel; ships when collaborative-text / ordered-list editing is needed.",
+        "Delta-state mutators — a bandwidth optimization over full-state merge; ships under large-state replication pressure.",
+        "The event-bus replicator for live multi-node auto-sync — the state-based types merge manually standalone; ships when live multi-node synchronization is wired, together with the causal-delivery option and its detector."
+      ]
+    },
+    {
+      "version": "0.13.3",
+      "date": "2026-05-26",
+      "headline": "`b.crypto.xwing` — X-Wing hybrid post-quantum KEM",
+      "summary": "b.crypto.xwing adds the X-Wing hybrid key-encapsulation mechanism (draft-connolly-cfrg-xwing-kem): it runs ML-KEM-768 and X25519 side by side and binds their shared secrets with SHA3-256, so an encapsulated key stays secure as long as either ML-KEM-768 or X25519 holds. That is the conservative shape for moving off classical ECDH today — a harvest-now-decrypt-later attacker must break the lattice KEM, and a hypothetical ML-KEM break still leaves X25519 standing. keygen() produces a 32-byte decapsulation seed and a 1216-byte public key; encapsulate(publicKey) returns a 1120-byte ciphertext and a 32-byte shared secret; decapsulate(secretKey, ciphertext) recovers it. The X-Wing combiner is frozen, but its specification is still an IETF Internet-Draft, so this primitive is marked experimental and sits beside the existing pre-RFC post-quantum HPKE drafts; it composes the framework's vendored ML-KEM-768 and X25519 with SHA3 and adds no new cryptographic core. The combiner is known-answer-tested byte-for-byte against the draft's definition.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.crypto.xwing` — X-Wing hybrid PQ/T KEM (experimental)",
+              "body": "`keygen(seed?)` → `{ publicKey (1216 B), secretKey (32-byte seed) }`; `encapsulate(publicKey, eseed?)` → `{ ciphertext (1120 B), sharedSecret (32 B) }`; `decapsulate(secretKey, ciphertext)` → the 32-byte shared secret. Both `keygen` and `encapsulate` accept an optional seed for deterministic operation. The combiner — `SHA3-256(ssMLKEM ‖ ssX25519 ‖ ctX25519 ‖ pkX25519 ‖ label)` — is exposed as `combiner` for advanced use. Marked `experimental` while draft-connolly-cfrg-xwing-kem remains an Internet-Draft; the algorithm itself is frozen."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.2",
+      "date": "2026-05-26",
+      "headline": "`b.iabTcf.encode` — write TCF consent strings, and a TC-string timestamp fix",
+      "summary": "b.iabTcf gains the encode half of its consent-string codec: b.iabTcf.encode(obj) serialises a parsed object back into an IAB TCF v2 TC string, and b.iabTcf.isValid(tcString) is a total never-throwing validity check. Vendor and purpose collections may be Sets, id arrays, or the parsed sections parseString returns; vendor sections are written with whichever of the bit-field and range forms is smaller, matching the reference CMP encoders, so a parsed string round-trips to an equivalent signal. parseString now fully decodes the Core publisher-restrictions list and the PublisherTC segment's publisher and custom purposes, where it previously reported only the segment's presence. The encoder is verified against the worked-example string in the IAB Tech Lab consent-string specification: it re-encodes that string's Core segment byte-for-byte. This release also fixes a TC-string parsing bug — the bit reader accumulated values with a 32-bit shift, so the 36-bit Created and LastUpdated timestamp fields were silently truncated for any real date; they now decode and round-trip exactly.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.iabTcf.encode` / `b.iabTcf.isValid`",
+              "body": "`encode(obj)` serialises a TCF object (the shape `parseString` returns) into a TC string — Core plus optional DisclosedVendors, AllowedVendors, and PublisherTC segments — choosing the smaller of the bit-field and range vendor encodings. `isValid(tcString)` returns whether a string parses as a well-formed Core segment without throwing. `parseString` now fully decodes Core publisher restrictions and the PublisherTC purposes that were previously reported only as present."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "TC-string 36-bit timestamps were truncated on parse",
+              "body": "`b.iabTcf.parseString` read multi-bit fields with a 32-bit left-shift accumulation. The 36-bit Created and LastUpdated fields hold deciseconds-since-epoch, which exceeds 2^31 for any date after 1976, so those timestamps were silently corrupted. The reader now accumulates without the 32-bit truncation; timestamps decode correctly and round-trip through `encode`."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.1",
+      "date": "2026-05-26",
+      "headline": "`b.worm` — write-once-read-many retention",
+      "summary": "Store records that cannot be altered or deleted before a retention period elapses — the immutable-storage discipline regulators require (SEC 17a-4(f), CFTC 1.31, FINRA 4511). b.worm.create(opts) returns a WORM store that enforces, on every mutating call, that a record is not overwritten or deleted while it is within its retainUntil window or under a legal hold. Two modes mirror cloud Object-Lock: compliance (the default — no one, including the operator, can delete before expiry) and governance (a privileged caller may override with an audited reason). Retention can only be extended, never shortened; every record carries a SHA3-512 digest that get verifies, so tampering with the underlying bytes is detected on read; every allow/refuse decision is audited. Storage is pluggable via a synchronous store adapter, so the policy layer sits over a sealed DB table, a filesystem, or any non-S3 backend — the store-agnostic, application-level companion to b.objectStore's S3 Object Lock, with content-integrity verification that native Object Lock does not provide.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.worm.create` — write-once-read-many retention",
+              "body": "Returns a store with `put` / `get` / `delete` / `extendRetention` / `placeLegalHold` / `releaseLegalHold` / `list`. `put` is write-once (an overwrite of a retained or held record is refused); `delete` is gated by the retention window, legal holds, and the mode (`compliance` refuses any early delete; `governance` allows a privileged override with a required, audited reason); `extendRetention` is extend-only; `get` verifies the stored SHA3-512 digest and throws `worm/tampered` on a mismatch. Storage is a pluggable synchronous adapter (`get` / `set` / `delete` / `has` / `keys`), defaulting to in-memory for tests. Use it for SEC 17a-4 / CFTC / FINRA immutable records on backends without native Object Lock; `b.objectStore` remains the path for S3 Object Lock."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.13.0",
+      "date": "2026-05-26",
+      "headline": "`b.crypto.oprf` — RFC 9497 Oblivious PRFs",
+      "summary": "Compute F(serverKey, input) without the server learning the input and without the client learning the key — the Oblivious PRF primitive behind password hardening (the server peppers a password it never sees), private set intersection, and Privacy Pass. b.crypto.oprf.suite(name) returns an RFC 9497 ciphersuite — ristretto255-sha512, p256-sha256, p384-sha384, or p521-sha512 — each exposing the base oprf mode and the verifiable voprf mode (a DLEQ proof lets the client confirm the server used the key committed in its public key). The client blinds its input, the server blind-evaluates with its secret key, and the client finalizes by un-blinding and hashing; because un-blinding cancels the blind, the output depends only on key and input. Validated byte-for-byte against the RFC 9497 Appendix-A test vectors. Group and hash-to-curve operations come from the newly vendored @noble/curves (Paul Miller, MIT) — the same maintainer as the framework's existing vendored @noble/post-quantum and @noble/ciphers, with no added npm runtime dependency.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`b.crypto.oprf` — RFC 9497 OPRF / VOPRF",
+              "body": "`suite(name)` returns `{ name, oprf, voprf }` for one of the four RFC 9497 ciphersuites (ristretto255-SHA512 / P-256-SHA256 / P-384-SHA384 / P-521-SHA512). The `oprf` (base) mode provides `deriveKeyPair` / `generateKeyPair` / `blind` / `blindEvaluate` / `finalize` / `evaluate`; `voprf` (verifiable) adds a DLEQ proof so the client can prove the server used the committed key. Use it for password hardening, private set intersection, and OPRF-based tokens. Verified against the RFC 9497 Appendix-A vectors. The partially-oblivious `poprf` mode is not yet exposed (the vendored `@noble/curves` does not implement it) and will follow upstream."
+            },
+            {
+              "title": "Vendored `@noble/curves`",
+              "body": "`@noble/curves` 2.2.0 (Paul Miller, MIT) is vendored under `lib/vendor/` (no npm runtime dependency), supplying the ristretto255 / NIST-curve group and hash-to-curve operations behind `b.crypto.oprf`. It joins the existing vendored `@noble/post-quantum` and `@noble/ciphers` from the same maintainer; tracked in the SBOM and the vendor-currency gate."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

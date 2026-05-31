@@ -6,6 +6,7 @@ var b = require("../../../lib/vendor/blamejs");
 var nodePath = require("node:path");
 var filesRepo = require("../../data/repositories/files.repo");
 var storage = require("../../../lib/storage");
+var C = require("../../../lib/constants");
 ;
 var { sanitizeSvg } = require("../../../lib/sanitize-svg");
 var { sanitizeFilename, safeContentDisposition } = require("../../shared/sanitize-filename");
@@ -16,8 +17,8 @@ var SAFE_INLINE = new Set(["image/png", "image/jpeg", "image/gif", "image/webp",
 // Types that MUST be forced-download (never rendered inline)
 var FORCE_DOWNLOAD = new Set(["text/html", "application/xhtml+xml", "application/javascript", "text/javascript"]);
 
-// Maximum SVG size to load into memory for sanitization (2 MB)
-var SVG_SIZE_LIMIT = 2 * 1024 * 1024;
+// Maximum SVG size to load into memory for sanitization (2 MiB)
+var SVG_SIZE_LIMIT = C.BYTES.mib(2);
 
 /**
  * Look up a file by shareId. Throws NotFoundError if missing or incomplete.
@@ -103,19 +104,18 @@ async function getSanitizedSvg(doc) {
   var stream = await storage.getFileStream(doc.storagePath, doc.encryptionKey);
 
   return new Promise(function (resolve, reject) {
-    var chunks = [];
-    var totalBytes = 0;
+    var collector = b.safeBuffer.boundedChunkCollector({ maxBytes: SVG_SIZE_LIMIT });
     stream.on("data", function (c) {
-      totalBytes += c.length;
-      if (totalBytes > SVG_SIZE_LIMIT) {
+      try {
+        collector.push(c);
+      } catch (_e) {
         stream.destroy();
         return reject(new ValidationError("SVG too large for preview."));
       }
-      chunks.push(c);
     });
     stream.on("error", function (err) { reject(err); });
     stream.on("end", function () {
-      var svgRaw = Buffer.concat(chunks).toString("utf8");
+      var svgRaw = collector.result().toString("utf8");
       var clean = sanitizeSvg(svgRaw);
       var headers = {
         "Content-Type": "image/svg+xml",

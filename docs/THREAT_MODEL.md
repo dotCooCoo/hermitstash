@@ -87,11 +87,11 @@ All primitives are sourced from vendored libraries — zero npm runtime dependen
 |-----------|-----------|--------|-----------|
 | KEM (post-quantum) | ML-KEM-1024 | `node:crypto` (OpenSSL 3.5+) | NIST FIPS 203. Level 5 parameters (highest available). Level 5 chosen over 768/Level 3 because the performance cost is acceptable for the low request volume of a self-hosted server and the security margin is preferred |
 | KEM (classical) | ECDH on NIST P-384 | `node:crypto` | FIPS-approved curve. P-384 over P-256 for 192-bit classical security matching ML-KEM-1024's post-quantum level. X25519 was considered but rejected so that node:crypto's single ECDH path can be used on both the server and in mTLS certificates (P-384 signatures) without two ECC stacks |
-| Symmetric AEAD | XChaCha20-Poly1305 | `@noble/ciphers` 2.1.1 | RFC 8439 extended. 192-bit nonce (vs 96-bit for plain ChaCha20-Poly1305) allows random nonces without birthday risk. Constant-time in software, no AES-NI dependency |
-| KDF / XOF | SHAKE256 | `node:crypto` (server), `@noble/hashes` 2.0.1 (browser) | FIPS 202. Chosen over HKDF-SHA3 for the storage envelope because it is a single-call extendable-output function with no salt/info complexity — the inputs are already high-entropy KEM shared secrets. HKDF-SHA3-512 is still used inside the hybrid ECIES path where domain separation is needed (see §5.6) |
+| Symmetric AEAD | XChaCha20-Poly1305 | `@noble/ciphers` 2.2.0 | RFC 8439 extended. 192-bit nonce (vs 96-bit for plain ChaCha20-Poly1305) allows random nonces without birthday risk. Constant-time in software, no AES-NI dependency |
+| KDF / XOF | SHAKE256 | `node:crypto` (server), `@noble/hashes` 2.2.0 (browser bundle) | FIPS 202. Chosen over HKDF-SHA3 for the storage envelope because it is a single-call extendable-output function with no salt/info complexity — the inputs are already high-entropy KEM shared secrets. HKDF-SHA3-512 is still used inside the hybrid ECIES path where domain separation is needed (see §5.6) |
 | Hash | SHA3-512 | `node:crypto` | FIPS 202. Truncated when shorter outputs are needed. SHA-256 was rejected in favor of a SHA-3 family member to avoid length-extension concerns even where they don't technically apply |
 | HMAC | HMAC-SHA3-512 | `node:crypto` | FIPS 198-1 over FIPS 202. Used for webhook signatures |
-| Password hash | Argon2id | `argon2` 0.44.0 (vendored native) | RFC 9106. Memory-hard. Default parameters: 64 MiB memory, 3 time cost, 4 parallelism. `ARGON2_FAST=1` env flag switches to 1 MiB / 1 / 1 for automated test runs only |
+| Password hash | Argon2id | Node 24+ built-in `crypto.argon2` via blamejs `lib/argon2-builtin.js` | RFC 9106. Memory-hard. Default parameters: 64 MiB memory, 3 time cost, 4 parallelism. `ARGON2_FAST=1` env flag switches to 1 MiB / 1 / 1 for automated test runs only |
 | Signatures | SLH-DSA-SHAKE-256f (default) / ML-DSA-87 (legacy) | `node:crypto` (OpenSSL 3.5+) | FIPS 205 / 204. `generateSigningKeyPair()` defaults to SLH-DSA-SHAKE-256f — chosen as the conservative SHAKE-based hash-only signature, robust against future cryptanalytic findings against lattice schemes. ML-DSA-87 remains supported for callers that explicitly request it (smaller key/signature) and for verifying any legacy keys persisted in databases (algorithm auto-detected from key PEM). Used for signing vendored assets and release verification — not yet used for mTLS certificates (see §5.8) |
 | RNG | SHAKE256(node.randomBytes, n) | `node:crypto` wrapper in `lib/crypto.js:47` | A belt-and-suspenders wrapper post-hashes `crypto.randomBytes(n)` through SHAKE256 (the FIPS 202 XOF) and returns `n` bytes. The XOF variant scales to any `n` — the older SHA3-512 implementation silently truncated to 64 bytes for `n > 64`. See §9 for the rationale |
 
@@ -100,7 +100,7 @@ Vendored third-party libraries:
 - **@noble/hashes** (Paul Miller) — SHAKE256 for the browser (server uses node:crypto)
 - **@noble/post-quantum** (Paul Miller) — ML-KEM-1024 for the browser; the server uses node:crypto
 - **@peculiar/x509 + pkijs** — pure-JS PKCS#12 generation for browser certificate issuance
-- **argon2** — native Node binding with prebuilds for 8 platforms
+- **Argon2id** — Node 24+'s built-in `crypto.argon2`, wrapped by blamejs's `lib/argon2-builtin.js` (no vendored native binding)
 
 ---
 
@@ -112,14 +112,14 @@ Each subsection describes one cryptographic construction. Code references are to
 
 Every at-rest encrypted blob the server produces starts with a 4-byte header that identifies which algorithms were used. This is what makes algorithm agility possible — any component can be swapped and old blobs remain readable.
 
-Code: `lib/crypto.js:117-150` (encrypt), `lib/crypto.js:154-191` (decrypt).
+Code: `lib/vendor/blamejs/lib/crypto.js` `encrypt()` / `decrypt()`, reached via `b.crypto.encrypt` / `b.crypto.decrypt` from `lib/vault.js`. HermitStash's own `lib/crypto.js` (`ENV_MAGIC = 0xE1`) is now the legacy 0xE1 decoder only, invoked from the `vault.unseal` migration fallback.
 
 **Layout:**
 
 ```
 Offset  Field                        Size    Value
 ──────  ─────────────────────────    ────    ─────
-0       Magic                        1       0xE1
+0       Magic                        1       0xE2 (FixedInfo/suite-bound; 0xE1 is the legacy pre-migration magic)
 1       KEM ID                       1       0x02 ML-KEM-1024, 0x03 hybrid ML-KEM-1024+P-384
 2       Cipher ID                    1       0x02 XChaCha20-Poly1305
 3       KDF ID                       1       0x02 SHAKE256
@@ -147,12 +147,12 @@ Offset  Field                        Size    Value
                     └──────┬──────┘             └──────┬───────┘
                            │                           │
                            └──────────┬────────────────┘
-                                      │ concat (no domain separator)
+                                      │ concat with suite-binding FixedInfo
                                       ▼
-                            ┌──────────────────┐
-                            │ SHAKE256(ss1||ss2,│
-                            │ 32 bytes)         │ ◄── symmetric key
-                            └──────────┬───────┘
+                            ┌────────────────────────────────┐
+                            │ SHAKE256(ss1 || ss2 ||         │
+                            │   suiteFixedInfo, 32 bytes)    │ ◄── symmetric key
+                            └──────────┬─────────────────────┘
                                        │
                           random 24-byte nonce ─┐
                                        │        │
@@ -169,8 +169,8 @@ Offset  Field                        Size    Value
 **Decrypt:** dispatches on byte 1 (KEM ID). The hybrid path decapsulates ML-KEM, runs ECDH against the embedded ephemeral public key, concatenates, SHAKE256s, and decrypts. The ML-KEM-only path skips the ECDH leg.
 
 **Notes for reviewers:**
-- The two shared secrets are concatenated without a domain separator before the KDF (`lib/crypto.js:126`). The inputs come from domain-separated sources (ML-KEM encapsulate output vs ECDH derived key), so first-image resistance isn't formally at risk, but this is worth a look — a reviewer might prefer HKDF with a fixed `info` string here to match the ECIES path in §5.6
-- The envelope header bytes are **not authenticated** as AAD. An attacker can flip the KEM/cipher/KDF byte on a ciphertext; if the victim supports multiple decryption paths this could cross-wire them. Today only one cipher and one KDF are supported so the attack surface is nil in practice, but this will matter if a new cipher is added. See §10
+- The two shared secrets are concatenated with a suite-binding `FixedInfo` before the KDF (`lib/vendor/blamejs/lib/crypto.js:691-696`, `:1105-1107`): SHAKE256 absorbs `ml_kem_ss || ecdh_ss || suiteFixedInfo`, where `suiteFixedInfo = "blamejs/v1" || 0x00 || kemId || cipherId || kdfId || 0x00` (NIST SP 800-56C r2 §4.1 OtherInfo / RFC 9180 §5.1 suite_id binding). A key derived under one suite is not silently usable under another. The legacy 0xE1 path omitted this binding.
+- The 4-byte envelope header (magic | KEM | cipher | KDF) **is** authenticated as AEAD AAD on the active 0xE2 envelope (`lib/vendor/blamejs/lib/crypto.js:1109-1113` on encrypt, re-derived at `:1306-1308` on decrypt). An algorithm-substitution flip of any header byte surfaces as a Poly1305 tag verification failure. The legacy 0xE1 path did not bind the header.
 
 ### 5.2 Vault — long-lived at-rest key
 
@@ -182,7 +182,7 @@ The vault key is the root of at-rest encryption. On first boot the server genera
 - ML-KEM-1024 keypair via `node:crypto.generateKeyPairSync("ml-kem-1024")`
 - P-384 ECDH keypair via `node:crypto.generateKeyPairSync("ec", { namedCurve: "P-384" })`
 
-`vault.seal(plaintext)` prepends a `vault:` prefix and calls `crypto.encrypt(plaintext, vaultKeys)`, which produces the envelope format from §5.1. `vault.unseal(value)` strips the prefix and inverts.
+`vault.seal(plaintext)` prepends a `vault:` prefix and delegates to `b.crypto.encrypt(plaintext, vaultKeys)`, which produces a 0xE2 envelope (§5.1). `vault.unseal(value)` strips the prefix and dispatches on the magic byte — 0xE2 → `b.crypto.decrypt`, 0xE1 → HermitStash's legacy `lib/crypto.js` decoder for pre-migration blobs (`lib/vault.js:391-397`).
 
 **Diagram — key hierarchy:**
 
@@ -200,24 +200,26 @@ The vault key is the root of at-rest encryption. On first boot the server genera
 
 **Critical limitation:** Anyone with read access to `data/vault.key` decrypts everything HermitStash has ever stored. This is the largest gap in the default configuration.
 
-**Optional mitigation (v1.9+) — passphrase wrapping.** When `VAULT_PASSPHRASE_MODE=required`, the on-disk file is `data/vault.key.sealed` instead of plaintext `data/vault.key`. Format: 4-byte magic `0xE2` header (see `lib/vault-wrap.js`), Argon2id-derived wrapping key (64 MiB, 3 iterations, 4 parallelism by default), XChaCha20-Poly1305 AEAD with the full header bound as AAD. An attacker with the wrapped file but not the passphrase cannot recover the vault keys. The passphrase is read at boot from one of: `VAULT_PASSPHRASE` env, `VAULT_PASSPHRASE_FILE`, or interactive stdin. This protection addresses the disk-snapshot threat scenarios (N1 listed host compromise is explicitly out of scope — once unwrapped, the plaintext key lives in process memory and is recoverable by any attacker with code execution). See §9 L2 and L15, and the README's "Passphrase protection" section for operator UX.
+**Optional mitigation (v1.9+) — passphrase wrapping.** When `VAULT_PASSPHRASE_MODE=required`, the on-disk file is `data/vault.key.sealed` instead of plaintext `data/vault.key`. Format: 4-byte magic `0xE2` header (wrapping is `b.vaultWrap.wrap()` / `unwrap()`, invoked from `lib/vault.js:332`,`:344`, implemented in `lib/vendor/blamejs/lib/vault/wrap.js`), Argon2id-derived wrapping key (64 MiB, 3 iterations, 4 parallelism by default), XChaCha20-Poly1305 AEAD with the full header bound as AAD. An attacker with the wrapped file but not the passphrase cannot recover the vault keys. The passphrase is read at boot from one of: `VAULT_PASSPHRASE` env, `VAULT_PASSPHRASE_FILE`, or interactive stdin. This protection addresses the disk-snapshot threat scenarios (N1 listed host compromise is explicitly out of scope — once unwrapped, the plaintext key lives in process memory and is recoverable by any attacker with code execution). See §9 L2 and L15, and the README's "Passphrase protection" section for operator UX.
 
 ### 5.3 Field encryption (field-crypto middleware)
 
 Every database field that isn't a raw identifier, counter, or timestamp goes through `vault.seal()` on write and `vault.unseal()` on read, transparently, via a middleware layer around the SQLite wrapper.
 
-Code: `lib/field-crypto.js` (240 lines), `FIELD_SCHEMA` constant.
+Code: `lib/field-crypto.js` (255 lines), `FIELD_SCHEMA` constant.
 
 Each table's fields are classified as:
 - **seal** — encrypted per-field via `vault.seal()`. Values stored as `vault:<base64>`
 - **hash** — one-way SHA3 hashed for indexed lookups (emails, IP addresses)
-- **derived** — auto-computed from another field (e.g. `emailHash` from `email`)
+- **argon2** — password hash, handled externally (not auto-processed by this layer)
 - **raw** — plaintext (IDs, counters, status enums, FK references, timestamps)
+
+Derived fields (e.g. `emailHash` from `email`) are auto-computed from a source field.
 
 The middleware also rewrites queries: `{ email: "x@y.com" }` becomes `{ emailHash: sha3("hs-email:x@y.com") }` transparently so callers use plaintext lookups.
 
 **Security notes:**
-- Hash prefixes (`hs-email:`, `hs-ip:`, `hs-share:`, `hs-certfp:`, `hs-slug:`, `hs-access-code:`, `hs-enroll:`, `hs-blockedip:` — full list in `lib/constants.js:38-47`) are static strings. An attacker with vault-decrypted audit log entries can still cross-reference by hash — this is intentional for functionality (indexed lookup) but means the hashes are **not** an anonymization primitive, only a key-separation primitive. See N7
+- Hash prefixes (`hs-email`, `hs-ip`, `hs-share`, `hs-certfp`, `hs-slug`, `hs-access-code`, `hs-enroll`, `hs-blockedip` — full list in `lib/constants.js:49-58`) are static strings. The `:` separator in the wire format (`hs-email:<value>`) is appended internally by `b.crypto.namespaceHash(prefix, value)`; it is not part of the stored constant. An attacker with vault-decrypted audit log entries can still cross-reference by hash — this is intentional for functionality (indexed lookup) but means the hashes are **not** an anonymization primitive, only a key-separation primitive. See N7
 - Every envelope blob for field encryption has a fresh 24-byte nonce. No nonce reuse across fields
 
 ### 5.4 File encryption at rest
@@ -251,7 +253,7 @@ Notes:
 
 ### 5.6 API payload encryption + hybrid ECIES handshake
 
-Every JSON POST body and every JSON response body is encrypted with XChaCha20-Poly1305 using a **per-session symmetric key**, separate from the vault key.
+For browser (cookie-authenticated) clients, every JSON POST body and every JSON response body is encrypted with XChaCha20-Poly1305 using a **per-session symmetric key**, separate from the vault key. Bearer-authenticated clients (sync / API-key / mTLS) are bypassed out of this path at `middleware/api-encrypt.js:110` (`if (req.apiKey) return next();`) — their JSON payload protection routes through blamejs apiEncrypt instead (see §5.6.4).
 
 Code: `middleware/api-encrypt.js`, `lib/api-crypto.js`.
 
@@ -264,9 +266,9 @@ First request per session:
 
 Delivery of `apiKey` to the client depends on client type:
 - **Browsers:** the server embeds the apiKey in the response HTML template (`res._apiKey` → template placeholder). No separate key exchange — the browser is already authenticated by the session cookie over TLS
-- **Sync clients (mTLS):** the hybrid ECIES handshake below
+- **Sync clients (Bearer / API-key):** the production sync client authenticates via `Authorization: Bearer <API key>` (`middleware/api-auth.js` sets `req.apiKey`), which causes `middleware/api-encrypt.js:110` to bypass payload-envelope interception entirely — no `_e/_t` body wrap and no ECIES key exchange. Its JSON payload protection routes through blamejs apiEncrypt (§5.6.4), not the handshake below. The hybrid ECIES handshake in §5.6.2 fires only for a session that is **not** Bearer-authenticated and presents both an mTLS cert and the `X-KEM-Public-Key` header
 
-#### 5.6.2 Hybrid ECIES handshake (mTLS clients)
+#### 5.6.2 Hybrid ECIES handshake (mTLS, non-Bearer clients)
 
 The concern this solves: a sync client connecting with an API key needs the session XChaCha20 key, and we don't want to send it in plaintext over the wire (even under TLS) in case of future log/trace/proxy leaks.
 
@@ -352,8 +354,16 @@ The plaintext always contains `{ _d, _t }` where `_t` is the client-supplied tim
 
 **Notes:**
 - The timestamp is inside the authenticated ciphertext, so it can't be manipulated by a network attacker
-- 30 seconds is tight enough to make replay impractical but loose enough for clock skew on sync clients
+- 30 seconds is tight enough to make replay impractical but loose enough for clock skew. This replay/timestamp logic applies to the browser legacy envelope path, not the sync path (§5.6.4)
 - The session key is rotated whenever a new session is established; it does not rotate within a session
+
+#### 5.6.4 Sync / Bearer client payload encryption (blamejs apiEncrypt)
+
+Sync clients (Bearer auth, `req.apiKey` set) do not use the `_e/_t` envelope or the §5.6.2 ECIES handshake. They use blamejs's per-session `apiEncrypt` protocol (ML-KEM-1024 + P-384 ECDH hybrid, SHAKE256 KDF, XChaCha20-Poly1305 wrap). The server keypair lives at `data/api-encrypt-keypair.sealed` (`lib/constants.js:180-183`) and is advertised at `GET /.well-known/blamejs-pubkey`.
+
+This covers a **narrow** carve-out only: JSON POSTs to `/drop/init`, `/drop/finalize/:bundleId`, and `/sync/rename` (`server-main.js:432-438`). All other Bearer-auth paths — `GET /b/:shareId`, `DELETE /files/:fileId`, multipart uploads, binary downloads — travel as plaintext-over-TLS/mTLS with no application-layer payload encryption.
+
+Code: `server-main.js:403-466`, `lib/api-encrypt-keypair.js`, `lib/constants.js:180-183`.
 
 ### 5.7 Client-side zero-knowledge vault
 
@@ -421,13 +431,13 @@ Decrypt inverts: `encapsulate` → server-stored ciphertext becomes `decapsulate
 **Notes:**
 - The "stealth mode" toggle hides vault operations from the audit log, so an attacker who later reads the audit log (after compromising the vault key) cannot enumerate vault activity. This is an additional privacy property orthogonal to the client-side encryption
 - Passkey-gated mode is a pragmatic fallback for authenticators/browsers that don't support PRF (e.g. older iOS WebAuthn). It still requires the passkey to retrieve the seed, but it is **not** zero-knowledge — the server holds the seed. An operator who can read the DB can reconstruct the vault keypair in this mode
-- Vault key rotation (PRF mode): user re-registers passkey, server re-emits an encapsulation challenge, client decrypts every file with the old key and re-encrypts with the new one. Atomic — `POST /vault/rotate` in `routes/vault.js:357`
+- Vault key rotation (PRF mode): user re-registers passkey, server re-emits an encapsulation challenge, client decrypts every file with the old key and re-encrypts with the new one. Atomic — `POST /vault/rotate` in `routes/vault.js:359`
 
 ### 5.8 mTLS CA and client certificate issuance
 
 HermitStash acts as its own Certificate Authority for sync clients and (optionally) for enforcing browser mTLS.
 
-Code: `lib/mtls-ca.js` (406 lines).
+Code: `lib/mtls-ca.js` (53-line process-wide singleton over `b.mtlsCa.create`); algorithm envelope in `lib/vendor/blamejs/lib/mtls-engine-default.js`.
 
 **Algorithm envelope (current CA generation: 2):**
 
@@ -440,10 +450,9 @@ Code: `lib/mtls-ca.js` (406 lines).
 | PBKDF2 iterations | 2,000,000 | 2M picked in 2026-04 as a conservative modern default, up from 600k in CAv1 |
 
 Code entry points:
-- `lib/mtls-ca.js:48-49` — `CA_KEY_ALG`, `CA_SIG_ALG` constants
-- `lib/mtls-ca.js:64` — `CA_GENERATION = 2`
-- `lib/mtls-ca.js:74-77` — PKCS#12 parameters
-- TODO markers for PQ signature migration at `lib/mtls-ca.js:42-47` and PKCS#12 v3 at `lib/mtls-ca.js:66-73`
+- `lib/constants.js:141` — `CA_GENERATION = 2` (referenced via `C.CA_GENERATION` at `lib/mtls-ca.js:51`)
+- `lib/vendor/blamejs/lib/mtls-engine-default.js:166-167` — `CA_KEY_ALG` / `CA_SIG_ALG` (set at runtime from `alg.keyAlg` / `alg.sigAlg`, e.g. P-384 / SHA-384)
+- `lib/vendor/blamejs/lib/mtls-engine-default.js:172-177` — PKCS#12 parameters (content encryption AES-CBC, KDF/MAC hash SHA-512, PBKDF2 iterations `0x1E8480` = 2,000,000)
 
 **Flow:**
 
@@ -478,9 +487,9 @@ The client cert's SHA3-512 fingerprint is bound to the API key — at WebSocket 
 
 When HermitStash terminates TLS directly (no reverse proxy), a TCP-level gate inspects each incoming connection's ClientHello **before** the TLS handshake completes. If the ClientHello does not offer at least one PQC hybrid group, the connection is rejected with `handshake_failure`.
 
-Code: `lib/pqc-gate.js`.
+Code: HermitStash no longer ships this file — the gate is provided by blamejs (`lib/vendor/blamejs/lib/pqc-gate.js`) and wired at `server-main.js:758` via `b.pqcGate.create({ internalPort, log })`.
 
-**Recognized PQC groups (`lib/constants.js:50-53`):**
+**Recognized PQC groups (`lib/vendor/blamejs/lib/constants.js:155-156`; HermitStash re-exports them via `lib/constants.js`):**
 
 | Group | IANA ID |
 |-------|---------|
@@ -527,7 +536,7 @@ Code: `lib/pqc-gate.js`.
 - Localhost (`127.0.0.1`, `::1`) requests bypass the gate so Docker health checks don't fail
 - `PQC_ENFORCE=false` env var disables the gate for transition periods
 
-**Outbound:** `lib/pqc-agent.js` implements a PQC-only HTTPS agent used for all outbound calls (S3, SMTP over TLS, Resend, webhooks, OAuth). `PQC_OUTBOUND_ENFORCE=false` allows classical fallback when remote servers haven't deployed PQC yet.
+**Outbound:** `b.pqcAgent` (`lib/vendor/blamejs/lib/pqc-agent.js`) implements a PQC-only HTTPS agent, used transparently by `b.httpClient` for all outbound HTTPS (S3, SMTP over TLS, Resend, webhooks, OAuth). Outbound PQC enforcement is unconditional.
 
 ### 5.10 Webhook HMAC signatures
 
@@ -615,7 +624,7 @@ Receivers verify with `hmac.compare_digest()` (Python) or `crypto.timingSafeEqua
 
 Three separate version mechanisms:
 
-1. **Storage envelope** (`lib/crypto.js`) — 4-byte header identifies KEM/cipher/KDF. Old blobs remain readable when new IDs are added. Current: KEM `0x03`, cipher `0x02`, KDF `0x02`
+1. **Storage envelope** (`lib/vendor/blamejs/lib/crypto.js`) — 4-byte header identifies magic/KEM/cipher/KDF and is bound as AEAD AAD. Old blobs remain readable when new IDs are added. Current: magic `0xE2`, KEM `0x03`, cipher `0x02`, KDF `0x02` (legacy `0xE1` blobs decrypt via the migration fallback in `lib/crypto.js`)
 2. **ECIES protocol** (`middleware/api-encrypt.js`) — 1-byte version on the `_ek` field. Current: `0x01`. Unlike the envelope, sessions are ephemeral so backward-compat on decrypt is not required — both sides must agree
 3. **mTLS CA generation** (`lib/mtls-ca.js`) — CAs are tagged with `OU=CAv{N}` in the subject DN. Boot-time banner warns if the on-disk CA is older than the current generation. Migration is operator-initiated via Admin → Danger Zone
 
@@ -664,11 +673,11 @@ Vault key compromise retroactively decrypts every blob ever stored. See N3.
 
 **Reactive mitigation (v1.9.3+):** `scripts/vault-key-rotate.js` performs a full vault key rotation that re-encrypts every sealed value in the data directory (DB rows, the SQLite file's wrapping key, every per-file XChaCha20 key index). After rotation, the OLD vault key cannot read live data — closing the door on a compromised key that hasn't yet been used to exfiltrate everything. This does NOT provide forward secrecy in the cryptographic sense (data already exfiltrated under the old key remains compromised), but it does bound the window of usefulness for a stolen vault key. See README "Full vault key rotation" section.
 
-### L4 — No AAD on storage envelope header
-The KEM/cipher/KDF bytes of the envelope are not included as AAD in the AEAD tag. Today only one of each is supported so the attack surface is empty, but adding a second cipher without also adding header-as-AAD could enable cross-protocol attacks. **Mitigation:** add envelope header bytes to AEAD's AAD whenever a second cipher is introduced.
+### L4 — AAD on storage envelope header (RESOLVED on the active 0xE2 envelope)
+The active 0xE2 envelope binds the 4-byte header (magic | KEM | cipher | KDF) as AEAD AAD (`lib/vendor/blamejs/lib/crypto.js:1109-1113` on encrypt, re-derived at `:1306-1308` on decrypt; reached via `b.crypto.encrypt`/`decrypt` from `lib/vault.js:380`/`:397`), so an algorithm-substitution flip of any header byte surfaces as a Poly1305 tag failure. The legacy 0xE1 path did not bind the header and is decrypt-only during the boot-time migration window.
 
-### L5 — Hybrid KDF lacks domain separation in §5.1
-The storage envelope's hybrid KEM concatenates `ml_kem_ss || ecdh_ss` with no domain separator before SHAKE256. Same hash chain as the ECIES path (§5.6) which uses HKDF with a fixed `info` string. The envelope version is arguably safe because the inputs are different lengths (32 + 48) and SHAKE256 absorbs the full string, but a cleaner construction would be `SHAKE256("hermitstash-storage-v1" || ml_kem_ss || ecdh_ss)`. Worth adopting when the envelope KDF ID changes for any other reason.
+### L5 — Hybrid KDF domain separation in §5.1 (RESOLVED on the active 0xE2 envelope)
+The active 0xE2 storage envelope appends a suite-binding `FixedInfo` to the KDF input: `SHAKE256(ml_kem_ss || ecdh_ss || suiteFixedInfo)`, where `suiteFixedInfo = "blamejs/v1" || 0x00 || kemId || cipherId || kdfId || 0x00` (NIST SP 800-56C r2 §4.1 OtherInfo / RFC 9180 §5.1 suite_id binding; `lib/vendor/blamejs/lib/crypto.js:691-696`, `:1105-1107`). The legacy 0xE1 path concatenated `ml_kem_ss || ecdh_ss` with no domain separator and is decrypt-only during the migration window.
 
 ### L6 — Hash prefixes are not per-record salts
 Email / IP / share-ID hashes use static prefixes (`hs-email:`, `hs-ip:`, etc). This is intentional (indexed lookup requires determinism) but means they are *identifiers*, not anonymizers. See N7.
@@ -682,8 +691,8 @@ Nothing has been modeled in ProVerif / Tamarin / Cryptol. See N9.
 ### L9 — mTLS CA uses classical signatures (ECDSA P-384)
 PQ signature algorithms (SLH-DSA-SHAKE-256f as the default, ML-DSA-87 as a legacy option) are implemented and available in the project but not used for the CA. Browsers and OS cert stores don't yet verify PQ signatures on client certs. Migration is tagged with `TODO(pqc-certs)` in `lib/mtls-ca.js:42`. When browsers catch up, the CA can be regenerated with a PQ signature algorithm; the CA generation mechanism (§5.8) handles this.
 
-### L10 — @noble and argon2 are single points of trust
-The entire browser-side crypto stack depends on Paul Miller's @noble libraries. The server Argon2 path depends on the ranisalt/node-argon2 native binding. Both are well-regarded and audited (noble-pq has been reviewed by Cure53), but they are concentrated dependencies.
+### L10 — @noble is a single point of trust for browser-side crypto
+The entire browser-side crypto stack depends on Paul Miller's @noble libraries. They are well-regarded and audited (noble-pq has been reviewed by Cure53), but a concentrated dependency. The server Argon2id path runs through Node 24+'s built-in `crypto.argon2` (OpenSSL/Node-maintained) rather than a third-party native binding, so it is no longer a separate supply-chain trust surface.
 
 ### L11 — No AEAD binding on ML-KEM ciphertext in §5.1
 The ML-KEM ciphertext carried in the envelope is not authenticated by the outer AEAD tag. An attacker flipping bits in `kem.ct` causes decapsulation to fail (ML-KEM has implicit rejection) but the failure mode is not cryptographically enforced by Poly1305 — it's enforced by ML-KEM's own implicit rejection. This is probably fine (ML-KEM is designed for this) but worth a second opinion.
@@ -701,7 +710,7 @@ Vault-sealed session data means a later vault compromise decrypts all captured c
 When passphrase wrapping is enabled (§5.2 opt-in), the passphrase and the derived wrapping key exist in process memory briefly during boot:
 
 1. `passphrase-source.js` reads the passphrase from env/file/stdin as a `Buffer`
-2. `vault-wrap.deriveWrappingKey()` passes it to Argon2id
+2. `b.vaultWrap.wrap()` (`lib/vendor/blamejs/lib/vault/wrap.js`) passes it to Argon2id
 3. The resulting 32-byte wrapping key decrypts the sealed file
 4. The plaintext vault key is cached in the vault module's local `keys` variable for the process lifetime
 
@@ -717,7 +726,7 @@ These are properties HermitStash assumes but does not verify:
 
 - **Node.js 24.14.1+ OpenSSL 3.5+** correctly implements ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87, ECDH P-384, SHAKE256, and HKDF-SHA3-512. Tested through the Node / OpenSSL test suites; HermitStash adds no independent validation
 - **@noble libraries** correctly implement XChaCha20-Poly1305 (server + browser), SHAKE256 (browser), and ML-KEM-1024 (browser). noble-post-quantum was audited by Cure53 in 2024; noble-ciphers and noble-hashes are heavily used across the ecosystem
-- **argon2 native binding** correctly implements Argon2id per RFC 9106 with our chosen parameters (64 MiB memory, 3 time, 4 parallelism)
+- **Node 24+ built-in `crypto.argon2`** correctly implements Argon2id per RFC 9106 with our chosen parameters (64 MiB memory, 3 time, 4 parallelism)
 - **Host filesystem permissions are enforced**. `data/vault.key` is created with mode 0o600 and relies on the OS to honor it
 - **`/dev/shm` is not readable by other tenants on shared hosts**. On multi-tenant containers, an attacker with access to the same kernel's shared memory can read session data. Single-tenant deployment is assumed
 - **TLS CAs in the browser/OS trust store are not compromised** for the server's domain — see N8
@@ -729,9 +738,9 @@ These are properties HermitStash assumes but does not verify:
 
 If you are a cryptographer willing to spend an hour on this, these are the questions that would most benefit from a second opinion. They are narrow on purpose — broad "is this secure" questions are hard to answer.
 
-1. **Storage envelope hybrid KDF (§5.1, L5):** Is `SHAKE256(ml_kem_ss || ecdh_ss)` safe without domain separation, given the inputs come from domain-separated KEM/ECDH paths? Or should we migrate to HKDF-SHA3-512 with an explicit `info` string to match the ECIES construction?
+1. **Storage envelope hybrid KDF (§5.1, L5) — RESOLVED:** the active 0xE2 envelope now absorbs a suite-binding `FixedInfo` (`"blamejs/v1" || 0x00 || kemId || cipherId || kdfId || 0x00`) alongside the shared secrets, so `SHAKE256(ml_kem_ss || ecdh_ss || suiteFixedInfo)` carries explicit domain separation (NIST SP 800-56C r2 §4.1 / RFC 9180 §5.1).
 
-2. **Envelope header as AAD (§5.1, L4):** Is ignoring the KEM/cipher/KDF header bytes in AEAD's AAD field acceptable given algorithm agility is future-looking, or should we bind them now?
+2. **Envelope header as AAD (§5.1, L4) — RESOLVED:** the active 0xE2 envelope binds the 4-byte header (magic | KEM | cipher | KDF) as AEAD AAD, so a header flip surfaces as a Poly1305 tag failure.
 
 3. **ML-KEM ciphertext integrity (§5.1, L11):** ML-KEM's implicit rejection handles tampered ciphertexts correctly, but should we add a belt-and-suspenders construction (e.g. AEAD with AAD = kem.ct) before the symmetric step?
 
@@ -753,7 +762,7 @@ If you are a cryptographer willing to spend an hour on this, these are the quest
 
 ## 12. How to report findings
 
-Security reports: **see [SECURITY.md](../SECURITY.md)** for the coordinated-disclosure policy and PGP key. Non-sensitive feedback on this document itself is welcome via GitHub issues.
+Security reports: **see [SECURITY.md](../SECURITY.md)** for the coordinated-disclosure policy. Non-sensitive feedback on this document itself is welcome via GitHub issues.
 
 ## 13. Changelog
 

@@ -6,3 +6,6 @@ template/
 tests/data/
 tests/.test-output/
 tests/.scratch/
+# Repo-root scratch: the codebase-patterns lint log + local probe scripts /
+# throwaway DBs land here; never committed.
+/.test-output/

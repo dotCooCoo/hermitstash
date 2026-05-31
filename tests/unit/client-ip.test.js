@@ -31,9 +31,10 @@ describe("client-ip getIp()", function () {
   });
 });
 
-// lib/rate-limit.js is a thin test-harness shim over the framework limiter
-// (production rate-limits via b.middleware.rateLimit directly). Pin its surface
-// so a future change that drops getIp / resetAllInstances is caught.
+// lib/rate-limit.js wraps the framework limiter: guard(opts) mounts
+// b.middleware.rateLimit + the shared onDeny so every 429 is RFC 9457
+// problem+json. Pin the surface + the denial shape so a regression to
+// text/plain or an about:blank type is caught.
 describe("rate-limit shim surface", function () {
   it("re-exports getIp delegating to client-ip", function () {
     var req = { socket: { remoteAddress: "10.0.0.1" }, headers: {} };
@@ -43,4 +44,16 @@ describe("rate-limit shim surface", function () {
   it("exposes resetAllInstances for test harnesses", function () {
     assert.strictEqual(typeof rateLimit.resetAllInstances, "function");
   });
+
+  it("guard() returns a middleware that preserves the limiter's reset()", function () {
+    var mw = rateLimit.guard({ scope: "test-guard", max: 5, windowMs: 60000, algorithm: "fixed-window" });
+    assert.strictEqual(typeof mw, "function", "guard returns a middleware function");
+    // routes/auth.js calls loginLimiter.reset(ip) after a successful login —
+    // guard must pass the framework limiter's reset() through unchanged.
+    assert.strictEqual(typeof mw.reset, "function", "guard preserves .reset(key)");
+  });
+  // The 429 wire shape (RFC 9457 application/problem+json) is asserted at the
+  // integration level in tests/security/adversarial-resilience.test.js, where a
+  // real limiter trips through the wrapped response object — the path that
+  // matters, and the one a unit mock can't faithfully reproduce.
 });

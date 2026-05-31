@@ -10,6 +10,7 @@ var audit = require("../lib/audit");
 var { send, host } = require("../middleware/send");
 var sessionService = require("../app/domain/auth/session.service");
 var { validateEmail } = require("../app/shared/validate");
+var rateLimit = require("../lib/rate-limit");
 
 function createVerificationToken(userId) {
   // Clean up any existing tokens for this user
@@ -107,7 +108,7 @@ module.exports = function (app) {
   });
 
   // Resend verification email (rate limited to prevent email quota abuse)
-  app.post("/auth/resend-verification", b.middleware.rateLimit({ scope: "resend-verify", max: 3, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/auth/resend-verification", rateLimit.guard({ scope: "resend-verify", max: 3, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async (req, res) => {
     try {
       var body = (await b.parsers.json(req)) || {};
       var emailCheck = validateEmail(body.email);

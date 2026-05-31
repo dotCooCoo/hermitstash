@@ -14,9 +14,10 @@ FROM cgr.dev/chainguard/node:latest-dev
 # Trivy (debian:trixie-slim surfaced ~100 findings of which almost none were
 # fixable).
 #
-# Wolfi uses apk-tools (like Alpine) but stays on glibc, so the vendored
-# argon2 prebuilds under lib/vendor/argon2/prebuilds/linux-{x64,arm64}
-# (glibc-linked) work unmodified — the Alpine musl trap doesn't apply here.
+# Wolfi uses apk-tools (like Alpine) but stays on glibc. There are no
+# vendored native bindings whose libc linkage matters: Argon2id runs through
+# Node's built-in crypto.argon2, so there is no prebuild to match against the
+# base image's libc and the Alpine musl trap doesn't apply here.
 #
 # Requires Node 24.14.1+ for PQC: ML-KEM-1024, SLH-DSA-SHAKE-256f,
 # ML-DSA-87 (OpenSSL 3.5) plus cumulative 24.x security patches.

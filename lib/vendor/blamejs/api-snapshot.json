@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.13.43",
-  "createdAt": "2026-05-29T22:10:35.036Z",
+  "frameworkVersion": "0.14.8",
+  "createdAt": "2026-05-30T23:08:17.846Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -14517,6 +14517,10 @@
         "getDbPath": {
           "type": "function",
           "arity": 0
+        },
+        "getDeclaredColumns": {
+          "type": "function",
+          "arity": 1
         },
         "getMode": {
           "type": "function",
@@ -37103,6 +37107,10 @@
             "create": {
               "type": "function",
               "arity": 1
+            },
+            "createDeadlineClock": {
+              "type": "function",
+              "arity": 1
             }
           }
         }
@@ -41124,6 +41132,10 @@
           "type": "function",
           "arity": 1
         },
+        "requireBoundKey": {
+          "type": "function",
+          "arity": 1
+        },
         "requireContentType": {
           "type": "function",
           "arity": 2
@@ -42812,6 +42824,10 @@
                 "evaluate": {
                   "type": "function",
                   "arity": 2
+                },
+                "fetch": {
+                  "type": "function",
+                  "arity": 1
                 },
                 "inspectMustStaple": {
                   "type": "function",
@@ -49721,6 +49737,10 @@
           }
         },
         "getCurrentPassphrase": {
+          "type": "function",
+          "arity": 0
+        },
+        "getDerivedHashMacKey": {
           "type": "function",
           "arity": 0
         },

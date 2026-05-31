@@ -1,0 +1,77 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.14.7",
+  "date": "2026-05-30",
+  "headline": "Storage and audit-trail hardening: queries are gated to declared columns, raw SQL refuses embedded literals, the database key is bound to its location, sealed-column lookup hashes gain a keyed mode, audit-chain purges can require dual control, and breach deadlines ship a running clock",
+  "summary": "This release tightens the data and audit layers against a set of failure modes that were previously reachable. Database queries are now checked against the columns a table declared in its schema: a reference to an undeclared column fails closed by default instead of silently matching nothing, and the `whereRaw` escape hatch refuses an embedded string literal so values bind through placeholders. The database encryption key is sealed with its purpose, data directory, and key path as additional authenticated data, so a key file cannot be relocated to another deployment and unsealed there; an older key without that binding upgrades itself on first load. Sealed-column equality-lookup hashes can now be computed as a keyed MAC (HMAC-SHAKE256) off a per-deployment key, making the lookup hash unforgeable without that key, while the salted-SHA3 default is unchanged. Purging the tamper-evident audit chain can be placed under a two-authorizer dual-control grant so one operator cannot erase it alone, and database credential-rejection audits now record which relation the rejected credential tried to reach. Finally, breach-notification deadlines get a running clock that raises approaching and passed alerts as each regime's window elapses. One behavior change to note: the column gate defaults to reject — if a service issues queries against columns it did not declare in its schema, set `db.init({ columnGate: \"warn\" })` (audited, allowed) or `\"off\"` while the schema is reconciled.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "Column-membership gate on every query",
+          "body": "`b.db.from(table)` now checks each referenced column against the table's declared schema. The mode is set with `db.init({ columnGate: \"reject\" | \"warn\" | \"off\" })` (default `reject`), and `query.allowedColumns([...])` narrows a single query to an explicit allowlist that is always enforced. `b.db.getDeclaredColumns(table)` returns a table's declared column names (or `null` for an unknown table). This is defense in depth against typo'd or caller-influenced column names reaching the SQL layer (CWE-89)."
+        },
+        {
+          "title": "Keyed mode for sealed-column lookup hashes",
+          "body": "Equality-lookup (\"derived\") hashes for sealed columns can be computed as `hmac-shake256` — a keyed MAC over a per-deployment key — instead of the default `salted-sha3`. Set it per table with `cryptoField.registerTable(name, { derivedHashMode: \"hmac-shake256\" })` or per column with `{ from, mode: \"hmac-shake256\" }`. The keyed hash is unforgeable and un-correlatable without the deployment's MAC key, which raises the bar against offline lookup-table attacks on low-entropy sealed values (CWE-916). `b.vault.getDerivedHashMacKey()` exposes the 32-byte per-deployment key; it is created on first use and re-sealed across key rotation automatically."
+        },
+        {
+          "title": "Dual-control gate on audit-chain purge",
+          "body": "`b.auditTools.purge` accepts `dualControlGrant`. When `audit_log` is placed under dual control, a verified archive and `confirm: true` are no longer sufficient: the purge additionally requires a consumed m-of-n grant whose action is bound to the purge, so a grant minted for another operation cannot be replayed and one operator cannot erase the tamper-evident chain alone (NIST SP 800-53 AU-9, separation of duties)."
+        },
+        {
+          "title": "Running clock for breach-notification deadlines",
+          "body": "`b.incident.report.createDeadlineClock({ notify, approachThresholds })` tracks open incidents and raises `deadline_approaching` and `deadline_passed` alerts as each regime's window elapses (GDPR 72h, DORA, NIS2, and the rest of the registry). Alerts are deduplicated per incident and stage, suppressed once a submission stage is acknowledged, and the clock can run on an interval or be ticked manually."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Queries against undeclared columns now fail closed by default",
+          "body": "The column gate defaults to `reject`: a query that references a column the table did not declare throws rather than silently matching nothing. A service that intentionally queries undeclared columns can set `db.init({ columnGate: \"warn\" })` to audit and allow, or `\"off\"` to disable the gate, while its schema is reconciled. Framework-declared columns (including `_id` and derived-hash columns) are always members."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Database encryption key bound to its location",
+          "body": "`db.key.enc` is sealed with additional authenticated data over its purpose, resolved data directory, and resolved key path. A sealed key copied to a different deployment or path no longer unseals there — the AEAD authentication fails — which prevents silent key relocation. A legacy key sealed without this binding is detected and re-sealed in the bound format on first load, with no operator action required."
+        },
+        {
+          "title": "`whereRaw` refuses embedded string literals",
+          "body": "`whereRaw(sql, params)` and `WhereBuilder.raw(sql, params)` reject a raw fragment containing a string literal (`'...'`); values must bind through the `params` array. A static, operator-controlled literal can opt in with `{ allowLiterals: true }`. This closes a path where a value concatenated into a raw fragment would reintroduce SQL injection (CWE-89)."
+        },
+        {
+          "title": "Credential-rejection audits record the attempted relation",
+          "body": "A `db.auth.failed` audit row (SQLSTATE 28000 / 28P01 / 42501) now carries `attemptedTable`, the relation the rejected credential tried to reach, extracted defensively from the statement. Triage can scope the blast radius of a credential-abuse event without correlating back to the raw SQL log (CWE-778)."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "Audit-purge dual-control gate",
+          "body": "A new check fails the build if a call to `purgeAuditChain` appears in a file that does not also route through the dual-control gate, so a future caller cannot physically delete chain rows without two-authorizer enforcement."
+        },
+        {
+          "title": "Raw-SQL literal/interpolation guard",
+          "body": "A new check fails the build on a `whereRaw` / `.raw` call whose SQL argument is built by template interpolation or string concatenation, keeping the bound-params discipline enforceable in framework code."
+        },
+        {
+          "title": "Hand-rolled lookup-hash guard",
+          "body": "A new check fails the build if a sealed-column lookup hash is derived from the per-deployment salt outside the canonical helper, so call sites cannot bypass the keyed-mode and per-column mode policy."
+        },
+        {
+          "title": "Auth-audit attempted-relation guard",
+          "body": "A new check fails the build if a `db.auth.failed` audit is emitted in a file that does not name `attemptedTable`, so the forensic field cannot be dropped from a future emitter."
+        }
+      ]
+    }
+  ]
+}

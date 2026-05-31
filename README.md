@@ -101,11 +101,13 @@ All cryptographic operations use NIST-standardized post-quantum algorithms:
 Every encrypted blob starts with a 4-byte header encoding the algorithms used:
 
 ```
-byte 0: 0xE1  (envelope magic)
+byte 0: 0xE2  (envelope magic — FixedInfo/suite-bound per NIST SP 800-56C r2 §4.1 + RFC 9180)
 byte 1: KEM   (0x02 ML-KEM-1024 / 0x03 ML-KEM-1024+P-384)
 byte 2: Cipher(0x02 XChaCha20-Poly1305)
 byte 3: KDF   (0x02 SHAKE256)
 ```
+
+`0xE1` is the legacy pre-v1.9.18 magic, auto-migrated to `0xE2` at first boot (see the Envelope migration section below) and accepted on decrypt only during the migration window — never minted for new data.
 
 Any component can be swapped independently without re-encrypting existing data. When HQC or future algorithms are standardized, assign a new ID and existing blobs remain readable.
 
@@ -158,8 +160,8 @@ Routes pass PLAINTEXT
        |
   field-crypto.js (automatic middleware)
        |
-  +-- sealDoc() on write ---> vault.seal() per field ---> DB stores ciphertext
-  +-- unsealDoc() on read ---> vault.unseal() per field ---> routes get plaintext
+  +-- sealDoc() on write ---> per-column AEAD seal bound to (table, row id, column) ---> DB stores ciphertext
+  +-- unsealDoc() on read ---> verifies the row binding, fails closed to null ---> routes get plaintext
   +-- derived hashes --------> emailHash, shareIdHash auto-computed
   +-- _translateQuery() -----> { email: "x" } becomes { emailHash: sha3("hs-email:x") }
 ```
@@ -175,9 +177,9 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | **API request/response bodies** | XChaCha20-Poly1305 (random key per session) | Key sealed with hybrid vault |
 | **Database file on disk** | XChaCha20-Poly1305 (random key) | Key sealed with hybrid vault |
 | **Session cookies** | Hybrid KEM + XChaCha20-Poly1305 | Direct vault.seal() per cookie |
-| **All user fields** (email, name, avatar, googleId) | Hybrid KEM + XChaCha20-Poly1305 | Auto vault.seal() per field |
-| **All file metadata** (names, paths, MIME, storage) | Hybrid KEM + XChaCha20-Poly1305 | Auto vault.seal() per field |
-| **Audit log fields** (action, emails, details) | Hybrid KEM + XChaCha20-Poly1305 | Auto vault.seal() per field |
+| **All user fields** (email, name, avatar, googleId) | XChaCha20-Poly1305, AEAD-bound to (table, row, column) | Per-row key derived from the hybrid ML-KEM-1024 + P-384 vault root |
+| **All file metadata** (names, paths, MIME, storage) | XChaCha20-Poly1305, AEAD-bound to (table, row, column) | Per-row key derived from the hybrid ML-KEM-1024 + P-384 vault root |
+| **Audit log fields** (action, emails, details) | XChaCha20-Poly1305, AEAD-bound to (table, row, column) | Per-row key derived from the hybrid ML-KEM-1024 + P-384 vault root |
 | **Audit log IPs** | SHA3-512 hash then vault-sealed | One-way hashed, then auto-sealed |
 | **Passwords** | Argon2id | One-way hash (no key needed) |
 | **Email/IP lookups** | SHA3-512 | One-way hash for indexed queries |
@@ -197,6 +199,7 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | API payload tampering | XChaCha20-Poly1305 authentication (Poly1305 MAC) |
 | Database file theft | XChaCha20-Poly1305 encrypted at rest, key requires vault.key |
 | PII exposure from DB dump | Every field vault-sealed, IPs one-way hashed |
+| Sealed-value relocation (DB-write attacker) | Each sealed column is AEAD-bound to its row identity (table + row id + column); a ciphertext copied into another row or column fails authentication and reads as absent |
 | Nonce collision | XChaCha20 192-bit nonce eliminates birthday-bound risk |
 | AES-NI side channels | XChaCha20 is constant-time in software, no hardware dependency |
 | Brute-force bundle passwords | Exponential backoff lockout after 5 failed attempts |
@@ -302,7 +305,7 @@ Built on Node.js 24.14.1+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - Paginated file/bundle browser with search
 - User management -- create, suspend, delete, role toggle
 - Audit log -- searchable, filterable, date range
-- Settings panel -- 9 tabs (Branding, General, Auth, Uploads, Storage, Theme, Email, Environment, Backup)
+- Settings panel -- 10 tabs (Branding, General, Auth, Uploads, Storage, Theme, Email, Security, Environment, Backup)
 - API keys with scoped permissions (upload, read, admin, webhook) validated against canonical enum
 - Webhooks with HMAC-SHA3-512 signed payloads, per-hook delivery log, enable/disable toggle
 - IP blocklist
@@ -1324,10 +1327,10 @@ Managed via `scripts/vendor-update.sh`:
 
 | Vendored | Version | Author | Purpose |
 |----------|---------|--------|---------|
-| [`blamejs`](https://github.com/blamejs/blamejs) | 0.8.0 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, etc. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
-| [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) (browser only) | 2.1.1 | [Paul Miller](https://github.com/paulmillr) (MIT) | XChaCha20-Poly1305 in the browser vault + outbox flows |
-| [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (browser only) | 2.0.1 | [Paul Miller](https://github.com/paulmillr) (MIT) | SHAKE256 KDF in the browser |
-| [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) (browser only) | 0.6.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | ML-KEM-1024 in the browser vault flow |
+| [`blamejs`](https://github.com/blamejs/blamejs) | 0.14.6 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, etc. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
+| [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) (browser only) | 2.2.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | XChaCha20-Poly1305 in the browser vault + outbox flows |
+| [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (browser only) | 2.2.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | SHAKE256 KDF in the browser |
+| [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) (browser only) | 0.6.1 | [Paul Miller](https://github.com/paulmillr) (MIT) | ML-KEM-1024 in the browser vault flow |
 
 blamejs internally vendors @noble/ciphers, @noble/post-quantum, @simplewebauthn/server,
 @peculiar/x509 + pkijs (peculiar-pki bundle), and the SecLists top-10000 password list —
@@ -1342,7 +1345,7 @@ These libraries are exceptional work. HermitStash wouldn't exist without them.
 
 ## Architecture
 
-~180 JS files, 25 HTML templates, 21 database tables. Small files, one job each.
+~180 JS files, 24 HTML templates (plus 3 shared partials), 21 database tables. Small files, one job each.
 
 ```
 server.js             Bootstrap, middleware, scheduled tasks, default accounts
@@ -1359,7 +1362,7 @@ lib/
                       saveRaw/getRawBuffer for pre-encrypted data (vault files)
   cert-utils.js       Certificate fingerprint hashing + indexed revocation checks
   config.js           Settings from encrypted DB, env fallback, onReset registry
-  settings-schema.js  Type-safe settings sanitization + validation (77 settings)
+  settings-schema.js  Type-safe settings sanitization + validation (86 settings)
   audit.js            Audit logging with auto-sealed entries
   rate-limit.js       Per-IP rate limiting with proxy validation
   ip-quota.js         Per-IP storage quota for anonymous uploads
@@ -1393,8 +1396,8 @@ app/
 
 scripts/              vendor-update.sh, vendor-font.js, sync-to-public.sh
 routes/               19 route files (includes stash.js for Customer Stash)
-middleware/           15 files (auth, CORS, CSRF, API encryption, security headers, bot guard, require-access, require-admin, require-auth)
-views/                25 templates
+middleware/           16 files (auth, CORS, API encryption, security headers, bot guard, require-access, require-admin, require-auth)
+views/                24 page templates (plus 3 shared partials)
 public/               CSS, JS, logos, icons, vendored fonts
 ```
 

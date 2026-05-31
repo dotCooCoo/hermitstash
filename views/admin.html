@@ -1094,7 +1094,7 @@ storage:{
 <p><strong>Trade-off:</strong> Files uploaded while this is on use AWS server-side encryption (SSE-S3) instead of HermitStash app-level XChaCha20-Poly1305 + ML-KEM-1024 hybrid encryption. AWS manages the keys rather than HermitStash.</p>\
 <p>Files uploaded while direct mode was <em>off</em> remain app-encrypted and always stream through the server, regardless of this setting. ZIP bundle downloads always stream through the server.</p>\
 <h4>Pre-signed URL Expiry</h4>\
-<p>How long (in seconds) a direct download link stays valid. Default: <code>3600</code> (1 hour). Maximum: <code>604800</code> (7 days). Shorter values are more secure; longer values are better for sharing links that need to stay active.</p>'
+<p>How long (in seconds) a direct download link stays valid. Default: <code>604800</code> (7 days). Maximum: <code>604800</code> (7 days). Shorter values are more secure; longer values are better for sharing links that need to stay active.</p>'
 },
 theme:{
   title:'Theme Setup',

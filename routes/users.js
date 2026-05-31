@@ -1,4 +1,5 @@
 var b = require("../lib/vendor/blamejs");
+var rateLimit = require("../lib/rate-limit");
 var audit = require("../lib/audit");
 var logger = require("../app/shared/logger");
 var config = require("../lib/config");
@@ -28,7 +29,7 @@ module.exports = function (app) {
   // Search ?q= is rate-limited separately because each request unseals up to
   // USER_SEARCH_SCAN_LIMIT user records — repeating it cheaply is a DoS lever
   // even against admin users.
-  app.get("/admin/users/api", b.middleware.rateLimit({ scope: "admin-user-search", max: 60, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), (req, res) => {
+  app.get("/admin/users/api", rateLimit.guard({ scope: "admin-user-search", max: 60, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), (req, res) => {
     if (!requireAdmin(req, res)) return;
     var q = req.query.q || "";
     var role = req.query.role || "";
@@ -291,7 +292,7 @@ module.exports = function (app) {
   });
 
   // Accept invite — process form
-  app.post("/auth/invite/accept", b.middleware.rateLimit({ scope: "invite-accept", max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/auth/invite/accept", rateLimit.guard({ scope: "invite-accept", max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async (req, res) => {
     try {
       var body = (await b.parsers.json(req)) || {};
       var token = String(body.token || "");

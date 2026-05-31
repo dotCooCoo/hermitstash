@@ -169,6 +169,33 @@ jobs:
         # so a transient registry hang doesn't block unrelated releases.
         run: node scripts/check-vendor-currency.js
 
+  actions-currency:
+    # Asserts every SHA-pinned GitHub Action in .github/workflows
+    # matches the latest upstream release. A stale action becomes a
+    # release blocker HERE, with a ready-to-paste pin line in the
+    # report — so it's fixed in the release rather than surfaced
+    # after-the-fact by a Dependabot PR.
+    name: Actions currency (pinned actions vs upstream latest)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: 24.14.1
+      - name: Run actions-currency check
+        # Resolves each pinned `uses: owner/repo@<sha>  # vX.Y.Z` against
+        # the GitHub API (releases/latest, falling back to highest
+        # semver tag). Fails on any "stale" finding; API errors stay
+        # advisory unless BLAMEJS_ACTIONS_CURRENCY_STRICT=1 so a
+        # transient API hang doesn't block unrelated releases.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/check-actions-currency.js
+
   secret-scan:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest

@@ -1,3 +1,5 @@
+var b = require("../../lib/vendor/blamejs");
+
 /**
  * Sanitize filename for Content-Disposition headers.
  * Prevents header injection and handles non-ASCII via RFC 5987 encoding.
@@ -52,16 +54,56 @@ function sanitizeRename(input, opts) {
   return { valid: true, name: name };
 }
 
+// Permissive filename-sanitiser policy for b.guardFilename. HermitStash
+// accepts ANY filename (unicode, long names, multi-dot archives, executables,
+// reserved names) — originalName is display metadata, never a disk path
+// (storage uses generated ids) — so the strict allowlist policies are relaxed
+// to "allow". The byte-level threats that DO matter for a displayed filename
+// are neutralised, not rejected: bidi overrides (CVE-2021-42574 "Trojan
+// Source"), zero-width characters, and NUL bytes are stripped. Unicode is
+// left un-normalised (unicodeNormalization "none") so stored bytes are exact,
+// matching the prior helper — NFC-folding would desync replace-detection for
+// names already stored in decomposed form. maxComponents is 1 because we
+// split the path ourselves and guard each segment.
+var FNAME_OPTS = {
+  bidiPolicy: "strip", controlPolicy: "strip", nullBytePolicy: "strip", zeroWidthPolicy: "strip",
+  homoglyphPolicy: "allow", reservedCharPolicy: "allow", reservedNamePolicy: "allow",
+  adsPolicy: "allow", leadingTrailingPolicy: "allow", shellExecExtPolicy: "allow",
+  traversalPolicy: "allow", pathSeparatorsPolicy: "allow",
+  requireAscii: false, requireSingleDot: false, unicodeNormalization: "none",
+  maxBytes: 65536, maxComponents: 1,
+};
+// b.guardFilename's control strip keeps TAB/CR/LF (it treats them as dialect
+// characters) and does not reach DEL; the prior helper stripped the whole
+// C0 + DEL range, so strip the remainder here. < > " ' ` are stripped too so
+// a stored name is safe to render in HTML.
+var RESIDUAL_RE = /[\x09\x0a\x0d\x7f<>"'`]/g;
+
+function cleanSegment(seg) {
+  if (!seg) return "";
+  var safe;
+  try { safe = b.guardFilename.sanitize(seg, FNAME_OPTS); }
+  catch (_e) { return ""; }   // defensive: the permissive policy should not throw
+  safe = safe.replace(RESIDUAL_RE, "");
+  // Drop "." / ".." AFTER stripping, so an obfuscated ".." + zero-width / bidi /
+  // NUL that reduces to ".." can never survive as a traversal segment.
+  if (safe === "." || safe === "..") return "";
+  return safe;
+}
+
 /**
- * Sanitize a filename for safe storage and display.
- * Strips control chars, HTML characters, null bytes.
- * Used at upload time for originalName and relativePath.
+ * Sanitize a filename or relative path for safe storage and display.
+ * Splits on path separators, drops empty / "." / ".." segments (traversal
+ * defence), neutralises spoofing/injection bytes per segment via
+ * b.guardFilename, and rejoins with "/". Used at upload time for
+ * originalName and relativePath.
  */
 function sanitizeFilename(input, maxLength) {
   return String(input || "")
-    .replace(/[\x00-\x1f\x7f]/g, "")
-    .replace(/[<>"'`]/g, "")
-    .split(/[/\\]+/).filter(function (s) { return s && s !== "." && s !== ".."; }).join("/")
+    .split(/[/\\]+/)
+    .map(cleanSegment)
+    .filter(Boolean)
+    .join("/")
     .trim()
     .slice(0, maxLength || 255);
 }

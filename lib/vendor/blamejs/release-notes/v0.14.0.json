@@ -1,0 +1,43 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.14.0",
+  "date": "2026-05-29",
+  "headline": "Operator-configurable header and field names across SSE, request-id, rate-limit, age-gate, AI-Act disclosure, GraphQL federation, and the HTTP cache",
+  "summary": "This release makes operator-facing identifiers that were hardcoded configurable. The framework already let operators rename most names (CSRF cookie/field, cookie parser, i18n header/query/cookie, mTLS CA name, and so on); this closes the remaining gaps so a custom or framework-specific name is never frozen. Every new option defaults to the value emitted today, so upgrading changes no behavior — these are additive knobs. It also fixes a request-id asymmetry (the response header is now written on the same name the inbound id is read from) and wires an SSE proxy-buffering option whose escape hatch was documented but never implemented.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "Configurable cache-status header on the HTTP client",
+          "body": "The outbound HTTP client annotated every cached response with a hardcoded `x-blamejs-cache: HIT|MISS|STALE|REVALIDATED` header. `b.httpClient.cache.create` now takes `statusHeader` (default \"x-blamejs-cache\") — pass a custom name (e.g. \"x-cache\") to rename it, or null/false to suppress it entirely. The decision remains available programmatically on `res.cacheStatus`."
+        },
+        {
+          "title": "Configurable rate-limit header names",
+          "body": "`b.middleware.rateLimit` emitted the de-facto `X-RateLimit-Limit` / `X-RateLimit-Remaining` headers (which are not RFC-pinned). It now accepts `headerPrefix` (default \"X-RateLimit-\") so operators can match the unprefixed IETF-draft `RateLimit-*` names or an upstream gateway's convention; the limit/remaining pair is always built from the same prefix."
+        },
+        {
+          "title": "Configurable age-gate and AI-Act disclosure header names",
+          "body": "`b.middleware.ageGate` now takes `privacyPostureHeader` (default \"X-Privacy-Posture\"; null/false to suppress), and `b.middleware.aiActDisclosure` takes `headerPrefix` (default \"AI-Act-\") that prefixes the emitted Notice / Article / Policy headers. The EU AI Act mandates the disclosure, not the HTTP spelling, so operators matching a downstream convention can rename these."
+        },
+        {
+          "title": "Configurable GraphQL-federation replay-nonce header",
+          "body": "`b.graphqlFederation.guardSdl` read the replay nonce from the Apollo-vendor `x-apollographql-router-nonce` header with no override. It now accepts `nonceHeader` (default unchanged) so an operator fronting the gateway with a non-Apollo router can point the replay check at their own header."
+        },
+        {
+          "title": "SSE proxy-buffering opt-out",
+          "body": "`b.sse.create` and `b.middleware.sse` set `X-Accel-Buffering: no` (the nginx hint that disables proxy buffering). They now accept `proxyBuffer` (default true) — pass false when not behind nginx, or when buffering is controlled at the load balancer, to suppress the nginx-specific header. The opt-out was previously referenced in the documentation but not implemented."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Request-id middleware reflects the configured header name",
+          "body": "`b.log.middleware` read the inbound request id from a configurable `headerName` but always wrote the response on the literal `X-Request-Id`. An operator who set a custom `headerName` (e.g. `X-Correlation-Id`) therefore read from one header and emitted another. The response is now written on the same configured name; the default remains `X-Request-Id`, so deployments that did not set `headerName` are unaffected."
+        }
+      ]
+    }
+  ]
+}

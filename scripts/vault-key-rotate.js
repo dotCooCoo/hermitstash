@@ -330,6 +330,30 @@ async function loadOldKeys(mode, oldPw) {
   return JSON.parse(plainBuf.toString("utf8"));
 }
 
+// Scan the decrypted DB for any AAD-bound sealed value (vault.aad:). The
+// vault-key rotation re-seals only legacy "vault:" cells, so AAD-bound values
+// would be silently orphaned by a rotation (their per-row key derives from the
+// vault keypair the rotation replaces). Returns a list of table.column hits.
+function _scanAadSealed(db) {
+  var hits = [];
+  var schema = fieldCrypto.FIELD_SCHEMA;
+  for (var table in schema) {
+    if (!Object.prototype.hasOwnProperty.call(schema, table)) continue;
+    var sealed = Array.isArray(schema[table].seal) ? schema[table].seal : [];
+    for (var i = 0; i < sealed.length; i++) {
+      try {
+        var r = db.prepare("SELECT COUNT(*) AS c FROM " + table + " WHERE " + sealed[i] + " LIKE 'vault.aad:%'").get();
+        if (r && r.c > 0) hits.push(table + "." + sealed[i] + " — " + r.c + " row(s)");
+      } catch (_e) { /* column lives only in overflow JSON — covered below */ }
+    }
+    try {
+      var d = db.prepare("SELECT COUNT(*) AS c FROM " + table + " WHERE data LIKE '%vault.aad:%'").get();
+      if (d && d.c > 0) hits.push(table + ".data[overflow] — " + d.c + " row(s)");
+    } catch (_e) { /* table has no data overflow column — skip */ }
+  }
+  return hits;
+}
+
 // ---- Schema drift pre-flight ----
 
 function runSchemaDriftCheck(oldKeys) {
@@ -357,11 +381,13 @@ function runSchemaDriftCheck(oldKeys) {
   fs.writeFileSync(tmpPath, plain);
   var db = new DatabaseSync(tmpPath);
   var result;
+  var aadHits = [];
   try {
     result = b.vaultRotate.validateSchemaMatch(db, {
       infraColumns: C.ROTATION_INFRA_COLUMNS,
       tables:       Object.keys(fieldCrypto.FIELD_SCHEMA),
     });
+    aadHits = _scanAadSealed(db);
   } finally {
     db.close();
     try { fs.unlinkSync(tmpPath); } catch { /* best-effort */ }
@@ -375,6 +401,19 @@ function runSchemaDriftCheck(oldKeys) {
   }
   if (result.errors.length > 0) {
     console.error("[rotate] Refusing to proceed with schema drift errors present.");
+    process.exit(1);
+  }
+  // AAD-bound sealed values (vault.aad:) cannot survive a vault-key rotation:
+  // b.vaultRotate.rotate re-seals only legacy "vault:" cells, while the AAD
+  // per-row key derives from the vault keypair the rotation replaces. Rotating
+  // with AAD values present would PERMANENTLY orphan them. Refuse until the
+  // framework's rotation re-seals AAD cells (tracked upstream).
+  if (aadHits.length > 0) {
+    console.error("[rotate] REFUSING: AAD-bound sealed values (vault.aad:) are present, and");
+    console.error("[rotate] b.vaultRotate does not re-seal them — rotating would orphan every one:");
+    aadHits.forEach(function (h) { console.error("    " + h); });
+    console.error("[rotate] Vault-key rotation is gated while AAD-bound sealing is in effect.");
+    console.error("[rotate] Upstream fix required: b.vaultRotate must re-seal vault.aad: cells (old root → new root).");
     process.exit(1);
   }
 }

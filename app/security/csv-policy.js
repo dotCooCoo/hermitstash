@@ -1,37 +1,56 @@
 /**
- * CSV Policy — safe CSV generation with formula injection protection.
- * All CSV exports must use these helpers.
+ * CSV policy — safe CSV generation for admin exports.
+ *
+ * Delegates to b.guardCsv.serialize. Formula-injection triggers
+ * (=, +, -, @, |, tab, CR, LF, and the full-width homoglyph variants
+ * ＝ ＋ － ＠) are neutralised with a leading apostrophe; Unicode bidi
+ * overrides (CVE-2021-42574 "Trojan Source"), C0 control characters, and
+ * NUL bytes are stripped; and cell / row / total size is capped against
+ * CSV-amplification bombs. Output is byte-identical to the prior
+ * hand-rolled escaper for ordinary data — only hostile cells are altered,
+ * always in the safe direction — and an export never throws on a hostile
+ * field (control/bidi/null are stripped, not rejected).
  */
+var b = require("../../lib/vendor/blamejs");
 
-/**
- * Escape a value for safe CSV inclusion.
- * Neutralizes formula-triggering characters (=, +, -, @, tab, carriage return).
- * Quotes values containing commas, newlines, or double-quotes.
- */
-function csvSafe(val) {
-  var s = String(val == null ? "" : val);
-  // Prefix formula-triggering characters
-  if (s.length > 0 && "=+-@\t\r".indexOf(s[0]) !== -1) s = "'" + s;
-  // Quote if contains special CSV characters
-  if (s.indexOf('"') !== -1 || s.indexOf(",") !== -1 || s.indexOf("\n") !== -1) {
-    s = '"' + s.replace(/"/g, '""') + '"';
-  }
-  return s;
-}
+// Pinned so the escaping disposition matches the prior helper: an
+// apostrophe formula prefix (Excel reads the cell as literal text), LF
+// line endings, preserved trailing whitespace, neutralise-don't-throw for
+// control / bidi / NUL bytes, and the prior String(value) rendering for
+// numbers. The amplification caps (rows / cell / total bytes) are raised to
+// effectively unlimited: this serialises trusted database rows for an
+// admin, not untrusted input, and the prior helper imposed no cap, so a
+// large-but-legitimate export must not fail. The cell-level escaping is
+// what defends the export against CSV/formula injection.
+var UNLIMITED = Number.MAX_SAFE_INTEGER;
+var CSV_OPTS = {
+  formulaInjectionPolicy: "prefix-quote",
+  lineEnding: "\n",
+  controlCharPolicy: "strip",
+  bidiCharPolicy: "strip",
+  nullByteHandling: "strip",
+  trailingWhitespacePolicy: "preserve",
+  numericPrecisionPolicy: "preserve",
+  maxRows: UNLIMITED,
+  maxCellBytes: UNLIMITED,
+  maxTotalBytes: UNLIMITED,
+};
 
 /**
  * Build a CSV string from an array of objects.
- * @param {string[]} headers - Column names
- * @param {object[]} rows - Data rows
- * @param {function} rowMapper - (row) => [val1, val2, ...] mapping function
+ * @param {string[]} headers - column names (trusted literals)
+ * @param {object[]} rows - data rows
+ * @param {function} rowMapper - (row) => [val1, val2, ...]
  */
 function buildCsv(headers, rows, rowMapper) {
-  var csv = headers.join(",") + "\n";
-  for (var i = 0; i < rows.length; i++) {
-    var values = rowMapper(rows[i]);
-    csv += values.map(csvSafe).join(",") + "\n";
+  // serialize emits no header line for an empty record set; render the
+  // header row through the same escaper (headers as a single header-less
+  // row) so the zero-row and multi-row paths escape identically.
+  if (rows.length === 0) {
+    return b.guardCsv.serialize([headers], Object.assign({ headers: false }, CSV_OPTS)) + "\n";
   }
-  return csv;
+  var body = b.guardCsv.serialize(rows.map(rowMapper), Object.assign({ headers: headers }, CSV_OPTS));
+  return body + "\n";   // terminate the final row, matching the prior helper
 }
 
-module.exports = { csvSafe, buildCsv };
+module.exports = { buildCsv };

@@ -141,8 +141,12 @@ module.exports = function apiEncrypt(req, res, next) {
         bodySize += c.length;
         if (bodySize > MAX_JSON_BODY) {
           req.destroy();
-          res.writeHead(413, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "Request body too large." }));
+          b.problemDetails.send(res, {
+            type: "https://hermitstash.com/problems/payload-too-large",
+            title: "Payload Too Large",
+            status: 413,
+            detail: "Request body too large.",
+          });
           return;
         }
         chunks.push(c);
@@ -164,8 +168,12 @@ module.exports = function apiEncrypt(req, res, next) {
             if (decrypted === null || decrypted === undefined) throw new Error("Invalid payload");
             raw = JSON.stringify(decrypted);
           } catch (_e) {
-            res.writeHead(400, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "Decryption failed." }));
+            b.problemDetails.send(res, {
+              type: "https://hermitstash.com/problems/decryption-failed",
+              title: "Decryption Failed",
+              status: 400,
+              detail: "Decryption failed.",
+            });
             return;
           }
         }

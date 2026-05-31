@@ -139,8 +139,21 @@ function requireSyncAuth(opts) {
     // Scope first — cheapest check, fastest reject
     var scopeErr = enforceSyncScope(req.apiKey);
     if (scopeErr) {
-      res.writeHead(scopeErr.status, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: scopeErr.error }));
+      if (scopeErr.status === 401) {
+        b.problemDetails.send(res, {
+          type: "https://hermitstash.com/problems/auth-required",
+          title: "Auth Required",
+          status: 401,
+          detail: scopeErr.error,
+        });
+      } else {
+        b.problemDetails.send(res, {
+          type: "https://hermitstash.com/problems/forbidden",
+          title: "Forbidden",
+          status: 403,
+          detail: scopeErr.error,
+        });
+      }
       return;
     }
 
@@ -156,15 +169,32 @@ function requireSyncAuth(opts) {
       }
       bundleId = (req.body && req.body.bundleId) || (req.params && req.params.bundleId) || null;
       if (!bundleId) {
-        res.writeHead(400, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "bundleId required." }));
+        b.problemDetails.send(res, {
+          type: "https://hermitstash.com/problems/validation-error",
+          title: "Validation Error",
+          status: 400,
+          detail: "bundleId required.",
+        });
         return;
       }
       bundle = bundlesRepo.findById(bundleId);
       var ownerErr = enforceBundleOwnership(req.apiKey, bundle);
       if (ownerErr) {
-        res.writeHead(ownerErr.status, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: ownerErr.error }));
+        if (ownerErr.status === 404) {
+          b.problemDetails.send(res, {
+            type: "https://hermitstash.com/problems/not-found",
+            title: "Not Found",
+            status: 404,
+            detail: ownerErr.error,
+          });
+        } else {
+          b.problemDetails.send(res, {
+            type: "https://hermitstash.com/problems/forbidden",
+            title: "Forbidden",
+            status: 403,
+            detail: ownerErr.error,
+          });
+        }
         return;
       }
       req.syncBundle = bundle;
@@ -173,16 +203,24 @@ function requireSyncAuth(opts) {
     // Bundle binding (runs regardless — a key without boundBundleId passes)
     var bindErr = enforceBundleBinding(req.apiKey, bundleId);
     if (bindErr) {
-      res.writeHead(bindErr.status, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: bindErr.error }));
+      b.problemDetails.send(res, {
+        type: "https://hermitstash.com/problems/forbidden",
+        title: "Forbidden",
+        status: bindErr.status,
+        detail: bindErr.error,
+      });
       return;
     }
 
     // Cert binding (last — involves DER parse + SHA3, most expensive)
     var certErr = enforceCertBinding(req.apiKey, req.socket);
     if (certErr) {
-      res.writeHead(certErr.status, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: certErr.error }));
+      b.problemDetails.send(res, {
+        type: "https://hermitstash.com/problems/forbidden",
+        title: "Forbidden",
+        status: certErr.status,
+        detail: certErr.error,
+      });
       return;
     }
 

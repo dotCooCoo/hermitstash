@@ -7,6 +7,7 @@ var credentialsRepo = require("../app/data/repositories/credentials.repo");
 var audit = require("../lib/audit");
 var requireAuth = require("../middleware/require-auth");
 var sessionService = require("../app/domain/auth/session.service");
+var rateLimit = require("../lib/rate-limit");
 
 module.exports = function (app) {
   // ---- Registration (add passkey to existing account) ----
@@ -122,7 +123,7 @@ module.exports = function (app) {
   });
 
   // Verify authentication response
-  app.post("/passkey/login/verify", b.middleware.rateLimit({ scope: "passkey-login", max: 10, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/passkey/login/verify", rateLimit.guard({ scope: "passkey-login", max: 10, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
     if (!config.passkeyEnabled) return res.status(403).json({ error: "Passkeys are disabled." });
 
     try {

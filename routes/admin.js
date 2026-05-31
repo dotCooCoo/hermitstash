@@ -503,7 +503,7 @@ module.exports = function (app) {
           label: "TLS / HTTPS",
           status: tlsPlainExists || tlsSealedExists ? "ok" : "warn",
           value: tlsPlainExists || tlsSealedExists ? "enabled" : "disabled (HTTP only)",
-          description: "PQC TLS 1.3 with X25519MLKEM768 hybrid key exchange when both client + server support it.",
+          description: "PQC TLS 1.3 with a post-quantum hybrid key exchange (SecP384r1MLKEM1024 preferred, then X25519MLKEM768, then SecP256r1MLKEM768) when both client + server support it.",
           guidance: tlsPlainExists || tlsSealedExists ? null : "Mount cert + key into data/tls/ or set TLS_CERT and TLS_KEY env vars.",
           actions: [], // config-only; no UI action available
         },

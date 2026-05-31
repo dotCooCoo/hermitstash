@@ -1,4 +1,5 @@
 var b = require("../lib/vendor/blamejs");
+var rateLimit = require("../lib/rate-limit");
 var audit = require("../lib/audit");
 var C = require("../lib/constants");
 var config = require("../lib/config");
@@ -37,7 +38,7 @@ module.exports = function (app) {
   });
 
   // Change password (local auth only)
-  app.post("/profile/password", b.middleware.rateLimit({ scope: "password-change", max: 5, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/profile/password", rateLimit.guard({ scope: "password-change", max: 5, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async (req, res) => {
     if (!requireAuth(req, res)) return;
     if (!config.localAuth) return res.status(400).json({ error: "Password authentication is disabled." });
     try {
@@ -69,7 +70,7 @@ module.exports = function (app) {
   });
 
   // Change email (requires password re-authentication)
-  app.post("/profile/email", b.middleware.rateLimit({ scope: "email-change", max: 5, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/profile/email", rateLimit.guard({ scope: "email-change", max: 5, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {
       var body = (await b.parsers.json(req)) || {};

@@ -1,5 +1,6 @@
 var clientIp = require("../lib/client-ip");
 var b = require("../lib/vendor/blamejs");
+var rateLimit = require("../lib/rate-limit");
 var config = require("../lib/config");
 var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
@@ -27,7 +28,7 @@ module.exports = function (app) {
     res.redirect(url);
   });
 
-  app.get("/auth/google/callback", b.middleware.rateLimit({ scope: "google-callback", max: 10, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
+  app.get("/auth/google/callback", rateLimit.guard({ scope: "google-callback", max: 10, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
     try {
       var code = req.query.code;
       if (!code) {
@@ -71,7 +72,7 @@ module.exports = function (app) {
     send(res, "login", { user: null, error: null, localAuth: config.localAuth, googleAuth: !!config.google.clientID, registrationOpen: config.registrationOpen && config.localAuth, passkeyEnabled: config.passkeyEnabled });
   });
 
-  var loginLimiter = b.middleware.rateLimit({ scope: "login", max: 15, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" });
+  var loginLimiter = rateLimit.guard({ scope: "login", max: 15, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" });
   app.post("/auth/login", loginLimiter, async (req, res) => {
     if (!config.localAuth) return res.status(403).json({ error: "Disabled." });
     try {
@@ -143,7 +144,7 @@ module.exports = function (app) {
     send(res, "register", { user: null, error: null, googleAuth: !!config.google.clientID });
   });
 
-  app.post("/auth/register", b.middleware.rateLimit({ scope: "register", max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/auth/register", rateLimit.guard({ scope: "register", max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async (req, res) => {
     if (!config.localAuth || !config.registrationOpen) return res.status(403).json({ error: "Registration is closed." });
     try {
       var body = (await b.parsers.json(req)) || {};
@@ -195,25 +196,23 @@ module.exports = function (app) {
 
   app.post("/auth/logout", (req, res) => {
     // Parse form body for CSRF token. Bounded at 2 KB — more than enough for a
-    // CSRF token; anything larger is malicious. Use a running counter instead
-    // of Buffer.concat per chunk (that was O(n²)), and short-circuit via an
-    // `aborted` flag so destroy-in-flight data events don't keep pushing.
-    var chunks = [];
-    var total = 0;
+    // CSRF token; anything larger is malicious. The collector caps total bytes
+    // at push() time; on overflow we destroy the request and short-circuit via
+    // an `aborted` flag so destroy-in-flight data events don't keep pushing.
+    var collector = b.safeBuffer.boundedChunkCollector({ maxBytes: 2048 });
     var aborted = false;
     req.on("data", function (c) {
       if (aborted) return;
-      total += c.length;
-      if (total > 2048) {
+      try {
+        collector.push(c);
+      } catch (_e) {
         aborted = true;
-        try { req.destroy(); } catch (_e) { /* request may already be destroyed — oversize body aborted */ }
-        return;
+        try { req.destroy(); } catch (_e2) { /* request may already be destroyed — oversize body aborted */ }
       }
-      chunks.push(c);
     });
     req.on("end", async function () {
       if (aborted) return;
-      var body = Buffer.concat(chunks).toString("utf8");
+      var body = collector.result().toString("utf8");
       var params = Object.fromEntries(new URLSearchParams(body));
       if (!req.session || !validateToken(req.session, req, params)) {
         return res.status(403).json({ error: "CSRF validation failed." });

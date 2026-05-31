@@ -1,0 +1,60 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.14.1",
+  "date": "2026-05-29",
+  "headline": "Correctness fixes: JAR request-object typ enforcement, byte-faithful PGP multipart/signed, and SAML InResponseTo binding",
+  "summary": "A set of correctness fixes across the auth, mail-crypto, TLS, and encoder surfaces. The most important: JWT-secured authorization requests (RFC 9101) now require the request object to carry the registered `oauth-authz-req+jwt` typ, closing a cross-JWT-confusion vector; the PGP multipart/signed wrapper is now assembled byte-faithfully so non-ASCII signed content can't be corrupted; and SAML response verification now returns the InResponseTo of the SubjectConfirmation that actually validated. Two of these change behavior — see Changed — and are bug fixes rather than new features.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "JAR request objects must carry the registered typ (RFC 9101)",
+          "body": "`b.auth.jar.parse` now requires the request-object JWS header to carry `typ: \"oauth-authz-req+jwt\"` (with or without the `application/` prefix); a request object with an absent or different typ is refused with `auth-jar/bad-typ`. RFC 9101 §10.8 specifies this media type precisely to stop a JWT minted for another purpose (an ID token, an access token, a logout token) and signed by the same client key from being replayed as a request object. The existing `iss` / `aud` / `client_id` bindings already constrained that; this restores the explicit type check as well. This is stricter than before — see Changed."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "JAR parsing rejects untyped request objects (breaking)",
+          "body": "Following the typ enforcement above, a request object whose header omits `typ` is now refused. An authorization server whose clients sign request objects without the `oauth-authz-req+jwt` typ must update those clients to set it."
+        },
+        {
+          "title": "PGP sign() returns multipartSigned as a Buffer (breaking)",
+          "body": "`b.mail.crypto.pgp.sign(...).multipartSigned` is now a Buffer instead of a string. The OpenPGP signature covers the signed-part bytes exactly, and a JS-string round trip through latin1/utf8 could corrupt non-ASCII signed content and break verification, so the RFC 3156 multipart/signed wrapper is now assembled as bytes. Code that wrote the previous string to the wire works unchanged when it writes the Buffer; code that did string operations on the value should treat it as a Buffer (its `indexOf` / `toString` still work)."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "SAML response verification binds InResponseTo to the validated confirmation",
+          "body": "`verifyResponse` returned the InResponseTo of the first SubjectConfirmationData in the assertion rather than of the SubjectConfirmation that actually passed bearer validation. When a response carried more than one SubjectConfirmation, the returned value could come from a non-validated confirmation. It is now the InResponseTo of the confirmation that validated."
+        },
+        {
+          "title": "checkServerIdentity9525 emits the documented CN-fallback audit code",
+          "body": "A CN-only legacy certificate (a Common Name present, no subjectAltName) is now refused by the exported `b.network.tls.checkServerIdentity9525` with the distinct `tls/pkix-cn-fallback-refused` code its documentation promised, so audit logs can tell a CN-only certificate apart from one carrying neither a SAN nor a CN (which still yields `tls/pkix-san-required`). The accept/refuse outcome is unchanged — both are refused; only the audit granularity improved."
+        },
+        {
+          "title": "OIDC back-channel logout / JARM no longer accept dead override parameters",
+          "body": "`verifyBackchannelLogoutToken` and `parseJarmResponse` passed `acceptedAlgs` / `jwksUri` / `maxClockSkewMs` through to the ID-token verifier, which ignored them and applied the configured (create()-time) values. The pass-throughs are removed so the code no longer reads as if those can be overridden per call; the configured trust anchor was — and remains — what applies."
+        },
+        {
+          "title": "Queue lease failures are logged",
+          "body": "The consumer loop's lease-acquisition error path swallowed the backend error silently; it now logs at debug so a flapping backend that has not yet tripped the circuit breaker is visible."
+        },
+        {
+          "title": "Protobuf and ASN.1 encoders reject out-of-range tags",
+          "body": "The protobuf tag encoder rejected nothing and would have emitted a wrong tag for field numbers at or above 2^28 (where the 32-bit shift overflows); the ASN.1 context-tag writers silently truncated tag numbers above 30 (which require the multi-byte high-tag-number form). Both now throw a RangeError rather than encode silently-wrong output. The values these encoders serve are well within range, so no current caller is affected."
+        },
+        {
+          "title": "oid4vci proofAlgorithms default documented accurately",
+          "body": "The documented default proof-algorithm list now matches the code (`[\"ES256\", \"ES384\", \"EdDSA\"]`); the doc previously omitted EdDSA, which the runtime has always accepted by default."
+        }
+      ]
+    }
+  ]
+}
