@@ -51,7 +51,7 @@ describe("business logic resilience", function () {
   it("upload to nonexistent bundle returns exactly 404", async function () {
     var res = await client.uploadFile("/drop/file/nonexistent000000", "file", "test.txt", "data", {relativePath: "test.txt"});
     assert.strictEqual(res.status, 404);
-    assert.strictEqual(res.json.error, "Bundle not found.");
+    assert.strictEqual(res.json.detail || res.json.error, "Bundle not found.");
   });
 
   it("finalize with zero files returns emailSent false", async function () {
@@ -85,7 +85,7 @@ describe("business logic resilience", function () {
     await client.post("/drop/finalize/" + init.json.bundleId, { json: { finalizeToken: init.json.finalizeToken } });
     var res = await client.uploadFile("/drop/file/" + init.json.bundleId, "file", "c.txt", "more", {relativePath: "c.txt"});
     assert.strictEqual(res.status, 404);
-    assert.strictEqual(res.json.error, "Bundle not found.");
+    assert.strictEqual(res.json.detail || res.json.error, "Bundle not found.");
   });
 
   it("viewing incomplete bundle returns 404 status", async function () {
@@ -129,8 +129,8 @@ describe("business logic resilience", function () {
     // Error message reads "Too many files (max N)" with the configured cap;
     // the older "File count limit exceeded." wording was renamed when the
     // route adopted the limit-aware error so operators see the actual cap.
-    assert.match(res6.json.error, /Too many files/,
-      "rejection error should mention file-count limit, got: " + res6.json.error);
+    assert.match(res6.json.detail || res6.json.error, /Too many files/,
+      "rejection error should mention file-count limit, got: " + (res6.json.detail || res6.json.error));
   });
 
   it("skippedFiles with large array does not crash init", async function () {
@@ -356,7 +356,7 @@ describe("webhooks", function () {
     // The SSRF policy refuses with messages containing one of "private",
     // "internal", "HTTPS", "loopback", "Invalid URL", or "Missing
     // hostname" depending on which validator branch triggered.
-    var err = res.json.error || "";
+    var err = res.json.detail || res.json.error || "";
     assert.match(err, /private|internal|HTTPS|loopback|Invalid URL|hostname/i,
       "error should mention the rejection reason, got: " + err);
   });

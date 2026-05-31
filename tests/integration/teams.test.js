@@ -78,7 +78,7 @@ describe("teams integration", function () {
       await loginAdmin();
       var res = await client.post("/teams/create", { json: { name: "" } });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("required"), "error should mention name required");
+      assert.ok((res.json.detail || res.json.error).includes("required"), "error should mention name required");
     });
   });
 
@@ -112,7 +112,7 @@ describe("teams integration", function () {
         json: { userId: "someRandomUserId" },
       });
       assert.strictEqual(res.status, 403);
-      assert.ok(res.json.error.includes("admin"), "error should mention admin");
+      assert.ok((res.json.detail || res.json.error).includes("admin"), "error should mention admin");
     });
 
     it("user not found returns 404", async function () {
@@ -121,7 +121,7 @@ describe("teams integration", function () {
         json: { userId: "nonexistent000000000000" },
       });
       assert.strictEqual(res.status, 404);
-      assert.ok(res.json.error.includes("not found"), "error should mention user not found");
+      assert.ok((res.json.detail || res.json.error).includes("not found"), "error should mention user not found");
     });
 
     it("already a member returns 400", async function () {
@@ -130,7 +130,7 @@ describe("teams integration", function () {
         json: { userId: memberUserId },
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.toLowerCase().includes("already"), "error should mention already a member");
+      assert.ok((res.json.detail || res.json.error).toLowerCase().includes("already"), "error should mention already a member");
     });
   });
 
@@ -159,7 +159,7 @@ describe("teams integration", function () {
       });
       var res = await client.get("/teams/" + teamId + "/members");
       assert.strictEqual(res.status, 403);
-      assert.ok(res.json.error.includes("Not a member"), "error should mention not a member");
+      assert.ok((res.json.detail || res.json.error).includes("Not a member"), "error should mention not a member");
     });
   });
 
@@ -211,7 +211,7 @@ describe("teams integration", function () {
       await loginMember();
       var res = await client.post("/teams/" + teamId + "/delete", { json: {} });
       assert.strictEqual(res.status, 403);
-      assert.ok(res.json.error.includes("admin"), "error should mention admin");
+      assert.ok((res.json.detail || res.json.error).includes("admin"), "error should mention admin");
     });
 
     it("deletes team as team admin", async function () {

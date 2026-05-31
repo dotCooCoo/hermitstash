@@ -11,6 +11,7 @@ var { validateEmail, validatePassword } = require("../app/shared/validate");
 var audit = require("../lib/audit");
 var { send, host } = require("../middleware/send");
 var sessionService = require("../app/domain/auth/session.service");
+var { AppError, ValidationError, ForbiddenError } = require("../app/shared/errors");
 
 module.exports = function (app) {
   // GET /auth/forgot-password — show the forgot password form
@@ -24,7 +25,7 @@ module.exports = function (app) {
 
   // POST /auth/forgot-password — rate limited, generate reset token, send email
   app.post("/auth/forgot-password", rateLimit.guard({ scope: "password-reset", max: 5, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async function (req, res) {
-    if (!config.localAuth) return res.status(403).json({ error: "Disabled." });
+    if (!config.localAuth) throw new ForbiddenError("Disabled.");
 
     try {
       var body = (await b.parsers.json(req)) || {};
@@ -106,12 +107,12 @@ module.exports = function (app) {
 
   // POST /auth/reset-password/:token — validate token, update password, clear sessions
   app.post("/auth/reset-password/:token", rateLimit.guard({ scope: "password-reset-submit", max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async function (req, res) {
-    if (!config.localAuth) return res.status(403).json({ error: "Disabled." });
+    if (!config.localAuth) throw new ForbiddenError("Disabled.");
 
     try {
       var rawToken = req.params.token;
       if (!rawToken || rawToken.length !== 64) {
-        return res.status(400).json({ error: "Invalid reset link." });
+        throw new ValidationError("Invalid reset link.");
       }
 
       var body = (await b.parsers.json(req)) || {};
@@ -123,7 +124,7 @@ module.exports = function (app) {
       // password view enforces the match before POSTing.
       var pwCheck = validatePassword(password);
       if (!pwCheck.valid) {
-        return res.status(400).json({ error: pwCheck.reason });
+        throw new ValidationError(pwCheck.reason);
       }
 
       var tokenHash = b.crypto.sha3Hash(rawToken);
@@ -131,19 +132,19 @@ module.exports = function (app) {
 
       if (!record) {
         audit.log(audit.ACTIONS.PASSWORD_RESET_FAILED, { details: "Invalid token on submit", req: req });
-        return res.status(400).json({ error: "Invalid or expired reset link. Please request a new one." });
+        throw new ValidationError("Invalid or expired reset link. Please request a new one.");
       }
 
       if (new Date(record.expiresAt) < new Date()) {
         verificationTokensRepo.remove(record._id);
         audit.log(audit.ACTIONS.PASSWORD_RESET_FAILED, { details: "Expired token on submit", targetId: record.userId, req: req });
-        return res.status(400).json({ error: "Reset link has expired. Please request a new one." });
+        throw new ValidationError("Reset link has expired. Please request a new one.");
       }
 
       var user = usersRepo.findById(record.userId);
       if (!user) {
         verificationTokensRepo.remove(record._id);
-        return res.status(400).json({ error: "Account not found." });
+        throw new ValidationError("Account not found.");
       }
 
       // Hash new password and update user
@@ -163,8 +164,9 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.PASSWORD_RESET_SUCCESS, { targetId: user._id, targetEmail: user.email, req: req });
       res.json({ success: true, redirect: "/auth/login" });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Password reset error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Password reset failed. Please try again." });
+      throw new AppError("Password reset failed. Please try again.", 500);
     }
   });
 };

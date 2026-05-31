@@ -26,6 +26,7 @@ var audit = require("../lib/audit");
 var requireAuth = require("../middleware/require-auth");
 var { send, host } = require("../middleware/send");
 var rateLimit = require("../lib/rate-limit");
+var { AppError, ValidationError, AuthenticationError, NotFoundError } = require("../app/shared/errors");
 
 module.exports = function (app) {
 
@@ -41,12 +42,12 @@ module.exports = function (app) {
       var publicKey = body.publicKey; // base64-encoded ML-KEM public key
       var mode = body.mode === "prf" ? "prf" : "passkey";
       if (!publicKey || publicKey.length < 100) {
-        return res.status(400).json({ error: "Invalid public key." });
+        throw new ValidationError("Invalid public key.");
       }
       // Validate key size: ML-KEM-1024 = 1568 bytes only
       var decoded = Buffer.from(publicKey, "base64");
       if (decoded.length !== 1568) {
-        return res.status(400).json({ error: "Invalid ML-KEM public key size. Only ML-KEM-1024 (1568 bytes) accepted." });
+        throw new ValidationError("Invalid ML-KEM public key size. Only ML-KEM-1024 (1568 bytes) accepted.");
       }
 
       var update = { vaultEnabled: "true", vaultPublicKey: publicKey, vaultMode: mode };
@@ -55,12 +56,12 @@ module.exports = function (app) {
         // Passkey-gated mode: client sends the seed for server-side storage
         var seed = body.seed;
         if (!seed || seed.length < 20) {
-          return res.status(400).json({ error: "Vault seed required for passkey mode." });
+          throw new ValidationError("Vault seed required for passkey mode.");
         }
         // Validate seed size (32 bytes → 44 base64 chars)
         var seedBytes = Buffer.from(seed, "base64");
         if (seedBytes.length !== 32 && seedBytes.length !== 64) {
-          return res.status(400).json({ error: "Invalid seed size." });
+          throw new ValidationError("Invalid seed size.");
         }
         update.vaultSeed = seed; // auto-sealed by field-crypto on write
       } else {
@@ -71,8 +72,9 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { targetId: req.user._id, details: "Vault enabled, mode: " + mode, req: req });
       res.json({ success: true, mode: mode });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Vault enable error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to enable vault." });
+      throw new AppError("Failed to enable vault.", 500);
     }
   });
 
@@ -91,7 +93,7 @@ module.exports = function (app) {
     if (!requireAuth(req, res)) return;
     try {
       var body = (await b.parsers.json(req)) || {};
-      if (body.confirm !== "RESET") return res.status(400).json({ error: "Type RESET to confirm." });
+      if (body.confirm !== "RESET") throw new ValidationError("Type RESET to confirm.");
 
       // Delete all vault files from storage and DB
       var vaultFiles = filesRepo.findAll({ uploadedBy: req.user._id, vaultEncrypted: "true" });
@@ -109,8 +111,9 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { targetId: req.user._id, details: "Vault force-reset, " + deleted + " encrypted files deleted", req: req });
       res.json({ success: true, filesDeleted: deleted });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Vault force-reset error", { error: e.message });
-      res.status(500).json({ error: "Force reset failed." });
+      throw new AppError("Force reset failed.", 500);
     }
   });
 
@@ -122,15 +125,16 @@ module.exports = function (app) {
       var body = (await b.parsers.json(req)) || {};
       var enable = body.enable === true;
       var user = usersRepo.findById(req.user._id);
-      if (user.vaultEnabled !== "true") return res.status(400).json({ error: "Vault must be enabled first." });
+      if (user.vaultEnabled !== "true") throw new ValidationError("Vault must be enabled first.");
 
       usersRepo.update(req.user._id, { $set: { vaultStealth: enable ? "true" : "false" } });
       // This toggle itself is always logged (so admin knows stealth was activated)
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { targetId: req.user._id, details: "Vault stealth " + (enable ? "enabled" : "disabled"), req: req });
       res.json({ success: true, stealth: enable });
     } catch (err) {
+      if (err.isAppError) throw err;
       logger.error("[vault/stealth] Error", { userId: req.user && req.user._id, error: err.message });
-      res.status(500).json({ error: "Failed to toggle stealth." });
+      throw new AppError("Failed to toggle stealth.", 500);
     }
   });
 
@@ -140,18 +144,18 @@ module.exports = function (app) {
     if (!requireAuth(req, res)) return;
     try {
       var user = usersRepo.findById(req.user._id);
-      if (user.vaultEnabled !== "true") return res.status(400).json({ error: "Vault not enabled." });
-      if ((user.vaultMode || "prf") !== "passkey") return res.status(400).json({ error: "Vault uses PRF mode — unlock client-side." });
-      if (!user.vaultSeed) return res.status(400).json({ error: "No vault seed stored." });
+      if (user.vaultEnabled !== "true") throw new ValidationError("Vault not enabled.");
+      if ((user.vaultMode || "prf") !== "passkey") throw new ValidationError("Vault uses PRF mode — unlock client-side.");
+      if (!user.vaultSeed) throw new ValidationError("No vault seed stored.");
 
       var body = (await b.parsers.json(req)) || {};
-      if (!body.assertion) return res.status(400).json({ error: "Passkey assertion required." });
+      if (!body.assertion) throw new ValidationError("Passkey assertion required.");
 
       // Verify the passkey assertion
       var wa = simplewebauthn;
       var expectedChallenge = req.session.vaultUnlockChallenge;
       delete req.session.vaultUnlockChallenge;
-      if (!expectedChallenge) return res.status(400).json({ error: "No pending vault unlock challenge." });
+      if (!expectedChallenge) throw new ValidationError("No pending vault unlock challenge.");
 
       var incomingCredId = body.assertion.id;
       var allCreds = credentialsRepo.findByUser(req.user._id);
@@ -160,7 +164,7 @@ module.exports = function (app) {
         var storedB64url = Buffer.from(allCreds[i].credentialId, "base64").toString("base64url");
         if (storedB64url === incomingCredId) { matchedCred = allCreds[i]; break; }
       }
-      if (!matchedCred) return res.status(401).json({ error: "Unknown passkey." });
+      if (!matchedCred) throw new AuthenticationError("Unknown passkey.");
 
       var verification = await wa.verifyAuthenticationResponse({
         response: body.assertion,
@@ -179,7 +183,7 @@ module.exports = function (app) {
 
       if (!verification.verified) {
         audit.log(audit.ACTIONS.PASSKEY_LOGIN_FAILED, { targetId: req.user._id, details: "Vault unlock failed", req: req });
-        return res.status(401).json({ error: "Passkey verification failed." });
+        throw new AuthenticationError("Passkey verification failed.");
       }
 
       // Update credential counter
@@ -189,8 +193,9 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { targetId: req.user._id, details: "Vault unlocked via passkey", req: req, vaultOp: true });
       res.json({ success: true, seed: user.vaultSeed });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Vault unlock error", { error: e.message || String(e), stack: e.stack ? e.stack.split("\n").slice(0, 3).join(" | ") : "" });
-      res.status(500).json({ error: "Vault unlock failed: " + (e.message || "unknown error") });
+      throw new AppError("Vault unlock failed: " + (e.message || "unknown error"), 500);
     }
   });
 
@@ -222,7 +227,7 @@ module.exports = function (app) {
     try {
       var body = (await b.parsers.json(req, { maxBytes: config.maxFileSize * 2 })) || {}; // base64 overhead
       if (!body.ciphertext || !body.encapsulatedKey || !body.iv || !body.filename) {
-        return res.status(400).json({ error: "Missing encrypted file data." });
+        throw new ValidationError("Missing encrypted file data.");
       }
       // Sanitize filename — strip path components, limit length
       body.filename = nodePath.basename(String(body.filename)).slice(0, 255);
@@ -232,7 +237,7 @@ module.exports = function (app) {
 
       var user = usersRepo.findById(req.user._id);
       if (user.vaultEnabled !== "true") {
-        return res.status(400).json({ error: "Vault not enabled." });
+        throw new ValidationError("Vault not enabled.");
       }
 
       // Enforce storage quota (atomic SQL query to avoid TOCTOU race)
@@ -240,7 +245,7 @@ module.exports = function (app) {
         var totalUsed = require("../lib/db").getTotalStorageUsed();
         var newSize = Buffer.from(body.ciphertext, "base64").length;
         if (totalUsed + newSize > config.storageQuotaBytes) {
-          return res.status(400).json({ error: "Storage quota exceeded." });
+          throw new ValidationError("Storage quota exceeded.");
         }
       }
 
@@ -283,8 +288,9 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: req.user._id, details: "vault file: " + body.filename + ", size: " + ciphertext.length, req: req, vaultOp: true });
       res.json({ success: true, shareId: fileShareId });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Vault upload error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Vault upload failed." });
+      throw new AppError("Vault upload failed.", 500);
     }
   });
 
@@ -328,8 +334,9 @@ module.exports = function (app) {
         iv: doc.vaultIv,
       });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Vault download error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Vault download failed." });
+      throw new AppError("Vault download failed.", 500);
     }
   });
 
@@ -361,27 +368,27 @@ module.exports = function (app) {
     try {
       var body = (await b.parsers.json(req, { maxBytes: config.maxFileSize * 2 })) || {}; // base64 overhead
       var user = usersRepo.findById(req.user._id);
-      if (user.vaultEnabled !== "true") return res.status(400).json({ error: "Vault not enabled." });
+      if (user.vaultEnabled !== "true") throw new ValidationError("Vault not enabled.");
 
       // Validate new public key
       var newPublicKey = body.newPublicKey;
       var newMode = body.newMode === "prf" ? "prf" : "passkey";
-      if (!newPublicKey || newPublicKey.length < 100) return res.status(400).json({ error: "Invalid new public key." });
+      if (!newPublicKey || newPublicKey.length < 100) throw new ValidationError("Invalid new public key.");
       var decoded = Buffer.from(newPublicKey, "base64");
-      if (decoded.length !== 1568) return res.status(400).json({ error: "Invalid ML-KEM public key size. Only ML-KEM-1024 (1568 bytes) accepted." });
+      if (decoded.length !== 1568) throw new ValidationError("Invalid ML-KEM public key size. Only ML-KEM-1024 (1568 bytes) accepted.");
 
       // Validate new seed for passkey mode
       var newSeed = null;
       if (newMode === "passkey") {
-        if (!body.newSeed || body.newSeed.length < 20) return res.status(400).json({ error: "New vault seed required." });
+        if (!body.newSeed || body.newSeed.length < 20) throw new ValidationError("New vault seed required.");
         var seedBytes = Buffer.from(body.newSeed, "base64");
-        if (seedBytes.length !== 32 && seedBytes.length !== 64) return res.status(400).json({ error: "Invalid seed size." });
+        if (seedBytes.length !== 32 && seedBytes.length !== 64) throw new ValidationError("Invalid seed size.");
         newSeed = body.newSeed;
       }
 
       // Validate re-encrypted files
       var reencryptedFiles = body.files;
-      if (!Array.isArray(reencryptedFiles)) return res.status(400).json({ error: "Re-encrypted files array required." });
+      if (!Array.isArray(reencryptedFiles)) throw new ValidationError("Re-encrypted files array required.");
 
       // Get all current vault files
       var vaultFiles = filesRepo.findAll({ uploadedBy: req.user._id, vaultEncrypted: "true", status: "complete" });
@@ -393,7 +400,7 @@ module.exports = function (app) {
       }
       for (var j = 0; j < vaultFiles.length; j++) {
         if (!reencMap[vaultFiles[j].shareId]) {
-          return res.status(400).json({ error: "Missing re-encrypted data for file: " + vaultFiles[j].originalName });
+          throw new ValidationError("Missing re-encrypted data for file: " + vaultFiles[j].originalName);
         }
       }
 
@@ -428,8 +435,9 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { targetId: req.user._id, details: "Vault passkey rotated, mode: " + newMode + ", files re-encrypted: " + updated, req: req });
       res.json({ success: true, filesUpdated: updated });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Vault rotate error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Vault rotation failed." });
+      throw new AppError("Vault rotation failed.", 500);
     }
   });
 
@@ -438,7 +446,7 @@ module.exports = function (app) {
     if (!requireAuth(req, res)) return;
     var doc = filesRepo.findByShareId(req.params.shareId);
     if (!doc || doc.vaultEncrypted !== "true" || !canEditOwned(doc, req.user, "uploadedBy")) {
-      return res.status(404).json({ error: "Not found." });
+      throw new NotFoundError("Not found.");
     }
     // Delete the encrypted blob
     try {
@@ -454,10 +462,10 @@ module.exports = function (app) {
     if (!requireAuth(req, res)) return;
     var body = (await b.parsers.json(req)) || {};
     var result = sanitizeRename(body.name, { maxLength: 200 });
-    if (!result.valid) return res.status(400).json({ error: result.error || "Invalid name." });
+    if (!result.valid) throw new ValidationError(result.error || "Invalid name.");
     var batchFiles = filesRepo.findAll({ uploadedBy: req.user._id, vaultEncrypted: "true" })
       .filter(function (f) { return f.vaultBatchId === req.params.batchId; });
-    if (batchFiles.length === 0) return res.status(404).json({ error: "Batch not found." });
+    if (batchFiles.length === 0) throw new NotFoundError("Batch not found.");
     for (var i = 0; i < batchFiles.length; i++) {
       filesRepo.update(batchFiles[i]._id, { $set: { vaultBatchName: result.name } });
     }
@@ -468,10 +476,10 @@ module.exports = function (app) {
   app.post("/vault/file/:shareId/rename", async (req, res) => {
     if (!requireAuth(req, res)) return;
     var doc = filesRepo.findAll({ shareId: req.params.shareId, uploadedBy: req.user._id, vaultEncrypted: "true", status: "complete" })[0];
-    if (!doc) return res.status(404).json({ error: "Not found." });
+    if (!doc) throw new NotFoundError("Not found.");
     var body = (await b.parsers.json(req)) || {};
     var result = sanitizeRename(body.name, { originalName: doc.originalName });
-    if (!result.valid) return res.status(400).json({ error: result.error });
+    if (!result.valid) throw new ValidationError(result.error);
     filesRepo.update(doc._id, { $set: { originalName: result.name } });
     res.json({ success: true, name: result.name });
   });
@@ -481,9 +489,9 @@ module.exports = function (app) {
     if (!requireAuth(req, res)) return;
     try {
       var body = (await b.parsers.json(req)) || {};
-      if (!body.batchId) return res.status(400).json({ error: "Batch ID required." });
+      if (!body.batchId) throw new ValidationError("Batch ID required.");
       var vaultFiles = filesRepo.findAll({ uploadedBy: req.user._id, vaultEncrypted: "true" }).filter(function (f) { return f.vaultBatchId === body.batchId; });
-      if (vaultFiles.length === 0) return res.status(404).json({ error: "No files in batch." });
+      if (vaultFiles.length === 0) throw new NotFoundError("No files in batch.");
       for (var i = 0; i < vaultFiles.length; i++) {
         try {
           await storage.deleteFile(vaultFiles[i].storagePath);
@@ -493,8 +501,9 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.FILE_DELETED, { targetId: req.user._id, details: "vault batch delete: " + body.batchId + ", files: " + vaultFiles.length, req: req, vaultOp: true });
       res.json({ success: true, filesDeleted: vaultFiles.length });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Vault batch delete error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Batch delete failed." });
+      throw new AppError("Batch delete failed.", 500);
     }
   });
 };

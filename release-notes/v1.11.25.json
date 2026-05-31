@@ -1,0 +1,39 @@
+{
+  "version": "1.11.25",
+  "date": "2026-05-31",
+  "headline": "Problem-details errors across the account and admin endpoints",
+  "summary": "Authentication, account, and admin endpoints now return their failures as RFC 9457 problem-details instead of the legacy { error } body, extending the format introduced in v1.10.1 to the rest of the surface.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Return problem-details from the account and admin endpoints",
+          "body": "Authentication, profile, user and team management, two-factor, passkeys, the encrypted vault, the admin panel, API keys, webhooks, password reset, and certificate enrollment now emit RFC 9457 problem-details ({ type, title, status, detail }) on failure, matching the format the rest of the API already used. 5xx detail stays suppressed so internal failure text never reaches clients; 4xx carries the actionable message."
+        },
+        {
+          "title": "Update the vendored framework to blamejs 0.14.11",
+          "body": "Refreshes the vendored blamejs framework from 0.14.10 to 0.14.11."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Return a real status code for failed admin backup and storage actions",
+          "body": "A handful of admin backup and storage-connection actions reported failure with an HTTP 200 body; they now return the appropriate 4xx or 5xx status."
+        }
+      ]
+    },
+    {
+      "heading": "Migration",
+      "items": [
+        {
+          "title": "Read the problem detail field for error messages",
+          "body": "API clients that read the legacy { error } field for a failure message should read { detail }, using { type } as the stable problem identifier. The web UI was updated in the previous release. Reading detail and falling back to error handles every endpoint, including the upload and sync endpoints that still return the legacy shape."
+        }
+      ]
+    }
+  ]
+}

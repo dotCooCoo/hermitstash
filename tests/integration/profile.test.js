@@ -69,7 +69,7 @@ describe("profile integration", function () {
         json: { displayName: "" },
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("required"));
+      assert.ok((res.json.detail || res.json.error || "").includes("required"));
     });
 
     it("requires authentication", async function () {
@@ -108,7 +108,7 @@ describe("profile integration", function () {
         json: { currentPassword: "wrongpassword", newPassword: "newpassword456" },
       });
       assert.strictEqual(res.status, 401);
-      assert.ok(res.json.error.includes("incorrect"));
+      assert.ok((res.json.detail || res.json.error || "").includes("incorrect"));
     });
 
     it("rejects short new password with 400", async function () {
@@ -117,7 +117,7 @@ describe("profile integration", function () {
         json: { currentPassword: "password123", newPassword: "short" },
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("8"));
+      assert.ok((res.json.detail || res.json.error || "").includes("8"));
     });
 
     it("rejects non-local auth users with 400", async function () {
@@ -152,7 +152,7 @@ describe("profile integration", function () {
         json: { currentPassword: "password123", newPassword: "newpassword456" },
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("local"));
+      assert.ok((res.json.detail || res.json.error || "").includes("local"));
 
       // Restore for cleanup
       users.update({ email: "localgoogle@profile.test" }, { $set: { authType: "local" } });
@@ -181,7 +181,7 @@ describe("profile integration", function () {
         json: { newEmail: "newemail@profile.test", password: "wrongpassword" },
       });
       assert.strictEqual(res.status, 401);
-      assert.ok(res.json.error.includes("incorrect"));
+      assert.ok((res.json.detail || res.json.error || "").includes("incorrect"));
     });
 
     it("rejects duplicate email with 400", async function () {
@@ -198,7 +198,7 @@ describe("profile integration", function () {
         json: { newEmail: "second@profile.test", password: "password123" },
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("already"));
+      assert.ok((res.json.detail || res.json.error || "").includes("already"));
     });
   });
 
@@ -214,7 +214,7 @@ describe("profile integration", function () {
         json: { confirm: "nope" },
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("DELETE"));
+      assert.ok((res.json.detail || res.json.error || "").includes("DELETE"));
     });
 
     it("last admin cannot delete themselves", async function () {
@@ -223,7 +223,7 @@ describe("profile integration", function () {
         json: { confirm: "DELETE" },
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("last admin"));
+      assert.ok((res.json.detail || res.json.error || "").includes("last admin"));
     });
 
     it("deletes own account with correct confirmation", async function () {

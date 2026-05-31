@@ -175,6 +175,6 @@ describe("resend verification", function () {
       json: { email: "" },
     });
     assert.strictEqual(res.status, 400);
-    assert.ok(res.json.error.includes("Email") || res.json.error.includes("email"), "error should mention email required");
+    assert.ok((res.json.detail || res.json.error || "").includes("Email") || (res.json.detail || res.json.error || "").includes("email"), "error should mention email required");
   });
 });

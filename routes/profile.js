@@ -13,6 +13,7 @@ var { validateEmail, validatePassword } = require("../app/shared/validate");
 var requireAuth = require("../middleware/require-auth");
 var { send } = require("../middleware/send");
 var sessionService = require("../app/domain/auth/session.service");
+var { AppError, ValidationError, AuthenticationError } = require("../app/shared/errors");
 
 module.exports = function (app) {
   // Profile page
@@ -27,31 +28,32 @@ module.exports = function (app) {
     try {
       var body = (await b.parsers.json(req)) || {};
       var displayName = String(body.displayName || "").slice(0, 100);
-      if (!displayName) return res.status(400).json({ error: "Display name is required." });
+      if (!displayName) throw new ValidationError("Display name is required.");
       usersRepo.update(req.user._id, { $set: { displayName: displayName } });
       audit.log(audit.ACTIONS.DISPLAY_NAME_CHANGED, { targetId: req.user._id, targetEmail: req.user.email, details: "new name: " + displayName, req: req });
       res.json({ success: true });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Profile update error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to update profile." });
+      throw new AppError("Failed to update profile.", 500);
     }
   });
 
   // Change password (local auth only)
   app.post("/profile/password", rateLimit.guard({ scope: "password-change", max: 5, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async (req, res) => {
     if (!requireAuth(req, res)) return;
-    if (!config.localAuth) return res.status(400).json({ error: "Password authentication is disabled." });
+    if (!config.localAuth) throw new ValidationError("Password authentication is disabled.");
     try {
       var body = (await b.parsers.json(req)) || {};
       var currentPassword = String(body.currentPassword || "");
       var newPassword = String(body.newPassword || "");
-      if (!currentPassword || !newPassword) return res.status(400).json({ error: "Current and new password are required." });
+      if (!currentPassword || !newPassword) throw new ValidationError("Current and new password are required.");
       var pwCheck = validatePassword(newPassword);
-      if (!pwCheck.valid) return res.status(400).json({ error: pwCheck.reason });
-      if (req.user.authType !== "local") return res.status(400).json({ error: "Password change only available for local accounts." });
+      if (!pwCheck.valid) throw new ValidationError(pwCheck.reason);
+      if (req.user.authType !== "local") throw new ValidationError("Password change only available for local accounts.");
 
       var valid = await b.auth.password.verify(req.user.passwordHash, currentPassword);
-      if (!valid) return res.status(401).json({ error: "Current password is incorrect." });
+      if (!valid) throw new AuthenticationError("Current password is incorrect.");
 
       var passwordHash = await b.auth.password.hash(newPassword);
       usersRepo.update(req.user._id, { $set: { passwordHash: passwordHash } });
@@ -64,8 +66,9 @@ module.exports = function (app) {
 
       res.json({ success: true });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Password change error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to change password." });
+      throw new AppError("Failed to change password.", 500);
     }
   });
 
@@ -76,17 +79,17 @@ module.exports = function (app) {
       var body = (await b.parsers.json(req)) || {};
       var password = String(body.password || "");
       var emailCheck = validateEmail(body.newEmail);
-      if (!emailCheck.valid) return res.status(400).json({ error: emailCheck.reason });
+      if (!emailCheck.valid) throw new ValidationError(emailCheck.reason);
       var newEmail = emailCheck.email;
-      if (!password) return res.status(400).json({ error: "Current password required." });
-      if (req.user.authType !== "local") return res.status(400).json({ error: "Email change only available for local accounts." });
+      if (!password) throw new ValidationError("Current password required.");
+      if (req.user.authType !== "local") throw new ValidationError("Email change only available for local accounts.");
 
       var valid = await b.auth.password.verify(req.user.passwordHash, password);
-      if (!valid) return res.status(401).json({ error: "Password is incorrect." });
+      if (!valid) throw new AuthenticationError("Password is incorrect.");
 
       // Check for duplicate
       var existing = usersRepo.findByEmail(newEmail);
-      if (existing && existing._id !== req.user._id) return res.status(400).json({ error: "Email already in use." });
+      if (existing && existing._id !== req.user._id) throw new ValidationError("Email already in use.");
 
       var oldEmail = req.user.email;
       usersRepo.update(req.user._id, { $set: { email: newEmail } });
@@ -94,8 +97,9 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.EMAIL_CHANGED, { targetId: req.user._id, targetEmail: newEmail, details: "old: " + oldEmail, req: req });
       res.json({ success: true });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Email change error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to change email." });
+      throw new AppError("Failed to change email.", 500);
     }
   });
 
@@ -104,11 +108,11 @@ module.exports = function (app) {
     if (!requireAuth(req, res)) return;
     try {
       var body = (await b.parsers.json(req)) || {};
-      if (body.confirm !== "DELETE") return res.status(400).json({ error: "Type DELETE to confirm." });
+      if (body.confirm !== "DELETE") throw new ValidationError("Type DELETE to confirm.");
 
       if (isAdmin(req.user)) {
         var adminCount = usersRepo.count({ role: "admin" });
-        if (adminCount <= 1) return res.status(400).json({ error: "Cannot delete the last admin account." });
+        if (adminCount <= 1) throw new ValidationError("Cannot delete the last admin account.");
       }
 
       var userFiles = filesRepo.findAll({ uploadedBy: req.user._id });
@@ -126,8 +130,9 @@ module.exports = function (app) {
 
       res.json({ success: true, redirect: "/" });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Account delete error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to delete account." });
+      throw new AppError("Failed to delete account.", 500);
     }
   });
 };

@@ -1,0 +1,72 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.14.11",
+  "date": "2026-05-31",
+  "headline": "Defensive LLM model-I/O primitives, C2PA timestamp countersignatures with CAWG identity assertions, and signed EU AI Act GPAI adherence declarations",
+  "summary": "Closes the output side of the LLM trust boundary and hardens content provenance and AI-Act attestation. b.ai.output.sanitize treats model output as untrusted and neutralizes XSS, gates every markdown-image / link and HTML src/href URL against SSRF (the EchoLeak zero-click exfiltration class, CVE-2025-32711), and flags SQL- and command-shaped fragments; b.ai.output.redact strips PII and secret disclosures. b.ai.input.classifyWithSources classifies a prompt together with its retrieval-augmented sources under a stricter, trust-tier-relative threshold, and the new b.ai.prompt namespace assembles prompts with escape-by-default boundaries — untrusted context / user segments are fenced in a per-render crypto-nonce delimiter the content cannot forge and stripped of bidi, control, zero-width, and Unicode-Tags smuggling characters. b.contentCredentials COSE signatures now carry an RFC 3161 timestamp countersignature (C2PA sigTst2, RFC 9921) verified entirely through b.tsa, so a signed manifest stays verifiable after its signing certificate expires, plus a CAWG identity assertion with trust-anchored verification. b.compliance.aiAct.gpai.declareAdherence emits a tamper-evident, ML-DSA-87-signed GPAI Code-of-Practice adherence declaration whose obligation set is derived from the regulation rather than operator-asserted.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.ai.output.sanitize` and `b.ai.output.redact`",
+          "body": "A new `b.ai.output` namespace that treats LLM output as untrusted before it reaches a browser, a downstream fetcher, a SQL / command sink, or a log. `sanitize(text, opts)` neutralizes active markup via `b.guardHtml`, gates every markdown image / link and HTML `src` / `href` URL through `b.safeUrl.parse` (scheme + credential) and `b.ssrfGuard.classify` (internal / loopback / link-local / cloud-metadata IP-range) so auto-fetch URLs to attacker or internal hosts are neutralized, and flags SQL- and command-shaped fragments rather than silently repairing them. `redact(text, opts)` strips PII and secret disclosures via `b.redact` plus an entity-selectable pass (`pan` / `ssn` / `ein` / `iban` / `jwt` / `aws` / `phi` / `email` / `phone`). Defends OWASP LLM05:2025 Improper Output Handling and LLM02:2025 Sensitive Information Disclosure; the markdown-image URL gate closes the EchoLeak zero-click exfiltration class (CVE-2025-32711, CVSS 9.3)."
+        },
+        {
+          "title": "`b.ai.input.classifyWithSources`",
+          "body": "Classifies a prompt together with its retrieval-augmented (RAG) sources, applying a stricter, trust-tier-relative threshold to retrieved data. Each source is `{ id, text, trust? }` with `trust` of `trusted` / `internal` / `untrusted` (unset defaults to `untrusted`, fail-closed); untrusted and internal sources escalate to `suspicious` on a single severity-2 signal and to `malicious` on any severity-3, where the direct prompt keeps the baseline threshold. The aggregate verdict is the worst across the prompt and all sources, and every malicious source is reported in `taintedSources`. Defends indirect prompt injection from poisoned context (OWASP LLM01:2025; NIST AI 600-1)."
+        },
+        {
+          "title": "`b.ai.prompt.template`",
+          "body": "A new `b.ai.prompt` namespace for assembling LLM prompts with escape-by-default boundaries. The `system` segment is operator-trusted; `context` and `user` segments are treated as untrusted (no global opt-out — mark a segment `{ text, trusted: true }` individually). Untrusted segments are wrapped in a per-render, high-entropy delimiter nonce the content cannot forge, with any forged boundary stripped before wrapping (spotlighting / datamarking, Microsoft 2024; NIST AI 100-2e2025), and stripped of bidi overrides (CVE-2021-42574 Trojan Source), C0 controls, zero-width characters, null bytes, and Unicode Tags (U+E0000..U+E007F ASCII-smuggling). Run `b.ai.input.refuseIfMalicious` on the untrusted content as defense in depth."
+        },
+        {
+          "title": "C2PA RFC 3161 timestamp countersignature and CAWG identity assertion",
+          "body": "`b.contentCredentials.signCose` attaches an RFC 3161 timestamp countersignature (C2PA `sigTst2`, RFC 9921) and `b.contentCredentials.verifyCose` verifies it. Pass `timestamp:{ token }` to embed a TimeStampToken, or `timestamp:{}` to get back the DER `application/timestamp-query` to POST to a timestamp authority. `b.contentCredentials.attachIdentityAssertion` / `verifyIdentityAssertion` add the CAWG Identity Assertion v1.2: a signed creator / organization identity hash-bound to a manifest's referenced assertions, where the `x509` binding reports `verified:true` only when an identity trust anchor is supplied and the leaf chain verifies, and the `identity-claims-aggregator` and self-asserted paths stay `verified:false`."
+        },
+        {
+          "title": "`b.compliance.aiAct.gpai.declareAdherence` / `verifyAdherence`",
+          "body": "Signed, tamper-evident GPAI Code-of-Practice adherence declarations (Regulation (EU) 2024/1689 Art. 53(1)(a-d); Art. 55 for systemic-risk models under Art. 51(2)). The in-scope obligation set is derived from the classifier, never operator-asserted — a model at or above the 10^25-FLOP systemic-risk threshold that omits the Art. 55 chapter is refused. Each commitment's evidence reference must be a SHA3-512 digest; a malformed hash is rejected so a hollow attestation cannot bind. The declaration ships inside an ML-DSA-87-signed CycloneDX 1.6 ML-BOM via `b.ai.modelManifest`; verify re-canonicalizes before trusting any field and rejects a declaration past its validity window. Cites the GPAI Code of Practice (10 July 2025), Annex XI/XII, and Directive (EU) 2019/790 Art. 4(3)."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Model output is now an untrusted channel by default",
+          "body": "When feeding retrieved documents into an LLM, classify them with `b.ai.input.classifyWithSources` (untrusted sources escalate on a single signal) rather than trusting model input; assemble prompts with `b.ai.prompt.template` so untrusted context / user text is fenced in a per-render crypto-nonce boundary it cannot forge; and pass model output through `b.ai.output.sanitize` / `b.ai.output.redact` before it is rendered, fetched, or logged. Each primitive is on by default and fail-closed — no opt-in flag enables the protection."
+        },
+        {
+          "title": "Timestamp verification routes only through `b.tsa.verifyToken`",
+          "body": "C2PA `sigTst2` verification performs the full RFC 3161 check (CMS signature over the signed attributes, messageDigest recompute, critical sole `id-kp-timeStamping` EKU) — never a chain-only shortcut — closing the timestamp-validation-bypass class (CVE-2025-52556, CWE-347). Supply `timestampTrustAnchorsPem` to `verifyCose` to check the timestamp certificate chain; `verifyCose` returns `{ valid, reason, claims, alg, timestamp }` and never throws."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "LLM output URLs must keep the SSRF gate",
+          "body": "A new check requires the output sanitizer to gate every extracted URL through both `b.safeUrl.parse` and `b.ssrfGuard.classify`, so the markdown-image SSRF gate (the EchoLeak class) cannot be silently dropped."
+        },
+        {
+          "title": "RAG sources must compose `classifyWithSources`",
+          "body": "A new check flags any code that maps `b.ai.input.classify` over a sources array by hand, which would lose the trust-tier-relative threshold for retrieved data."
+        },
+        {
+          "title": "Prompt boundaries must use a per-render nonce",
+          "body": "A new check flags prompt-assembly that wraps untrusted content in a fixed, guessable literal fence (`<user_input>`, `[DATA]`) instead of a per-render high-entropy delimiter the content cannot forge."
+        },
+        {
+          "title": "C2PA timestamp verification must route through `b.tsa`",
+          "body": "A new check flags any bespoke certificate-chain-only walk on a timestamp token in place of `b.tsa.verifyToken`, preventing a re-introduction of the timestamp-validation-bypass class."
+        },
+        {
+          "title": "GPAI adherence declarations must be signed",
+          "body": "A new check flags any code that emits the GPAI Code-of-Practice adherence property without routing it through the `b.ai.modelManifest` signed envelope, keeping the declaration tamper-evident."
+        }
+      ]
+    }
+  ]
+}

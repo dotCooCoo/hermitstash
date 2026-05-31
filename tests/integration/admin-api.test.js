@@ -80,7 +80,7 @@ describe("admin API integration", function () {
         json: { name: "", permissions: "upload" },
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("Name"));
+      assert.ok((res.json.detail || res.json.error).includes("Name"));
     });
 
     it("lists created API keys", async function () {
@@ -147,7 +147,7 @@ describe("admin API integration", function () {
       // so all URLs currently get blocked by the SSRF check. If this is fixed, change the assertion.
       // For now, the SSRF guard blocks all URLs (Promise is truthy).
       if (res.status === 400) {
-        assert.ok(res.json.error.includes("private") || res.json.error.includes("internal"),
+        assert.ok((res.json.detail || res.json.error).includes("private") || (res.json.detail || res.json.error).includes("internal"),
           "should be blocked by SSRF check");
         // Directly insert a webhook for remaining tests
         var { webhooks } = require(path.join(testServer.projectRoot, "lib", "db"));
@@ -177,7 +177,7 @@ describe("admin API integration", function () {
         json: { url: "" },
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("URL"));
+      assert.ok((res.json.detail || res.json.error).includes("URL"));
     });
 
     it("rejects webhook with invalid URL", async function () {

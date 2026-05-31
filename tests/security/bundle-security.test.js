@@ -93,7 +93,7 @@ describe("bundle password protection", function () {
       json: { password: "wrongpassword" },
     });
     assert.strictEqual(res.status, 401);
-    assert.ok(res.json.error.includes("Incorrect"), "error should mention incorrect password");
+    assert.ok((res.json.detail || res.json.error || "").includes("Incorrect"), "error should mention incorrect password");
   });
 
   it("POST /b/:shareId/unlock with correct password returns 200", async function () {
@@ -125,7 +125,7 @@ describe("bundle finalize token security", function () {
       json: { finalizeToken: "deadbeef0000000000000000deadbeef" },
     });
     assert.strictEqual(res.status, 403);
-    assert.ok(res.json.error.includes("Invalid finalize token"), "error should mention invalid finalize token");
+    assert.ok((res.json.detail || res.json.error || "").includes("Invalid finalize token"), "error should mention invalid finalize token");
   });
 
   it("POST /drop/finalize with correct token returns 200", async function () {

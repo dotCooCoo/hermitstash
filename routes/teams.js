@@ -7,6 +7,7 @@ var teamsRepo = require("../app/data/repositories/teams.repo");
 var requireAuth = require("../middleware/require-auth");
 var audit = require("../lib/audit");
 var teamsService = require("../app/domain/teams/teams.service");
+var { AppError, ValidationError, ForbiddenError, NotFoundError } = require("../app/shared/errors");
 
 module.exports = function (app) {
   // List user's teams
@@ -36,9 +37,9 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.TEAM_CREATED, { targetId: team._id, details: "name: " + team.name, req: req });
       res.json({ success: true, teamId: team._id });
     } catch (e) {
-      if (e.isAppError) return res.status(e.statusCode).json({ error: e.message });
+      if (e.isAppError) throw e;
       logger.error("Team create error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to create team." });
+      throw new AppError("Failed to create team.", 500);
     }
   });
 
@@ -46,21 +47,21 @@ module.exports = function (app) {
   app.post("/teams/:teamId/members/add", async (req, res) => {
     if (!requireAuth(req, res)) return;
     if (!teamsRepo.isTeamAdmin(req.params.teamId, req.user._id) && !isAdmin(req.user)) {
-      return res.status(403).json({ error: "Only team admins can add members." });
+      throw new ForbiddenError("Only team admins can add members.");
     }
     try {
       var body = (await b.parsers.json(req)) || {};
       var userId = String(body.userId || "");
-      if (!userId) return res.status(400).json({ error: "User ID required." });
+      if (!userId) throw new ValidationError("User ID required.");
       var target = usersRepo.findById(userId);
-      if (!target) return res.status(404).json({ error: "User not found." });
+      if (!target) throw new NotFoundError("User not found.");
       var role = body.role === "admin" ? "admin" : "member";
       teamsService.addMember(req.params.teamId, userId, role);
       audit.log(audit.ACTIONS.TEAM_MEMBER_ADDED, { targetId: req.params.teamId, details: "userId: " + userId, req: req });
       res.json({ success: true });
     } catch (e) {
-      if (e.isAppError) return res.status(e.statusCode).json({ error: e.message });
-      res.status(500).json({ error: "Failed to add member." });
+      if (e.isAppError) throw e;
+      throw new AppError("Failed to add member.", 500);
     }
   });
 
@@ -68,7 +69,7 @@ module.exports = function (app) {
   app.post("/teams/:teamId/members/remove", async (req, res) => {
     if (!requireAuth(req, res)) return;
     if (!teamsRepo.isTeamAdmin(req.params.teamId, req.user._id) && !isAdmin(req.user)) {
-      return res.status(403).json({ error: "Only team admins can remove members." });
+      throw new ForbiddenError("Only team admins can remove members.");
     }
     try {
       var body = (await b.parsers.json(req)) || {};
@@ -77,8 +78,8 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.TEAM_MEMBER_REMOVED, { targetId: req.params.teamId, details: "userId: " + userId, req: req });
       res.json({ success: true });
     } catch (e) {
-      if (e.isAppError) return res.status(e.statusCode).json({ error: e.message });
-      res.status(500).json({ error: "Failed to remove member." });
+      if (e.isAppError) throw e;
+      throw new AppError("Failed to remove member.", 500);
     }
   });
 
@@ -86,7 +87,7 @@ module.exports = function (app) {
   app.get("/teams/:teamId/members", (req, res) => {
     if (!requireAuth(req, res)) return;
     if (!teamsRepo.isMember(req.params.teamId, req.user._id) && !isAdmin(req.user)) {
-      return res.status(403).json({ error: "Not a member of this team." });
+      throw new ForbiddenError("Not a member of this team.");
     }
     var members = teamsRepo.findMembers(req.params.teamId);
     var result = members.map(function (m) {
@@ -101,7 +102,7 @@ module.exports = function (app) {
   app.get("/teams/:teamId/files", (req, res) => {
     if (!requireAuth(req, res)) return;
     if (!teamsRepo.isMember(req.params.teamId, req.user._id) && !isAdmin(req.user)) {
-      return res.status(403).json({ error: "Not a member of this team." });
+      throw new ForbiddenError("Not a member of this team.");
     }
     var teamFiles = filesRepo.findAll({ teamId: req.params.teamId, status: "complete" });
     var result = teamFiles.map(function (f) {
@@ -119,7 +120,7 @@ module.exports = function (app) {
     if (!requireAuth(req, res)) return;
     // Route-level auth: allow team admins or site admins
     if (!teamsRepo.isTeamAdmin(req.params.teamId, req.user._id) && !isAdmin(req.user)) {
-      return res.status(403).json({ error: "Only team admins can delete teams." });
+      throw new ForbiddenError("Only team admins can delete teams.");
     }
     try {
       teamsService.deleteTeam(req.params.teamId, req.user._id);
@@ -137,12 +138,12 @@ module.exports = function (app) {
           audit.log(audit.ACTIONS.TEAM_DELETED, { targetId: req.params.teamId, req: req });
           return res.json({ success: true });
         } catch (e2) {
-          if (e2.isAppError) return res.status(e2.statusCode).json({ error: e2.message });
-          return res.status(500).json({ error: "Failed to delete team." });
+          if (e2.isAppError) throw e2;
+          throw new AppError("Failed to delete team.", 500);
         }
       }
-      if (e.isAppError) return res.status(e.statusCode).json({ error: e.message });
-      res.status(500).json({ error: "Failed to delete team." });
+      if (e.isAppError) throw e;
+      throw new AppError("Failed to delete team.", 500);
     }
   });
 };

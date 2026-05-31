@@ -148,14 +148,14 @@ describe("vault integration", function () {
       await loginOwner();
       var res = await client.post("/vault/enable", { json: {} });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("Invalid public key"), "error should mention invalid public key");
+      assert.ok((res.json.detail || res.json.error || "").includes("Invalid public key"), "error should mention invalid public key");
     });
 
     it("fails with short public key", async function () {
       await loginOwner();
       var res = await client.post("/vault/enable", { json: { publicKey: "dG9vc2hvcnQ=", mode: "passkey", seed: fakeSeed() } });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("Invalid"), "error should mention invalid key");
+      assert.ok((res.json.detail || res.json.error || "").includes("Invalid"), "error should mention invalid key");
     });
 
     it("fails with wrong-size key (not 1184 or 1568 bytes)", async function () {
@@ -164,7 +164,7 @@ describe("vault integration", function () {
       var wrongSizeKey = crypto.randomBytes(512).toString("base64");
       var res = await client.post("/vault/enable", { json: { publicKey: wrongSizeKey, mode: "passkey", seed: fakeSeed() } });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("ML-KEM"), "error should mention ML-KEM key size");
+      assert.ok((res.json.detail || res.json.error || "").includes("ML-KEM"), "error should mention ML-KEM key size");
     });
 
     it("succeeds with valid ML-KEM-1024 public key (1568 bytes)", async function () {
@@ -209,7 +209,7 @@ describe("vault integration", function () {
       await loginOther();
       var res = await client2.post("/vault/stealth", { json: { enable: true } });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("Vault must be enabled"), "error should require vault enabled");
+      assert.ok((res.json.detail || res.json.error || "").includes("Vault must be enabled"), "error should require vault enabled");
     });
 
     it("succeeds when vault is enabled", async function () {
@@ -240,7 +240,7 @@ describe("vault integration", function () {
       await loginOwner();
       var res = await client.post("/vault/upload", { json: { ciphertext: "dGVzdA==" } });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("Missing encrypted file data"), "error should mention missing data");
+      assert.ok((res.json.detail || res.json.error || "").includes("Missing encrypted file data"), "error should mention missing data");
     });
 
     it("fails when vault is not enabled for user", async function () {
@@ -254,7 +254,7 @@ describe("vault integration", function () {
         },
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("Vault not enabled"), "error should say vault not enabled");
+      assert.ok((res.json.detail || res.json.error || "").includes("Vault not enabled"), "error should say vault not enabled");
     });
 
     it("succeeds with valid encrypted payload", async function () {
@@ -371,7 +371,7 @@ describe("vault integration", function () {
       await loginOther();
       var res = await client2.post("/vault/delete/" + vaultShareId, { json: {} });
       assert.strictEqual(res.status, 404);
-      assert.ok(res.json.error.includes("Not found"), "error should say not found (no existence leak)");
+      assert.ok((res.json.detail || res.json.error || "").includes("Not found"), "error should say not found (no existence leak)");
     });
 
     it("admin (owner) CAN download any vault file", async function () {
@@ -410,7 +410,7 @@ describe("vault integration", function () {
       await loginOwner();
       var res = await client.post("/vault/delete/nonexistent999", { json: {} });
       assert.strictEqual(res.status, 404);
-      assert.ok(res.json.error.includes("Not found"), "error should say not found");
+      assert.ok((res.json.detail || res.json.error || "").includes("Not found"), "error should say not found");
     });
 
     it("owner can delete their vault file", async function () {
@@ -460,14 +460,14 @@ describe("vault integration", function () {
         },
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("Vault not enabled"), "should reject upload when vault disabled");
+      assert.ok((res.json.detail || res.json.error || "").includes("Vault not enabled"), "should reject upload when vault disabled");
     });
 
     it("stealth toggle fails after vault disabled", async function () {
       await loginOwner();
       var res = await client.post("/vault/stealth", { json: { enable: true } });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("Vault must be enabled"), "stealth should require enabled vault");
+      assert.ok((res.json.detail || res.json.error || "").includes("Vault must be enabled"), "stealth should require enabled vault");
     });
   });
 

@@ -130,14 +130,14 @@ describe("teams extended integration", function () {
       await loginTeamAdmin();
       var res = await adminClient.post("/teams/create", { json: { name: "" } });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("required"), "error should mention name required");
+      assert.ok((res.json.detail || res.json.error).includes("required"), "error should mention name required");
     });
 
     it("rejects whitespace-only team name", async function () {
       await loginTeamAdmin();
       var res = await adminClient.post("/teams/create", { json: { name: "   " } });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("required"), "error should mention name required");
+      assert.ok((res.json.detail || res.json.error).includes("required"), "error should mention name required");
     });
 
     it("truncates overly long team name to 100 chars", async function () {
@@ -187,7 +187,7 @@ describe("teams extended integration", function () {
         json: { userId: "nonexistent000000000000" },
       });
       assert.strictEqual(res.status, 404);
-      assert.ok(res.json.error.includes("not found"), "error should mention user not found");
+      assert.ok((res.json.detail || res.json.error).includes("not found"), "error should mention user not found");
     });
 
     it("rejects adding duplicate member", async function () {
@@ -196,7 +196,7 @@ describe("teams extended integration", function () {
         json: { userId: memberUserId },
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(/already/i.test(res.json.error), "error should mention already a member, got: " + res.json.error);
+      assert.ok(/already/i.test(res.json.detail || res.json.error), "error should mention already a member, got: " + (res.json.detail || res.json.error));
     });
 
     it("rejects missing userId", async function () {
@@ -205,7 +205,7 @@ describe("teams extended integration", function () {
         json: {},
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("User ID required"), "error should mention user ID required");
+      assert.ok((res.json.detail || res.json.error).includes("User ID required"), "error should mention user ID required");
     });
 
     it("non-admin member cannot add users", async function () {
@@ -214,7 +214,7 @@ describe("teams extended integration", function () {
         json: { userId: outsiderUserId },
       });
       assert.strictEqual(res.status, 403);
-      assert.ok(res.json.error.includes("admin"), "error should mention admin requirement");
+      assert.ok((res.json.detail || res.json.error).includes("admin"), "error should mention admin requirement");
     });
 
     it("site admin can add members to any team", async function () {
@@ -264,7 +264,7 @@ describe("teams extended integration", function () {
       await loginOutsider();
       var res = await outsiderClient.get("/teams/" + teamId + "/members");
       assert.strictEqual(res.status, 403);
-      assert.ok(res.json.error.includes("Not a member"), "error should mention not a member");
+      assert.ok((res.json.detail || res.json.error).includes("Not a member"), "error should mention not a member");
     });
 
     it("site admin can view any team members (overrides membership check)", async function () {
@@ -365,7 +365,7 @@ describe("teams extended integration", function () {
         json: { userId: adminUserId },
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("last team admin"), "error should mention last team admin");
+      assert.ok((res.json.detail || res.json.error).includes("last team admin"), "error should mention last team admin");
     });
 
     it("can remove admin when another admin exists", async function () {
@@ -400,7 +400,7 @@ describe("teams extended integration", function () {
         json: { userId: adminUserId },
       });
       assert.strictEqual(res.status, 403);
-      assert.ok(res.json.error.includes("admin"), "error should mention admin requirement");
+      assert.ok((res.json.detail || res.json.error).includes("admin"), "error should mention admin requirement");
     });
   });
 
@@ -409,7 +409,7 @@ describe("teams extended integration", function () {
       await loginMember();
       var res = await memberClient.post("/teams/" + teamId + "/delete", { json: {} });
       assert.strictEqual(res.status, 403);
-      assert.ok(res.json.error.includes("admin"), "error should mention admin requirement");
+      assert.ok((res.json.detail || res.json.error).includes("admin"), "error should mention admin requirement");
     });
 
     it("outsider cannot delete team", async function () {

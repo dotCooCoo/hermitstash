@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.14.10",
-  "createdAt": "2026-05-31T10:40:06.680Z",
+  "frameworkVersion": "0.14.11",
+  "createdAt": "2026-05-31T13:01:57.420Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -1592,9 +1592,17 @@
               "type": "instance",
               "ctorName": "Array"
             },
+            "TRUST_TIERS": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
             "classify": {
               "type": "function",
               "arity": 2
+            },
+            "classifyWithSources": {
+              "type": "function",
+              "arity": 3
             },
             "refuseIfMalicious": {
               "type": "function",
@@ -1628,6 +1636,48 @@
             "verify": {
               "type": "function",
               "arity": 3
+            }
+          }
+        },
+        "output": {
+          "type": "object",
+          "members": {
+            "AiOutputError": {
+              "type": "function",
+              "arity": 4
+            },
+            "ENTITIES": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "redact": {
+              "type": "function",
+              "arity": 2
+            },
+            "sanitize": {
+              "type": "function",
+              "arity": 2
+            }
+          }
+        },
+        "prompt": {
+          "type": "object",
+          "members": {
+            "AiPromptError": {
+              "type": "function",
+              "arity": 4
+            },
+            "ROLE_CONTROL_TOKENS": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "UNTRUSTED_ROLES": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "template": {
+              "type": "function",
+              "arity": 2
             }
           }
         },
@@ -12829,7 +12879,15 @@
                   "type": "instance",
                   "ctorName": "Array"
                 },
+                "adherenceForm": {
+                  "type": "function",
+                  "arity": 1
+                },
                 "classify": {
+                  "type": "function",
+                  "arity": 1
+                },
+                "declareAdherence": {
                   "type": "function",
                   "arity": 1
                 },
@@ -12840,6 +12898,10 @@
                 "trainingDataSummary": {
                   "type": "function",
                   "arity": 1
+                },
+                "verifyAdherence": {
+                  "type": "function",
+                  "arity": 3
                 }
               }
             },
@@ -13509,6 +13571,10 @@
           "type": "instance",
           "ctorName": "Array"
         },
+        "attachIdentityAssertion": {
+          "type": "function",
+          "arity": 1
+        },
         "build": {
           "type": "function",
           "arity": 1
@@ -13534,6 +13600,14 @@
           "arity": 2
         },
         "verify": {
+          "type": "function",
+          "arity": 3
+        },
+        "verifyCose": {
+          "type": "function",
+          "arity": 3
+        },
+        "verifyIdentityAssertion": {
           "type": "function",
           "arity": 3
         }
@@ -15854,6 +15928,14 @@
           "arity": 4
         },
         "AiInputError": {
+          "type": "function",
+          "arity": 4
+        },
+        "AiOutputError": {
+          "type": "function",
+          "arity": 4
+        },
+        "AiPromptError": {
           "type": "function",
           "arity": 4
         },

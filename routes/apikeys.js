@@ -6,6 +6,7 @@ var idempotency = require("../middleware/idempotency");
 var audit = require("../lib/audit");
 var { VALID_SCOPES } = require("../app/security/scope-policy");
 var certUtils = require("../lib/cert-utils");
+var { ValidationError, NotFoundError } = require("../app/shared/errors");
 
 module.exports = function (app) {
   // List API keys
@@ -27,10 +28,10 @@ module.exports = function (app) {
     var rawPerms = String(body.permissions || "upload").trim().toLowerCase();
     var permList = rawPerms.split(",").map(function(s) { return s.trim(); }).filter(Boolean);
     var invalid = permList.filter(function(s) { return VALID_SCOPES.indexOf(s) === -1; });
-    if (invalid.length > 0) return res.status(400).json({ error: "Unknown scope(s): " + invalid.join(", ") + ". Valid: " + VALID_SCOPES.join(", ") });
-    if (permList.length === 0) return res.status(400).json({ error: "At least one scope required. Valid: " + VALID_SCOPES.join(", ") });
+    if (invalid.length > 0) throw new ValidationError("Unknown scope(s): " + invalid.join(", ") + ". Valid: " + VALID_SCOPES.join(", "));
+    if (permList.length === 0) throw new ValidationError("At least one scope required. Valid: " + VALID_SCOPES.join(", "));
     var permissions = permList.join(",");
-    if (!name) return res.status(400).json({ error: "Name required." });
+    if (!name) throw new ValidationError("Name required.");
 
     // Generate a random key with a recognizable prefix
     var rawKey = "hs_" + b.crypto.generateToken(32);
@@ -62,7 +63,7 @@ module.exports = function (app) {
   app.post("/admin/apikeys/:id/revoke", async function(req, res) {
     if (!requireAdmin(req, res)) return;
     var key = apiKeysRepo.findOne({ _id: req.params.id });
-    if (!key) return res.status(404).json({ error: "Not found." });
+    if (!key) throw new NotFoundError("Not found.");
     var certRevoked = false;
     if (key.certFingerprint) {
       certRevoked = certUtils.revokeCert(key.certFingerprint, key.name, "api key revoked");

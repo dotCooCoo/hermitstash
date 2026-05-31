@@ -306,6 +306,11 @@ This is the minimum-viable security posture for a production deployment. The fra
 - [ ] Wire `b.tenantQuota.budget({ tenantField, perTenantQpsCap, perTenantTotalRowsRead })` for tenant-scoped query rate-limiting — replaces global `maxRowsPerQuery` for multi-tenant scenarios
 - [ ] Wrap query results with `b.tenantQuota.instrumentQuery({ rows, tenantField, tenantId })` — emits `db.tenant.crossover` when a row's tenant disagrees with the operator-claimed tenant (RLS-bypass detection)
 
+**LLM / AI integration** (only if the app calls an LLM or serves model output)
+- [ ] Classify retrieved RAG context with `b.ai.input.classifyWithSources` (untrusted sources escalate on a single signal) rather than trusting model input, and assemble prompts with `b.ai.prompt.template` so untrusted context / user text is fenced in a per-render crypto-nonce boundary it cannot forge (OWASP LLM01:2025)
+- [ ] Pass model output through `b.ai.output.sanitize` before rendering / fetching / logging it — it gates markdown-image and link URLs against SSRF (the EchoLeak class, CVE-2025-32711) and flags SQL / command shapes — and `b.ai.output.redact` to strip PII / secret disclosures (OWASP LLM05:2025 + LLM02:2025)
+- [ ] When signing C2PA content credentials, attach an RFC 3161 timestamp (`b.contentCredentials.signCose({ timestamp })`) so the manifest stays verifiable after its signing certificate expires, and verify inbound manifests with `b.contentCredentials.verifyCose` supplying `timestampTrustAnchorsPem`
+
 **mTLS** (only if using `b.mtlsCa` for service-to-service auth)
 - [ ] Boot the CA with `--sealed-mode required` so the CA private key is vault-sealed before hitting disk
 - [ ] Inspect CA state: `blamejs mtls status --data-dir ./data` — confirms the generation matches the operator's expected version (no silent drift on shared deploys)

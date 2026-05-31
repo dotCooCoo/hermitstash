@@ -56,6 +56,7 @@ var backup = require("../lib/backup");
 var { getQuotaCounts } = require("../lib/email");
 var scheduler = require("../lib/scheduler");
 var { sanitizeSvg } = require("../lib/sanitize-svg");
+var { AppError, ValidationError, AuthenticationError, ForbiddenError, NotFoundError, ConflictError } = require("../app/shared/errors");
 
 // Recursive sum of all file sizes under `dir`. Used by the dashboard to report
 // real on-disk storage including chunks, orphan files, and empty bundle dirs that
@@ -239,7 +240,7 @@ module.exports = function (app) {
   app.post("/admin/files/:shareId/delete", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     var doc = filesRepo.findByShareId(req.params.shareId);
-    if (!doc) return res.status(404).json({ error: "Not found." });
+    if (!doc) throw new NotFoundError("Not found.");
     if (doc.storagePath) await storage.deleteFile(doc.storagePath);
     filesRepo.remove(doc._id);
     if (doc.bundleId) {
@@ -267,7 +268,7 @@ module.exports = function (app) {
   app.post("/admin/bundles/:shareId/delete", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
-    if (!bundle) return res.status(404).json({ error: "Not found." });
+    if (!bundle) throw new NotFoundError("Not found.");
     var bf = filesRepo.findByBundleShareId(bundle.shareId);
     for (var f of bf) {
       if (f.storagePath) await storage.deleteFile(f.storagePath);
@@ -331,7 +332,7 @@ module.exports = function (app) {
       await client.testConnection();
       res.json({ success: true });
     } catch (err) {
-      res.json({ error: "Connection failed: " + err.message });
+      throw new AppError("Connection failed: " + err.message, 500);
     }
   });
 
@@ -342,18 +343,19 @@ module.exports = function (app) {
     try {
       var body = (await b.parsers.json(req)) || {};
       var passphrase = String(body.passphrase || "").trim();
-      if (!passphrase) return res.json({ error: "Backup passphrase is required." });
+      if (!passphrase) throw new ValidationError("Backup passphrase is required.");
 
       // Verify passphrase if hash is set
       if (config.backup.passphraseHash) {
         var valid = await backup.verifyPassphrase(passphrase);
-        if (!valid) return res.json({ error: "Incorrect backup passphrase." });
+        if (!valid) throw new AuthenticationError("Incorrect backup passphrase.");
       }
 
       var manifest = await backup.runBackup(passphrase);
       res.json({ success: true, stats: manifest.stats });
     } catch (err) {
-      res.json({ error: "Backup failed: " + err.message });
+      if (err.isAppError) throw err;
+      throw new AppError("Backup failed: " + err.message, 500);
     }
   });
 
@@ -372,7 +374,7 @@ module.exports = function (app) {
       });
       res.json({ success: true });
     } catch (err) {
-      res.json({ error: "Connection failed: " + err.message });
+      throw new AppError("Connection failed: " + err.message, 500);
     }
   });
 
@@ -397,13 +399,14 @@ module.exports = function (app) {
   app.get("/admin/backup/manifest", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     var timestamp = req.query.timestamp;
-    if (!timestamp) return res.status(400).json({ error: "timestamp required" });
+    if (!timestamp) throw new ValidationError("timestamp required");
     try {
       var manifest = await backup.getBackupManifest(timestamp);
-      if (!manifest) return res.status(404).json({ error: "Backup not found" });
+      if (!manifest) throw new NotFoundError("Backup not found");
       res.json(manifest);
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      if (err.isAppError) throw err;
+      throw new AppError(err.message, 500);
     }
   });
 
@@ -519,7 +522,7 @@ module.exports = function (app) {
 
       res.json({ success: true, items: items, notes: notes });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      throw new AppError(err.message, 500);
     }
   });
 
@@ -532,8 +535,7 @@ module.exports = function (app) {
   var _securityOpRunning = false;
   function _withSecurityLock(res, fn) {
     if (_securityOpRunning) {
-      res.status(409).json({ error: "Another security operation is in progress. Wait for it to finish before retrying." });
-      return Promise.resolve();
+      throw new ConflictError("Another security operation is in progress. Wait for it to finish before retrying.");
     }
     _securityOpRunning = true;
     return Promise.resolve()
@@ -549,14 +551,14 @@ module.exports = function (app) {
         var passphrase = body && body.passphrase;
         var confirm = body && body.confirmPassphrase;
         if (typeof passphrase !== "string" || passphrase.length === 0) {
-          return res.status(400).json({ error: "Passphrase is required." });
+          throw new ValidationError("Passphrase is required.");
         }
         if (passphrase !== confirm) {
-          return res.status(400).json({ error: "Passphrase and confirmation do not match." });
+          throw new ValidationError("Passphrase and confirmation do not match.");
         }
         var ops = require("../lib/vault-passphrase-ops");
         var pre = ops.preflightSealable();
-        if (!pre.ok) return res.status(409).json({ error: pre.reason });
+        if (!pre.ok) throw new ConflictError(pre.reason);
         var result = await ops.sealVaultKey(Buffer.from(passphrase, "utf8"), {});
         audit.log(audit.ACTIONS.VAULT_PASSPHRASE_ENABLED, { details: "Vault key wrapped via admin UI", req: req });
         res.json({
@@ -573,7 +575,8 @@ module.exports = function (app) {
           ],
         });
       } catch (err) {
-        res.status(500).json({ error: err.message });
+        if (err.isAppError) throw err;
+        throw new AppError(err.message, 500);
       }
     });
   });
@@ -585,11 +588,11 @@ module.exports = function (app) {
         var body = (await b.parsers.json(req)) || {};
         var passphrase = body && body.passphrase;
         if (typeof passphrase !== "string" || passphrase.length === 0) {
-          return res.status(400).json({ error: "Passphrase is required to unseal." });
+          throw new ValidationError("Passphrase is required to unseal.");
         }
         var ops = require("../lib/vault-passphrase-ops");
         var pre = ops.preflightUnsealable();
-        if (!pre.ok) return res.status(409).json({ error: pre.reason });
+        if (!pre.ok) throw new ConflictError(pre.reason);
         var result = await ops.unsealVaultKey(Buffer.from(passphrase, "utf8"));
         audit.log(audit.ACTIONS.VAULT_PASSPHRASE_DISABLED, { details: "Vault key unwrapped via admin UI", req: req });
         res.json({
@@ -604,9 +607,10 @@ module.exports = function (app) {
           ],
         });
       } catch (err) {
+        if (err.isAppError) throw err;
         // unsealVaultKey throws "passphrase rejected: ..." on wrong passphrase
-        var status = /passphrase rejected/.test(err.message) ? 401 : 500;
-        res.status(status).json({ error: err.message });
+        if (/passphrase rejected/.test(err.message)) throw new AuthenticationError(err.message);
+        throw new AppError(err.message, 500);
       }
     });
   });
@@ -618,8 +622,8 @@ module.exports = function (app) {
         var pemSeal = require("../lib/pem-seal");
         var caPlain = PATHS.CA_KEY;
         var caSealed = PATHS.CA_KEY_SEALED;
-        if (!nodeFs.existsSync(caPlain)) return res.status(409).json({ error: "data/ca.key does not exist — nothing to seal" });
-        if (nodeFs.existsSync(caSealed)) return res.status(409).json({ error: "data/ca.key.sealed already exists — refusing to overwrite" });
+        if (!nodeFs.existsSync(caPlain)) throw new ConflictError("data/ca.key does not exist — nothing to seal");
+        if (nodeFs.existsSync(caSealed)) throw new ConflictError("data/ca.key.sealed already exists — refusing to overwrite");
         var result = pemSeal.sealPemFile(caPlain, caSealed, {});
         audit.log(audit.ACTIONS.CA_KEY_SEALED, { details: "mTLS CA private key sealed via admin UI", req: req });
         res.json({
@@ -632,7 +636,8 @@ module.exports = function (app) {
           ],
         });
       } catch (err) {
-        res.status(500).json({ error: err.message });
+        if (err.isAppError) throw err;
+        throw new AppError(err.message, 500);
       }
     });
   });
@@ -644,8 +649,8 @@ module.exports = function (app) {
         var pemSeal = require("../lib/pem-seal");
         var caPlain = PATHS.CA_KEY;
         var caSealed = PATHS.CA_KEY_SEALED;
-        if (!nodeFs.existsSync(caSealed)) return res.status(409).json({ error: "data/ca.key.sealed does not exist — nothing to unseal" });
-        if (nodeFs.existsSync(caPlain)) return res.status(409).json({ error: "data/ca.key already exists — refusing to overwrite" });
+        if (!nodeFs.existsSync(caSealed)) throw new ConflictError("data/ca.key.sealed does not exist — nothing to unseal");
+        if (nodeFs.existsSync(caPlain)) throw new ConflictError("data/ca.key already exists — refusing to overwrite");
         pemSeal.unsealPemFile(caSealed, caPlain);
         audit.log(audit.ACTIONS.CA_KEY_UNSEALED, { details: "mTLS CA private key unsealed via admin UI", req: req });
         res.json({
@@ -657,7 +662,8 @@ module.exports = function (app) {
           ],
         });
       } catch (err) {
-        res.status(500).json({ error: err.message });
+        if (err.isAppError) throw err;
+        throw new AppError(err.message, 500);
       }
     });
   });
@@ -669,8 +675,8 @@ module.exports = function (app) {
         var pemSeal = require("../lib/pem-seal");
         var tlsPlain = process.env.TLS_KEY || nodePath.join(PATHS.TLS_DIR, "privkey.pem");
         var tlsSealed = tlsPlain + ".sealed";
-        if (!nodeFs.existsSync(tlsPlain)) return res.status(409).json({ error: tlsPlain + " does not exist — nothing to seal" });
-        if (nodeFs.existsSync(tlsSealed)) return res.status(409).json({ error: tlsSealed + " already exists — refusing to overwrite" });
+        if (!nodeFs.existsSync(tlsPlain)) throw new ConflictError(tlsPlain + " does not exist — nothing to seal");
+        if (nodeFs.existsSync(tlsSealed)) throw new ConflictError(tlsSealed + " already exists — refusing to overwrite");
         var result = pemSeal.sealPemFile(tlsPlain, tlsSealed, {});
         // Best-effort SIGHUP self-signal so the server's cert watcher picks
         // up the new sealed file immediately (server-main.js installs the
@@ -687,7 +693,8 @@ module.exports = function (app) {
           ],
         });
       } catch (err) {
-        res.status(500).json({ error: err.message });
+        if (err.isAppError) throw err;
+        throw new AppError(err.message, 500);
       }
     });
   });
@@ -699,8 +706,8 @@ module.exports = function (app) {
         var pemSeal = require("../lib/pem-seal");
         var tlsPlain = process.env.TLS_KEY || nodePath.join(PATHS.TLS_DIR, "privkey.pem");
         var tlsSealed = tlsPlain + ".sealed";
-        if (!nodeFs.existsSync(tlsSealed)) return res.status(409).json({ error: tlsSealed + " does not exist — nothing to unseal" });
-        if (nodeFs.existsSync(tlsPlain)) return res.status(409).json({ error: tlsPlain + " already exists — refusing to overwrite" });
+        if (!nodeFs.existsSync(tlsSealed)) throw new ConflictError(tlsSealed + " does not exist — nothing to unseal");
+        if (nodeFs.existsSync(tlsPlain)) throw new ConflictError(tlsPlain + " already exists — refusing to overwrite");
         pemSeal.unsealPemFile(tlsSealed, tlsPlain);
         try { process.kill(process.pid, "SIGHUP"); } catch (_e) { /* same */ }
         audit.log(audit.ACTIONS.TLS_KEY_UNSEALED, { details: "TLS server private key unsealed via admin UI", req: req });
@@ -713,7 +720,8 @@ module.exports = function (app) {
           ],
         });
       } catch (err) {
-        res.status(500).json({ error: err.message });
+        if (err.isAppError) throw err;
+        throw new AppError(err.message, 500);
       }
     });
   });
@@ -722,7 +730,7 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     var body = (await b.parsers.json(req)) || {};
     var timestamp = String(body.timestamp || "");
-    if (!timestamp) return res.status(400).json({ error: "timestamp required" });
+    if (!timestamp) throw new ValidationError("timestamp required");
     try {
       var backend = backup.getBackend();
       var allKeys = await backend.list("backups/");
@@ -736,14 +744,15 @@ module.exports = function (app) {
           if (m && m.timestamp === timestamp) { targetPrefix = manifestKeys[i].replace("manifest.json", ""); break; }
         } catch (_e) { /* skip unreadable manifest — continue scanning */ }
       }
-      if (!targetPrefix) return res.status(404).json({ error: "Backup not found" });
+      if (!targetPrefix) throw new NotFoundError("Backup not found");
       // Delete all files under this backup's prefix
       var prefixKeys = allKeys.filter(function (k) { return k.startsWith(targetPrefix); });
       for (var j = 0; j < prefixKeys.length; j++) await backend.del(prefixKeys[j]);
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Deleted backup: " + timestamp + " (" + prefixKeys.length + " objects)", req: req });
       res.json({ success: true, deleted: prefixKeys.length });
     } catch (err) {
-      res.status(500).json({ error: "Delete failed: " + err.message });
+      if (err.isAppError) throw err;
+      throw new AppError("Delete failed: " + err.message, 500);
     }
   });
 
@@ -752,7 +761,7 @@ module.exports = function (app) {
     var body = (await b.parsers.json(req)) || {};
     var passphrase = String(body.passphrase || "");
     var timestamp = String(body.timestamp || "");
-    if (!passphrase || !timestamp) return res.status(400).json({ error: "passphrase and timestamp required" });
+    if (!passphrase || !timestamp) throw new ValidationError("passphrase and timestamp required");
     // dryRun: download + decrypt + checksum-verify every file, but skip
     // all writes + the process.exit restart. Used by E2E tests to validate
     // the restore crypto/integrity path without mutating on-disk state.
@@ -762,7 +771,7 @@ module.exports = function (app) {
     // Verify passphrase if hash is set
     if (config.backup.passphraseHash) {
       var valid = await backup.verifyPassphrase(passphrase);
-      if (!valid) return res.status(403).json({ error: "Invalid passphrase." });
+      if (!valid) throw new ForbiddenError("Invalid passphrase.");
     }
 
     audit.log(audit.ACTIONS.RESTORE_STARTED, { details: "Restore initiated from backup: " + timestamp + (dryRun ? " (dry-run)" : ""), req: req });
@@ -776,7 +785,7 @@ module.exports = function (app) {
       }
     } catch (err) {
       logger.error("Restore failed", { error: err.message });
-      res.status(500).json({ error: "Restore failed: " + err.message });
+      throw new AppError("Restore failed: " + err.message, 500);
     }
   });
 
@@ -784,7 +793,7 @@ module.exports = function (app) {
   app.get("/admin/export/users", (req, res) => {
     if (!requireAdmin(req, res)) return;
     var check = adminValidator.validateExportParams("users");
-    if (check.error) return res.status(400).json({ error: check.error });
+    if (check.error) throw new ValidationError(check.error);
     var csv = exportService.exportUsersCsv();
     audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Users CSV exported", req: req });
     res.writeHead(200, { "Content-Type": "text/csv", "Content-Disposition": "attachment; filename=\"users-export.csv\"" });
@@ -795,7 +804,7 @@ module.exports = function (app) {
   app.get("/admin/export/files", (req, res) => {
     if (!requireAdmin(req, res)) return;
     var check = adminValidator.validateExportParams("files");
-    if (check.error) return res.status(400).json({ error: check.error });
+    if (check.error) throw new ValidationError(check.error);
     var csv = exportService.exportFilesCsv();
     audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Files CSV exported", req: req });
     res.writeHead(200, { "Content-Type": "text/csv", "Content-Disposition": "attachment; filename=\"files-export.csv\"" });
@@ -813,8 +822,8 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     var body = (await b.parsers.json(req)) || {};
     var check = adminValidator.validateBlocklistInput(body);
-    if (check.error) return res.status(400).json({ error: check.error });
-    if (blockedIpsRepo.findOne({ ip: check.ip })) return res.status(400).json({ error: "Already blocked." });
+    if (check.error) throw new ValidationError(check.error);
+    if (blockedIpsRepo.findOne({ ip: check.ip })) throw new ValidationError("Already blocked.");
     blockedIpsRepo.create({ ip: check.ip, reason: check.reason, blockedBy: req.user._id, createdAt: new Date().toISOString() });
     audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "IP blocked", req: req });
     res.json({ success: true });
@@ -883,14 +892,14 @@ module.exports = function (app) {
     try {
       var body = (await b.parsers.json(req)) || {};
       var check = adminValidator.validateSettingsInput(body);
-      if (check.error) return res.status(400).json({ error: check.error });
+      if (check.error) throw new ValidationError(check.error);
       var result = settingsService.updateSettings(check.settings);
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: settingsService.buildAuditDetails(result), req: req });
       res.json({ success: true, updated: result.updated, restart: result.restart, warnings: result.warnings });
     } catch (e) {
       logger.error("Settings error", { error: e.message || String(e) });
-      var status = e.isAppError ? e.statusCode : 400;
-      res.status(status).json({ error: e.message || "Failed to save settings." });
+      if (e.isAppError) throw e;
+      throw new ValidationError(e.message || "Failed to save settings.");
     }
   });
 
@@ -906,11 +915,11 @@ module.exports = function (app) {
     try {
       var { files: uploaded } = await parseMultipart(req, 2 * 1024 * 1024); // 2MB max
       var file = uploaded[0];
-      if (!file) return res.status(400).json({ error: "No file uploaded." });
+      if (!file) throw new ValidationError("No file uploaded.");
 
       // Validate actual content, not just claimed MIME type
       var ext = detectContentType(file.data);
-      if (!ext || [".png", ".jpg", ".gif", ".webp", ".svg"].indexOf(ext) === -1) return res.status(400).json({ error: "Invalid image. Upload a PNG, JPG, SVG, WebP, or GIF." });
+      if (!ext || [".png", ".jpg", ".gif", ".webp", ".svg"].indexOf(ext) === -1) throw new ValidationError("Invalid image. Upload a PNG, JPG, SVG, WebP, or GIF.");
 
       var data = file.data;
 
@@ -918,7 +927,7 @@ module.exports = function (app) {
       if (ext === ".svg") {
         var raw = data.toString("utf8");
         var clean = sanitizeSvg(raw);
-        if (!clean || clean.length < 10) return res.status(400).json({ error: "SVG rejected — could not sanitize safely." });
+        if (!clean || clean.length < 10) throw new ValidationError("SVG rejected — could not sanitize safely.");
         data = Buffer.from(clean, "utf8");
       }
 
@@ -938,8 +947,9 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Custom logo uploaded: " + filename + " (" + data.length + " bytes)", req: req });
       res.json({ success: true, path: logoPath });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Logo upload error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Upload failed." });
+      throw new AppError("Upload failed.", 500);
     }
   });
 
@@ -955,7 +965,7 @@ module.exports = function (app) {
       res.json({ success: true });
     } catch (err) {
       logger.error("[admin/logo/remove] Error", { error: err.message, stack: err.stack });
-      res.status(500).json({ error: "Failed to remove logo." });
+      throw new AppError("Failed to remove logo.", 500);
     }
   });
 
@@ -975,7 +985,7 @@ module.exports = function (app) {
       res.json({ success: true, enforceMtls: enabled });
     } catch (e) {
       logger.error("enforce-mtls toggle error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to update enforceMtls." });
+      throw new AppError("Failed to update enforceMtls.", 500);
     }
   });
 
@@ -1008,10 +1018,10 @@ module.exports = function (app) {
     try {
       var body = (await b.parsers.json(req)) || {};
       if (!body || body.confirm !== "REGEN") {
-        return res.status(400).json({ error: "Confirmation required: POST { confirm: 'REGEN' }" });
+        throw new ValidationError("Confirmation required: POST { confirm: 'REGEN' }");
       }
       if (!mtlsCa.exists()) {
-        return res.status(400).json({ error: "No CA exists yet. Nothing to regenerate." });
+        throw new ValidationError("No CA exists yet. Nothing to regenerate.");
       }
       // skipRestart: run the full orchestration (version check → in-memory CA
       // generation → WS broadcast → ack collection → summary response) but do
@@ -1174,8 +1184,10 @@ module.exports = function (app) {
       res.json({ ok: true, summary: summary, note: "CA rotation pushed to " + liveByKeyId.size + " client(s); " + ackCount + " acked. Committing and restarting." });
       finalize("rotation-path");
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("CA regeneration failed", { error: e.message || String(e), stack: e.stack });
-      if (!res.headersSent) res.status(500).json({ error: "CA regeneration failed: " + (e.message || String(e)) });
+      if (res.headersSent) return;
+      throw new AppError("CA regeneration failed: " + (e.message || String(e)), 500);
     }
   });
 
@@ -1209,7 +1221,7 @@ module.exports = function (app) {
       res.json({ success: true, deleted: count });
     } catch (e) {
       logger.error("Purge users error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to purge users." });
+      throw new AppError("Failed to purge users.", 500);
     }
   });
 
@@ -1241,7 +1253,7 @@ module.exports = function (app) {
       res.json({ success: true, deletedFiles: fileCount, deletedBundles: bundleCount });
     } catch (e) {
       logger.error("Purge files error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to purge files." });
+      throw new AppError("Failed to purge files.", 500);
     }
   });
 
@@ -1251,7 +1263,7 @@ module.exports = function (app) {
     try {
       var body = (await b.parsers.json(req)) || {};
       var check = adminValidator.validatePurgeConfirmation(body);
-      if (check.error) return res.status(400).json({ error: check.error });
+      if (check.error) throw new ValidationError(check.error);
 
       // Delete all files from disk
       var allFiles = filesRepo.findAll({});
@@ -1294,8 +1306,9 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Full database purge (factory reset)", req: req });
       res.json({ success: true });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Purge database error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to purge database." });
+      throw new AppError("Failed to purge database.", 500);
     }
   });
 
@@ -1312,7 +1325,7 @@ module.exports = function (app) {
 
   app.post("/admin/setup", async (req, res) => {
     if (!requireAdmin(req, res)) return;
-    if (config.setupComplete) return res.status(400).json({ error: "Setup already completed." });
+    if (config.setupComplete) throw new ValidationError("Setup already completed.");
     try {
       var body = (await b.parsers.json(req)) || {};
       var errors = [];
@@ -1354,7 +1367,7 @@ module.exports = function (app) {
       }
 
       if (errors.length > 0) {
-        return res.status(400).json({ error: errors.join(" ") });
+        throw new ValidationError(errors.join(" "));
       }
 
       // Mark setup as complete
@@ -1371,8 +1384,9 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Initial setup completed", req: req });
       res.json({ success: true, redirect: "/admin" });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Setup error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Setup failed." });
+      throw new AppError("Setup failed.", 500);
     }
   });
 
@@ -1386,26 +1400,27 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     var direction = req.query.direction;
     if (direction !== "local-to-s3" && direction !== "s3-to-local") {
-      return res.status(400).json({ error: "direction must be 'local-to-s3' or 's3-to-local'" });
+      throw new ValidationError("direction must be 'local-to-s3' or 's3-to-local'");
     }
     try {
       var preview = migrationService.migrationPreview(direction);
       res.json(preview);
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      if (e.isAppError) throw e;
+      throw new AppError(e.message, 500);
     }
   });
 
   app.post("/admin/storage/migration/start", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     if (_migrationRunning || (_migrationResult && _migrationResult.status === "running")) {
-      return res.status(409).json({ error: "Migration already in progress." });
+      throw new ConflictError("Migration already in progress.");
     }
 
     var body = (await b.parsers.json(req)) || {};
     var direction = body.direction;
     if (direction !== "local-to-s3" && direction !== "s3-to-local") {
-      return res.status(400).json({ error: "direction must be 'local-to-s3' or 's3-to-local'" });
+      throw new ValidationError("direction must be 'local-to-s3' or 's3-to-local'");
     }
 
     _migrationRunning = true;
@@ -1461,7 +1476,7 @@ module.exports = function (app) {
       });
     } catch (e) {
       logger.error("Orphan scan error", { error: e.message });
-      res.status(500).json({ error: "Scan failed: " + e.message });
+      throw new AppError("Scan failed: " + e.message, 500);
     }
   });
 
@@ -1498,7 +1513,7 @@ module.exports = function (app) {
       res.json({ success: true, deleted: result });
     } catch (e) {
       logger.error("Orphan cleanup error", { error: e.message });
-      res.status(500).json({ error: "Cleanup failed: " + e.message });
+      throw new AppError("Cleanup failed: " + e.message, 500);
     }
   });
 };

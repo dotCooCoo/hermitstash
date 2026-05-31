@@ -11,6 +11,7 @@ var audit = require("../lib/audit");
 var rateLimit = require("../lib/rate-limit");
 var sessionService = require("../app/domain/auth/session.service");
 var { send } = require("../middleware/send");
+var { AppError, ValidationError, AuthenticationError, ForbiddenError } = require("../app/shared/errors");
 
 // Stored algorithm is null/undefined for users enrolled before v1.9.11 (always
 // SHA-1 in that era). Anything else is the explicit string ("SHA512" today).
@@ -33,8 +34,9 @@ module.exports = function (app) {
       var uri = totp.getUri(secret, req.user.email, config.siteName);
       res.json({ secret: secret, uri: uri });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("2FA setup error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to set up 2FA." });
+      throw new AppError("Failed to set up 2FA.", 500);
     }
   });
 
@@ -45,11 +47,11 @@ module.exports = function (app) {
       var body = (await b.parsers.json(req)) || {};
       var code = String(body.code || "");
       var secret = req.session.pendingTotpSecret;
-      if (!secret) return res.status(400).json({ error: "No pending 2FA setup. Start again." });
+      if (!secret) throw new ValidationError("No pending 2FA setup. Start again.");
 
       // New enrollments are always SHA-512 — no legacy path through /2fa/setup.
       if (!totp.verify(secret, code, 0, totp.DEFAULT_ALGORITHM)) {
-        return res.status(400).json({ error: "Invalid code. Try again." });
+        throw new ValidationError("Invalid code. Try again.");
       }
 
       // Generate backup codes
@@ -72,8 +74,9 @@ module.exports = function (app) {
       // Return backup codes (shown once, never again)
       res.json({ success: true, backupCodes: backupCodes });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("2FA confirm error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to confirm 2FA." });
+      throw new AppError("Failed to confirm 2FA.", 500);
     }
   });
 
@@ -87,10 +90,10 @@ module.exports = function (app) {
       // Require a valid code to disable
       var user = usersRepo.findById(req.user._id);
       var secret = user.totpSecret ? vault.unseal(user.totpSecret) : null;
-      if (!secret) return res.status(400).json({ error: "2FA is not enabled." });
+      if (!secret) throw new ValidationError("2FA is not enabled.");
 
       if (!totp.verify(secret, code, 0, algorithmFor(user))) {
-        return res.status(400).json({ error: "Invalid code." });
+        throw new ValidationError("Invalid code.");
       }
 
       usersRepo.update(req.user._id, {
@@ -100,8 +103,9 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.TOTP_DISABLED, { targetId: req.user._id, targetEmail: req.user.email, req: req });
       res.json({ success: true });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("2FA disable error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to disable 2FA." });
+      throw new AppError("Failed to disable 2FA.", 500);
     }
   });
 
@@ -113,22 +117,22 @@ module.exports = function (app) {
       var userId = req.session.pendingTotpUserId;
       var pendingExpires = req.session.pendingTotpExpires || 0;
 
-      if (!userId) return res.status(400).json({ error: "No pending 2FA verification." });
+      if (!userId) throw new ValidationError("No pending 2FA verification.");
       if (Date.now() > pendingExpires) {
         delete req.session.pendingTotpUserId;
         delete req.session.pendingTotpExpires;
-        return res.status(400).json({ error: "2FA session expired. Please log in again." });
+        throw new ValidationError("2FA session expired. Please log in again.");
       }
 
       var user = usersRepo.findById(userId);
-      if (!user) return res.status(400).json({ error: "User not found." });
+      if (!user) throw new ValidationError("User not found.");
       if (user.status === "suspended") {
         delete req.session.pendingTotpUserId;
-        return res.status(403).json({ error: "Account suspended." });
+        throw new ForbiddenError("Account suspended.");
       }
 
       var secret = user.totpSecret ? vault.unseal(user.totpSecret) : null;
-      if (!secret) return res.status(400).json({ error: "2FA not configured." });
+      if (!secret) throw new ValidationError("2FA not configured.");
 
       // Try TOTP code first (with replay prevention). Dispatch on the stored
       // algorithm so legacy SHA-1 secrets still verify; mark them for forced
@@ -164,10 +168,11 @@ module.exports = function (app) {
       }
 
       audit.log(audit.ACTIONS.TOTP_FAILED, { targetId: user._id, details: "Invalid 2FA code", req: req });
-      res.status(401).json({ error: "Invalid 2FA code." });
+      throw new AuthenticationError("Invalid 2FA code.");
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("2FA verify error", { error: e.message || String(e) });
-      res.status(500).json({ error: "2FA verification failed." });
+      throw new AppError("2FA verification failed.", 500);
     }
   });
 
@@ -210,15 +215,16 @@ module.exports = function (app) {
   // session as pending until the user proves possession by entering a code.
   app.post("/2fa/re-enroll/start", async (req, res) => {
     if (!requireAuth(req, res)) return;
-    if (!eligibleForReEnroll(req)) return res.status(403).json({ error: "Re-enrollment not required for this account." });
+    if (!eligibleForReEnroll(req)) throw new ForbiddenError("Re-enrollment not required for this account.");
     try {
       var secret = totp.generateSecret(totp.DEFAULT_ALGORITHM);
       req.session.pendingReEnrollSecret = secret;
       var uri = totp.getUri(secret, req.user.email, config.siteName, totp.DEFAULT_ALGORITHM);
       res.json({ secret: secret, uri: uri, algorithm: totp.DEFAULT_ALGORITHM });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("2FA re-enroll start error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to start re-enrollment." });
+      throw new AppError("Failed to start re-enrollment.", 500);
     }
   });
 
@@ -227,15 +233,15 @@ module.exports = function (app) {
   // codes and clear the session flag.
   app.post("/2fa/re-enroll/confirm", async (req, res) => {
     if (!requireAuth(req, res)) return;
-    if (!eligibleForReEnroll(req)) return res.status(403).json({ error: "Re-enrollment not required for this account." });
+    if (!eligibleForReEnroll(req)) throw new ForbiddenError("Re-enrollment not required for this account.");
     try {
       var body = (await b.parsers.json(req)) || {};
       var code = String(body.code || "");
       var secret = req.session.pendingReEnrollSecret;
-      if (!secret) return res.status(400).json({ error: "No pending re-enrollment. Start again." });
+      if (!secret) throw new ValidationError("No pending re-enrollment. Start again.");
 
       if (!totp.verify(secret, code, 0, totp.DEFAULT_ALGORITHM)) {
-        return res.status(400).json({ error: "Invalid code. Try again." });
+        throw new ValidationError("Invalid code. Try again.");
       }
 
       var backupCodes = totp.generateBackupCodes();
@@ -257,8 +263,9 @@ module.exports = function (app) {
 
       res.json({ success: true, backupCodes: backupCodes });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("2FA re-enroll confirm error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to confirm re-enrollment." });
+      throw new AppError("Failed to confirm re-enrollment.", 500);
     }
   });
 };

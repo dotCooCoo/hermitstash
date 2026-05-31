@@ -58,7 +58,7 @@ describe("auth-suspend", function () {
         json: { email: "target@suspend-test.com", password: "password123" },
       });
       assert.strictEqual(res.status, 403);
-      assert.strictEqual(res.json.error, "Account suspended.");
+      assert.strictEqual(res.json.detail, "Account suspended.");
     });
 
     it("suspended user cannot access dashboard", async function () {

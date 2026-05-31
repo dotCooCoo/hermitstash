@@ -8,6 +8,7 @@ var audit = require("../lib/audit");
 var requireAuth = require("../middleware/require-auth");
 var sessionService = require("../app/domain/auth/session.service");
 var rateLimit = require("../lib/rate-limit");
+var { AppError, ValidationError, AuthenticationError, ForbiddenError, NotFoundError } = require("../app/shared/errors");
 
 module.exports = function (app) {
   // ---- Registration (add passkey to existing account) ----
@@ -15,7 +16,7 @@ module.exports = function (app) {
   // Generate registration options
   app.post("/passkey/register/options", async (req, res) => {
     if (!requireAuth(req, res)) return;
-    if (!config.passkeyEnabled) return res.status(403).json({ error: "Passkeys are disabled." });
+    if (!config.passkeyEnabled) throw new ForbiddenError("Passkeys are disabled.");
 
     try {
       var userCreds = credentialsRepo.findByUser(req.user._id);
@@ -49,22 +50,23 @@ module.exports = function (app) {
       req.session.passkeyChallenge = options.challenge;
       res.json(options);
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Passkey register options error", { error: e.message || String(e), stack: e.stack });
-      res.status(500).json({ error: "Failed to generate passkey options." });
+      throw new AppError("Failed to generate passkey options.", 500);
     }
   });
 
   // Verify registration response
   app.post("/passkey/register/verify", async (req, res) => {
     if (!requireAuth(req, res)) return;
-    if (!config.passkeyEnabled) return res.status(403).json({ error: "Passkeys are disabled." });
+    if (!config.passkeyEnabled) throw new ForbiddenError("Passkeys are disabled.");
 
     try {
       var body = (await b.parsers.json(req)) || {};
       var expectedChallenge = req.session.passkeyChallenge;
       delete req.session.passkeyChallenge;
 
-      if (!expectedChallenge) return res.status(400).json({ error: "No pending passkey challenge." });
+      if (!expectedChallenge) throw new ValidationError("No pending passkey challenge.");
 
       var verification = await b.auth.passkey.verifyRegistration({
         response: body,
@@ -75,7 +77,7 @@ module.exports = function (app) {
       });
 
       if (!verification.verified || !verification.registrationInfo) {
-        return res.status(400).json({ error: "Passkey verification failed." });
+        throw new ValidationError("Passkey verification failed.");
       }
 
       var info = verification.registrationInfo;
@@ -94,8 +96,9 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.PASSKEY_REGISTERED, { targetId: req.user._id, targetEmail: req.user.email, details: "deviceType: " + (info.credentialDeviceType || "unknown"), req: req });
       res.json({ verified: true });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Passkey register verify error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Passkey registration failed." });
+      throw new AppError("Passkey registration failed.", 500);
     }
   });
 
@@ -103,7 +106,7 @@ module.exports = function (app) {
 
   // Generate authentication options
   app.post("/passkey/login/options", async (req, res) => {
-    if (!config.passkeyEnabled) return res.status(403).json({ error: "Passkeys are disabled." });
+    if (!config.passkeyEnabled) throw new ForbiddenError("Passkeys are disabled.");
 
     try {
       // b.auth.passkey.startAuthentication sets options.hints to
@@ -117,21 +120,22 @@ module.exports = function (app) {
       req.session.passkeyChallenge = options.challenge;
       res.json(options);
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Passkey login options error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to generate login options." });
+      throw new AppError("Failed to generate login options.", 500);
     }
   });
 
   // Verify authentication response
   app.post("/passkey/login/verify", rateLimit.guard({ scope: "passkey-login", max: 10, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
-    if (!config.passkeyEnabled) return res.status(403).json({ error: "Passkeys are disabled." });
+    if (!config.passkeyEnabled) throw new ForbiddenError("Passkeys are disabled.");
 
     try {
       var body = (await b.parsers.json(req)) || {};
       var expectedChallenge = req.session.passkeyChallenge;
       delete req.session.passkeyChallenge;
 
-      if (!expectedChallenge) return res.status(400).json({ error: "No pending passkey challenge." });
+      if (!expectedChallenge) throw new ValidationError("No pending passkey challenge.");
 
       // Find the credential by trying all stored credentials
       var incomingCredId = body.id; // base64url encoded
@@ -149,17 +153,17 @@ module.exports = function (app) {
 
       if (!matchedCred) {
         audit.log(audit.ACTIONS.PASSKEY_LOGIN_FAILED, { details: "Unknown credential", req: req });
-        return res.status(401).json({ error: "Unknown passkey." });
+        throw new AuthenticationError("Unknown passkey.");
       }
 
       var user = usersRepo.findById(matchedCred.userId);
       if (!user) {
         audit.log(audit.ACTIONS.PASSKEY_LOGIN_FAILED, { details: "User not found for credential", req: req });
-        return res.status(401).json({ error: "Account not found." });
+        throw new AuthenticationError("Account not found.");
       }
 
       if (user.status === "suspended") {
-        return res.status(403).json({ error: "Account suspended." });
+        throw new ForbiddenError("Account suspended.");
       }
       if (user.status === "pending") {
         return res.status(403).json({ error: "Please verify your email first.", pending: true, email: user.email });
@@ -187,7 +191,7 @@ module.exports = function (app) {
 
       if (!verification.verified) {
         audit.log(audit.ACTIONS.PASSKEY_LOGIN_FAILED, { targetId: user._id, targetEmail: user.email, details: "Verification failed", req: req });
-        return res.status(401).json({ error: "Passkey verification failed." });
+        throw new AuthenticationError("Passkey verification failed.");
       }
 
       // Update counter
@@ -200,8 +204,9 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.PASSKEY_LOGIN_SUCCESS, { targetId: user._id, targetEmail: user.email, details: "authType: passkey", req: req });
       res.json({ verified: true, redirect: "/dashboard" });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Passkey login verify error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Passkey login failed." });
+      throw new AppError("Passkey login failed.", 500);
     }
   });
 
@@ -223,11 +228,11 @@ module.exports = function (app) {
     try {
       var body = (await b.parsers.json(req)) || {};
       var credId = body.credentialId;
-      if (!credId) return res.status(400).json({ error: "Credential ID required." });
+      if (!credId) throw new ValidationError("Credential ID required.");
 
       var cred = credentialsRepo.findOne({ _id: credId });
       if (!cred || cred.userId !== req.user._id) {
-        return res.status(404).json({ error: "Passkey not found." });
+        throw new NotFoundError("Passkey not found.");
       }
 
       // Don't allow removing last passkey if user has no other login method
@@ -236,7 +241,7 @@ module.exports = function (app) {
         var hasPassword = !!req.user.passwordHash;
         var hasGoogle = req.user.authType === "google" || !!req.user.googleId;
         if (!hasPassword && !hasGoogle) {
-          return res.status(400).json({ error: "Cannot remove your only passkey. Add a password or link Google first." });
+          throw new ValidationError("Cannot remove your only passkey. Add a password or link Google first.");
         }
         // Warn if vault is enabled — removing the only passkey makes vault unrecoverable
         var vaultEnabled = req.user.vaultEnabled === "true";
@@ -252,8 +257,9 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.PASSKEY_REMOVED, { targetId: req.user._id, targetEmail: req.user.email, req: req });
       res.json({ success: true });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Passkey remove error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to remove passkey." });
+      throw new AppError("Failed to remove passkey.", 500);
     }
   });
 };

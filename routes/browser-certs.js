@@ -24,6 +24,7 @@ var requireAdmin = require("../middleware/require-admin");
 var audit = require("../lib/audit");
 var mtlsCa = require("../lib/mtls-ca");
 var logger = require("../app/shared/logger");
+var { AppError, ValidationError } = require("../app/shared/errors");
 
 var BROWSER_CERT_PREFIX = "Browser: ";
 
@@ -65,10 +66,10 @@ module.exports = function (app) {
       // and bounded length — the mtls-ca helper re-sanitizes but we reject
       // loudly here so the admin sees the error rather than a mystery rename.
       if (!cnRaw || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,49}$/.test(cnRaw)) {
-        return res.status(400).json({ error: "Common Name must be 1–50 chars, alphanumeric + dashes/underscores, starting with alphanumeric." });
+        throw new ValidationError("Common Name must be 1–50 chars, alphanumeric + dashes/underscores, starting with alphanumeric.");
       }
       if (password.length < 12) {
-        return res.status(400).json({ error: "Password must be at least 12 characters." });
+        throw new ValidationError("Password must be at least 12 characters.");
       }
 
       if (!mtlsCa.exists()) {
@@ -79,7 +80,7 @@ module.exports = function (app) {
 
       var result = await mtlsCa.generateClientP12({ cn: cnRaw, password: password, validityDays: validityDays });
       if (!result || !result.p12 || !result.fingerprint256) {
-        return res.status(500).json({ error: "Certificate generation failed. Is OpenSSL installed?" });
+        throw new AppError("Certificate generation failed. Is OpenSSL installed?", 500);
       }
 
       // Tracking row in api_keys. keyHash uses a sentinel that can't be
@@ -112,8 +113,9 @@ module.exports = function (app) {
       });
       res.end(result.p12);
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Browser cert generate error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to generate browser certificate." });
+      throw new AppError("Failed to generate browser certificate.", 500);
     }
   });
 };

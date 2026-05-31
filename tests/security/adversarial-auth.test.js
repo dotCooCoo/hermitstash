@@ -315,7 +315,7 @@ describe("adversarial auth and authorization", function () {
         json: { displayName: "Short", email: "pw7-" + testId + "@test.com", password: "1234567" },
       });
       assert.strictEqual(res.status, 400, "7-char password must be rejected");
-      assert.ok(res.json.error.includes("8"), "error must mention minimum length");
+      assert.ok(res.json.detail.includes("8"), "error must mention minimum length");
     });
 
     // 20. Empty displayName
@@ -336,7 +336,7 @@ describe("adversarial auth and authorization", function () {
         json: { displayName: "Dupe", email: adminEmail, password: strongPassword },
       });
       assert.ok(res.status === 400 || res.status === 409, "duplicate email must be rejected with 400 or 409, got " + res.status);
-      assert.ok(res.json.error.includes("already registered"), "error must say 'already registered'");
+      assert.ok(res.json.detail.includes("already registered"), "error must say 'already registered'");
     });
   });
 
@@ -353,7 +353,7 @@ describe("adversarial auth and authorization", function () {
         json: { password: strongPassword },
       });
       assert.strictEqual(res.status, 400, "missing email must yield 400");
-      assert.strictEqual(res.json.error, "Email and password required.");
+      assert.strictEqual(res.json.detail, "Email and password required.");
     });
 
     // 23. Missing password field
@@ -364,7 +364,7 @@ describe("adversarial auth and authorization", function () {
         json: { email: adminEmail },
       });
       assert.strictEqual(res.status, 400, "missing password must yield 400");
-      assert.strictEqual(res.json.error, "Email and password required.");
+      assert.strictEqual(res.json.detail, "Email and password required.");
     });
 
     // 24. Email as number instead of string — the server coerces via
@@ -377,7 +377,7 @@ describe("adversarial auth and authorization", function () {
         json: { email: 12345, password: "password123" },
       });
       assert.strictEqual(res.status, 401, "numeric email coerced to string, user not found");
-      assert.strictEqual(res.json.error, "Invalid email or password.");
+      assert.strictEqual(res.json.detail, "Invalid email or password.");
     });
 
     // 25. Null body — CSRF blocks before body-parse path; HS rejects
@@ -458,7 +458,7 @@ describe("adversarial auth and authorization", function () {
         json: {},
       });
       assert.strictEqual(res.status, 403, "user B must get 403 deleting user A's file");
-      assert.strictEqual(res.json.error, "Not authorized.");
+      assert.strictEqual(res.json.detail || res.json.error, "Not authorized.");
     });
 
     // 27. User A (admin) can delete their own file

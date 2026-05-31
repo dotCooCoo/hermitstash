@@ -7,6 +7,7 @@ var requireAdmin = require("../middleware/require-admin");
 var idempotency = require("../middleware/idempotency");
 var audit = require("../lib/audit");
 var webhookService = require("../app/domain/integrations/webhook.service");
+var { AppError } = require("../app/shared/errors");
 
 module.exports = function (app) {
   app.get("/admin/webhooks/api", function (req, res) {
@@ -22,8 +23,8 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Webhook created: " + body.url, req: req });
       res.json({ success: true, secret: result.secret });
     } catch (e) {
-      if (e.isAppError) return res.status(e.statusCode).json({ error: e.message });
-      res.status(500).json({ error: "Failed to create webhook." });
+      if (e.isAppError) throw e;
+      throw new AppError("Failed to create webhook.", 500);
     }
   });
 
@@ -33,8 +34,8 @@ module.exports = function (app) {
       var result = webhookService.toggle(req.params.id);
       res.json({ success: true, active: result.active });
     } catch (e) {
-      if (e.isAppError) return res.status(e.statusCode).json({ error: e.message });
-      res.status(500).json({ error: "Failed to toggle webhook." });
+      if (e.isAppError) throw e;
+      throw new AppError("Failed to toggle webhook.", 500);
     }
   });
 
@@ -45,8 +46,8 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Webhook deleted", req: req });
       res.json({ success: true });
     } catch (e) {
-      if (e.isAppError) return res.status(e.statusCode).json({ error: e.message });
-      res.status(500).json({ error: "Failed to delete webhook." });
+      if (e.isAppError) throw e;
+      throw new AppError("Failed to delete webhook.", 500);
     }
   });
 
@@ -57,8 +58,9 @@ module.exports = function (app) {
       var deliveries = webhookService.getDeliveries(req.params.id, 20);
       res.json({ deliveries: deliveries });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Webhook deliveries error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to load deliveries." });
+      throw new AppError("Failed to load deliveries.", 500);
     }
   });
 };

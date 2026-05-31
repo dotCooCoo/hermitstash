@@ -84,7 +84,7 @@ describe("passkey error paths", function () {
       json: { id: "fake", rawId: "fake", response: {}, type: "public-key" },
     });
     assert.strictEqual(res.status, 400);
-    assert.ok(res.json.error.includes("No pending"), "should mention no pending challenge");
+    assert.ok((res.json.detail || res.json.error || "").includes("No pending"), "should mention no pending challenge");
   });
 
   it("POST /passkey/login/verify without pending challenge returns 400", async function () {
@@ -96,7 +96,7 @@ describe("passkey error paths", function () {
       json: { id: "fake", rawId: "fake", response: {}, type: "public-key" },
     });
     assert.strictEqual(res.status, 400);
-    assert.ok(res.json.error.includes("No pending"), "should mention no pending challenge");
+    assert.ok((res.json.detail || res.json.error || "").includes("No pending"), "should mention no pending challenge");
   });
 
   it("POST /passkey/remove without auth redirects to login", async function () {
@@ -119,7 +119,7 @@ describe("passkey error paths", function () {
       json: {},
     });
     assert.strictEqual(res.status, 400);
-    assert.ok(res.json.error.includes("Credential ID"), "should mention credential ID required");
+    assert.ok((res.json.detail || res.json.error || "").includes("Credential ID"), "should mention credential ID required");
   });
 
   it("POST /passkey/remove with auth but wrong credentialId returns 404", async function () {
@@ -132,7 +132,7 @@ describe("passkey error paths", function () {
       json: { credentialId: "nonexistent-cred-id-12345" },
     });
     assert.strictEqual(res.status, 404);
-    assert.ok(res.json.error.includes("not found"), "should mention passkey not found");
+    assert.ok((res.json.detail || res.json.error || "").includes("not found"), "should mention passkey not found");
   });
 });
 
@@ -156,7 +156,7 @@ describe("passkey disabled", function () {
     await client.initApiKey();
     var res = await client.post("/passkey/login/options", { json: {} });
     assert.strictEqual(res.status, 403);
-    assert.ok(res.json.error.includes("disabled"), "should mention passkeys are disabled");
+    assert.ok((res.json.detail || res.json.error || "").includes("disabled"), "should mention passkeys are disabled");
   });
 
   it("POST /passkey/register/options returns 403 when disabled", async function () {
@@ -167,7 +167,7 @@ describe("passkey disabled", function () {
     });
     var res = await client.post("/passkey/register/options", { json: {} });
     assert.strictEqual(res.status, 403);
-    assert.ok(res.json.error.includes("disabled"), "should mention passkeys are disabled");
+    assert.ok((res.json.detail || res.json.error || "").includes("disabled"), "should mention passkeys are disabled");
   });
 
   it("POST /passkey/register/verify returns 403 when disabled", async function () {
@@ -175,7 +175,7 @@ describe("passkey disabled", function () {
       json: { id: "fake", rawId: "fake", response: {}, type: "public-key" },
     });
     assert.strictEqual(res.status, 403);
-    assert.ok(res.json.error.includes("disabled"), "should mention passkeys are disabled");
+    assert.ok((res.json.detail || res.json.error || "").includes("disabled"), "should mention passkeys are disabled");
   });
 
   it("POST /passkey/login/verify returns 403 when disabled", async function () {
@@ -185,6 +185,6 @@ describe("passkey disabled", function () {
       json: { id: "fake", rawId: "fake", response: {}, type: "public-key" },
     });
     assert.strictEqual(res.status, 403);
-    assert.ok(res.json.error.includes("disabled"), "should mention passkeys are disabled");
+    assert.ok((res.json.detail || res.json.error || "").includes("disabled"), "should mention passkeys are disabled");
   });
 });

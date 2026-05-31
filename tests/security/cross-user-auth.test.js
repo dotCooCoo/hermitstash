@@ -149,7 +149,7 @@ describe("cross-user authentication security", function () {
       await client.initApiKey();
       var res = await client.post("/2fa/verify", { json: { code: "123456" } });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("No pending"));
+      assert.ok((res.json.detail || res.json.error || "").includes("No pending"));
     });
 
     it("2FA verify rejects suspended user", async function () {

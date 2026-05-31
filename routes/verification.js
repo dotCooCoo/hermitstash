@@ -11,6 +11,7 @@ var { send, host } = require("../middleware/send");
 var sessionService = require("../app/domain/auth/session.service");
 var { validateEmail } = require("../app/shared/validate");
 var rateLimit = require("../lib/rate-limit");
+var { AppError, ValidationError } = require("../app/shared/errors");
 
 function createVerificationToken(userId) {
   // Clean up any existing tokens for this user
@@ -112,7 +113,7 @@ module.exports = function (app) {
     try {
       var body = (await b.parsers.json(req)) || {};
       var emailCheck = validateEmail(body.email);
-      if (!emailCheck.valid) return res.status(400).json({ error: emailCheck.reason });
+      if (!emailCheck.valid) throw new ValidationError(emailCheck.reason);
       var email = emailCheck.email;
 
       var user = usersRepo.findByEmail(email);
@@ -132,8 +133,9 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.EMAIL_VERIFICATION_RESENT, { targetId: user._id, targetEmail: user.email, req: req });
       res.json({ success: true, message: "If an account with that email exists and needs verification, a new link has been sent." });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Resend verification error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to resend verification." });
+      throw new AppError("Failed to resend verification.", 500);
     }
   });
 

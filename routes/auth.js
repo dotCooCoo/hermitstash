@@ -14,6 +14,7 @@ var sessionService = require("../app/domain/auth/session.service");
 var { validateLoginInput, validateRegisterInput } = require("../app/http/validators/auth.validator");
 var { createVerificationToken } = require("./verification");
 var { validateToken } = require("../app/security/csrf-policy");
+var { AppError, ValidationError, ForbiddenError } = require("../app/shared/errors");
 
 module.exports = function (app) {
   // Google OAuth
@@ -74,18 +75,18 @@ module.exports = function (app) {
 
   var loginLimiter = rateLimit.guard({ scope: "login", max: 15, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" });
   app.post("/auth/login", loginLimiter, async (req, res) => {
-    if (!config.localAuth) return res.status(403).json({ error: "Disabled." });
+    if (!config.localAuth) throw new ForbiddenError("Disabled.");
     try {
       var body = (await b.parsers.json(req)) || {};
       var input = validateLoginInput(body);
-      if (input.error) return res.status(400).json({ error: input.error });
+      if (input.error) throw new ValidationError(input.error);
 
       // Account lockout check (pre-service, needs DB lookup for timing)
       var existing = usersRepo.findByEmail(input.email);
       if (existing && existing.lockedUntil && new Date(existing.lockedUntil).getTime() > Date.now()) {
         var lockMinutes = Math.ceil((new Date(existing.lockedUntil).getTime() - Date.now()) / C.TIME.minutes(1));
         audit.log(audit.ACTIONS.LOGIN_FAILED_BAD_PASSWORD, { targetId: existing._id, targetEmail: input.email, details: "Account locked (" + lockMinutes + " min remaining)", req: req });
-        return res.status(403).json({ error: "Account temporarily locked. Try again in " + lockMinutes + " minutes." });
+        throw new ForbiddenError("Account temporarily locked. Try again in " + lockMinutes + " minutes.");
       }
 
       var user;
@@ -111,7 +112,7 @@ module.exports = function (app) {
           } else if (err.statusCode === 403) {
             audit.log(audit.ACTIONS.LOGIN_FAILED_BAD_PASSWORD, { targetId: existing ? existing._id : undefined, targetEmail: input.email, details: "Suspended account (local)", req: req });
           }
-          return res.status(err.statusCode).json({ error: err.message });
+          throw err;
         }
         throw err;
       }
@@ -132,8 +133,9 @@ module.exports = function (app) {
       var redirect = (!config.setupComplete && user.role === "admin") ? "/admin/setup" : "/dashboard";
       res.json({ success: true, redirect: redirect });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Login error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Login failed." });
+      throw new AppError("Login failed.", 500);
     }
   });
 
@@ -145,19 +147,13 @@ module.exports = function (app) {
   });
 
   app.post("/auth/register", rateLimit.guard({ scope: "register", max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async (req, res) => {
-    if (!config.localAuth || !config.registrationOpen) return res.status(403).json({ error: "Registration is closed." });
+    if (!config.localAuth || !config.registrationOpen) throw new ForbiddenError("Registration is closed.");
     try {
       var body = (await b.parsers.json(req)) || {};
       var input = validateRegisterInput(body);
-      if (input.error) return res.status(400).json({ error: input.error });
+      if (input.error) throw new ValidationError(input.error);
 
-      var result;
-      try {
-        result = await authService.registerLocal(input.displayName, input.email, input.password, { emailVerification: config.emailVerification });
-      } catch (err) {
-        if (err.isAppError) return res.status(err.statusCode).json({ error: err.message });
-        throw err;
-      }
+      var result = await authService.registerLocal(input.displayName, input.email, input.password, { emailVerification: config.emailVerification });
 
       var user = result.user;
       audit.log(audit.ACTIONS.USER_REGISTERED, { targetId: user._id, targetEmail: user.email, details: "authType: local, role: " + user.role + ", claimed: " + result.claimed + ", verified: " + !result.needsVerification, req: req });
@@ -173,8 +169,9 @@ module.exports = function (app) {
       await sessionService.loginUser(req, user._id);
       res.json({ success: true, redirect: "/dashboard", claimed: result.claimed });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Register error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Registration failed." });
+      throw new AppError("Registration failed.", 500);
     }
   });
 

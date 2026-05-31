@@ -181,6 +181,12 @@ function _continueStart(opts) {
       require(path.join(projectRoot, "routes", routes[i]))(app);
     }
 
+    // Centralized error handler — mirrors server-main.js so thrown AppError
+    // subclasses become RFC 9457 problem-details instead of the router's
+    // bare 500 fallback. Without this, any route that throws to the boundary
+    // reaches the test client as text/plain "Internal Server Error".
+    app.onError(require(path.join(projectRoot, "middleware", "error-handler")));
+
     // Initialize the transaction helper — needed by service modules that
     // wrap multi-step DB operations (teams.deleteTeam, etc.). Mirrors
     // server-main.js:90 (txHelper.init). Safe to call redundantly.

@@ -130,7 +130,7 @@ describe("multipart abuse", function () {
       contentType: "multipart/form-data; boundary=" + boundary,
     });
     assert.strictEqual(res.status, 400);
-    assert.strictEqual(res.json.error, "No file.");
+    assert.strictEqual(res.json.detail || res.json.error, "No file.");
   });
 
   it("6. POST /drop/file with empty body does not crash", async function () {
@@ -394,7 +394,7 @@ describe("database manipulation", function () {
       json: { email: "'; DROP TABLE users; --", password: "anything" },
     });
     assert.strictEqual(res.status, 401);
-    assert.strictEqual(res.json.error, "Invalid email or password.");
+    assert.strictEqual(res.json.detail, "Invalid email or password.");
 
     // Verify the database is still functional by doing a health-check query
     var { users } = require(path.join(testServer.projectRoot, "lib", "db"));
@@ -520,8 +520,8 @@ describe("file count limit", function () {
     // Wording reads "Too many files (max N)." with the configured cap.
     // The older "File count limit exceeded." text is gone — the
     // limit-aware message surfaces the actual cap to the operator.
-    assert.match(res3.json.error, /Too many files|limit exceeded|count/i,
-      "rejection should mention file-count limit, got: " + res3.json.error);
+    assert.match(res3.json.detail || res3.json.error, /Too many files|limit exceeded|count/i,
+      "rejection should mention file-count limit, got: " + (res3.json.detail || res3.json.error));
 
     // Restore
     config.publicMaxFiles = origMaxFiles;

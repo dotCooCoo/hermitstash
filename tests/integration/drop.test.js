@@ -85,7 +85,7 @@ describe("drop integration", function () {
       "bad content", { relativePath: "virus.exe" }
     );
     assert.strictEqual(res.status, 400);
-    assert.ok(res.json.error.includes("not allowed"));
+    assert.ok((res.json.detail || res.json.error || "").includes("not allowed"));
   });
 
   it("POST /drop/finalize completes the bundle", async function () {

@@ -92,7 +92,7 @@ describe("POST /admin/security/seal/vault-passphrase", function () {
       json: { passphrase: "one", confirmPassphrase: "different" },
     });
     assert.strictEqual(res.status, 400);
-    assert.match(res.json.error, /do not match/);
+    assert.match(res.json.detail || res.json.error, /do not match/);
   });
 
   it("refuses empty passphrase", async function () {
@@ -100,7 +100,7 @@ describe("POST /admin/security/seal/vault-passphrase", function () {
       json: { passphrase: "", confirmPassphrase: "" },
     });
     assert.strictEqual(res.status, 400);
-    assert.match(res.json.error, /required/);
+    assert.match(res.json.detail || res.json.error, /required/);
   });
 
   it("seals vault key with matching passphrase + returns followUp checklist", async function () {
@@ -147,7 +147,7 @@ describe("POST /admin/security/unseal/vault-passphrase", function () {
       json: { passphrase: "definitely-the-wrong-one" },
     });
     assert.strictEqual(res.status, 401);
-    assert.match(res.json.error, /passphrase rejected/);
+    assert.match(res.json.detail || res.json.error, /passphrase rejected/);
   });
 
   it("unseals with correct passphrase", async function () {
@@ -174,7 +174,7 @@ describe("POST /admin/security/seal/ca-key and /unseal/ca-key", function () {
     if (!fs.existsSync(C.PATHS.CA_KEY)) {
       var res = await client.post("/admin/security/seal/ca-key", { json: {} });
       assert.strictEqual(res.status, 409);
-      assert.match(res.json.error, /does not exist/);
+      assert.match(res.json.detail || res.json.error, /does not exist/);
     }
   });
 
@@ -194,6 +194,6 @@ describe("POST /admin/security/seal/tls-key", function () {
   it("returns 409 when no TLS key configured", async function () {
     var res = await client.post("/admin/security/seal/tls-key", { json: {} });
     assert.strictEqual(res.status, 409);
-    assert.match(res.json.error, /does not exist/);
+    assert.match(res.json.detail || res.json.error, /does not exist/);
   });
 });

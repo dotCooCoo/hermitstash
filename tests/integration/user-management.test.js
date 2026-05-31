@@ -83,7 +83,7 @@ describe("user management integration", function () {
       // old response before the error-handler migration. Accept either so the
       // test is forward-compatible with the more-correct status.
       assert.ok(res.status === 400 || res.status === 409, "duplicate email should be 400 or 409, got " + res.status);
-      assert.ok(/already registered/i.test(res.json.error), "error should mention already registered, got: " + res.json.error);
+      assert.ok(/already registered/i.test(res.json.detail || res.json.error), "error should mention already registered, got: " + (res.json.detail || res.json.error));
     });
 
     // 3. Short password rejected at registration
@@ -94,7 +94,7 @@ describe("user management integration", function () {
         json: { displayName: "Short", email: "short@test.com", password: "abc" },
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("8"));
+      assert.ok((res.json.detail || res.json.error || "").includes("8"));
     });
 
     // 4. Missing fields rejected at registration
@@ -105,7 +105,7 @@ describe("user management integration", function () {
         json: { displayName: "", email: "", password: "" },
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("required"));
+      assert.ok((res.json.detail || res.json.error || "").includes("required"));
     });
 
     // 5. List users via /admin/users/api
@@ -305,7 +305,7 @@ describe("user management integration", function () {
         json: {},
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("Cannot remove the last admin"));
+      assert.ok((res.json.detail || res.json.error).includes("Cannot remove the last admin"));
     });
 
     // 15. Cannot suspend last admin
@@ -318,7 +318,7 @@ describe("user management integration", function () {
         json: {},
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("Cannot suspend the last admin"));
+      assert.ok((res.json.detail || res.json.error).includes("Cannot suspend the last admin"));
     });
 
     // 16. Cannot delete last admin
@@ -331,7 +331,7 @@ describe("user management integration", function () {
         json: {},
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("Cannot delete the last admin"));
+      assert.ok((res.json.detail || res.json.error).includes("Cannot delete the last admin"));
     });
 
     // 17. With 2 admins, CAN demote one
@@ -452,7 +452,7 @@ describe("user management integration", function () {
         json: { currentPassword: "totallyWrong", newPassword: "something123" },
       });
       assert.strictEqual(res.status, 401);
-      assert.ok(res.json.error.includes("Current password is incorrect"));
+      assert.ok((res.json.detail || res.json.error || "").includes("Current password is incorrect"));
     });
 
     // 22. New password too short
@@ -467,7 +467,7 @@ describe("user management integration", function () {
         json: { currentPassword: "password123", newPassword: "short" },
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("8"));
+      assert.ok((res.json.detail || res.json.error || "").includes("8"));
     });
 
     // 23. Google OAuth user cannot change password
@@ -505,7 +505,7 @@ describe("user management integration", function () {
         json: { currentPassword: "placeholder123", newPassword: "newgooglepass123" },
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("local accounts"));
+      assert.ok((res.json.detail || res.json.error || "").includes("local accounts"));
 
       // Clean up
       users.remove({ _id: googleUser._id });
@@ -650,7 +650,7 @@ describe("user management integration", function () {
         json: { confirm: "nope" },
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("DELETE"));
+      assert.ok((res.json.detail || res.json.error || "").includes("DELETE"));
     });
 
     // 32. User profile update with empty name
@@ -665,7 +665,7 @@ describe("user management integration", function () {
         json: { displayName: "" },
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("required"));
+      assert.ok((res.json.detail || res.json.error || "").includes("required"));
     });
 
     // 33. Suspended user's session is cleared

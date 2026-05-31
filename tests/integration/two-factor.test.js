@@ -136,7 +136,7 @@ describe("two-factor integration", function () {
 
       var res = await client.post("/2fa/confirm", { json: { code: "000000" } });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("Invalid"));
+      assert.ok((res.json.detail || res.json.error || "").includes("Invalid"));
     });
 
     it("rejects without pending setup", async function () {
@@ -149,7 +149,7 @@ describe("two-factor integration", function () {
       });
       var res = await client.post("/2fa/confirm", { json: { code: "123456" } });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("pending") || res.json.error.includes("Start again"));
+      assert.ok((res.json.detail || res.json.error || "").includes("pending") || (res.json.detail || res.json.error || "").includes("Start again"));
     });
 
     it("confirms with valid TOTP code and returns backup codes", async function () {
@@ -227,7 +227,7 @@ describe("two-factor integration", function () {
       });
       var res = await client.post("/2fa/verify", { json: { code: "000000" } });
       assert.strictEqual(res.status, 401);
-      assert.ok(res.json.error.includes("Invalid"));
+      assert.ok((res.json.detail || res.json.error || "").includes("Invalid"));
     });
 
     it("verify without pending userId returns 400", async function () {
@@ -236,7 +236,7 @@ describe("two-factor integration", function () {
       await client.initApiKey();
       var res = await client.post("/2fa/verify", { json: { code: "123456" } });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("pending"));
+      assert.ok((res.json.detail || res.json.error || "").includes("pending"));
     });
 
     it("verify with backup code completes login", async function () {
@@ -295,7 +295,7 @@ describe("two-factor integration", function () {
 
       var res = await client.post("/2fa/disable", { json: { code: "000000" } });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("Invalid"));
+      assert.ok((res.json.detail || res.json.error || "").includes("Invalid"));
     });
 
     it("disables 2FA with valid code", async function () {

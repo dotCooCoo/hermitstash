@@ -45,7 +45,7 @@ describe("auth integration", function () {
         json: { displayName: "Dupe", email: "test@test.com", password: "password123" },
       });
       assert.ok(res.status === 400 || res.status === 409, "should reject duplicate with 400 or 409, got " + res.status);
-      assert.ok(res.json.error.includes("already registered"));
+      assert.ok(res.json.detail.includes("already registered"));
     });
 
     it("rejects short password", async function () {
@@ -53,7 +53,7 @@ describe("auth integration", function () {
         json: { displayName: "Short", email: "short@test.com", password: "123" },
       });
       assert.strictEqual(res.status, 400);
-      assert.ok(res.json.error.includes("8"));
+      assert.ok(res.json.detail.includes("8"));
     });
 
     it("rejects missing fields", async function () {

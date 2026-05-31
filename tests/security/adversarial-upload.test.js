@@ -58,13 +58,13 @@ describe("file extension enforcement", function () {
   it("1. rejects .exe upload with 400 and 'not allowed'", async function () {
     var res = await uploadFile(bundleId, "malware.exe", "MZ\x90\x00");
     assert.strictEqual(res.status, 400);
-    assert.ok(res.json.error.includes("not allowed"));
+    assert.ok((res.json.detail || res.json.error || "").includes("not allowed"));
   });
 
   it("2. rejects double extension malware.pdf.exe with 400", async function () {
     var res = await uploadFile(bundleId, "malware.pdf.exe", "MZ\x90\x00");
     assert.strictEqual(res.status, 400);
-    assert.ok(res.json.error.includes("not allowed"));
+    assert.ok((res.json.detail || res.json.error || "").includes("not allowed"));
   });
 
   it("3. rejects file with no extension (Makefile) with 400", async function () {
@@ -73,8 +73,8 @@ describe("file extension enforcement", function () {
     // Validator wording branches: "No file extension." for missing-ext,
     // "File type not allowed: <ext>" for in-extension-mismatch. Either
     // signals the rejection class this test cares about.
-    assert.match(res.json.error, /not allowed|No file extension|extension/i,
-      "rejection should mention extension policy, got: " + res.json.error);
+    assert.match(res.json.detail || res.json.error, /not allowed|No file extension|extension/i,
+      "rejection should mention extension policy, got: " + (res.json.detail || res.json.error));
   });
 
   it("4. accepts uppercase .PDF (case-insensitive check) with 200 or rejects 400", async function () {
@@ -93,8 +93,8 @@ describe("file extension enforcement", function () {
     var res = await uploadFile(bundleId, "file.", "some content");
     assert.strictEqual(res.status, 400);
     // Same extension-policy assertion as test 3.
-    assert.match(res.json.error, /not allowed|No file extension|extension/i,
-      "rejection should mention extension policy, got: " + res.json.error);
+    assert.match(res.json.detail || res.json.error, /not allowed|No file extension|extension/i,
+      "rejection should mention extension policy, got: " + (res.json.detail || res.json.error));
   });
 
   it("6. accepts .7z (in allowed list) with 200 or rejects 400", async function () {
@@ -181,8 +181,8 @@ describe("upload limits", function () {
     // (max N)." with the configured cap.
     var overflow = await uploadFile(bundleId, "file5.txt", "overflow");
     assert.strictEqual(overflow.status, 400);
-    assert.match(overflow.json.error, /Too many files|limit exceeded|count/i,
-      "rejection should mention file-count limit, got: " + overflow.json.error);
+    assert.match(overflow.json.detail || overflow.json.error, /Too many files|limit exceeded|count/i,
+      "rejection should mention file-count limit, got: " + (overflow.json.detail || overflow.json.error));
   });
 });
 
