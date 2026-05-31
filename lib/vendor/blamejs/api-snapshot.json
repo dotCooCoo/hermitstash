@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.14.9",
-  "createdAt": "2026-05-31T03:42:29.026Z",
+  "frameworkVersion": "0.14.10",
+  "createdAt": "2026-05-31T10:40:06.680Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -14129,6 +14129,10 @@
           "arity": 0
         },
         "computeDerived": {
+          "type": "function",
+          "arity": 3
+        },
+        "computeNamespacedHash": {
           "type": "function",
           "arity": 3
         },
@@ -40496,6 +40500,14 @@
                   "valueType": "string"
                 }
               }
+            },
+            "FTS_FORMAT_VERSION": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "FTS_HASH_BYTES": {
+              "type": "primitive",
+              "valueType": "number"
             },
             "MAX_TOKENS_PER_FIELD": {
               "type": "primitive",

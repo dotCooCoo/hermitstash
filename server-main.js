@@ -6,7 +6,7 @@ var url = require("node:url");
 // -- lib/ modules --
 var config = require("./lib/config");
 var C = require("./lib/constants");
-var { Router, serveStatic } = require("./lib/vendor/blamejs").router;
+var { Router } = require("./lib/vendor/blamejs").router;
 var { sessionMiddleware } = require("./lib/session");
 var db = require("./lib/db");
 var { users } = db;
@@ -141,13 +141,25 @@ app.use(b.middleware.composePipeline([
   { name: "ipCheck",          mw: require("./middleware/ip-check"),         position: 27 },
   { name: "botGuard",         mw: require("./middleware/bot-guard") },
   { name: "cors",             mw: require("./middleware/cors"),              position: 44 },
-  { name: "staticAssets",     mw: serveStatic(path.join(__dirname, "public")), position: 45 },
+  // b.staticServe adds ETag/304 conditional handling + RFC 7233 Range over
+  // the curated build output in public/. contentSafety is disabled because
+  // this directory holds operator-controlled assets (CSS/JS bundles, fonts,
+  // brand-logo SVGs exported by the design toolchain with <style>/PI markers
+  // the strict guard refuses); the SVG-XSS surface is the user-uploaded
+  // logo dirs, gated separately by uploadedAssetsCsp + serveLogoFrom. Serves
+  // GET/HEAD, falls through with next() on miss/dir so the logo routes below
+  // still resolve.
+  { name: "staticAssets",     mw: b.staticServe.create({
+      root: path.join(__dirname, "public"),
+      contentSafety: null,
+      contentSafetyDisabledReason: "operator-curated public build output (css/js/fonts/brand-svg); no untrusted uploads served from this mount",
+    }), position: 45 },
 ]));
 
 // Serve admin custom logo + per-stash logos from the writable data directory.
 // These are user-uploaded assets that can't live under public/img/ because the
-// app source tree is read-only in Docker. Must come AFTER serveStatic so the
-// static middleware's 404 fallthrough reaches us; must come BEFORE auth-
+// app source tree is read-only in Docker. Must come AFTER the staticAssets
+// middleware so its 404 fallthrough reaches us; must come BEFORE auth-
 // protected routes so public pages (landing, stash pages) can load logos.
 function serveLogoFrom(dir) {
   return function (req, res) {

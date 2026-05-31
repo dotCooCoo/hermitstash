@@ -1,0 +1,54 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.14.10",
+  "date": "2026-05-31",
+  "headline": "Full-text-search token hashes move to a keyed MAC; existing mail-store search indexes rebuild automatically on upgrade",
+  "summary": "The mail-store full-text-search index hashed its tokens with a hand-rolled salted-SHA3 derived hash. It now routes through the framework's sealed-column hashing primitive in keyed mode (HMAC-SHAKE256 off the per-deployment MAC key), so a search-index token hash is unforgeable and un-correlatable across deployments without that key — the same posture the sealed-column lookup hashes already use. Because the keyed hash changes the stored token values, a mail-store opened after upgrade detects its index as old-format and rebuilds it once from the sealed message rows. The rebuild runs under a format marker: the index is marked `rebuilding` before it is cleared and only marked current after every row is re-hashed inside an explicit transaction, and search falls back to its cursor path (rather than returning partial hits) whenever the marker is not current — so an interrupted rebuild leaves the old index intact and queryable and retries on the next open, never serving a half-built index. A new `b.cryptoField.computeNamespacedHash` primitive backs the keyed hashing for callers that hash outside the registered-column path.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.cryptoField.computeNamespacedHash`",
+          "body": "A mode-aware namespaced hash for indexed-lookup callers that hash a value outside the registered-column derived-hash path. `computeNamespacedHash(ns, value, { mode, truncateBytes })` routes through the same engine as `computeDerived` — `salted-sha3` (default) or the keyed `hmac-shake256` — with optional hex truncation. The mail-store full-text index is the first consumer."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Mail-store full-text index rehashes to a keyed MAC on upgrade",
+          "body": "The full-text-search token hash now uses `b.cryptoField.computeNamespacedHash` in `hmac-shake256` mode instead of a hand-rolled salted-SHA3. The first time a store is opened after upgrade, its index is detected as old-format and rebuilt once from the sealed message rows; subsequent opens are no-ops. Search is unaffected once the rebuild completes. The rebuild requires the vault to be initialized and fails closed (a clear error) at construction if it is not, rather than leaving a stale searchable index."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Keyed, un-correlatable full-text-search token hashes",
+          "body": "A search-index token hash is now a keyed MAC over a per-deployment key, not a static-salted digest — it cannot be forged or correlated across deployments without that key, closing the low-entropy-token correlation gap on the search index. The index remains unrecoverable from a database dump alone, as before."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "Hand-rolled lookup-hash check covers the split form",
+          "body": "The check that requires sealed-column lookup hashes to compose the framework primitive now also catches the across-lines hand-roll (`var salt = getDerivedHashSalt(); var hex = salt.toString(...); sha3(hex + ns + value)`), not only the single-expression form, so the bypass that the mail-store index used can't reappear."
+        }
+      ]
+    },
+    {
+      "heading": "Migration",
+      "items": [
+        {
+          "title": "Automatic, one-time full-text index rebuild",
+          "body": "No operator action is required: the rebuild runs automatically and idempotently on first open after upgrade, atomically and crash-safe (an interrupted rebuild keeps the old index and retries). The only requirement is that the vault is initialized before the mail-store is constructed. One caveat for shared stores: do not run a pre-upgrade and post-upgrade node against the same backend file concurrently across this format change — the old node would write old-format hashes the new node cannot match. Roll the deployment fully across the upgrade. This re-open condition is lifted once all nodes are on 0.14.10 or later."
+        }
+      ]
+    }
+  ]
+}

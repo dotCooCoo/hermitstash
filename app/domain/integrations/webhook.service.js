@@ -3,8 +3,6 @@
  * Routes call this; this calls repositories and security policies.
  */
 var b = require("../../../lib/vendor/blamejs");
-var https = require("https");
-;
 var webhooksRepo = require("../../data/repositories/webhooks.repo");
 var { isPrivateHost, validateOutboundUrl } = require("../../security/ssrf-policy");
 var { ValidationError, NotFoundError } = require("../../shared/errors");
@@ -115,57 +113,46 @@ function dispatchSingle(hookId, eventName, payload) {
 
     var body = JSON.stringify({ event: eventName, data: payload, timestamp: new Date().toISOString() });
     var signature = hook.secret ? b.crypto.hmacSha3(hook.secret, body) : "";
-    // Pin DNS to the pre-validated IP to prevent TOCTOU rebinding
-    var pinnedAddress = result.address;
-    var pinnedFamily = result.family;
 
-    return new Promise(function (resolve) {
-      try {
-        var req = https.request(hook.url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Content-Length": Buffer.byteLength(body),
-            "X-Webhook-Signature": signature,
-          },
-          timeout: 5000,
-          lookup: function (_hostname, _opts, cb) { cb(null, pinnedAddress, pinnedFamily); },
-        }, function (res) {
-          var statusCode = res.statusCode;
-          var ok = statusCode >= 200 && statusCode < 300;
-          webhooksRepo.update(hook._id, { $set: { lastTriggered: new Date().toISOString() } });
-          webhookDeliveries.insert({
-            webhookId: hookId, event: eventName,
-            status: ok ? "success" : "failed",
-            statusCode: statusCode, error: ok ? null : "HTTP " + statusCode,
-            attempts: 1, createdAt: new Date().toISOString(),
-          });
-          // Consume response body to free socket
-          res.resume();
-          if (!ok) {
-            resolve({ error: "HTTP " + statusCode });
-          } else {
-            resolve();
-          }
-        });
-        req.on("error", function (err) {
-          webhookDeliveries.insert({
-            webhookId: hookId, event: eventName, status: "failed",
-            statusCode: 0, error: err.message || String(err),
-            attempts: 1, createdAt: new Date().toISOString(),
-          });
-          resolve({ error: err.message });
-        });
-        req.write(body);
-        req.end();
-      } catch (e) {
-        webhookDeliveries.insert({
-          webhookId: hookId, event: eventName, status: "failed",
-          statusCode: 0, error: e.message || String(e),
-          attempts: 1, createdAt: new Date().toISOString(),
-        });
-        resolve({ error: e.message });
-      }
+    // Deliver through the framework HTTP client: it runs its own SSRF gate and
+    // pins the TCP connect to the validated address (closing the DNS-rebinding
+    // TOCTOU window the manual lookup pin used to cover), enforces HTTPS-only,
+    // and caps both wall-clock and idle time. maxRedirects is pinned to 0 — a
+    // receiver must not be able to 302 the signed body + X-Webhook-Signature to
+    // another origin, and the client does not strip that custom header on a
+    // cross-origin redirect. responseMode "always-resolve" keeps a non-2xx as a
+    // resolved response so the delivery log records the real status code rather
+    // than collapsing it to 0; network/SSRF/timeout failures still reject.
+    return b.httpClient.request({
+      method: "POST",
+      url: hook.url,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Webhook-Signature": signature,
+      },
+      body: body,
+      timeoutMs: 5000,
+      idleTimeoutMs: 5000,
+      maxRedirects: 0,
+      responseMode: "always-resolve",
+      allowInternal: false,
+    }).then(function (res) {
+      var ok = res.statusCode >= 200 && res.statusCode < 300;
+      webhooksRepo.update(hook._id, { $set: { lastTriggered: new Date().toISOString() } });
+      webhookDeliveries.insert({
+        webhookId: hookId, event: eventName,
+        status: ok ? "success" : "failed",
+        statusCode: res.statusCode, error: ok ? null : "HTTP " + res.statusCode,
+        attempts: 1, createdAt: new Date().toISOString(),
+      });
+      return ok ? undefined : { error: "HTTP " + res.statusCode };
+    }, function (err) {
+      webhookDeliveries.insert({
+        webhookId: hookId, event: eventName, status: "failed",
+        statusCode: 0, error: (err && (err.message || String(err))) || "request failed",
+        attempts: 1, createdAt: new Date().toISOString(),
+      });
+      return { error: err && err.message };
     });
   });
 }

@@ -1,0 +1,30 @@
+{
+  "version": "1.11.22",
+  "date": "2026-05-31",
+  "headline": "Conditional and range static delivery, hardened webhook transport",
+  "summary": "Static assets now support conditional and partial requests, and outbound webhook delivery routes through the framework HTTP client for a single, well-tested egress path.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Serve static assets with conditional and range support",
+          "body": "Responses for built-in static assets (CSS, JavaScript bundles, fonts, images) now carry an ETag validator and honor If-None-Match with 304 Not Modified, plus RFC 7233 Range requests. Repeat page loads revalidate instead of re-downloading, and large assets can be fetched in parts."
+        },
+        {
+          "title": "Update the vendored framework to blamejs 0.14.10",
+          "body": "Refreshes the vendored blamejs framework from 0.14.9 to 0.14.10."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Route webhook delivery through the framework HTTP client",
+          "body": "Outbound webhook POSTs now go through the framework HTTP client. It re-checks the destination against the SSRF policy and pins the connection to the validated address, requires HTTPS, refuses to follow redirects, and caps both total and idle time. The X-Webhook-Signature (HMAC-SHA3-512) header, the per-delivery log, and the retry-with-backoff behavior are unchanged."
+        }
+      ]
+    }
+  ]
+}
