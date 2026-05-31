@@ -94,16 +94,32 @@ function errorHandler(err, req, res) {
     return;
   }
 
-  // RFC 9457 problem+json — 5xx detail is suppressed so internal failure
-  // text never reaches clients. b.problemDetails.send (v0.9.41+) is the
-  // single-call form of create(fields) + respond(res, problem); same
-  // application/problem+json + Cache-Control: no-store wire shape.
-  b.problemDetails.send(res, {
+  // RFC 9457 problem-details. 5xx detail is suppressed so internal failure
+  // text never reaches the client.
+  var problem = {
     type:   "https://hermitstash.com/problems/" + codeToTypeSlug(code),
     title:  codeToTitle(code),
     status: status,
     detail: status >= 500 ? undefined : message,
-  });
+  };
+
+  // If res.json encrypts on this session (api-encrypt wrapped it for a
+  // cookie-authenticated client), emit the problem document through res.json so
+  // the encryption covers it. b.problemDetails writes via res.end, which
+  // bypasses that wrap and would send the error body in cleartext on a session
+  // the client negotiated as encrypted. The client decrypts the envelope like
+  // any other response; the real status code is preserved.
+  if (res._apiEncryptJson && typeof res.json === "function") {
+    res.statusCode = status;
+    res.setHeader("Cache-Control", "no-store");
+    res.json(problem);
+    return;
+  }
+
+  // Plaintext application/problem+json for sessions whose responses are not
+  // encrypted at the application layer. b.problemDetails.send sets the
+  // application/problem+json content type + Cache-Control: no-store.
+  b.problemDetails.send(res, problem);
 }
 
 module.exports = errorHandler;

@@ -230,5 +230,14 @@ module.exports = function apiEncrypt(req, res, next) {
     origJson.call(res, response);
   };
 
+  // Signal the centralized error handler that res.json on this (cookie-
+  // authenticated) session encrypts the body. The error handler must route
+  // problem-details through res.json rather than b.problemDetails' raw
+  // res.end — otherwise an error on a session the client established as
+  // encrypted ships its problem+json body in cleartext (and unauthenticated),
+  // which matters most where this layer is the only on-wire payload
+  // confidentiality (an HTTP-mode deployment with no fronting TLS).
+  res._apiEncryptJson = true;
+
   next();
 };

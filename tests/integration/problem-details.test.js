@@ -142,6 +142,94 @@ describe("RFC 9457 problem-details (error-handler contract)", function () {
     });
   });
 
+  describe("api-encrypt × error-handler — encrypted-session error responses", function () {
+    // Regression guard for the confidentiality-boundary fix: on a cookie-
+    // authenticated session the api-encrypt middleware wraps res.json, and the
+    // error handler must route problem-details THROUGH that wrap (res.json)
+    // rather than b.problemDetails' raw res.end — otherwise error bodies ship
+    // in cleartext on a session the client negotiated as encrypted. This
+    // matters most on an HTTP-mode deployment where the api-encrypt layer is
+    // the only on-wire payload confidentiality.
+    var apiEncrypt, errorHandler, decryptPayload, AppErrors;
+
+    before(function () {
+      apiEncrypt = require(path.join(testServer.projectRoot, "middleware", "api-encrypt"));
+      errorHandler = require(path.join(testServer.projectRoot, "middleware", "error-handler"));
+      decryptPayload = require(path.join(testServer.projectRoot, "lib", "api-crypto")).decryptPayload;
+      AppErrors = require(path.join(testServer.projectRoot, "app", "shared", "errors"));
+    });
+
+    // Cookie session (no Bearer apiKey) + a router-shaped res.json baseline so
+    // the api-encrypt wrap has a real res.json to wrap.
+    function cookieReq() {
+      return { method: "GET", url: "/x", pathname: "/x", headers: { accept: "application/json" }, session: {}, socket: {}, on: function () {} };
+    }
+    function resWithJson() {
+      var state = { statusCode: 200, headers: {}, body: "", writableEnded: false };
+      var res = {
+        _state: state,
+        get writableEnded() { return state.writableEnded; },
+        get statusCode() { return state.statusCode; },
+        set statusCode(v) { state.statusCode = v; },
+        setHeader: function (k, v) { state.headers[k.toLowerCase()] = v; },
+        getHeader: function (k) { return state.headers[k.toLowerCase()]; },
+        writeHead: function (code, hdrs) { state.statusCode = code; if (hdrs) Object.keys(hdrs).forEach(function (k) { state.headers[k.toLowerCase()] = hdrs[k]; }); },
+        end: function (chunk) { if (chunk != null) state.body += chunk; state.writableEnded = true; },
+      };
+      // Mirror lib/vendor/blamejs/lib/router.js res.json (statusCode || 200, application/json).
+      res.json = function (data) { res.writeHead(state.statusCode || 200, { "Content-Type": "application/json" }); res.end(JSON.stringify(data)); };
+      return res;
+    }
+
+    it("cookie-encrypted session: 4xx error body is encrypted, not plaintext problem+json", function () {
+      var req = cookieReq();
+      var res = resWithJson();
+      apiEncrypt(req, res, function () {});
+      assert.strictEqual(res._apiEncryptJson, true, "api-encrypt should flag res.json as encrypting");
+
+      errorHandler(new AppErrors.ValidationError("bad input value"), req, res);
+
+      assert.strictEqual(res._state.statusCode, 400);
+      assert.strictEqual(res._state.headers["content-type"], "application/json",
+        "encrypted error ships as the application/json envelope, not application/problem+json");
+      var body = JSON.parse(res._state.body);
+      assert.strictEqual(typeof body._e, "string", "error body must be the encrypted envelope");
+      assert.strictEqual(body.detail, undefined, "no plaintext problem fields on the wire");
+      assert.strictEqual(body.title, undefined);
+
+      var problem = decryptPayload(body._e, res._apiKey, 60000);
+      assert.strictEqual(problem.status, 400);
+      assert.strictEqual(problem.title, "Validation Error");
+      assert.strictEqual(problem.detail, "bad input value");
+      assert.strictEqual(problem.type, "https://hermitstash.com/problems/validation-error");
+    });
+
+    it("cookie-encrypted session: 5xx detail stays suppressed inside the envelope", function () {
+      var req = cookieReq();
+      var res = resWithJson();
+      apiEncrypt(req, res, function () {});
+
+      errorHandler(new Error("db.password=hunter2 at /etc/secret"), req, res);
+
+      assert.strictEqual(res._state.statusCode, 500);
+      assert.ok(res._state.body.indexOf("hunter2") === -1, "internal text must not appear, encrypted or not");
+      var problem = decryptPayload(JSON.parse(res._state.body)._e, res._apiKey, 60000);
+      assert.strictEqual(problem.detail, undefined, "5xx detail suppressed inside the encrypted envelope too");
+    });
+
+    it("unencrypted session: still plaintext application/problem+json (no envelope)", function () {
+      // No api-encrypt run → res.json not wrapped, _apiEncryptJson unset →
+      // b.problemDetails plaintext path (unchanged for non-encrypted sessions).
+      var req = cookieReq();
+      var res = resWithJson();
+      errorHandler(new AppErrors.ValidationError("plain validation"), req, res);
+      assert.strictEqual(res._state.headers["content-type"], "application/problem+json");
+      var body = JSON.parse(res._state.body);
+      assert.strictEqual(body.detail, "plain validation");
+      assert.strictEqual(body._e, undefined);
+    });
+  });
+
   describe("known bypass paths (current behavior — guard against further drift)", function () {
     // Both bypasses below are pre-RFC 9457 patterns that haven't been
     // migrated yet. Asserting current behavior so a future fix knows

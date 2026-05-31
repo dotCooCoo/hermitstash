@@ -1106,6 +1106,13 @@ instance-specific message. 5xx responses omit `detail` so internal failure
 text never reaches clients. HTML clients still receive the standard error
 template — the content negotiation is `Accept`-driven.
 
+On sessions that use API payload encryption (browser XHR sessions), error
+responses are delivered inside the same encryption envelope as successful
+responses — `Content-Type: application/json` carrying the encrypted body —
+rather than plaintext `application/problem+json`. Decrypt it exactly as you
+would a successful response; the recovered payload is the problem-details
+object above, with the HTTP status preserved.
+
 Migrating from the pre-v1.10.1 `{ "error": "..." }` shape: read `.detail`
 instead of `.error`, branch on `.status` rather than HTTP status alone if
 you want type-stable error codes (`.type` is the long-lived identifier).
