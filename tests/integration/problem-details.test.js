@@ -217,6 +217,39 @@ describe("RFC 9457 problem-details (error-handler contract)", function () {
       assert.strictEqual(problem.detail, undefined, "5xx detail suppressed inside the encrypted envelope too");
     });
 
+    it("bearer-encrypted session: error body routes through the encrypting res.json wrap", function () {
+      // The Bearer/sync routes (/drop/init, /drop/finalize, /sync/rename) are
+      // covered by blamejs apiEncrypt, which sets req.apiEncryptSessionKey and
+      // wraps res.json with a per-session encrypting envelope — but does NOT
+      // set res._apiEncryptJson. The error handler must route problem-details
+      // through that wrap on this flag too, or a thrown AppError ships in
+      // cleartext via b.problemDetails' raw res.end on a session the client
+      // negotiated as encrypted.
+      var req = cookieReq();
+      req.apiEncryptSessionKey = Buffer.alloc(32, 7); // blamejs sets this per request
+      var res = resWithJson();
+      // Stand in for the blamejs wrap: res.json envelopes into { _ct }.
+      var origJson = res.json;
+      res.json = function (data) {
+        return origJson.call(res, { _ct: Buffer.from(JSON.stringify(data), "utf8").toString("base64") });
+      };
+
+      errorHandler(new AppErrors.NotFoundError("no such bundle"), req, res);
+
+      assert.strictEqual(res._state.statusCode, 404, "status preserved through the wrap");
+      assert.strictEqual(res._state.headers["content-type"], "application/json",
+        "routes through res.json envelope, not application/problem+json");
+      var body = JSON.parse(res._state.body);
+      assert.strictEqual(typeof body._ct, "string", "error body must be the encrypted envelope");
+      assert.strictEqual(body.detail, undefined, "no plaintext problem fields on the wire");
+      assert.strictEqual(body.title, undefined);
+      var problem = JSON.parse(Buffer.from(body._ct, "base64").toString("utf8"));
+      assert.strictEqual(problem.status, 404);
+      assert.strictEqual(problem.title, "Not Found");
+      assert.strictEqual(problem.detail, "no such bundle");
+      assert.strictEqual(problem.type, "https://hermitstash.com/problems/not-found");
+    });
+
     it("unencrypted session: still plaintext application/problem+json (no envelope)", function () {
       // No api-encrypt run → res.json not wrapped, _apiEncryptJson unset →
       // b.problemDetails plaintext path (unchanged for non-encrypted sessions).

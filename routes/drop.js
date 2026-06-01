@@ -41,7 +41,7 @@ module.exports = function (app) {
 
   // Init bundle
   app.post("/drop/init", rateLimit.guard({ scope: "drop-init", max: 20, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), idempotency, requireScope("upload"), async (req, res) => {
-    if (!config.publicUpload) return res.status(403).json({ error: "Disabled." });
+    if (!config.publicUpload) throw new ForbiddenError("Disabled.");
     // blamejs apiEncrypt populates req.body with the decrypted plaintext;
     // fall through to parseJson(req) only when no upstream middleware has
     // pre-parsed the request (e.g. legacy callers, tests).
@@ -133,18 +133,18 @@ module.exports = function (app) {
   // Finalize bundle
   app.post("/drop/finalize/:bundleId", rateLimit.guard({ scope: "finalize", max: 20, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), idempotency, requireScope("upload"), async (req, res) => {
     var existing = bundlesRepo.findById(req.params.bundleId);
-    if (!existing) return res.status(404).json({ error: "Bundle not found." });
+    if (!existing) throw new NotFoundError("Bundle not found.");
     if (existing.stashId && !(req.apiKey && req.apiKey.boundStashId === existing.stashId)) {
-      return res.status(403).json({ error: "This bundle must be finalized via its stash endpoint." });
+      throw new ForbiddenError("This bundle must be finalized via its stash endpoint.");
     }
-    if (existing.ownerId && (!req.user || existing.ownerId !== req.user._id)) return res.status(403).json({ error: "Forbidden." });
+    if (existing.ownerId && (!req.user || existing.ownerId !== req.user._id)) throw new ForbiddenError("Forbidden.");
 
     var body = req.body || (await b.parsers.json(req)) || {};
     var token = String(body.finalizeToken || req.query.finalizeToken || "");
     var result = handleFinalize({
       bundleId: req.params.bundleId, token: token, sendUploaderEmail: true, req: req,
     });
-    if (result.error) return res.status(result.status || 400).json({ error: result.error });
+    if (result.error) throw new AppError(result.error, result.status || 400);
     res.json({ success: true, shareId: result.shareId, shareUrl: result.shareUrl, emailSent: result.emailSent });
   });
 };

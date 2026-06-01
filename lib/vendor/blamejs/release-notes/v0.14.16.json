@@ -1,0 +1,45 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.14.16",
+  "date": "2026-05-31",
+  "headline": "Connection entry-point ports are validated at config time",
+  "summary": "Six connection entry points previously read opts.port with a bare `|| <default>` fallback, silently coercing a string, negative, NaN, or out-of-range port instead of catching the operator's typo. A new b.validateOpts.optionalPort enforces the RFC 6335 §6 wire-valid range and is wired into b.mail.smtpTransport, b.ntpCheck.querySingle, b.networkDns.useDnsOverTls, b.networkNts (KE handshake / query / facade), b.redisClient.create, and createApp().listen — each now throws at construction with a clear message naming the bad value. The app.listen / createApp bind site opts into allowZero so port 0 (the legitimate ephemeral-bind sentinel) still works; the five outbound-connect sites require [1,65535].",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.validateOpts.optionalPort`",
+          "body": "A config-time port validator: `optionalPort(value, label, errorClass, code, opts?)` returns an omitted (`undefined` / `null`) port unchanged, and otherwise requires an integer in the RFC 6335 §6 wire-valid range [1,65535] — rejecting a string, negative, NaN, Infinity, fractional, or out-of-range value. Pass `{ allowZero: true }` for a listen-bind site where port 0 is the OS ephemeral-bind sentinel. The thrown message reports the offending shape (so `Infinity` / `\"443\"` stay visible), and routes a caller-supplied typed framework error (or a plain Error when none is given), matching the existing `optionalPositiveFinite` family."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Connection entry points reject a malformed port at construction",
+          "body": "`b.mail.smtpTransport`, `b.ntpCheck.querySingle`, `b.networkDns.useDnsOverTls`, `b.networkNts.performKeHandshake` / `query` / `querySingle`, `b.redisClient.create`, and `createApp().listen` (plus the `createApp` constructor's default port) now validate `opts.port` and throw synchronously on a non-integer / out-of-range value rather than coercing it through `||` to a default. This is a behavior change for a caller that was passing a non-canonical port (e.g. the string `\"587\"` or a NaN) and relying on the silent fallback — pass an integer in [1,65535] instead (or `0` for an ephemeral `createApp().listen` bind). `b.ntpCheck` gains a typed `NtpCheckError` for this (it had no error class before)."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "Connection entry points must compose the port validator",
+          "body": "A new check flags a lib connection entry point that reads `opts.port` / `opts.kePort` / `opts.ntpPort` with a `|| <default>` fallback without composing `b.validateOpts.optionalPort` (or the equivalent `numericBounds.isPositiveFiniteInt` + 65535 cap), so an unvalidated port read can't slip back in."
+        }
+      ]
+    },
+    {
+      "heading": "Migration",
+      "items": [
+        {
+          "title": "Pass an integer port to connection primitives",
+          "body": "If you were passing a non-integer or out-of-range `opts.port` to a mail / NTP / NTS / DNS-over-TLS / Redis transport or to `createApp().listen` and relying on the silent `|| default` fallback, that now throws at construction. Pass an integer in [1,65535]; for an ephemeral `createApp().listen` bind, pass `0` (still accepted)."
+        }
+      ]
+    }
+  ]
+}

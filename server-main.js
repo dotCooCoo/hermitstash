@@ -55,6 +55,7 @@ var bundlesRepo = require("./app/data/repositories/bundles.repo");
 var filesRepo = require("./app/data/repositories/files.repo");
 var usersRepo = require("./app/data/repositories/users.repo");
 var { handleSyncFileRename } = require("./app/domain/uploads/upload.handler");
+var { AppError } = require("./app/shared/errors");
 var chunkGcJob = require("./app/jobs/chunk-gc.job");
 var expiryCleanupJob = require("./app/jobs/expiry-cleanup.job");
 var orphanCleanupJob = require("./app/jobs/orphan-cleanup.job");
@@ -620,32 +621,22 @@ app.post("/sync/rename",
   rateLimit.guard({ scope: "sync-file-rename", max: 100, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }),
   require("./middleware/sync-guards").requireSyncAuth({ requireBundle: true }),
   async function (req, res) {
-    try {
-      var result = await handleSyncFileRename({
-        bundleId: req.body.bundleId,
-        oldRelativePath: req.body.oldRelativePath,
-        newRelativePath: req.body.newRelativePath,
-        req: req,
-      });
-      if (result.error) {
-        var rs = result.status || 400;
-        return b.problemDetails.send(res, {
-          type: "https://hermitstash.com/problems/" + (rs === 404 ? "not-found" : rs === 403 ? "forbidden" : rs === 409 ? "conflict" : "validation-error"),
-          title: rs === 404 ? "Not Found" : rs === 403 ? "Forbidden" : rs === 409 ? "Conflict" : "Validation Error",
-          status: rs,
-          detail: result.error,
-        });
-      }
-      res.json(result);
-    } catch (err) {
-      logger.error("[sync/rename] Error", { error: err.message, stack: err.stack });
-      b.problemDetails.send(res, {
-        type: "https://hermitstash.com/problems/internal-error",
-        title: "Internal Error",
-        status: 500,
-        detail: "Rename failed.",
-      });
+    var result = await handleSyncFileRename({
+      bundleId: req.body.bundleId,
+      oldRelativePath: req.body.oldRelativePath,
+      newRelativePath: req.body.newRelativePath,
+      req: req,
+    });
+    // Throw at the boundary so the centralized error handler renders the
+    // problem-details document. On a sync session the response is wrapped by
+    // apiEncrypt, so the handler routes the error through res.json — keeping
+    // it encrypted rather than emitting cleartext via problemDetails.send.
+    if (result.error) {
+      var rs = result.status || 400;
+      var code = rs === 404 ? "NOT_FOUND" : rs === 403 ? "FORBIDDEN" : rs === 409 ? "CONFLICT" : "VALIDATION_ERROR";
+      throw new AppError(result.error, rs, code);
     }
+    res.json(result);
   }
 );
 

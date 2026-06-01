@@ -1,0 +1,38 @@
+{
+  "version": "1.11.28",
+  "date": "2026-06-01",
+  "headline": "Encrypted error responses on the per-session API routes",
+  "summary": "Error responses on the per-session encrypted routes are now delivered inside the same encryption envelope as successful responses, so a failure detail can no longer appear in cleartext on a session the client negotiated as encrypted.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Update the vendored framework to blamejs 0.14.17",
+          "body": "Refreshes the vendored blamejs framework to 0.14.17, whose encrypted HTTP client adds a responseMode: \"passthrough\" option so a client can resolve and decrypt a non-2xx response body instead of rejecting it as raw ciphertext."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Encrypt error responses on the per-session encrypted routes",
+          "body": "The blamejs-encrypted routes — POST /drop/init, POST /drop/finalize/:bundleId, and POST /sync/rename — now return error responses inside the session encryption envelope, matching successful responses. Previously a thrown error on these routes shipped as cleartext application/problem+json even though the client had negotiated the session as encrypted. The 5xx detail remains suppressed inside the envelope."
+        }
+      ]
+    },
+    {
+      "heading": "Migration",
+      "items": [
+        {
+          "title": "Read encrypted error bodies on the per-session routes",
+          "body": "A client that reads errors from /drop/init, /drop/finalize/:bundleId, or /sync/rename with the framework's encrypted HTTP client must now resolve non-2xx responses (responseMode: \"passthrough\") and decrypt the body to read .detail; these routes no longer return cleartext application/problem+json on an encrypted session."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "RFC 9457 — Problem Details for HTTP APIs", "url": "https://www.rfc-editor.org/rfc/rfc9457" }
+  ]
+}

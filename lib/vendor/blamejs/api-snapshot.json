@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.14.14",
-  "createdAt": "2026-05-31T19:48:38.125Z",
+  "frameworkVersion": "0.14.17",
+  "createdAt": "2026-06-01T02:21:12.014Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -43286,6 +43286,10 @@
           "type": "primitive",
           "valueType": "number"
         },
+        "NtpCheckError": {
+          "type": "function",
+          "arity": 4
+        },
         "bootCheck": {
           "type": "function",
           "arity": 1
@@ -45807,7 +45811,7 @@
         },
         "respond": {
           "type": "function",
-          "arity": 2
+          "arity": 3
         },
         "send": {
           "type": "function",

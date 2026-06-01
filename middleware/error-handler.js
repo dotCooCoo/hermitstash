@@ -103,13 +103,15 @@ function errorHandler(err, req, res) {
     detail: status >= 500 ? undefined : message,
   };
 
-  // If res.json encrypts on this session (api-encrypt wrapped it for a
-  // cookie-authenticated client), emit the problem document through res.json so
-  // the encryption covers it. b.problemDetails writes via res.end, which
-  // bypasses that wrap and would send the error body in cleartext on a session
-  // the client negotiated as encrypted. The client decrypts the envelope like
-  // any other response; the real status code is preserved.
-  if (res._apiEncryptJson && typeof res.json === "function") {
+  // If res.json encrypts on this session, emit the problem document through
+  // res.json so the encryption covers it. b.problemDetails writes via res.end,
+  // which bypasses the wrap and would ship the error in cleartext on a session
+  // the client negotiated as encrypted. Two layers wrap res.json: the legacy
+  // cookie/browser layer (res._apiEncryptJson) and the blamejs per-session layer
+  // on the Bearer/sync routes (req.apiEncryptSessionKey — its _ctr is frozen per
+  // request, so routing the error through res.json keeps the counter consistent).
+  // The client decrypts the envelope like any other response; status is preserved.
+  if ((res._apiEncryptJson || (req && req.apiEncryptSessionKey)) && typeof res.json === "function") {
     res.statusCode = status;
     res.setHeader("Cache-Control", "no-store");
     res.json(problem);
