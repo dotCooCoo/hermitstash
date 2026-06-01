@@ -27,6 +27,7 @@ var b = require("../lib/vendor/blamejs");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
 var { hasScope } = require("../app/security/scope-policy");
 var { certFingerprintSha3 } = require("../lib/cert-utils");
+var { AuthenticationError, ForbiddenError, NotFoundError, ValidationError } = require("../app/shared/errors");
 
 /**
  * Compute the canonical SHA3-512 fingerprint for a TLS peer certificate.
@@ -136,25 +137,17 @@ function enforceBundleOwnership(apiKey, bundle) {
 function requireSyncAuth(opts) {
   opts = opts || {};
   return async function syncAuthMiddleware(req, res, next) {
+    // Throw at the boundary rather than writing the problem document here.
+    // On /sync/rename the response is wrapped by blamejs apiEncrypt, so the
+    // centralized error handler routes the thrown AppError through res.json
+    // (encrypted) — a direct b.problemDetails.send would ship cleartext via
+    // res.end on a session the client negotiated as encrypted.
+
     // Scope first — cheapest check, fastest reject
     var scopeErr = enforceSyncScope(req.apiKey);
     if (scopeErr) {
-      if (scopeErr.status === 401) {
-        b.problemDetails.send(res, {
-          type: "https://hermitstash.com/problems/auth-required",
-          title: "Auth Required",
-          status: 401,
-          detail: scopeErr.error,
-        });
-      } else {
-        b.problemDetails.send(res, {
-          type: "https://hermitstash.com/problems/forbidden",
-          title: "Forbidden",
-          status: 403,
-          detail: scopeErr.error,
-        });
-      }
-      return;
+      if (scopeErr.status === 401) throw new AuthenticationError(scopeErr.error);
+      throw new ForbiddenError(scopeErr.error);
     }
 
     // Bundle resolution
@@ -168,61 +161,23 @@ function requireSyncAuth(opts) {
         } catch (_e) { req.body = {}; /* malformed — treated as missing bundleId */ }
       }
       bundleId = (req.body && req.body.bundleId) || (req.params && req.params.bundleId) || null;
-      if (!bundleId) {
-        b.problemDetails.send(res, {
-          type: "https://hermitstash.com/problems/validation-error",
-          title: "Validation Error",
-          status: 400,
-          detail: "bundleId required.",
-        });
-        return;
-      }
+      if (!bundleId) throw new ValidationError("bundleId required.");
       bundle = bundlesRepo.findById(bundleId);
       var ownerErr = enforceBundleOwnership(req.apiKey, bundle);
       if (ownerErr) {
-        if (ownerErr.status === 404) {
-          b.problemDetails.send(res, {
-            type: "https://hermitstash.com/problems/not-found",
-            title: "Not Found",
-            status: 404,
-            detail: ownerErr.error,
-          });
-        } else {
-          b.problemDetails.send(res, {
-            type: "https://hermitstash.com/problems/forbidden",
-            title: "Forbidden",
-            status: 403,
-            detail: ownerErr.error,
-          });
-        }
-        return;
+        if (ownerErr.status === 404) throw new NotFoundError(ownerErr.error);
+        throw new ForbiddenError(ownerErr.error);
       }
       req.syncBundle = bundle;
     }
 
     // Bundle binding (runs regardless — a key without boundBundleId passes)
     var bindErr = enforceBundleBinding(req.apiKey, bundleId);
-    if (bindErr) {
-      b.problemDetails.send(res, {
-        type: "https://hermitstash.com/problems/forbidden",
-        title: "Forbidden",
-        status: bindErr.status,
-        detail: bindErr.error,
-      });
-      return;
-    }
+    if (bindErr) throw new ForbiddenError(bindErr.error);
 
     // Cert binding (last — involves DER parse + SHA3, most expensive)
     var certErr = enforceCertBinding(req.apiKey, req.socket);
-    if (certErr) {
-      b.problemDetails.send(res, {
-        type: "https://hermitstash.com/problems/forbidden",
-        title: "Forbidden",
-        status: certErr.status,
-        detail: certErr.error,
-      });
-      return;
-    }
+    if (certErr) throw new ForbiddenError(certErr.error);
 
     next();
   };

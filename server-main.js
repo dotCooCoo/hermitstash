@@ -583,14 +583,26 @@ app.use(function (req, res, next) {
     res.writeHead(302, { Location: "/2fa/re-enroll" });
     return res.end();
   }
-  b.problemDetails.send(res, {
+  // This problem document carries `code` + `redirect` extension fields the
+  // browser reads to navigate to the re-enroll page, so it can't collapse to a
+  // bare thrown AppError (the error handler emits only type/title/status/detail).
+  // On an api-encrypt session res.json is the encrypting wrap; route the full
+  // document through it so the body isn't shipped cleartext via res.end.
+  var reenrollProblem = {
     type: "https://hermitstash.com/problems/forbidden",
     title: "Forbidden",
     status: 403,
     detail: "TOTP re-enrollment required.",
     code: "TOTP_REENROLL_REQUIRED",
     redirect: "/2fa/re-enroll",
-  });
+  };
+  if ((res._apiEncryptJson || req.apiEncryptSessionKey) && typeof res.json === "function") {
+    res.statusCode = 403;
+    res.setHeader("Cache-Control", "no-store");
+    res.json(reenrollProblem);
+    return;
+  }
+  b.problemDetails.send(res, reenrollProblem);
 });
 
 // Routes

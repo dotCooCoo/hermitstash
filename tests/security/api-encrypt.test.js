@@ -61,6 +61,31 @@ describe("API payload encryption", function () {
     assert.strictEqual(res.status, 400, "tampered payload should return 400");
   });
 
+  it("decrypt-failure rejection is encrypted, not plaintext problem+json", async function () {
+    // The decrypt-failure 400 is emitted from inside the body-collector stream
+    // callback. It must route through the wrapped res.json (encrypted envelope),
+    // NOT b.problemDetails' raw res.end — otherwise the error ships cleartext on
+    // a session the client negotiated as encrypted (matters most in HTTP mode
+    // where this layer is the only on-wire payload confidentiality).
+    await client.initApiKey();
+    var url = new URL("/auth/login", testServer.baseUrl());
+    var body = JSON.stringify({ _e: "AAAA_tampered_data_garbage", _t: Date.now() });
+    var cookieStr = Object.entries(client.cookies).map(function (e) { return e[0] + "=" + e[1]; }).join("; ");
+    var raw = await new Promise(function (resolve) {
+      var req = http.request({ hostname: url.hostname, port: url.port, path: url.pathname, method: "POST", headers: { "content-type": "application/json", "content-length": Buffer.byteLength(body), cookie: cookieStr } }, function (res) {
+        var chunks = [];
+        res.on("data", function (c) { chunks.push(c); });
+        res.on("end", function () { resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString() }); });
+      });
+      req.write(body); req.end();
+    });
+    assert.strictEqual(raw.status, 400, "decrypt failure should be 400");
+    var parsed = JSON.parse(raw.body);
+    assert.ok(parsed._e, "decrypt-failure body must be the encrypted envelope (_e), not cleartext");
+    assert.strictEqual(parsed.detail, undefined, "no plaintext problem-details detail on the wire");
+    assert.strictEqual(parsed.title, undefined, "no plaintext problem-details title on the wire");
+  });
+
   it("expired timestamp rejected (anti-replay)", async function () {
     await client.initApiKey();
     // Craft a payload with an old timestamp INSIDE the GCM ciphertext

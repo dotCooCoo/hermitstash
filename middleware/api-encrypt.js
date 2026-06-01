@@ -144,7 +144,14 @@ module.exports = function apiEncrypt(req, res, next) {
         } catch (_e) {
           aborted = true;
           req.destroy();
-          b.problemDetails.send(res, {
+          // res.json (wrapped below) encrypts on this cookie session. Emit the
+          // rejection through it so the body isn't shipped cleartext via
+          // res.end. A throw here would escape the request-stream callback as
+          // an uncaughtException — it never reaches the route error boundary —
+          // so write directly, mirroring the wrapped res.json error path.
+          res.statusCode = 413;
+          res.setHeader("Cache-Control", "no-store");
+          res.json({
             type: "https://hermitstash.com/problems/payload-too-large",
             title: "Payload Too Large",
             status: 413,
@@ -170,7 +177,12 @@ module.exports = function apiEncrypt(req, res, next) {
             if (decrypted === null || decrypted === undefined) throw new Error("Invalid payload");
             raw = JSON.stringify(decrypted);
           } catch (_e) {
-            b.problemDetails.send(res, {
+            // Encrypted cookie session: route the rejection through the wrapped
+            // res.json (set below) so it isn't shipped cleartext via res.end.
+            // Emit directly — a throw escapes this request-stream callback.
+            res.statusCode = 400;
+            res.setHeader("Cache-Control", "no-store");
+            res.json({
               type: "https://hermitstash.com/problems/decryption-failed",
               title: "Decryption Failed",
               status: 400,

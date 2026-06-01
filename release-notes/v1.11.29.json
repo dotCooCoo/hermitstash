@@ -1,0 +1,21 @@
+{
+  "version": "1.11.29",
+  "date": "2026-06-01",
+  "headline": "Encrypt the remaining error responses on encrypted sessions",
+  "summary": "Error responses that previously bypassed the session encryption envelope are now delivered encrypted on a session the client negotiated as encrypted: sync-route authorization denials, the forced TOTP re-enrollment gate, and the payload-encryption layer's own oversize and decrypt-failure rejections.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Encrypt sync-route authorization denials",
+          "body": "A scope, bundle-ownership, bundle-binding, or client-certificate denial on POST /sync/rename now returns its problem document inside the session encryption envelope. These middleware denials previously wrote the problem document directly, shipping it in cleartext on a session the client had negotiated as encrypted; they now throw at the boundary so the central error handler routes them through the encrypting response path."
+        },
+        {
+          "title": "Encrypt the re-enrollment gate and payload-rejection responses",
+          "body": "The forced TOTP re-enrollment gate (for XHR/JSON callers) and the payload-encryption layer's own oversize (413) and decrypt-failure (400) rejections now ship inside the encryption envelope on an encrypted session instead of in cleartext. The re-enrollment response keeps its redirect field so the browser still routes the user to the re-enrollment page."
+        }
+      ]
+    }
+  ]
+}
