@@ -242,7 +242,7 @@ module.exports = function (app) {
         // through to the generic 500 below.
         if (err && err.isAppError) throw err;
         logger.error("[files DELETE] Error", { error: err.message, stack: err.stack });
-        res.status(500).json({ error: "Delete failed." });
+        throw new AppError("Delete failed.", 500);
       }
     }
   );

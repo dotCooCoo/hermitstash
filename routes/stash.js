@@ -32,6 +32,7 @@ var { generateEnrollmentCode, certFingerprintSha3 } = require("../lib/cert-utils
 
 var { isStashLocked } = require("../middleware/require-access");
 var accessCodeService = require("../app/domain/access-code.service");
+var { AppError, ValidationError, AuthenticationError, ForbiddenError, NotFoundError } = require("../app/shared/errors");
 
 /**
  * Check if an email matches the stash's allowed list.
@@ -107,7 +108,7 @@ module.exports = function (app) {
   app.post("/stash/:slug/unlock", rateLimit.guard({ scope: "stash-unlock", max: 10, windowMs: TIME.minutes(15), algorithm: "fixed-window" }), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
-    if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
+    if (!stash || stash.enabled !== "true") throw new NotFoundError("Not found.");
 
     var body = (await b.parsers.json(req)) || {};
     var password = String(body.password || "");
@@ -132,17 +133,17 @@ module.exports = function (app) {
       return res.json({ success: true });
     }
 
-    return res.status(401).json({ error: "Incorrect password." });
+    throw new AuthenticationError("Incorrect password.");
   });
 
   // Request email access code for stash page
   app.post("/stash/:slug/request-code", rateLimit.guard({ scope: "stash-email-code", max: 5, windowMs: TIME.minutes(5), algorithm: "fixed-window" }), async function (req, res) {
     var stash = stashRepo.findBySlug(req.params.slug);
-    if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
+    if (!stash || stash.enabled !== "true") throw new NotFoundError("Not found.");
 
     var body = (await b.parsers.json(req)) || {};
     var email = String(body.email || "").trim().toLowerCase();
-    if (!validateEmail(email).valid) return res.status(400).json({ error: "Valid email required." });
+    if (!validateEmail(email).valid) throw new ValidationError("Valid email required.");
 
     var genericMsg = "If this email has access, a code has been sent.";
     var mode = stash.accessMode || "open";
@@ -171,12 +172,12 @@ module.exports = function (app) {
   // Verify email access code for stash page
   app.post("/stash/:slug/verify-code", rateLimit.guard({ scope: "stash-verify-code", max: 10, windowMs: TIME.minutes(15), algorithm: "fixed-window" }), async function (req, res) {
     var stash = stashRepo.findBySlug(req.params.slug);
-    if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
+    if (!stash || stash.enabled !== "true") throw new NotFoundError("Not found.");
 
     var body = (await b.parsers.json(req)) || {};
     var email = String(body.email || "").trim().toLowerCase();
     var code = String(body.code || "").trim();
-    if (!email || !code) return res.status(400).json({ error: "Email and code required." });
+    if (!email || !code) throw new ValidationError("Email and code required.");
 
     var result = accessCodeService.verifyCode({ shareId: "stash:" + stash._id, email: email, code: code });
     if (!result.success) {
@@ -201,10 +202,10 @@ module.exports = function (app) {
   app.post("/stash/:slug/init", rateLimit.guard({ scope: "drop-init", max: 20, windowMs: TIME.minutes(1), algorithm: "fixed-window" }), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
-    if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
+    if (!stash || stash.enabled !== "true") throw new NotFoundError("Not found.");
 
     // Access check
-    if (isStashLocked(stash, req.session)) return res.status(403).json({ error: "Stash page is locked." });
+    if (isStashLocked(stash, req.session)) throw new ForbiddenError("Stash page is locked.");
 
     // Sync-enabled stash: reuse persistent sync bundle
     if (stash.syncEnabled === "true" && stash.syncBundleId) {
@@ -249,18 +250,18 @@ module.exports = function (app) {
   app.post("/stash/:slug/file/:bundleId", rateLimit.guard({ scope: "upload", max: 200, windowMs: TIME.minutes(1), algorithm: "fixed-window" }), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
-    if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
-    if (isStashLocked(stash, req.session)) return res.status(403).json({ error: "Stash page is locked." });
+    if (!stash || stash.enabled !== "true") throw new NotFoundError("Not found.");
+    if (isStashLocked(stash, req.session)) throw new ForbiddenError("Stash page is locked.");
 
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
-      if (!bundle || (bundle.status === "complete" && bundle.bundleType !== "sync")) return res.status(404).json({ error: "Bundle not found." });
-      if (bundle.stashId !== stash._id) return res.status(403).json({ error: "Bundle does not belong to this stash." });
+      if (!bundle || (bundle.status === "complete" && bundle.bundleType !== "sync")) throw new NotFoundError("Bundle not found.");
+      if (bundle.stashId !== stash._id) throw new ForbiddenError("Bundle does not belong to this stash.");
 
       var limits = resolveUploadConfig(stash);
       var parsed = await parseMultipart(req, limits.maxFileSize);
       var file = parsed.files[0];
-      if (!file) return res.status(400).json({ error: "No file." });
+      if (!file) throw new ValidationError("No file.");
 
       var result = await handleFileUpload({
         bundle: bundle, file: file, fields: parsed.fields, limits: limits,
@@ -268,11 +269,12 @@ module.exports = function (app) {
         expiresAt: bundle.expiresAt || null,
         auditSuffix: ", stash: " + slug, req: req,
       });
-      if (result.error) return res.status(400).json({ error: result.error });
+      if (result.error) throw new ValidationError(result.error);
       res.json(result);
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Stash file upload error", { error: e.message || String(e), stash: slug });
-      res.status(500).json({ error: "Upload failed." });
+      throw new AppError("Upload failed.", 500, "UPLOAD_FAILED");
     }
   });
 
@@ -280,18 +282,18 @@ module.exports = function (app) {
   app.post("/stash/:slug/chunk/:bundleId", rateLimit.guard({ scope: "chunk", max: 500, windowMs: TIME.minutes(1), algorithm: "fixed-window" }), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
-    if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
-    if (isStashLocked(stash, req.session)) return res.status(403).json({ error: "Stash page is locked." });
+    if (!stash || stash.enabled !== "true") throw new NotFoundError("Not found.");
+    if (isStashLocked(stash, req.session)) throw new ForbiddenError("Stash page is locked.");
 
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
-      if (!bundle || (bundle.status === "complete" && bundle.bundleType !== "sync")) return res.status(404).json({ error: "Bundle not found." });
-      if (bundle.stashId !== stash._id) return res.status(403).json({ error: "Bundle does not belong to this stash." });
+      if (!bundle || (bundle.status === "complete" && bundle.bundleType !== "sync")) throw new NotFoundError("Bundle not found.");
+      if (bundle.stashId !== stash._id) throw new ForbiddenError("Bundle does not belong to this stash.");
 
       var limits = resolveUploadConfig(stash);
       var parsed = await parseMultipart(req, limits.maxFileSize);
       var chunk = parsed.files[0];
-      if (!chunk) return res.status(400).json({ error: "No chunk." });
+      if (!chunk) throw new ValidationError("No chunk.");
 
       var result = await handleChunkUpload({
         bundle: bundle, chunk: chunk, fields: parsed.fields, limits: limits,
@@ -299,11 +301,12 @@ module.exports = function (app) {
         expiresAt: bundle.expiresAt || null,
         auditSuffix: ", stash: " + slug, req: req,
       });
-      if (result.error) return res.status(400).json({ error: result.error });
+      if (result.error) throw new ValidationError(result.error);
       res.json(result);
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Stash chunk upload error", { error: e.message || String(e), stash: slug });
-      res.status(500).json({ error: "Chunk upload failed." });
+      throw new AppError("Chunk upload failed.", 500, "CHUNK_UPLOAD_FAILED");
     }
   });
 
@@ -311,12 +314,12 @@ module.exports = function (app) {
   app.post("/stash/:slug/finalize/:bundleId", rateLimit.guard({ scope: "finalize", max: 20, windowMs: TIME.minutes(1), algorithm: "fixed-window" }), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
-    if (!stash || stash.enabled !== "true") return res.status(404).json({ error: "Not found." });
-    if (isStashLocked(stash, req.session)) return res.status(403).json({ error: "Stash page is locked." });
+    if (!stash || stash.enabled !== "true") throw new NotFoundError("Not found.");
+    if (isStashLocked(stash, req.session)) throw new ForbiddenError("Stash page is locked.");
 
     var existingBundle = bundlesRepo.findById(req.params.bundleId);
-    if (!existingBundle) return res.status(404).json({ error: "Bundle not found." });
-    if (existingBundle.stashId !== stash._id) return res.status(403).json({ error: "Bundle does not belong to this stash." });
+    if (!existingBundle) throw new NotFoundError("Bundle not found.");
+    if (existingBundle.stashId !== stash._id) throw new ForbiddenError("Bundle does not belong to this stash.");
 
     var body = (await b.parsers.json(req)) || {};
     var token = String(body.finalizeToken || req.query.finalizeToken || "");
@@ -381,7 +384,7 @@ module.exports = function (app) {
   app.get("/admin/stash/:id/bundles", function (req, res) {
     if (!requireAdmin(req, res)) return;
     var stash = stashRepo.findById(req.params.id);
-    if (!stash) return res.status(404).json({ error: "Stash page not found." });
+    if (!stash) throw new NotFoundError("Stash page not found.");
     var allBundles = bundlesRepo.findAll({}).filter(function (b) { return b.stashId === stash._id && b.status === "complete"; });
     var result = allBundles.map(function (b) {
       var bundleFiles = filesRepo.findByBundleShareId(b.shareId);
@@ -405,9 +408,9 @@ module.exports = function (app) {
   app.get("/admin/stash/:id/bundles/:bundleId/files", function (req, res) {
     if (!requireAdmin(req, res)) return;
     var stash = stashRepo.findById(req.params.id);
-    if (!stash) return res.status(404).json({ error: "Stash page not found." });
+    if (!stash) throw new NotFoundError("Stash page not found.");
     var bundle = bundlesRepo.findById(req.params.bundleId);
-    if (!bundle || bundle.stashId !== stash._id) return res.status(404).json({ error: "Bundle not found." });
+    if (!bundle || bundle.stashId !== stash._id) throw new NotFoundError("Bundle not found.");
     var bundleFiles = filesRepo.findByBundleShareId(bundle.shareId);
     var result = bundleFiles.map(function (f) {
       return {
@@ -429,9 +432,9 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     try {
       var stash = stashRepo.findById(req.params.id);
-      if (!stash) return res.status(404).json({ error: "Stash page not found." });
+      if (!stash) throw new NotFoundError("Stash page not found.");
       var bundle = bundlesRepo.findById(req.params.bundleId);
-      if (!bundle || bundle.stashId !== stash._id) return res.status(404).json({ error: "Bundle not found." });
+      if (!bundle || bundle.stashId !== stash._id) throw new NotFoundError("Bundle not found.");
       var bundleFiles = filesRepo.findByBundleShareId(bundle.shareId);
       for (var i = 0; i < bundleFiles.length; i++) {
         if (bundleFiles[i].storagePath) { try { await storage.deleteFile(bundleFiles[i].storagePath); } catch (_e) { /* cleanup — storage file may already be gone */ } }
@@ -443,8 +446,9 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.ADMIN_BUNDLE_DELETED, { targetId: bundle._id, details: "stash bundle deleted, stash: " + stash.slug + ", files: " + bundleFiles.length, req: req });
       res.json({ success: true, filesDeleted: bundleFiles.length });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Stash bundle delete error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to delete bundle." });
+      throw new AppError("Failed to delete bundle.", 500, "BUNDLE_DELETE_FAILED");
     }
   });
 
@@ -456,33 +460,33 @@ module.exports = function (app) {
       var name = String(body.name || "").trim().slice(0, 200);
       var slug = String(body.slug || "").trim().toLowerCase().slice(0, 50);
 
-      if (!name) return res.status(400).json({ error: "Name is required." });
-      if (!slug) return res.status(400).json({ error: "Slug is required." });
-      if (slug.length < 2) return res.status(400).json({ error: "Slug must be at least 2 characters." });
+      if (!name) throw new ValidationError("Name is required.");
+      if (!slug) throw new ValidationError("Slug is required.");
+      if (slug.length < 2) throw new ValidationError("Slug must be at least 2 characters.");
 
       // Validate slug format
       if (!/^[a-z0-9][a-z0-9-]*$/.test(slug) || slug.endsWith("-")) {
-        return res.status(400).json({ error: "Slug must be lowercase alphanumeric with optional hyphens (no leading/trailing hyphens)." });
+        throw new ValidationError("Slug must be lowercase alphanumeric with optional hyphens (no leading/trailing hyphens).");
       }
       if (slug.includes("--")) {
-        return res.status(400).json({ error: "Slug cannot contain consecutive hyphens." });
+        throw new ValidationError("Slug cannot contain consecutive hyphens.");
       }
 
       // Check against reserved route slugs
       var reserved = app.getReservedSlugs();
       if (reserved.has(slug)) {
-        return res.status(400).json({ error: "This slug is reserved by the system." });
+        throw new ValidationError("This slug is reserved by the system.");
       }
 
       // Check uniqueness
       if (stashRepo.findBySlug(slug)) {
-        return res.status(400).json({ error: "A stash page with this slug already exists." });
+        throw new ValidationError("A stash page with this slug already exists.");
       }
 
       var passwordHash = null;
       if (body.password && String(body.password).trim()) {
         var pw = String(body.password).trim();
-        if (pw.length < 4) return res.status(400).json({ error: "Password must be at least 4 characters." });
+        if (pw.length < 4) throw new ValidationError("Password must be at least 4 characters.");
         passwordHash = await b.auth.password.hash(pw);
       }
 
@@ -525,8 +529,9 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Stash page created: " + slug, req: req });
       res.json({ success: true, stash: { _id: created._id, slug: created.slug, name: created.name } });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Stash create error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to create stash page." });
+      throw new AppError("Failed to create stash page.", 500, "STASH_CREATE_FAILED");
     }
   });
 
@@ -535,7 +540,7 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     try {
       var stash = stashRepo.findById(req.params.id);
-      if (!stash) return res.status(404).json({ error: "Stash page not found." });
+      if (!stash) throw new NotFoundError("Stash page not found.");
 
       var body = (await b.parsers.json(req)) || {};
       var updates = {};
@@ -555,20 +560,20 @@ module.exports = function (app) {
       if (body.slug !== undefined) {
         var newSlug = String(body.slug).trim().toLowerCase().slice(0, 50);
         if (newSlug !== stash.slug) {
-          if (newSlug.length < 2) return res.status(400).json({ error: "Slug must be at least 2 characters." });
+          if (newSlug.length < 2) throw new ValidationError("Slug must be at least 2 characters.");
           if (!/^[a-z0-9][a-z0-9-]*$/.test(newSlug) || newSlug.endsWith("-")) {
-            return res.status(400).json({ error: "Slug must be lowercase alphanumeric with optional hyphens." });
+            throw new ValidationError("Slug must be lowercase alphanumeric with optional hyphens.");
           }
           if (newSlug.includes("--")) {
-            return res.status(400).json({ error: "Slug cannot contain consecutive hyphens." });
+            throw new ValidationError("Slug cannot contain consecutive hyphens.");
           }
           var reserved = app.getReservedSlugs();
           if (reserved.has(newSlug)) {
-            return res.status(400).json({ error: "This slug is reserved by the system." });
+            throw new ValidationError("This slug is reserved by the system.");
           }
           var existing = stashRepo.findBySlug(newSlug);
           if (existing && existing._id !== stash._id) {
-            return res.status(400).json({ error: "A stash page with this slug already exists." });
+            throw new ValidationError("A stash page with this slug already exists.");
           }
           updates.slug = newSlug;
         }
@@ -580,7 +585,7 @@ module.exports = function (app) {
         if (pw === "") {
           updates.passwordHash = null;
         } else if (pw !== "********") {
-          if (pw.trim().length < 4) return res.status(400).json({ error: "Password must be at least 4 characters." });
+          if (pw.trim().length < 4) throw new ValidationError("Password must be at least 4 characters.");
           updates.passwordHash = await b.auth.password.hash(pw.trim());
         }
       }
@@ -614,8 +619,9 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Stash page updated: " + (updates.slug || stash.slug), req: req });
       res.json({ success: true });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Stash update error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to update stash page." });
+      throw new AppError("Failed to update stash page.", 500, "STASH_UPDATE_FAILED");
     }
   });
 
@@ -624,14 +630,15 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     try {
       var stash = stashRepo.findById(req.params.id);
-      if (!stash) return res.status(404).json({ error: "Stash page not found." });
+      if (!stash) throw new NotFoundError("Stash page not found.");
       var newEnabled = stash.enabled === "true" ? "false" : "true";
       stashRepo.update(stash._id, { $set: { enabled: newEnabled } });
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Stash page " + (newEnabled === "true" ? "enabled" : "disabled") + ": " + stash.slug, req: req });
       res.json({ success: true, enabled: newEnabled === "true" });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Stash toggle error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to toggle stash page." });
+      throw new AppError("Failed to toggle stash page.", 500, "STASH_TOGGLE_FAILED");
     }
   });
 
@@ -644,7 +651,7 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Purged all stash pages (" + all.length + ")", req: req });
       res.json({ success: true, deleted: all.length });
     } catch (e) {
-      res.status(500).json({ error: "Purge failed: " + e.message });
+      throw new AppError("Purge failed: " + e.message, 500, "STASH_PURGE_FAILED");
     }
   });
 
@@ -656,21 +663,21 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     try {
       var stash = stashRepo.findById(req.params.id);
-      if (!stash) return res.status(404).json({ error: "Stash page not found." });
+      if (!stash) throw new NotFoundError("Stash page not found.");
 
       var { files: uploaded } = await parseMultipart(req, 2 * 1024 * 1024);
       var file = uploaded[0];
-      if (!file) return res.status(400).json({ error: "No file uploaded." });
+      if (!file) throw new ValidationError("No file uploaded.");
 
       var ext = uploadValidator.detectContentType(file.data);
       if (!ext || [".png", ".jpg", ".gif", ".webp", ".svg"].indexOf(ext) === -1) {
-        return res.status(400).json({ error: "Invalid image. Upload a PNG, JPG, SVG, WebP, or GIF." });
+        throw new ValidationError("Invalid image. Upload a PNG, JPG, SVG, WebP, or GIF.");
       }
 
       var data = file.data;
       if (ext === ".svg") {
         var clean = sanitizeSvg(data.toString("utf8"));
-        if (!clean || clean.length < 10) return res.status(400).json({ error: "SVG rejected — could not sanitize safely." });
+        if (!clean || clean.length < 10) throw new ValidationError("SVG rejected — could not sanitize safely.");
         data = Buffer.from(clean, "utf8");
       }
 
@@ -690,8 +697,9 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Stash logo uploaded: " + stash.slug + " (" + data.length + " bytes)", req: req });
       res.json({ success: true, path: logoPath });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Stash logo upload error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Upload failed." });
+      throw new AppError("Upload failed.", 500, "STASH_LOGO_UPLOAD_FAILED");
     }
   });
 
@@ -700,13 +708,14 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     try {
       var stash = stashRepo.findById(req.params.id);
-      if (!stash) return res.status(404).json({ error: "Stash page not found." });
+      if (!stash) throw new NotFoundError("Stash page not found.");
       stashRepo.remove(stash._id);
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Stash page deleted: " + stash.slug, req: req });
       res.json({ success: true });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Stash delete error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to delete stash page." });
+      throw new AppError("Failed to delete stash page.", 500, "STASH_DELETE_FAILED");
     }
   });
 
@@ -715,7 +724,7 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     try {
       var stash = stashRepo.findById(req.params.id);
-      if (!stash) return res.status(404).json({ error: "Stash page not found." });
+      if (!stash) throw new NotFoundError("Stash page not found.");
 
       var rawKey = "hs_" + b.crypto.generateToken(32);
       var prefix = rawKey.substring(0, 7);
@@ -770,8 +779,9 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Stash sync enrollment code created: " + stash.slug, req: req });
       res.json({ success: true, enrollmentCode: enrollment.codeRaw, prefix: prefix });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Stash sync token error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to create sync token." });
+      throw new AppError("Failed to create sync token.", 500, "SYNC_TOKEN_FAILED");
     }
   });
 
@@ -779,7 +789,7 @@ module.exports = function (app) {
   app.get("/admin/stash/:id/sync-keys", function (req, res) {
     if (!requireAdmin(req, res)) return;
     var stash = stashRepo.findById(req.params.id);
-    if (!stash) return res.status(404).json({ error: "Stash page not found." });
+    if (!stash) throw new NotFoundError("Stash page not found.");
 
     var keys = apiKeysRepo.findAll({}).filter(function (k) {
       return k.boundStashId === stash._id && k.permissions && k.permissions.indexOf("sync") !== -1;
@@ -814,18 +824,18 @@ module.exports = function (app) {
     try {
       var body = (await b.parsers.json(req)) || {};
       var apiKeyId = body.apiKeyId;
-      if (!apiKeyId) return res.status(400).json({ error: "apiKeyId required" });
+      if (!apiKeyId) throw new ValidationError("apiKeyId required");
 
       var stash = stashRepo.findById(req.params.id);
-      if (!stash) return res.status(404).json({ error: "Stash page not found." });
+      if (!stash) throw new NotFoundError("Stash page not found.");
 
       var apiKey = apiKeysRepo.findOne({ _id: apiKeyId });
-      if (!apiKey) return res.status(404).json({ error: "API key not found." });
-      if (apiKey.boundStashId !== stash._id) return res.status(403).json({ error: "API key does not belong to this stash." });
+      if (!apiKey) throw new NotFoundError("API key not found.");
+      if (apiKey.boundStashId !== stash._id) throw new ForbiddenError("API key does not belong to this stash.");
 
       await mtlsCa.initCA();
       var newCert = await mtlsCa.generateClientCert({ cn: apiKey.prefix });
-      if (!newCert) return res.status(500).json({ error: "Failed to generate certificate — OpenSSL may not be available." });
+      if (!newCert) throw new AppError("Failed to generate certificate — OpenSSL may not be available.", 500, "CERT_GENERATION_FAILED");
 
       // Store enrollment code FIRST — if this fails, the API key cert fields stay unchanged
       var enrollment = generateEnrollmentCode();
@@ -860,8 +870,9 @@ module.exports = function (app) {
 
       res.json({ success: true, enrollmentCode: enrollment.codeRaw, prefix: apiKey.prefix, reissue: true });
     } catch (e) {
+      if (e.isAppError) throw e;
       logger.error("Cert reissue error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Failed to reissue certificate." });
+      throw new AppError("Failed to reissue certificate.", 500, "CERT_REISSUE_FAILED");
     }
   });
 

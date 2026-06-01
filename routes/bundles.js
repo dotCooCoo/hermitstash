@@ -14,6 +14,7 @@ var { send, host } = require("../middleware/send");
 var audit = require("../lib/audit");
 var requireAuth = require("../middleware/require-auth");
 var { canEditOwned } = require("../app/shared/authz");
+var { ValidationError, AuthenticationError, ForbiddenError, NotFoundError, RateLimitError } = require("../app/shared/errors");
 
 var { isBundleLocked, prefersJson } = require("../middleware/require-access");
 var db = require("../lib/db");
@@ -69,7 +70,7 @@ module.exports = function (app) {
   app.post("/b/:shareId/unlock", rateLimit.guard({ scope: "bundle-unlock", max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async (req, res) => {
     var shareId = req.params.shareId;
     var bundle = bundlesRepo.findByShareId(shareId);
-    if (!bundle || bundle.status !== "complete") return res.status(404).json({ error: "Bundle not found." });
+    if (!bundle || bundle.status !== "complete") throw new NotFoundError("Bundle not found.");
 
     // Check exponential backoff lockout (persistent across restarts)
     var lockout = getBundleLockout(shareId);
@@ -80,7 +81,7 @@ module.exports = function (app) {
       if (elapsed < backoffSeconds) {
         var retryAfter = Math.ceil(backoffSeconds - elapsed);
         res.setHeader("Retry-After", String(retryAfter));
-        return res.status(429).json({ error: "Too many failed attempts. Try again in " + retryAfter + " seconds." });
+        throw new RateLimitError("Too many failed attempts. Try again in " + retryAfter + " seconds.");
       }
     }
 
@@ -114,22 +115,22 @@ module.exports = function (app) {
       var retryAfterSec = Math.pow(2, after.failures - BUNDLE_LOCKOUT_THRESHOLD) * 30;
       logger.warn("Bundle unlock lockout", { shareId: shareId, failures: after.failures, retryAfter: retryAfterSec });
       res.setHeader("Retry-After", String(retryAfterSec));
-      return res.status(429).json({ error: "Too many failed attempts. Try again in " + retryAfterSec + " seconds." });
+      throw new RateLimitError("Too many failed attempts. Try again in " + retryAfterSec + " seconds.");
     }
 
-    return res.status(401).json({ error: "Incorrect password." });
+    throw new AuthenticationError("Incorrect password.");
   });
 
   // Request email access code (rate limited)
   app.post("/b/:shareId/request-code", rateLimit.guard({ scope: "bundle-email-code", max: 5, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async (req, res) => {
     var bundle = bundlesRepo.findCompleteByShareId(req.params.shareId);
-    if (!bundle) return res.status(404).json({ error: "Bundle not found." });
+    if (!bundle) throw new NotFoundError("Bundle not found.");
 
     var body = (await b.parsers.json(req)) || {};
     var email = String(body.email || "").trim().toLowerCase();
     var emailCheck = validateEmail(email);
     if (!emailCheck.valid) {
-      return res.status(400).json({ error: "Valid email required." });
+      throw new ValidationError("Valid email required.");
     }
 
     // Always return same response to prevent email enumeration
@@ -164,12 +165,12 @@ module.exports = function (app) {
   // Verify email access code (rate limited)
   app.post("/b/:shareId/verify-code", rateLimit.guard({ scope: "bundle-verify-code", max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async (req, res) => {
     var bundle = bundlesRepo.findCompleteByShareId(req.params.shareId);
-    if (!bundle) return res.status(404).json({ error: "Bundle not found." });
+    if (!bundle) throw new NotFoundError("Bundle not found.");
 
     var body = (await b.parsers.json(req)) || {};
     var email = String(body.email || "").trim().toLowerCase();
     var code = String(body.code || "").trim();
-    if (!email || !code) return res.status(400).json({ error: "Email and code required." });
+    if (!email || !code) throw new ValidationError("Email and code required.");
 
     var result = accessCodeService.verifyCode({ shareId: bundle.shareId, email: email, code: code });
     if (!result.success) {
@@ -382,15 +383,15 @@ module.exports = function (app) {
   app.post("/bundles/:shareId/rename", async (req, res) => {
     if (!requireAuth(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
-    if (!bundle) return res.status(404).json({ error: "Not found." });
+    if (!bundle) throw new NotFoundError("Not found.");
     if (!canEditOwned(bundle, req.user)) {
-      return res.status(403).json({ error: "Not authorized." });
+      throw new ForbiddenError("Not authorized.");
     }
     // parseJson already imported at top
     // sanitizeRename already imported at top
     var body = (await b.parsers.json(req)) || {};
     var result = sanitizeRename(body.name, { maxLength: 200 });
-    if (!result.valid) return res.status(400).json({ error: result.error || "Invalid name." });
+    if (!result.valid) throw new ValidationError(result.error || "Invalid name.");
     bundlesRepo.update(bundle._id, { $set: { bundleName: result.name } });
     res.json({ success: true, name: result.name });
   });
@@ -399,9 +400,9 @@ module.exports = function (app) {
   app.post("/bundles/:shareId/file/rename", rateLimit.guard({ scope: "sync-file-rename", max: 100, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
     if (!requireAuth(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
-    if (!bundle) return res.status(404).json({ error: "Not found." });
+    if (!bundle) throw new NotFoundError("Not found.");
     if (!canEditOwned(bundle, req.user)) {
-      return res.status(403).json({ error: "Not authorized." });
+      throw new ForbiddenError("Not authorized.");
     }
     var body = (await b.parsers.json(req)) || {};
     var { handleSyncFileRename } = uploadHandler;
@@ -419,9 +420,9 @@ module.exports = function (app) {
   app.post("/bundles/:shareId/file/:fileId/delete", rateLimit.guard({ scope: "sync-file-delete", max: 100, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
     if (!requireAuth(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
-    if (!bundle) return res.status(404).json({ error: "Not found." });
+    if (!bundle) throw new NotFoundError("Not found.");
     if (!canEditOwned(bundle, req.user)) {
-      return res.status(403).json({ error: "Not authorized." });
+      throw new ForbiddenError("Not authorized.");
     }
     var { handleSyncFileDelete } = uploadHandler;
     var result = await handleSyncFileDelete({ bundle: bundle, fileId: req.params.fileId, req: req });
@@ -432,10 +433,10 @@ module.exports = function (app) {
   app.post("/bundles/:shareId/delete", async (req, res) => {
     if (!requireAuth(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
-    if (!bundle) return res.status(404).json({ error: "Not found." });
+    if (!bundle) throw new NotFoundError("Not found.");
     // Only owner or admin can delete
     if (!canEditOwned(bundle, req.user)) {
-      return res.status(403).json({ error: "Not authorized." });
+      throw new ForbiddenError("Not authorized.");
     }
     var bundleFiles = filesRepo.findByBundleShareId(bundle.shareId);
     for (var i = 0; i < bundleFiles.length; i++) {

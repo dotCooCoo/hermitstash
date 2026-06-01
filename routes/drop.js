@@ -97,7 +97,7 @@ module.exports = function (app) {
     } catch (e) {
       if (e.isAppError) throw e;
       logger.error("Drop file error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Upload failed." });
+      throw new AppError("Upload failed.", 500);
     }
   });
 
@@ -126,7 +126,7 @@ module.exports = function (app) {
     } catch (e) {
       if (e.isAppError) throw e;
       logger.error("Chunk upload error", { error: e.message || String(e) });
-      res.status(500).json({ error: "Chunk upload failed." });
+      throw new AppError("Chunk upload failed.", 500);
     }
   });
 

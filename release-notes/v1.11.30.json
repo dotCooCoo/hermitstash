@@ -1,0 +1,21 @@
+{
+  "version": "1.11.30",
+  "date": "2026-06-01",
+  "headline": "Problem-details error shape on the stash, bundle, and upload routes",
+  "summary": "Error responses on the stash, bundle, file, and public-upload routes now use the RFC 9457 problem-details shape, matching the rest of the API, instead of the legacy single-field error body.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Return RFC 9457 problem-details on the stash, bundle, file, and upload routes",
+          "body": "Error responses on these routes now return application/problem+json with { type, title, status, detail } — the human-readable message in detail — instead of the legacy { error: \"...\" } body. The HTTP status is unchanged. Clients should read .detail (with .error as a fallback for older servers), as documented since v1.10.1. A few responses keep their existing shape on purpose: those that carry an extra field a caller depends on (such as the email-gate hint) and those whose status is computed at runtime."
+        },
+        {
+          "title": "Suppress internal failure text on these routes' 5xx responses",
+          "body": "A 500 from these routes no longer echoes an internal message in the response body, matching the rest of the API where 5xx detail is withheld from clients. The failure is still logged server-side."
+        }
+      ]
+    }
+  ]
+}
