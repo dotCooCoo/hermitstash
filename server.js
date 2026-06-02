@@ -87,7 +87,6 @@
   // so operators with their own audit infrastructure can register a sink.
   // Tracked locally; file upstream PR when bandwidth allows.
   var b = require("./lib/vendor/blamejs");
-  // codebase-patterns:allow framework-audit-silence — see block comment above
   b.audit.emit = function () {};
   b.audit.safeEmit = function () {};
 

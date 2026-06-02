@@ -1,0 +1,26 @@
+{
+  "version": "1.11.35",
+  "date": "2026-06-02",
+  "headline": "Surface database-encryption failures instead of swallowing them",
+  "summary": "The periodic and exit-time encryption of the on-disk database now logs on failure, so a stale-encrypted-database condition is visible in the logs rather than silently dropped. The vendored server framework is refreshed to its current release.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Update the vendored blamejs framework to v0.14.18",
+          "body": "Refreshes the bundled server framework — crypto envelopes, session storage, mTLS CA management, body parsers, the WebSocket layer, and the SBOM-tracked nested dependencies — to the current upstream release."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Log periodic and exit-time database-encryption failures",
+          "body": "The five-minute refresh and the shutdown flush that re-encrypt the database to disk previously swallowed any error. A failure now logs a clear message so operators can see when the encrypted database may be stale, rather than discovering it only on restore."
+        }
+      ]
+    }
+  ]
+}

@@ -7,7 +7,6 @@ var accessLogRepo = require("../app/data/repositories/bundleAccessLog.repo");
 var logger = require("../app/shared/logger");
 var config = require("../lib/config");
 var b = require("../lib/vendor/blamejs");
-;
 var storage = require("../lib/storage");
 var { safeContentDisposition } = require("../app/shared/sanitize-filename");
 var { send, host } = require("../middleware/send");

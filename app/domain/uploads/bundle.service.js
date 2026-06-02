@@ -5,7 +5,6 @@
 var b = require("../../../lib/vendor/blamejs");
 var bundlesRepo = require("../../data/repositories/bundles.repo");
 var { TIME } = require("../../../lib/constants");
-;
 var { getTotalStorageUsed } = require("../../../lib/db");
 var { ValidationError, NotFoundError, ForbiddenError } = require("../../shared/errors");
 var { sanitizeRename } = require("../../shared/sanitize-filename");

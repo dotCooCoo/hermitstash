@@ -482,10 +482,10 @@ function testNoStrayConsoleCalls() {
 
 
 function testNoUnresolvedMarkers() {
-  // class: unresolved-marker — TODO / FIXME / HACK / XXX
+  // class: unresolved-marker — defer / TODO / FIXME / HACK / XXX
   var matches = _scan(/\b(defer|TODO|FIXME|HACK|XXX)(?::|\s)/);
   matches = _filterMarkers(matches, "unresolved-marker");
-  _report("no TODO / FIXME / HACK / XXX markers in lib/",
+  _report("no defer / TODO / FIXME / HACK / XXX markers in lib/",
     matches);
 }
 
@@ -938,7 +938,7 @@ function testRequireBindingConsistency() {
     }
   }
   var matches = [];
-  var moduleKeys = Object.keys(bindings).sort();   // allow:bare-canonicalize-walk — stable report ordering, not canonicalize-for-hashing
+  var moduleKeys = Object.keys(bindings).sort();   // stable report ordering, not canonicalize-for-hashing
   for (var mi = 0; mi < moduleKeys.length; mi++) {
     var mod2 = moduleKeys[mi];
     var nameMap = bindings[mod2];
@@ -1991,7 +1991,7 @@ async function testNoDuplicateCodeBlocks() {
   // keeps the parallel speedup (5x faster than single-threaded)
   // without crossing the memory ceiling on slow runners. Operators
   // with bigger machines override via HS_PATTERNS_WORKERS=N.
-  var WORKER_CAP = 4;                                                                          // allow:raw-byte-literal — worker fan-out cap, not bytes
+  var WORKER_CAP = 4;                                                                          // worker fan-out cap, not bytes
   var workerCount = Number(process.env.HS_PATTERNS_WORKERS) ||
                     Math.min(os.cpus().length, Math.max(1, files.length), WORKER_CAP);
   var shardResults;
@@ -4104,7 +4104,8 @@ function testEnumRankWithoutValidation() {
 // Surfaced 2026-05-11 — `b.cdnCacheControl.parse` had this exact
 // shape.
 function testNoBoolStringCoerceShape() {
-  // class: bool-string-coerce-shape
+  // class: bool-string-coerce-shape — the general presence-coerce shape
+  // (x === "" || y === "true"); RFC 9111 cdn-cache-control was the first instance.
   var matches = _scan(/===\s*""\s*\|\|\s*[A-Za-z_$][\w$]*\s*===\s*"true"/);
   matches = _filterMarkers(matches, "bool-string-coerce-shape");
   _report("boolean directive presence-check must NOT coerce via `val === \"\" || val === \"true\"` — qualified-form arguments (RFC 9111 §5.2.2.4 / §5.2.2.6 `private=\"X\"`) flip the flag to false. Presence == enabled; surface the argument on a separate field map.",
@@ -4648,6 +4649,49 @@ function testKnownAntipatterns() {
   }
 }
 
+// ---- Pattern: allow markers naming an unregistered detector class ----
+
+function testEveryAllowMarkerNamesRegisteredClass() {
+  // class: dead-allow-marker — every `// allow:<class>` and
+  // `codebase-patterns:allow-file <class>` marker must name a class some
+  // detector actually filters by (a literal passed to _filterMarkers).
+  // A marker for an unregistered class silences nothing and misleads the
+  // next reader into thinking a real risk was reviewed and waived.
+  var self = fs.readFileSync(__filename, "utf8");
+  var registered = {};
+  var rfm = /_filterMarkers\([^,]+,\s*["']([a-z0-9-]+)["']\)/g;
+  var mm;
+  while ((mm = rfm.exec(self)) !== null) registered[mm[1]] = true;
+  var files = _libFiles().concat(_appFiles());
+  var markerRe = /(?:\/\/\s*allow:|codebase-patterns:allow-file\s+)([a-z0-9-]+)/g;
+  var bad = [];
+  for (var fi = 0; fi < files.length; fi++) {
+    var rel = _relPath(files[fi]);
+    var lines = fs.readFileSync(files[fi], "utf8").split(/\r?\n/);
+    for (var li = 0; li < lines.length; li++) {
+      var m2; markerRe.lastIndex = 0;
+      while ((m2 = markerRe.exec(lines[li])) !== null) {
+        if (!registered[m2[1]]) {
+          bad.push({ file: rel, line: li + 1, content: "allow marker names unregistered class '" + m2[1] + "'" });
+        }
+      }
+    }
+  }
+  _report("every allow marker names a registered detector class", bad);
+}
+
+// ---- Pattern: lone `;` empty-statement lines (editor/codemod residue) ----
+
+function testNoStrayEmptyStatement() {
+  // class: stray-empty-statement — a line whose entire content is a lone
+  // `;` is a dead empty statement, typically left after a require block by
+  // an editor or codemod. A for(;;) header never spans a whole bare-`;`
+  // line, so there are no legitimate hits.
+  var matches = _scan(/^\s*;\s*$/, { skipComments: false, appScope: true });
+  matches = _filterMarkers(matches, "stray-empty-statement");
+  _report("no lone `;` empty-statement lines (delete the dead line)", matches);
+}
+
 async function run() {
   testNoRawByteLiterals();
   testNoRawTimeLiterals();
@@ -4714,6 +4758,8 @@ async function run() {
   testSealWithoutAad();
   testHostnameCompareTrailingDot();
   testDenyPathHardcodedResponse();
+  testEveryAllowMarkerNamesRegisteredClass();
+  testNoStrayEmptyStatement();
   testKnownAntipatterns();
 
   // Final cumulative assertion — every detector is a hard gate.

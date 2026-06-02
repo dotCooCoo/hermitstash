@@ -6,7 +6,6 @@ var config = require("../lib/config");
 var C = require("../lib/constants");
 var filesRepo = require("../app/data/repositories/files.repo");
 var invitesRepo = require("../app/data/repositories/invites.repo");
-;
 var { sendInviteEmail, sendVerificationEmail } = require("../lib/email");
 var verificationTokensRepo = require("../app/data/repositories/verificationTokens.repo");
 var { clearSessionsForUser } = require("../lib/session");

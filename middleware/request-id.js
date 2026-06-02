@@ -8,7 +8,6 @@
  * (including in awaited code) include the correct requestId — even when
  * multiple requests are in flight.
  */
-;
 var b = require("../lib/vendor/blamejs");
 var logger = require("../app/shared/logger");
 

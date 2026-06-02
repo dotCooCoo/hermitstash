@@ -5,7 +5,6 @@ var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
 var usersRepo = require("../app/data/repositories/users.repo");
 var verificationTokensRepo = require("../app/data/repositories/verificationTokens.repo");
-;
 var { sendPasswordResetEmail } = require("../lib/email");
 var { validateEmail, validatePassword } = require("../app/shared/validate");
 var audit = require("../lib/audit");

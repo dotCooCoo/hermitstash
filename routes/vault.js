@@ -19,7 +19,6 @@ var filesRepo = require("../app/data/repositories/files.repo");
 var credentialsRepo = require("../app/data/repositories/credentials.repo");
 var { sanitizeFilename, sanitizeRename } = require("../app/shared/sanitize-filename");
 var simplewebauthn = require("../lib/vendor/blamejs/lib/vendor/simplewebauthn-server.cjs");
-;
 var config = require("../lib/config");
 var storage = require("../lib/storage");
 var audit = require("../lib/audit");

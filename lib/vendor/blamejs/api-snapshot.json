@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.14.17",
-  "createdAt": "2026-06-01T02:21:12.014Z",
+  "frameworkVersion": "0.14.18",
+  "createdAt": "2026-06-02T06:34:48.076Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -5795,6 +5795,10 @@
             "WITHOUT_UNREASONABLE_DELAY": {
               "type": "primitive",
               "valueType": "string"
+            },
+            "createClock": {
+              "type": "function",
+              "arity": 1
             },
             "forStates": {
               "type": "function",
@@ -46760,6 +46764,10 @@
         "boundedChunkCollector": {
           "type": "function",
           "arity": 1
+        },
+        "collectStream": {
+          "type": "function",
+          "arity": 2
         },
         "hasCrlf": {
           "type": "function",

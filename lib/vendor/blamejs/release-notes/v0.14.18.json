@@ -1,0 +1,127 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.14.18",
+  "date": "2026-06-01",
+  "headline": "Advertised endpoints that silently failed now work, plus opt-in response-shaping, transport hardening, and ZIP64 read",
+  "summary": "This release closes a set of advertised-but-broken surfaces and adds the extensibility hooks operators kept having to work around. Three endpoints silently failed: the CSP-report endpoint returned 413 to every POST (it never parsed a report), the SCIM server broke on any streamed request body, and both came from misusing the bounded-buffer collector as if it consumed a stream — so this release adds the missing b.safeBuffer.collectStream(stream, opts) primitive and routes both through it. The agent orchestrator's graceful-drain phase never registered (wrong method name), the OpenAPI/AsyncAPI doc endpoints ignored a documented single-origin CORS allowlist, and the EU AI Act Article 50 HTML banner skipped Buffer response bodies. Deny-path refusals gained an RFC 9457 problem-type derived from the problem code (a 429 read about:blank before) and now treat a consumer hook that commits headers as terminal. On top of the fixes, several middlewares gain operator hooks (custom JSON/HTML error formatters, problem+json, refusal callbacks), several entry points gain escape-hatch opts (a configurable Authorization scheme, legacy filename charsets, a submission relay port, an exit-after-phases shutdown), the local job queue can point at an operator-supplied database/table/schema, breach-notification deadlines gain a running escalation clock, the archive reader now reads ZIP64, and external databases gain an opt-in TLS-required posture plus OpenTelemetry db.* trace attributes. Every behavior-changing addition is strictly opt-in — an operator who sets no new option sees no change.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "`b.middleware.cspReport` returned 413 to every POST; `b.middleware.scimServer` broke on streamed bodies",
+          "body": "Both read the request body by calling `b.safeBuffer.boundedChunkCollector(req, …)` — but that primitive takes a single options object and returns a push-collector, it does not consume a stream. The call passed the request as the options argument (so `maxBytes` was undefined and it threw), turning every CSP-report POST into a 413 and failing every streamed SCIM request. Both now read the body through the new `b.safeBuffer.collectStream`. A valid CSP report now reaches the parse/audit/`onReport` path and returns 204."
+        },
+        {
+          "title": "Agent orchestrator graceful-drain phase never registered",
+          "body": "`b.middleware.agentOrchestrator` registered its drain phase against a method the shutdown handle does not expose, so the phase silently never ran — connections were not drained on a graceful shutdown. It now registers through the real `addPhase` so the documented drain actually fires."
+        },
+        {
+          "title": "OpenAPI / AsyncAPI doc endpoints ignored `accessControl: { allowOrigin }`",
+          "body": "The documented single-origin CORS form was read by neither serve middleware (only `accessControl: \"public\"` was handled), so an operator passing `{ allowOrigin: \"https://docs.example.com\" }` got no `Access-Control-Allow-Origin` header. The object form now emits a validated origin (passed through `b.safeUrl`, rejecting CR/LF injection, userinfo, and non-http(s) schemes) with `Vary: Origin`."
+        },
+        {
+          "title": "EU AI Act Article 50 HTML banner skipped Buffer response bodies",
+          "body": "In HTML mode the disclosure banner was injected only when the final response chunk was a string; a `res.end(Buffer.from(html))` body (the common path through templating/render) silently received no banner. Buffer bodies are now decoded under the response charset, injected, and re-encoded (with a one-time warning and untouched bytes for charsets without a transcoder)."
+        },
+        {
+          "title": "Deny-path 429 (and any refusal) emitted `type: about:blank`",
+          "body": "The shared deny-path writer documented deriving the RFC 9457 problem-type URI from the refusal's problem code, but only ever read an explicit problem type — so a rate-limit 429 (which supplies a code, not a type) reported `about:blank`. The type is now derived from the problem code (`<base>/<code>`) when no explicit type is given, so a 429 reads `…/rate-limit-exceeded`."
+        },
+        {
+          "title": "A deny-path `onDeny` hook that commits headers is treated as terminal",
+          "body": "The deny-path writer's terminal check looked only at `res.writableEnded`; a response-wrapping consumer whose `onDeny` sent headers without ending the response fell through into a second `writeHead` and hit \"headers already sent\". The writer now also treats `res.headersSent` as terminal, so wrapping responders compose cleanly."
+        },
+        {
+          "title": "`b.mail.send.deliver` DANE TLSA lookup ignored the configured port",
+          "body": "The DANE TLSA query name (`_<port>._tcp.<host>`) was hardcoded to port 25; a delivery configured for a 587/465 relay still queried port 25. The lookup now uses the configured port."
+        }
+      ]
+    },
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "`b.safeBuffer.collectStream(stream, opts)` — bounded stream-to-Buffer reader",
+          "body": "Reads a Node Readable (a request body, an upstream response) fully into one Buffer with the byte cap enforced at every chunk — the streaming sibling of `boundedChunkCollector`, which is a push-collector, not a stream consumer. Resolves the concatenated Buffer on end; rejects (and destroys the stream) the moment a chunk would overflow `maxBytes`."
+        },
+        {
+          "title": "Operator response-shaping hooks",
+          "body": "`b.errorPage` gains `jsonFormatter(info, req)` and `renderHtml(info, req)` overrides plus a `problemDetails: true` RFC 9457 mode (each falls back to the built-in envelope on throw, so the original error is never masked); `b.render.json` gains an `opts.replacer` passthrough (BigInt/Date); `b.middleware.cspReport` gains `onReject(req, res, { status, reason })` for the otherwise-empty-bodied 405/413/400 refusals; `b.static` gains `onError` firing on every refusal path, mirroring `onServe`."
+        },
+        {
+          "title": "Escape-hatch opts for non-default deployments",
+          "body": "`b.appShutdown.create({ exitAfterPhases })` lets a manual `shutdown()` exit after its phases (not only a signal-driven shutdown); `b.middleware.attachUser({ bearerScheme, tokenExtractor })` reads `Token`/`DPoP`/gateway Authorization schemes (RFC 6750 / RFC 9449); `b.middleware.bodyParser` multipart `filenameCharsets` opts iso-8859-1 `filename*` decoding in (RFC 5987); `b.mail.send.deliver.create({ port })` routes through a 587/465 submission relay (RFC 6409 / RFC 8314)."
+        },
+        {
+          "title": "Local job queue: bring-your-own database, table, and schema",
+          "body": "`b.queue.init` local-backend config accepts `db` (an operator-supplied handle), `table`, and `schema`. Table and schema names are validated and quoted as SQL identifiers (refused at init time when unsafe); the sealed `payload`/`lastError` columns stay sealed regardless of the physical table. Defaults are unchanged (`_blamejs_jobs` on the framework/cluster database)."
+        },
+        {
+          "title": "`b.breach.deadline.createClock` — running breach-notification escalation clock",
+          "body": "A detection-to-notification clock that escalates each affected US state's statutory breach-notification deadline (an approaching warning, a passed alert) and accepts per-state filing acknowledgements, complementing the existing static deadline lookup. It composes the incident-report deadline clock, so there is a single timer to start and stop."
+        },
+        {
+          "title": "`b.archive.read.zip` reads ZIP64",
+          "body": "Archives with more than 65535 entries or with sizes/offsets past 4 GiB now decode transparently (APPNOTE 6.3.10 §4.3.14 / §4.3.15 / §4.5.3). Previously such archives were refused outright. The bomb, Zip-Slip, PATH_MAX, and entry-type defenses all continue to apply to the resolved 64-bit values."
+        },
+        {
+          "title": "External-database opt-in TLS posture and OpenTelemetry `db.*` traces",
+          "body": "`b.externalDb` backends accept `requireTls: true` (default off), which refuses a backend at config time unless its declared transport is TLS (`tls` / a truthy `ssl` / `sslmode` `require|verify-ca|verify-full`) — for cardholder data or ePHI (PCI-DSS v4.0 Req 4 / HIPAA §164.312(e)). Query/transaction/read traces now also carry OpenTelemetry database semantic-convention attributes (`db.system`, `db.operation`, `db.statement` (sanitized), `db.name`)."
+        },
+        {
+          "title": "Opt-in schema-drift detection",
+          "body": "`b.db.init({ onDrift })` (and the underlying `reconcile({ onDrift })`) opts into config-vs-live column-drift detection: `\"warn\"` reports columns present in the live database but absent from the declared schema; `\"refuse\"` makes the framework refuse to boot on drift (a strict-schema posture — ISO 27001:2022 A.8.9 / SOC 2 CC8.1). The default (`\"ignore\"`) is unchanged, and drift is never resolved destructively."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "`b.guardEmail` documents its actual Unicode scope",
+          "body": "Domain-side IDN/Punycode and mixed-script confusable detection are supported (and unchanged); the local-part is ASCII atext only (RFC 5321/5322). The documentation previously implied RFC 6531 SMTPUTF8/EAI mailbox names were accepted — they are rejected by default, re-openable behind a future `allowUnicodeLocalPart` opt-in, to keep homograph/confusable exposure bounded to the domain side. No validation behavior changed."
+        },
+        {
+          "title": "Body-parse 4xx responses send `Connection: close`",
+          "body": "Every body-parse rejection (malformed JSON, poisoned key, oversized payload, bad content-length) now closes the connection, matching the chunked-decode path, to deny an upstream proxy reusing a socket whose request stream the parser abandoned mid-body (RFC 9112 §9.6)."
+        },
+        {
+          "title": "Archive-reader default entry-count cap raised to 1,048,576",
+          "body": "To read large (ZIP64) archives, the default `bombPolicy.maxEntries` rises from 65535 to 2^20. An operator who set `maxEntries` explicitly is unaffected; the cap can still be lowered."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Closed a request-smuggling socket-reuse window on body-parse rejections",
+          "body": "Pairing every body-parse 4xx with `Connection: close` stops an upstream proxy from reusing a connection whose request body the parser abandoned mid-stream — a request/response desync vector that previously applied only to the chunked-decode rejections."
+        },
+        {
+          "title": "Opt-in TLS-required posture for regulated external databases",
+          "body": "Set `requireTls: true` on an external-database backend carrying cardholder data or ePHI so a non-TLS (or fallback-permitting `sslmode`) connection is refused at boot rather than silently transmitting in the clear (PCI-DSS v4.0 Req 4 / HIPAA §164.312(e))."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "Regression guards for every fixed bug class",
+          "body": "The internal pattern gate gains detectors so each fixed mistake cannot return: a bounded-collector call used as a stream consumer, a deny-path writer that does not guard `headersSent`, an `appShutdown` phase registered through a non-existent method, a body-parse error writer missing `Connection: close`, a raw `_blamejs_jobs` table reference bypassing the configured-table quoting, and a breach clock that re-rolls its own timer instead of composing the incident-report clock."
+        }
+      ]
+    },
+    {
+      "heading": "Migration",
+      "items": [
+        {
+          "title": "No action required; new behavior is opt-in",
+          "body": "Every addition is additive or opt-in: `requireTls`, schema-drift `onDrift`, the response-shaping hooks, the new entry-point opts, and the breach clock all default to prior behavior when unset. Two defaults shift in a backward-compatible direction: body-parse 4xx now send `Connection: close`, and the archive reader's default entry-count ceiling rises to 2^20 (lower it via `bombPolicy.maxEntries` if you relied on the old cap). `b.db.reconcile` now returns a drift report object instead of undefined; the framework's own call ignores the return, so existing callers are unaffected."
+        }
+      ]
+    }
+  ]
+}

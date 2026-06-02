@@ -8,7 +8,6 @@ var usersRepo = require("../app/data/repositories/users.repo");
 var { isAdmin } = require("../app/shared/authz");
 var filesRepo = require("../app/data/repositories/files.repo");
 var credentialsRepo = require("../app/data/repositories/credentials.repo");
-;
 var { validateEmail, validatePassword } = require("../app/shared/validate");
 var requireAuth = require("../middleware/require-auth");
 var { send } = require("../middleware/send");

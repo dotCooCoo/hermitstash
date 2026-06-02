@@ -24,7 +24,6 @@ var b = require("../lib/vendor/blamejs");
 var nodeCrypto = require("node:crypto");
 var vault = require("../lib/vault");
 var config = require("../lib/config");
-;
 var { encryptPayload, decryptPayload, generateApiKey } = require("../lib/api-crypto");
 var { xchacha20poly1305 } = require("../lib/vendor/blamejs/lib/vendor/noble-ciphers.cjs");
 var { ml_kem1024 } = require("../lib/vendor/blamejs/lib/vendor/noble-post-quantum.cjs");

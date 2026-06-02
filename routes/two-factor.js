@@ -3,7 +3,6 @@ var config = require("../lib/config");
 var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
 var vault = require("../lib/vault");
-;
 var usersRepo = require("../app/data/repositories/users.repo");
 var totp = require("../lib/totp");
 var requireAuth = require("../middleware/require-auth");

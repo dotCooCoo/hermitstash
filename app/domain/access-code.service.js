@@ -3,7 +3,6 @@
  */
 var b = require("../../lib/vendor/blamejs");
 var nodeCrypto = require("node:crypto");
-;
 var { HASH_PREFIX, TIME } = require("../../lib/constants");
 var accessCodesRepo = require("../data/repositories/bundleAccessCodes.repo");
 var emailService = require("../../lib/email");

@@ -4,7 +4,6 @@ var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
 var usersRepo = require("../app/data/repositories/users.repo");
 var verificationTokensRepo = require("../app/data/repositories/verificationTokens.repo");
-;
 var { sendVerificationEmail } = require("../lib/email");
 var audit = require("../lib/audit");
 var { send, host } = require("../middleware/send");

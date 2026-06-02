@@ -9,7 +9,6 @@ var { Router } = require("./lib/vendor/blamejs").router;
 var { sessionMiddleware } = require("./lib/session");
 var db = require("./lib/db");
 var { users } = db;
-;
 var storage = require("./lib/storage");
 var audit = require("./lib/audit");
 var logger = require("./app/shared/logger");

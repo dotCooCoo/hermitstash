@@ -1,6 +1,5 @@
 var b = require("../lib/vendor/blamejs");
 var apiKeysRepo = require("../app/data/repositories/apiKeys.repo");
-;
 var requireAdmin = require("../middleware/require-admin");
 var idempotency = require("../middleware/idempotency");
 var audit = require("../lib/audit");

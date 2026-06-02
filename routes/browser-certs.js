@@ -19,7 +19,6 @@
 var b = require("../lib/vendor/blamejs");
 var apiKeysRepo = require("../app/data/repositories/apiKeys.repo");
 var { certFingerprintSha3 } = require("../lib/cert-utils");
-;
 var requireAdmin = require("../middleware/require-admin");
 var audit = require("../lib/audit");
 var mtlsCa = require("../lib/mtls-ca");

@@ -23,7 +23,6 @@
  *     for app.post() routes. Composes the helpers and handles the response.
  */
 var b = require("../lib/vendor/blamejs");
-;
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
 var { hasScope } = require("../app/security/scope-policy");
 var { certFingerprintSha3 } = require("../lib/cert-utils");

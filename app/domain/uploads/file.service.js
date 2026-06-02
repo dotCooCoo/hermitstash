@@ -7,7 +7,6 @@ var nodePath = require("node:path");
 var filesRepo = require("../../data/repositories/files.repo");
 var storage = require("../../../lib/storage");
 var C = require("../../../lib/constants");
-;
 var { sanitizeSvg } = require("../../../lib/sanitize-svg");
 var { sanitizeFilename, safeContentDisposition } = require("../../shared/sanitize-filename");
 var { NotFoundError, ValidationError, ForbiddenError } = require("../../shared/errors");

@@ -39,7 +39,6 @@ var apiKeysRepo = require("../app/data/repositories/apiKeys.repo");
 var webhooksRepo = require("../app/data/repositories/webhooks.repo");
 var teamsRepo = require("../app/data/repositories/teams.repo");
 var { parseMultipart } = require("../lib/multipart");
-;
 var mtlsCa = require("../lib/mtls-ca");
 var syncRegistry = require("../lib/sync-registry");
 var storage = require("../lib/storage");

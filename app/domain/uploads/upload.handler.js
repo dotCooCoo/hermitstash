@@ -8,7 +8,6 @@ var b = require("../../../lib/vendor/blamejs");
 var nodePath = require("node:path");
 var config = require("../../../lib/config");
 var C = require("../../../lib/constants");
-;
 var filesRepo = require("../../data/repositories/files.repo");
 var bundlesRepo = require("../../data/repositories/bundles.repo");
 var storage = require("../../../lib/storage");

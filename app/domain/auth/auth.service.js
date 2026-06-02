@@ -5,7 +5,6 @@
 var b = require("../../../lib/vendor/blamejs");
 var usersRepo = require("../../data/repositories/users.repo");
 var filesRepo = require("../../data/repositories/files.repo");
-;
 var { validateEmail, validatePassword, validateDisplayName } = require("../../shared/validate");
 var { ValidationError, AuthenticationError, ForbiddenError, ConflictError } = require("../../shared/errors");
 
