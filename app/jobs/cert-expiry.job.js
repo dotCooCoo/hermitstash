@@ -11,7 +11,6 @@
  * The client must still redeem the renewal code via "hermitstash-sync repair".
  */
 
-var b = require("../../lib/vendor/blamejs");
 var logger = require("../shared/logger");
 var { TIME } = require("../../lib/constants");
 

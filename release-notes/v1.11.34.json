@@ -1,5 +1,5 @@
 {
-  "version": "1.11.33",
+  "version": "1.11.34",
   "date": "2026-06-02",
   "headline": "Close a cleartext-error leak on encrypted API sessions",
   "summary": "An API-key scope denial could ship a cleartext error body on a session the client negotiated as encrypted; it now flows through the encrypting error handler. Also fixes audit-log pagination, certificate auto-renewal, stale-bundle cleanup, and HTML escaping in account emails.",

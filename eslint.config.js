@@ -23,6 +23,7 @@ module.exports = [
       "template/**",
       "scripts/**",
       "deploy/**",
+      ".test-output/**",
     ],
   },
   {

@@ -476,6 +476,34 @@ function nodeGate(label, args) {
   }
 }
 
+// ESLint gate — runs the canonical eslint.config.js with --max-warnings=0
+// (CI parity: the Docker lint job fails on any warning). Uses the eslint
+// already installed under tests/node_modules so no extra install is needed;
+// skips with a warning on a fresh clone where tests deps aren't present yet.
+function eslintGate() {
+  var fsLocal = require("node:fs");
+  var eslintBin = path.join(REPO, "tests", "node_modules", "eslint", "bin", "eslint.js");
+  process.stdout.write("  eslint … ");
+  if (!fsLocal.existsSync(eslintBin)) {
+    console.log(yellow("skipped (tests/node_modules eslint not installed)"));
+    return 0;
+  }
+  try {
+    cp.execFileSync("node", [eslintBin, "--config", "eslint.config.js", ".", "--max-warnings=0"], {
+      cwd: REPO,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: Object.assign({}, process.env, { NODE_PATH: path.join(REPO, "tests", "node_modules") }),
+    });
+    console.log(green("ok"));
+    return 0;
+  } catch (e2) {
+    console.log(red("FAIL"));
+    var out2 = ((e2.stdout || "") + (e2.stderr || "")).toString().trim();
+    if (out2) console.log(dim(out2.split("\n").slice(0, 30).map(function (l) { return "      " + l; }).join("\n")));
+    return 1;
+  }
+}
+
 // ---- stages -------------------------------------------------------------
 
 // Newest Docker-workflow run (any trigger) — used only for informational status.
@@ -594,7 +622,8 @@ function cmdPreflight() {
   var fails = driftFail
     + nodeGate("release-notes rollup", ["scripts/consolidate-release-notes.js", "--check"])
     + nodeGate("changelog extract", ["scripts/check-changelog-extract.js"])
-    + nodeGate("codebase patterns", ["tests/lint/codebase-patterns.test.js"]);
+    + nodeGate("codebase patterns", ["tests/lint/codebase-patterns.test.js"])
+    + eslintGate();
 
   var actionsCode = actionsGate();
   var vendorCode = vendorGate();
