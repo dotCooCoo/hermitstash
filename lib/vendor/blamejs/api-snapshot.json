@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.14.18",
-  "createdAt": "2026-06-02T06:34:48.076Z",
+  "frameworkVersion": "0.14.19",
+  "createdAt": "2026-06-02T17:15:17.761Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -39209,6 +39209,10 @@
         "dmarc": {
           "type": "object",
           "members": {
+            "buildAggregateReport": {
+              "type": "function",
+              "arity": 2
+            },
             "evaluate": {
               "type": "function",
               "arity": 1

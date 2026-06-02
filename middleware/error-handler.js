@@ -103,6 +103,17 @@ function errorHandler(err, req, res) {
     detail: status >= 500 ? undefined : message,
   };
 
+  // Merge any RFC 9457 extension members the thrown AppError attached (e.g.
+  // requiresEmail / pending) as top-level problem fields the client reads
+  // alongside detail. Reserved keys can't be overridden.
+  if (err && err.extras && typeof err.extras === "object") {
+    Object.keys(err.extras).forEach(function (k) {
+      if (k !== "type" && k !== "title" && k !== "status" && k !== "detail") {
+        problem[k] = err.extras[k];
+      }
+    });
+  }
+
   // If res.json encrypts on this session, emit the problem document through
   // res.json so the encryption covers it. b.problemDetails writes via res.end,
   // which bypasses the wrap and would ship the error in cleartext on a session

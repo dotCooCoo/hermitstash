@@ -108,7 +108,7 @@ module.exports = function (app) {
           } else if (err.statusCode === 401) {
             audit.log(audit.ACTIONS.LOGIN_FAILED_NO_ACCOUNT, { targetEmail: input.email, details: "No account found", req: req });
           } else if (err.statusCode === 403 && err.pending) {
-            return res.status(403).json({ error: err.message, pending: true, email: err.email });
+            err.extras = { pending: true, email: err.email };
           } else if (err.statusCode === 403) {
             audit.log(audit.ACTIONS.LOGIN_FAILED_BAD_PASSWORD, { targetId: existing ? existing._id : undefined, targetEmail: input.email, details: "Suspended account (local)", req: req });
           }

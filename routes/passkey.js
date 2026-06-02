@@ -166,7 +166,7 @@ module.exports = function (app) {
         throw new ForbiddenError("Account suspended.");
       }
       if (user.status === "pending") {
-        return res.status(403).json({ error: "Please verify your email first.", pending: true, email: user.email });
+        throw new ForbiddenError("Please verify your email first.").withExtras({ pending: true, email: user.email });
       }
 
       // counter passed verbatim — the wrapper refuses undefined / null
@@ -248,7 +248,7 @@ module.exports = function (app) {
         if (vaultEnabled) {
           // Allow removal but the client should confirm (check body.confirmVaultRisk)
           if (!body.confirmVaultRisk) {
-            return res.status(400).json({ error: "This passkey is used for your vault. Removing it will make vault files unrecoverable. Send confirmVaultRisk: true to proceed.", requiresConfirmation: true });
+            throw new ValidationError("This passkey is used for your vault. Removing it will make vault files unrecoverable. Send confirmVaultRisk: true to proceed.").withExtras({ requiresConfirmation: true });
           }
         }
       }

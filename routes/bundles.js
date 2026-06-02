@@ -97,7 +97,7 @@ module.exports = function (app) {
       if (mode === "both") {
         var prev = req.session["bundle_" + shareId];
         if (!prev || typeof prev !== "object" || typeof prev.emailVerified !== "string") {
-          return res.status(403).json({ error: "Email verification required first.", requiresEmail: true });
+          throw new ForbiddenError("Email verification required first.").withExtras({ requiresEmail: true });
         }
         req.session["bundle_" + shareId] = { emailVerified: prev.emailVerified, passwordVerified: true };
       } else {

@@ -32,6 +32,16 @@ class AppError extends Error {
     this.statusCode = statusCode || 500;
     this.code = code || "INTERNAL_ERROR";
     this.isAppError = true;
+    this.extras = null;
+  }
+
+  // Attach RFC 9457 extension members — extra top-level fields the client
+  // reads alongside { type, title, status, detail } (e.g. requiresEmail,
+  // pending). The error handler merges them into the problem document,
+  // skipping the four reserved keys. Returns this for throw-site chaining.
+  withExtras(obj) {
+    if (obj && typeof obj === "object") this.extras = obj;
+    return this;
   }
 }
 
