@@ -18,9 +18,13 @@ function queryAuditLog(opts) {
   var page = Math.max(1, parseInt(opts.page, 10) || 1);
   var limit = Math.max(1, Math.min(200, parseInt(opts.limit, 10) || 50));
 
-  // Fetch with JS-level date/action filtering
-  var sqlLimit = (q || actionFilter) ? 5000 : limit; // fetch more if we need JS filtering
-  var sqlOffset = (q || actionFilter) ? 0 : (page - 1) * limit;
+  // Any JS-side filter (text search, action, or date range — all of which run
+  // after unseal) means SQL can't paginate for us: fetch a broad window from
+  // offset 0 and slice after filtering. With no JS filter, SQL paginates the
+  // page directly and COUNT(*) gives the true total.
+  var jsFilter = !!(q || actionFilter || dateFrom || dateTo);
+  var sqlLimit = jsFilter ? 5000 : limit;
+  var sqlOffset = jsFilter ? 0 : (page - 1) * limit;
   var fetchOpts = { limit: sqlLimit, offset: sqlOffset, orderBy: "createdAt", orderDir: "desc" };
 
   var query = {};
@@ -53,10 +57,12 @@ function queryAuditLog(opts) {
     });
   }
 
-  // Paginate the filtered results
-  var total = entries.length;
+  // With a JS filter, `entries` holds the full filtered set → slice the page
+  // and count it. Without one, SQL already returned exactly the page and
+  // COUNT(*) (all.total) is the real total.
+  var total = jsFilter ? entries.length : all.total;
+  var paged = jsFilter ? entries.slice((page - 1) * limit, page * limit) : entries;
   var pages = Math.ceil(total / limit) || 1;
-  var paged = entries.slice((page - 1) * limit, page * limit);
 
   return { entries: paged, total: total, page: page, pages: pages, limit: limit };
 }

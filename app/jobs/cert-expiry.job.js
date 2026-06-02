@@ -57,7 +57,7 @@ async function run() {
 
       try {
         var mtlsCa = require("../../lib/mtls-ca");
-        var { generateEnrollmentCode } = require("../../lib/cert-utils");
+        var { generateEnrollmentCode, certFingerprintSha3 } = require("../../lib/cert-utils");
 
         await mtlsCa.initCA();
         var newCert = await mtlsCa.generateClientCert({ cn: key.prefix });
@@ -88,7 +88,7 @@ async function run() {
         apiKeysRepo.update(key._id, { $set: {
           certIssuedAt: newCert.issuedAt,
           certExpiresAt: newCert.expiresAt,
-          certFingerprint: b.crypto.sha3Hash(newCert.cert),
+          certFingerprint: certFingerprintSha3(newCert.cert),
         }});
 
         renewed++;

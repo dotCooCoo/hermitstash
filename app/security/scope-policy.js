@@ -11,7 +11,7 @@
  *   "*"        — all scopes (alias for admin)
  */
 
-var b = require("../../lib/vendor/blamejs");
+var { ForbiddenError } = require("../shared/errors");
 
 var VALID_SCOPES = ["admin", "upload", "read", "webhook", "sync"];
 
@@ -43,23 +43,17 @@ function hasScope(apiKey, requiredScope) {
  * Session-authenticated users bypass scope checks (they use role-based auth).
  */
 function requireScope(scope) {
-  return function (req, res, next) {
+  return async function (req, res, next) {
     // Session auth — use role-based checks (requireAuth/requireAdmin)
     if (!req.apiKey) return next();
     // API key auth — check scope
     if (hasScope(req.apiKey, scope)) return next();
-    // 3-arg middleware: the router calls next() with no args and only
-    // forwards a THROW (rejected handle() promise) to the registered
-    // onError handler — a next(err) is treated as a plain "proceed"
-    // signal, so it can't route here. Emit RFC 9457 problem+json
-    // directly, wire-matched to what the centralized error handler
-    // produces for a ForbiddenError (403 / FORBIDDEN).
-    return b.problemDetails.send(res, {
-      type: "https://hermitstash.com/problems/forbidden",
-      title: "Forbidden",
-      status: 403,
-      detail: "API key lacks '" + scope + "' scope.",
-    });
+    // Throw at the boundary so the centralized error handler renders the 403.
+    // On api-encrypt'd routes (e.g. /drop/init, /drop/finalize) that handler
+    // routes the ForbiddenError through the encrypting res.json — a direct
+    // b.problemDetails.send would ship a cleartext body on a session the
+    // client negotiated as encrypted.
+    throw new ForbiddenError("API key lacks '" + scope + "' scope.");
   };
 }
 

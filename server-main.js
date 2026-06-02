@@ -676,10 +676,9 @@ scheduler.register("expired_tokens_cleanup", C.TIME.days(1), function () { // da
   } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
 scheduler.register("expired_bundles_cleanup", C.TIME.hours(1), function () { // hourly
-  try {
-    db.rawExec("DELETE FROM bundles WHERE status = 'uploading' AND createdAt < ?",
-      new Date(Date.now() - C.TIME.days(1)).toISOString()); // stale uploads > 24h
-  } catch (_e) { /* scheduled cleanup — retry next tick */ }
+  // cleanupStaleBundles removes the same >24h "uploading" bundles AND their
+  // files + chunk dirs; a raw row DELETE would orphan the storage objects.
+  expiryCleanupJob.cleanupStaleBundles().catch(function (_e) { /* scheduled cleanup — retry next tick */ });
 });
 scheduler.register("chunk_gc", C.TIME.hours(1), function () { // hourly
   try { chunkGcJob.cleanupStaleChunks(); } catch (_e) { /* scheduled cleanup — retry next tick */ }
