@@ -1,0 +1,17 @@
+{
+  "version": "1.11.41",
+  "date": "2026-06-02",
+  "headline": "Verify vault passkey unlock through the framework passkey surface",
+  "summary": "Vault unlock now verifies the passkey assertion through the framework's passkey API rather than a direct WebAuthn-library import, with user verification required explicitly.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Route vault passkey unlock through b.auth.passkey",
+          "body": "The passkey-gated vault unlock verified the assertion with a direct WebAuthn-library call; it now uses the framework's b.auth.passkey verification API — the same path the passkey login flow uses — and requires user verification explicitly. The verification semantics are unchanged (user verification was already the library default for this call)."
+        }
+      ]
+    }
+  ]
+}
