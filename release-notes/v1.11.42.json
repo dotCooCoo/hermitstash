@@ -1,0 +1,17 @@
+{
+  "version": "1.11.42",
+  "date": "2026-06-02",
+  "headline": "Retire the duplicate packed-envelope helpers from lib/crypto",
+  "summary": "Removes the unused local packed-buffer encrypt/decrypt helpers in favor of the framework's, leaving one implementation of the on-disk envelope.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Use the framework packed-envelope helpers everywhere",
+          "body": "lib/crypto carried its own encryptPacked/decryptPacked that no production code used — every storage and database path already goes through the framework's byte-identical implementation. The local pair is removed, the vault-key verifier now decrypts through the framework helper, and the regression tests exercise the framework path. No on-disk format change."
+        }
+      ]
+    }
+  ]
+}

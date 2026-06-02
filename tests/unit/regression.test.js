@@ -219,11 +219,12 @@ describe("regression", function () {
     });
   });
 
-  // ---- encryptPacked/decryptPacked (used by storage + db) ----
+  // ---- packed buffer encrypt/decrypt (b.crypto — used by storage + db) ----
 
   describe("packed buffer encrypt/decrypt", function () {
     it("roundtrips correctly", function () {
-      var { encryptPacked, decryptPacked, generateBytes } = require(path.join(projectRoot, "lib/crypto"));
+      var { generateBytes } = require(path.join(projectRoot, "lib/crypto"));
+      var { encryptPacked, decryptPacked } = require(path.join(projectRoot, "lib/vendor/blamejs")).crypto;
       var key = generateBytes(32);
       var data = Buffer.from("file content here");
       var packed = encryptPacked(data, key);
@@ -233,7 +234,8 @@ describe("regression", function () {
     });
 
     it("rejects tampered ciphertext", function () {
-      var { encryptPacked, decryptPacked, generateBytes } = require(path.join(projectRoot, "lib/crypto"));
+      var { generateBytes } = require(path.join(projectRoot, "lib/crypto"));
+      var { encryptPacked, decryptPacked } = require(path.join(projectRoot, "lib/vendor/blamejs")).crypto;
       var key = generateBytes(32);
       var packed = encryptPacked(Buffer.from("secret"), key);
       packed[packed.length - 1] ^= 0xff; // flip a byte
@@ -241,7 +243,8 @@ describe("regression", function () {
     });
 
     it("rejects wrong key", function () {
-      var { encryptPacked, decryptPacked, generateBytes } = require(path.join(projectRoot, "lib/crypto"));
+      var { generateBytes } = require(path.join(projectRoot, "lib/crypto"));
+      var { encryptPacked, decryptPacked } = require(path.join(projectRoot, "lib/vendor/blamejs")).crypto;
       var key1 = generateBytes(32);
       var key2 = generateBytes(32);
       var packed = encryptPacked(Buffer.from("secret"), key1);

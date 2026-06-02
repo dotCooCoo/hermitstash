@@ -133,7 +133,7 @@ function decryptDbToTemp(keys) {
   var packed = fs.readFileSync(DB_ENC_PATH);
   var plainBytes;
   try {
-    plainBytes = cryptoLib.decryptPacked(packed, dbKey);
+    plainBytes = b.crypto.decryptPacked(packed, dbKey);
   } catch (e) {
     console.error("ERROR: hermitstash.db.enc cannot be decrypted with the unsealed dbKey — " + e.message);
     process.exit(1);
