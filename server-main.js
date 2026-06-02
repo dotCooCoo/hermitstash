@@ -1,7 +1,6 @@
 // -- Core libs --
 var path = require("path");
 var fs = require("fs");
-var url = require("node:url");
 
 // -- lib/ modules --
 var config = require("./lib/config");
@@ -247,7 +246,7 @@ app.get("/sitemap.xml", function (req, res) {
 // one-time-use one-hour-expiry, so the lower bound on attacker brute-force
 // stays cosmically out of reach at any reasonable cap. Default stays 5.
 var SYNC_ENROLL_MAX = parseInt(process.env.SYNC_ENROLL_MAX, 10) || 5;
-app.post("/sync/enroll", rateLimit.guard({ scope: "sync-enroll", max: SYNC_ENROLL_MAX, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async function (req, res) {
+app.post("/sync/enroll", rateLimit.guard({ max: SYNC_ENROLL_MAX, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async function (req, res) {
   try {
     var body = (await b.parsers.json(req)) || {};
     var code = String(body.code || "").trim().toUpperCase();
@@ -342,7 +341,7 @@ app.post("/sync/enroll", rateLimit.guard({ scope: "sync-enroll", max: SYNC_ENROL
 // no certFingerprint — the cert proof-of-possession IS the second factor),
 // revocation check, and actual cert generation.
 app.post("/sync/renew-cert",
-  rateLimit.guard({ scope: "sync-renew", max: 5, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }),
+  rateLimit.guard({ max: 5, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }),
   require("./middleware/sync-guards").requireSyncAuth({ requireBundle: false }),
   async function (req, res) {
     try {
@@ -630,7 +629,7 @@ require("./routes/stash")(app);
 // All pre-checks (scope / ownership / boundBundleId / certFingerprint) run in
 // middleware/sync-guards.js so every /sync/* endpoint inherits the same gate chain.
 app.post("/sync/rename",
-  rateLimit.guard({ scope: "sync-file-rename", max: 100, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }),
+  rateLimit.guard({ max: 100, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }),
   require("./middleware/sync-guards").requireSyncAuth({ requireBundle: true }),
   async function (req, res) {
     var result = await handleSyncFileRename({
@@ -730,8 +729,8 @@ scheduler.register("shm_usage_monitor", C.TIME.minutes(5), function () { // ever
   if (!tmpdir) return;
   try {
     var stats = fs.statfsSync(tmpdir);
-    var totalMB = Math.round(stats.blocks * stats.bsize / 1048576);
-    var usedMB = Math.round((stats.blocks - stats.bfree) * stats.bsize / 1048576);
+    var totalMB = Math.round(stats.blocks * stats.bsize / C.BYTES.mib(1));
+    var usedMB = Math.round((stats.blocks - stats.bfree) * stats.bsize / C.BYTES.mib(1));
     var pct = totalMB > 0 ? Math.round(usedMB / totalMB * 100) : 0;
     if (pct >= 90) {
       logger.error("[SHM] " + tmpdir + " is " + pct + "% full (" + usedMB + "/" + totalMB + " MB) — database writes may fail. Increase shm_size immediately.");
@@ -928,8 +927,19 @@ var SYNC_MAX_MESSAGES_PER_MIN = 60;
 var SYNC_MAX_MESSAGE_SIZE = C.BYTES.kib(64);
 
 server.on("upgrade", function (req, socket, head) {
-  // Parse URL
-  var parsed = url.parse(req.url, true);
+  // Parse the request-target. req.url is a relative path ("/sync/ws?..."),
+  // which the WHATWG parser behind b.safeUrl rejects — supply a synthetic
+  // absolute base. ALLOW_WS_ALL because this is the upgrade request-target,
+  // not an outbound URL (the https-only default would reject the ws base).
+  var parsed;
+  try {
+    parsed = b.safeUrl.parse("ws://placeholder.invalid" + req.url, {
+      allowedProtocols: b.safeUrl.ALLOW_WS_ALL,
+    });
+  } catch (_e) {
+    socket.destroy();
+    return;
+  }
   if (parsed.pathname !== "/sync/ws") {
     // Not a sync WebSocket — ignore (let other handlers take it, or close)
     socket.destroy();
@@ -1005,7 +1015,7 @@ server.on("upgrade", function (req, socket, head) {
   }
 
   // Validate bundleId
-  var bundleId = parsed.query.bundleId;
+  var bundleId = parsed.searchParams.get("bundleId");
   if (!bundleId) {
     return rejectUpgrade(socket, 400, "Bad Request");
   }
@@ -1036,7 +1046,7 @@ server.on("upgrade", function (req, socket, head) {
   }
 
   // Validate since param
-  var since = parseInt(parsed.query.since, 10);
+  var since = parseInt(parsed.searchParams.get("since"), 10);
   if (isNaN(since) || since < 0) since = 0;
 
   // Complete WebSocket handshake (b.websocket.handleUpgrade writes the
@@ -1130,7 +1140,7 @@ server.on("upgrade", function (req, socket, head) {
       return;
     }
     try {
-      var msg = JSON.parse(data);
+      var msg = b.safeJson.parse(data, { maxBytes: SYNC_MAX_MESSAGE_SIZE, maxDepth: 32 });
       if (!msg || !msg.type) {
         safeSend(JSON.stringify({ type: "error", code: "invalid_json", message: "Missing type field" }));
         return;

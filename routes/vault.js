@@ -140,7 +140,7 @@ module.exports = function (app) {
 
   // Unlock vault — passkey-gated mode only
   // Verifies passkey authentication, then releases the vault seed for client-side decryption
-  app.post("/vault/unlock", rateLimit.guard({ scope: "vault-unlock", max: 5, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/vault/unlock", rateLimit.guard({ max: 5, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {
       var user = usersRepo.findById(req.user._id);

@@ -11,12 +11,13 @@
  */
 var logger = require("../shared/logger");
 var audit = require("../../lib/audit");
+var C = require("../../lib/constants");
 
 var handlers = {};
 var pending = [];
 var processing = false;
 var MAX_RETRIES = 3;
-var RETRY_DELAY = 2000; // 2s base delay, exponential backoff
+var RETRY_DELAY = C.TIME.seconds(2); // 2s base delay, exponential backoff
 
 /**
  * Register a job handler.

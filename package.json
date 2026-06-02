@@ -1,6 +1,6 @@
 {
   "name": "hermitstash",
-  "version": "1.11.30",
+  "version": "1.11.31",
   "description": "Stash it quietly. Share it instantly. Post-quantum encrypted, self-hosted file upload server.",
   "main": "server.js",
   "scripts": {

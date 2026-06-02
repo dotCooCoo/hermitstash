@@ -40,7 +40,7 @@ module.exports = function (app) {
   });
 
   // Init bundle
-  app.post("/drop/init", rateLimit.guard({ scope: "drop-init", max: 20, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), idempotency, requireScope("upload"), async (req, res) => {
+  app.post("/drop/init", rateLimit.guard({ max: 20, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), idempotency, requireScope("upload"), async (req, res) => {
     if (!config.publicUpload) throw new ForbiddenError("Disabled.");
     // blamejs apiEncrypt populates req.body with the decrypted plaintext;
     // fall through to parseJson(req) only when no upstream middleware has
@@ -67,7 +67,7 @@ module.exports = function (app) {
   });
 
   // Upload single file
-  app.post("/drop/file/:bundleId", rateLimit.guard({ scope: "upload", max: 200, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), requireScope("upload"), async (req, res) => {
+  app.post("/drop/file/:bundleId", rateLimit.guard({ max: 200, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), requireScope("upload"), async (req, res) => {
     if (!config.publicUpload) throw new ForbiddenError("Disabled.");
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
@@ -102,7 +102,7 @@ module.exports = function (app) {
   });
 
   // Chunked upload
-  app.post("/drop/chunk/:bundleId", rateLimit.guard({ scope: "chunk", max: 500, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), requireScope("upload"), async (req, res) => {
+  app.post("/drop/chunk/:bundleId", rateLimit.guard({ max: 500, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), requireScope("upload"), async (req, res) => {
     if (!config.publicUpload) throw new ForbiddenError("Disabled.");
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
@@ -131,7 +131,7 @@ module.exports = function (app) {
   });
 
   // Finalize bundle
-  app.post("/drop/finalize/:bundleId", rateLimit.guard({ scope: "finalize", max: 20, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), idempotency, requireScope("upload"), async (req, res) => {
+  app.post("/drop/finalize/:bundleId", rateLimit.guard({ max: 20, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), idempotency, requireScope("upload"), async (req, res) => {
     var existing = bundlesRepo.findById(req.params.bundleId);
     if (!existing) throw new NotFoundError("Bundle not found.");
     if (existing.stashId && !(req.apiKey && req.apiKey.boundStashId === existing.stashId)) {

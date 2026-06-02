@@ -127,7 +127,7 @@ module.exports = function (app) {
   });
 
   // Verify authentication response
-  app.post("/passkey/login/verify", rateLimit.guard({ scope: "passkey-login", max: 10, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/passkey/login/verify", rateLimit.guard({ max: 10, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
     if (!config.passkeyEnabled) throw new ForbiddenError("Passkeys are disabled.");
 
     try {

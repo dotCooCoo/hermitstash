@@ -24,7 +24,7 @@ module.exports = function (app) {
   });
 
   // POST /auth/forgot-password — rate limited, generate reset token, send email
-  app.post("/auth/forgot-password", rateLimit.guard({ scope: "password-reset", max: 5, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async function (req, res) {
+  app.post("/auth/forgot-password", rateLimit.guard({ max: 5, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async function (req, res) {
     if (!config.localAuth) throw new ForbiddenError("Disabled.");
 
     try {
@@ -106,7 +106,7 @@ module.exports = function (app) {
   });
 
   // POST /auth/reset-password/:token — validate token, update password, clear sessions
-  app.post("/auth/reset-password/:token", rateLimit.guard({ scope: "password-reset-submit", max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async function (req, res) {
+  app.post("/auth/reset-password/:token", rateLimit.guard({ max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async function (req, res) {
     if (!config.localAuth) throw new ForbiddenError("Disabled.");
 
     try {

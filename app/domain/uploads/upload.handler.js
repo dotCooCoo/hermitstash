@@ -7,6 +7,7 @@ var clientIp = require("../../../lib/client-ip");
 var b = require("../../../lib/vendor/blamejs");
 var nodePath = require("node:path");
 var config = require("../../../lib/config");
+var C = require("../../../lib/constants");
 ;
 var filesRepo = require("../../data/repositories/files.repo");
 var bundlesRepo = require("../../data/repositories/bundles.repo");
@@ -248,7 +249,7 @@ async function handleChunkUpload(ctx) {
   }
 
   // Per-chunk size limit — prevent disk exhaustion before reassembly-time quota check
-  var maxChunkSize = Math.max(limits.maxFileSize || 10485760, 10485760); // at least 10MB per chunk
+  var maxChunkSize = Math.max(limits.maxFileSize || C.BYTES.mib(10), C.BYTES.mib(10)); // at least 10MB per chunk
   if (chunk.data.length > maxChunkSize) {
     return { error: "Chunk too large." };
   }

@@ -786,7 +786,7 @@ module.exports = function (app) {
       res.json({ success: true, restarting: !dryRun, dryRun: dryRun, stats: result.stats });
       if (!dryRun) {
         // Graceful shutdown — let the response flush, then exit so Docker/systemd restarts
-        setTimeout(function () { process.exit(0); }, 500);
+        setTimeout(function () { process.exit(0); }, C.TIME.seconds(0.5));
       }
     } catch (err) {
       if (err && err.isAppError) throw err;
@@ -933,7 +933,7 @@ module.exports = function (app) {
   app.post("/admin/logo/upload", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
-      var { files: uploaded } = await parseMultipart(req, 2 * 1024 * 1024); // 2MB max
+      var { files: uploaded } = await parseMultipart(req, C.BYTES.mib(2)); // 2MB max
       var file = uploaded[0];
       if (!file) throw new ValidationError("No file uploaded.");
 
@@ -1053,8 +1053,8 @@ module.exports = function (app) {
       //      the commit + restart themselves via a separate mechanism.
       var skipRestart = body.skipRestart === true;
 
-      var ACK_TIMEOUT_MS = 15000;
-      var RESTART_DELAY_MS = 1000; // gap between ack-window close and process.exit
+      var ACK_TIMEOUT_MS = C.TIME.seconds(15);
+      var RESTART_DELAY_MS = C.TIME.seconds(1); // gap between ack-window close and process.exit
 
       // Generate the new CA in memory — not yet written to disk.
       // Bypass the singleton so the staging PEMs are isolated from the

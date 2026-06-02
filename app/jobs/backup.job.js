@@ -19,6 +19,7 @@ var config = require("../../lib/config");
 var vault = require("../../lib/vault");
 var backup = require("../../lib/backup");
 var audit = require("../../lib/audit");
+var C = require("../../lib/constants");
 
 // `lastBackupAttempt` is stored in the settings table as a vault-sealed
 // JSON blob keyed under SCHEDULED_BACKUP_LAST_ATTEMPT. Helpers in lib/backup.js
@@ -73,7 +74,7 @@ async function run() {
 
   try {
     var manifest = await backup.runBackup(passphrase);
-    logger.info("[backup] Completed", { dbFiles: manifest.stats.dbFiles, uploadFiles: manifest.stats.uploadFiles, totalMB: (manifest.stats.totalSize / 1048576).toFixed(1), durationMs: manifest.stats.durationMs });
+    logger.info("[backup] Completed", { dbFiles: manifest.stats.dbFiles, uploadFiles: manifest.stats.uploadFiles, totalMB: (manifest.stats.totalSize / C.BYTES.mib(1)).toFixed(1), durationMs: manifest.stats.durationMs });
     recordAttempt("completed", null, manifest.stats);
   } catch (err) {
     logger.error("[backup] Failed", { error: err.message });

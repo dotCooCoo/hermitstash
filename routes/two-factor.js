@@ -110,7 +110,7 @@ module.exports = function (app) {
   });
 
   // Verify 2FA during login (called after password success)
-  app.post("/2fa/verify", rateLimit.guard({ scope: "2fa", max: 5, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/2fa/verify", rateLimit.guard({ max: 5, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async (req, res) => {
     try {
       var body = (await b.parsers.json(req)) || {};
       var code = String(body.code || "");

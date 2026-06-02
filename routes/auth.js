@@ -29,7 +29,7 @@ module.exports = function (app) {
     res.redirect(url);
   });
 
-  app.get("/auth/google/callback", rateLimit.guard({ scope: "google-callback", max: 10, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
+  app.get("/auth/google/callback", rateLimit.guard({ max: 10, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
     try {
       var code = req.query.code;
       if (!code) {
@@ -73,7 +73,7 @@ module.exports = function (app) {
     send(res, "login", { user: null, error: null, localAuth: config.localAuth, googleAuth: !!config.google.clientID, registrationOpen: config.registrationOpen && config.localAuth, passkeyEnabled: config.passkeyEnabled });
   });
 
-  var loginLimiter = rateLimit.guard({ scope: "login", max: 15, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" });
+  var loginLimiter = rateLimit.guard({ max: 15, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" });
   app.post("/auth/login", loginLimiter, async (req, res) => {
     if (!config.localAuth) throw new ForbiddenError("Disabled.");
     try {
@@ -146,7 +146,7 @@ module.exports = function (app) {
     send(res, "register", { user: null, error: null, googleAuth: !!config.google.clientID });
   });
 
-  app.post("/auth/register", rateLimit.guard({ scope: "register", max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/auth/register", rateLimit.guard({ max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async (req, res) => {
     if (!config.localAuth || !config.registrationOpen) throw new ForbiddenError("Registration is closed.");
     try {
       var body = (await b.parsers.json(req)) || {};

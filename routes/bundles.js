@@ -14,7 +14,7 @@ var { send, host } = require("../middleware/send");
 var audit = require("../lib/audit");
 var requireAuth = require("../middleware/require-auth");
 var { canEditOwned } = require("../app/shared/authz");
-var { ValidationError, AuthenticationError, ForbiddenError, NotFoundError, RateLimitError } = require("../app/shared/errors");
+var { AppError, ValidationError, AuthenticationError, ForbiddenError, NotFoundError, RateLimitError } = require("../app/shared/errors");
 
 var { isBundleLocked, prefersJson } = require("../middleware/require-access");
 var db = require("../lib/db");
@@ -67,7 +67,7 @@ function clearBundleLockout(shareId) {
 
 module.exports = function (app) {
   // Bundle password verification (rate limited to prevent brute force)
-  app.post("/b/:shareId/unlock", rateLimit.guard({ scope: "bundle-unlock", max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/b/:shareId/unlock", rateLimit.guard({ max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async (req, res) => {
     var shareId = req.params.shareId;
     var bundle = bundlesRepo.findByShareId(shareId);
     if (!bundle || bundle.status !== "complete") throw new NotFoundError("Bundle not found.");
@@ -122,7 +122,7 @@ module.exports = function (app) {
   });
 
   // Request email access code (rate limited)
-  app.post("/b/:shareId/request-code", rateLimit.guard({ scope: "bundle-email-code", max: 5, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/b/:shareId/request-code", rateLimit.guard({ max: 5, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async (req, res) => {
     var bundle = bundlesRepo.findCompleteByShareId(req.params.shareId);
     if (!bundle) throw new NotFoundError("Bundle not found.");
 
@@ -163,7 +163,7 @@ module.exports = function (app) {
   });
 
   // Verify email access code (rate limited)
-  app.post("/b/:shareId/verify-code", rateLimit.guard({ scope: "bundle-verify-code", max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/b/:shareId/verify-code", rateLimit.guard({ max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async (req, res) => {
     var bundle = bundlesRepo.findCompleteByShareId(req.params.shareId);
     if (!bundle) throw new NotFoundError("Bundle not found.");
 
@@ -177,7 +177,7 @@ module.exports = function (app) {
       if (result.attempts) {
         audit.log(audit.ACTIONS.BUNDLE_ACCESS_CODE_FAILED, { targetId: bundle._id, details: "shareId: " + bundle.shareId + ", attempts: " + result.attempts, req: req });
       }
-      return res.status(result.status).json({ error: result.error });
+      throw new AppError(result.error, result.status || 400);
     }
 
     // Set session
@@ -397,7 +397,7 @@ module.exports = function (app) {
   });
 
   // Rename/move a file within a sync bundle (metadata-only, no re-upload)
-  app.post("/bundles/:shareId/file/rename", rateLimit.guard({ scope: "sync-file-rename", max: 100, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/bundles/:shareId/file/rename", rateLimit.guard({ max: 100, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
     if (!requireAuth(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle) throw new NotFoundError("Not found.");
@@ -412,12 +412,12 @@ module.exports = function (app) {
       newRelativePath: body.newRelativePath,
       req: req,
     });
-    if (result.error) return res.status(result.status || 400).json({ error: result.error });
+    if (result.error) throw new AppError(result.error, result.status || 400);
     res.json(result);
   });
 
   // Delete a single file from a sync bundle (soft delete with tombstone)
-  app.post("/bundles/:shareId/file/:fileId/delete", rateLimit.guard({ scope: "sync-file-delete", max: 100, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/bundles/:shareId/file/:fileId/delete", rateLimit.guard({ max: 100, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
     if (!requireAuth(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle) throw new NotFoundError("Not found.");
@@ -426,7 +426,7 @@ module.exports = function (app) {
     }
     var { handleSyncFileDelete } = uploadHandler;
     var result = await handleSyncFileDelete({ bundle: bundle, fileId: req.params.fileId, req: req });
-    if (result.error) return res.status(result.status || 400).json({ error: result.error });
+    if (result.error) throw new AppError(result.error, result.status || 400);
     res.json(result);
   });
 

@@ -1,0 +1,30 @@
+{
+  "version": "1.11.31",
+  "date": "2026-06-02",
+  "headline": "Bounded JSON and safe URL parsing on the sync WebSocket channel",
+  "summary": "The sync WebSocket channel now decodes incoming frames with a size- and depth-limited JSON parser and parses the upgrade request-target through the hardened URL parser. Error responses on the remaining stash and bundle service paths move to the RFC 9457 problem-details shape.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Decode sync WebSocket frames with bounded JSON",
+          "body": "Messages on the /sync/ws channel are now parsed with a size- and nesting-limited JSON decoder, so an oversized or deeply nested frame is rejected with an error reply rather than parsed unbounded. The existing per-message size limit is unchanged; this adds an independent depth bound."
+        },
+        {
+          "title": "Parse the WebSocket upgrade target with the hardened URL parser",
+          "body": "The /sync/ws upgrade request-target is now parsed through b.safeUrl, which applies a length cap and a protocol allowlist, replacing the deprecated legacy URL parser. A malformed or over-long upgrade target is dropped at the handshake."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Return RFC 9457 problem-details on the remaining stash and bundle error paths",
+          "body": "The access-code verification, stash finalize, and sync file rename/delete responses now return application/problem+json with { type, title, status, detail } instead of the legacy { error } body, matching the rest of the API. The HTTP status is unchanged; read .detail with .error as a fallback for older servers."
+        }
+      ]
+    }
+  ]
+}

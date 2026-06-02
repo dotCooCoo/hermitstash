@@ -109,7 +109,7 @@ module.exports = function (app) {
   });
 
   // Resend verification email (rate limited to prevent email quota abuse)
-  app.post("/auth/resend-verification", rateLimit.guard({ scope: "resend-verify", max: 3, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/auth/resend-verification", rateLimit.guard({ max: 3, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async (req, res) => {
     try {
       var body = (await b.parsers.json(req)) || {};
       var emailCheck = validateEmail(body.email);

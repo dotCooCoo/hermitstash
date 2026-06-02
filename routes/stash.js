@@ -21,7 +21,7 @@ var uploadValidator = require("../app/http/validators/upload.validator");
 var requireAdmin = require("../middleware/require-admin");
 var { resolveUploadConfig, handleFileUpload, handleChunkUpload, handleFinalize } = require("../app/domain/uploads/upload.handler");
 ;
-var { TIME, PATHS } = require("../lib/constants");
+var { TIME, PATHS, BYTES } = require("../lib/constants");
 var { validateEmail } = require("../app/shared/validate");
 var nodeFs = require("node:fs");
 var { sanitizeSvg } = require("../lib/sanitize-svg");
@@ -105,7 +105,7 @@ module.exports = function (app) {
   });
 
   // Stash password unlock
-  app.post("/stash/:slug/unlock", rateLimit.guard({ scope: "stash-unlock", max: 10, windowMs: TIME.minutes(15), algorithm: "fixed-window" }), async function (req, res) {
+  app.post("/stash/:slug/unlock", rateLimit.guard({ max: 10, windowMs: TIME.minutes(15), algorithm: "fixed-window" }), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") throw new NotFoundError("Not found.");
@@ -137,7 +137,7 @@ module.exports = function (app) {
   });
 
   // Request email access code for stash page
-  app.post("/stash/:slug/request-code", rateLimit.guard({ scope: "stash-email-code", max: 5, windowMs: TIME.minutes(5), algorithm: "fixed-window" }), async function (req, res) {
+  app.post("/stash/:slug/request-code", rateLimit.guard({ max: 5, windowMs: TIME.minutes(5), algorithm: "fixed-window" }), async function (req, res) {
     var stash = stashRepo.findBySlug(req.params.slug);
     if (!stash || stash.enabled !== "true") throw new NotFoundError("Not found.");
 
@@ -170,7 +170,7 @@ module.exports = function (app) {
   });
 
   // Verify email access code for stash page
-  app.post("/stash/:slug/verify-code", rateLimit.guard({ scope: "stash-verify-code", max: 10, windowMs: TIME.minutes(15), algorithm: "fixed-window" }), async function (req, res) {
+  app.post("/stash/:slug/verify-code", rateLimit.guard({ max: 10, windowMs: TIME.minutes(15), algorithm: "fixed-window" }), async function (req, res) {
     var stash = stashRepo.findBySlug(req.params.slug);
     if (!stash || stash.enabled !== "true") throw new NotFoundError("Not found.");
 
@@ -184,7 +184,7 @@ module.exports = function (app) {
       if (result.attempts) {
         audit.log(audit.ACTIONS.BUNDLE_ACCESS_CODE_FAILED, { details: "stash: " + stash.slug + ", attempts: " + result.attempts, req: req });
       }
-      return res.status(result.status).json({ error: result.error });
+      throw new AppError(result.error, result.status || 400);
     }
 
     var mode = stash.accessMode || "email";
@@ -199,7 +199,7 @@ module.exports = function (app) {
   });
 
   // Init bundle from stash page
-  app.post("/stash/:slug/init", rateLimit.guard({ scope: "drop-init", max: 20, windowMs: TIME.minutes(1), algorithm: "fixed-window" }), async function (req, res) {
+  app.post("/stash/:slug/init", rateLimit.guard({ max: 20, windowMs: TIME.minutes(1), algorithm: "fixed-window" }), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") throw new NotFoundError("Not found.");
@@ -247,7 +247,7 @@ module.exports = function (app) {
   });
 
   // Upload single file to stash bundle
-  app.post("/stash/:slug/file/:bundleId", rateLimit.guard({ scope: "upload", max: 200, windowMs: TIME.minutes(1), algorithm: "fixed-window" }), async function (req, res) {
+  app.post("/stash/:slug/file/:bundleId", rateLimit.guard({ max: 200, windowMs: TIME.minutes(1), algorithm: "fixed-window" }), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") throw new NotFoundError("Not found.");
@@ -279,7 +279,7 @@ module.exports = function (app) {
   });
 
   // Chunked upload for stash
-  app.post("/stash/:slug/chunk/:bundleId", rateLimit.guard({ scope: "chunk", max: 500, windowMs: TIME.minutes(1), algorithm: "fixed-window" }), async function (req, res) {
+  app.post("/stash/:slug/chunk/:bundleId", rateLimit.guard({ max: 500, windowMs: TIME.minutes(1), algorithm: "fixed-window" }), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") throw new NotFoundError("Not found.");
@@ -311,7 +311,7 @@ module.exports = function (app) {
   });
 
   // Finalize stash bundle
-  app.post("/stash/:slug/finalize/:bundleId", rateLimit.guard({ scope: "finalize", max: 20, windowMs: TIME.minutes(1), algorithm: "fixed-window" }), async function (req, res) {
+  app.post("/stash/:slug/finalize/:bundleId", rateLimit.guard({ max: 20, windowMs: TIME.minutes(1), algorithm: "fixed-window" }), async function (req, res) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") throw new NotFoundError("Not found.");
@@ -329,7 +329,7 @@ module.exports = function (app) {
       stashSlug: slug, stashId: stash._id,
       auditSuffix: ", stash: " + slug, req: req,
     });
-    if (result.error) return res.status(result.status || 400).json({ error: result.error });
+    if (result.error) throw new AppError(result.error, result.status || 400);
 
     // Update stash stats
     var freshStash = stashRepo.findById(stash._id);
@@ -665,7 +665,7 @@ module.exports = function (app) {
       var stash = stashRepo.findById(req.params.id);
       if (!stash) throw new NotFoundError("Stash page not found.");
 
-      var { files: uploaded } = await parseMultipart(req, 2 * 1024 * 1024);
+      var { files: uploaded } = await parseMultipart(req, BYTES.mib(2));
       var file = uploaded[0];
       if (!file) throw new ValidationError("No file uploaded.");
 
@@ -819,7 +819,7 @@ module.exports = function (app) {
   });
 
   // Re-issue client certificate for an existing API key (repairs broken mTLS without new enrollment)
-  app.post("/admin/stash/:id/reissue-cert", rateLimit.guard({ scope: "cert-reissue", max: 5, windowMs: TIME.minutes(5), algorithm: "fixed-window" }), async function (req, res) {
+  app.post("/admin/stash/:id/reissue-cert", rateLimit.guard({ max: 5, windowMs: TIME.minutes(5), algorithm: "fixed-window" }), async function (req, res) {
     if (!requireAdmin(req, res)) return;
     try {
       var body = (await b.parsers.json(req)) || {};
