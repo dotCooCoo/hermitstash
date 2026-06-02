@@ -6,6 +6,7 @@
 var b = require("../lib/vendor/blamejs");
 var { apiKeys, users } = require("../lib/db");
 var { validateBearerToken } = require("../app/shared/validate");
+var C = require("../lib/constants");
 
 module.exports = function apiAuth(req, res, next) {
   var token = b.requestHelpers.extractBearer(req);
@@ -15,15 +16,19 @@ module.exports = function apiAuth(req, res, next) {
   var key = apiKeys.findOne({ keyHash: hash });
   if (!key) return next();
 
-  // Update last used
-  apiKeys.update({ _id: key._id }, { $set: { lastUsed: new Date().toISOString() } });
-
   // Set user from key's userId
   if (key.userId) {
     var user = users.findOne({ _id: key.userId });
     if (user && user.status === "active") {
       req.user = user;
       req.apiKey = key;
+      // Record last use only on successful auth (a suspended or deleted
+      // user's key shouldn't bump it), throttled to once per five minutes so
+      // a busy sync client doesn't drive a database write on every request.
+      var lastUsedMs = key.lastUsed ? Date.parse(key.lastUsed) : 0;
+      if (!lastUsedMs || (Date.now() - lastUsedMs) > C.TIME.minutes(5)) {
+        apiKeys.update({ _id: key._id }, { $set: { lastUsed: new Date().toISOString() } });
+      }
     }
   }
   next();

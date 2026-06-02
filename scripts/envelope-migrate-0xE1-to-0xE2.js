@@ -5,7 +5,7 @@
  *
  * Thin wrapper around lib/legacy-envelope-migrate.js. The actual
  * migration logic lives in that module so the boot-time auto-migrate
- * shim (Phase 2) can share it.
+ * shim can share it.
  *
  * What gets migrated:
  *   - data/ca.key.sealed, data/tls/privkey.pem.sealed,

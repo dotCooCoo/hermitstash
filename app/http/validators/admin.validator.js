@@ -56,7 +56,7 @@ function validateSettingsInput(body) {
   // includes a non-empty passphrase, OR (b) the masked-bullets value
   // is being sent back (preserving an existing passphrase), OR
   // (c) backup.passphraseHash is already set in the running config
-  // (passphrase was previously saved). Bug discovered 2026-04-22.
+  // (passphrase was previously saved).
   if (cleaned.backupEnabled === true || cleaned.backupEnabled === "true") {
     var pwIncoming = cleaned.backupPassphrase;
     var pwIsMaskBullets = typeof pwIncoming === "string" && /^•+$/.test(pwIncoming);

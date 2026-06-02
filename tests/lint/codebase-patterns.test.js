@@ -4692,6 +4692,36 @@ function testNoStrayEmptyStatement() {
   _report("no lone `;` empty-statement lines (delete the dead line)", matches);
 }
 
+// ---- Pattern: internal-process / roadmap vocabulary in shipped comments ----
+
+function testNoInternalProcessNarrative() {
+  // class: internal-process-narrative — everything in the shipped tree is
+  // operator-facing. Comments/strings must not carry internal roadmap
+  // vocabulary ("Phase N" / "Sweep N" / "Slice N" / "Batch N"), a
+  // "conversion arc", a memory/*.md path, or dated discovery provenance
+  // ("discovered ... 2026-04-22"). Describe the change, not how we got here.
+  var pats = [
+    /\b(?:Phase|Sweep|Slice|Batch)\s+\d/,
+    /\b(?:full-conversion|conversion)\s+arc\b/i,
+    /\bmemory\/[A-Za-z0-9_./-]+\.md\b/,
+    /\b(?:discovered|introduced|surfaced|reported)\b[^\n]{0,14}\b20\d\d-\d\d-\d\d\b/i,
+  ];
+  var files = _libFiles().concat(_appFiles());
+  var bad = [];
+  for (var fi = 0; fi < files.length; fi++) {
+    var rel = _relPath(files[fi]);
+    var lines = fs.readFileSync(files[fi], "utf8").split(/\r?\n/);
+    for (var li = 0; li < lines.length; li++) {
+      var line = lines[li];
+      for (var pi = 0; pi < pats.length; pi++) {
+        if (pats[pi].test(line)) { bad.push({ file: rel, line: li + 1, content: line.trim().slice(0, 120) }); break; }
+      }
+    }
+  }
+  bad = _filterMarkers(bad, "internal-process-narrative");
+  _report("no internal roadmap vocabulary (Phase/Sweep/Slice/Batch N, conversion arc, memory/*.md, dated provenance) in shipped comments/strings", bad);
+}
+
 async function run() {
   testNoRawByteLiterals();
   testNoRawTimeLiterals();
@@ -4760,6 +4790,7 @@ async function run() {
   testDenyPathHardcodedResponse();
   testEveryAllowMarkerNamesRegisteredClass();
   testNoStrayEmptyStatement();
+  testNoInternalProcessNarrative();
   testKnownAntipatterns();
 
   // Final cumulative assertion — every detector is a hard gate.

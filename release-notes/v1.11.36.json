@@ -1,0 +1,21 @@
+{
+  "version": "1.11.36",
+  "date": "2026-06-02",
+  "headline": "Throttle API-key last-used writes to cut per-request database churn",
+  "summary": "API-key last-used timestamps are now recorded only on successful authentication and at most once every five minutes, so a busy sync client no longer drives a database write on every request.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Throttle and gate API-key last-used updates",
+          "body": "The last-used timestamp on an API key is now written only when authentication succeeds — a suspended or deleted user's key no longer bumps it — and at most once per five minutes. This removes a database write on every authenticated request from a frequently-polling sync client."
+        },
+        {
+          "title": "Remove internal-process references from shipped source comments",
+          "body": "Stripped roadmap and phase references and a dated discovery note from source-file comments that ship in the package, and added a lint check so they cannot reappear."
+        }
+      ]
+    }
+  ]
+}
