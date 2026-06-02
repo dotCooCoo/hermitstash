@@ -12,6 +12,13 @@ var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  */
 function validateEmail(email) {
   if (!email || typeof email !== "string") return { valid: false, reason: "Email is required." };
+  // Refuse control bytes on the RAW value before trim(): an addr-spec
+  // permits none, and checking the trimmed value would let edge C0/DEL
+  // bytes slip past the format regex.
+  for (var ci = 0; ci < email.length; ci++) {
+    var cc = email.charCodeAt(ci);
+    if (cc < 32 || cc === 127) return { valid: false, reason: "Invalid email format." };
+  }
   var trimmed = email.trim().toLowerCase();
   if (trimmed.length === 0) return { valid: false, reason: "Email is required." };
   if (trimmed.length > 254) return { valid: false, reason: "Email too long." };

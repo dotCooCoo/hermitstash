@@ -1,6 +1,6 @@
 // -- Core libs --
-var path = require("path");
-var fs = require("fs");
+var path = require("node:path");
+var fs = require("node:fs");
 
 // -- lib/ modules --
 var config = require("./lib/config");

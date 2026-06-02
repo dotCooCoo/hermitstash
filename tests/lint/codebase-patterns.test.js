@@ -154,7 +154,9 @@ function _relPath(absPath) {
 function _scan(regex, opts) {
   opts = opts || { skipComments: true };
   var matches = [];
-  var files = _libFiles();
+  // Most detectors scan lib/ only. A few request-path/SSRF shapes opt into
+  // the app tree (app/, middleware/, routes/, server-main.js) via appScope.
+  var files = opts.appScope ? _libFiles().concat(_appFiles()) : _libFiles();
   for (var i = 0; i < files.length; i++) {
     var content;
     try { content = fs.readFileSync(files[i], "utf8"); }
@@ -768,7 +770,7 @@ function testNodeBuiltinPrefixConsistency() {
   // binding. The CANONICAL_REQUIRE_BINDINGS map already maps both
   // `"fs"` and `"node:fs"` to the same canonical name (`nodeFs`), so
   // the binding stays stable across the rewrite.
-  var files = _libFiles();
+  var files = _libFiles().concat(_appFiles());
   var bad = [];
   for (var fi = 0; fi < files.length; fi++) {
     var rel = _relPath(files[fi]);
@@ -1047,7 +1049,7 @@ function testNoBareJsonParse() {
   // `JSON.parse(operatorInput)` lacks the maxBytes / depth / proto
   // pollution defenses that `safeJson.parse` adds. Internal JSON
   // (vendor manifest, tests, internal state) is fine with bare parse.
-  var matches = _scan(/\bJSON\.parse\(/);
+  var matches = _scan(/\bJSON\.parse\(/, { skipComments: true, appScope: true });
   // safe-json.js IS the safe wrapper; the bare JSON.parse call lives
   // there by definition (it's what safe-json wraps with maxBytes /
   // depth / proto-pollution defenses).
@@ -1162,7 +1164,7 @@ function testNoRawXffRead() {
   // bracket-quoted) directly bypasses the trustProxy boundary. Should
   // route through requestHelpers.clientIp(req, { trustProxy }) so
   // X-Forwarded-For is honored only when the operator opted in.
-  var matches = _scan(/req\.headers\s*\[\s*["']x-forwarded-for["']\s*\]/i);
+  var matches = _scan(/req\.headers\s*\[\s*["']x-forwarded-for["']\s*\]/i, { skipComments: true, appScope: true });
   // request-helpers.js IS the canonical XFF reader; the read happens
   // there by definition.
   matches = matches.filter(function (m) { return m.file !== "lib/request-helpers.js"; });
@@ -3981,7 +3983,7 @@ var KNOWN_ANTIPATTERNS = [
 // (ASCII HT optionally allowed as folding whitespace), THEN trim.
 function testTrimBeforeControlByteScan() {
   // class: trim-before-validate
-  var files = _libFiles();
+  var files = _libFiles().concat(_appFiles());
   var bad = [];
   for (var fi = 0; fi < files.length; fi++) {
     var rel = _relPath(files[fi]);

@@ -19,8 +19,8 @@
  * the validated IP (TOCTOU defence against a rebind between check and
  * connect).
  */
-var dns = require("dns");
-var net = require("net");
+var dns = require("node:dns");
+var net = require("node:net");
 var b = require("../../lib/vendor/blamejs");
 
 // Hostnames that must always be blocked (cloud metadata endpoints). The

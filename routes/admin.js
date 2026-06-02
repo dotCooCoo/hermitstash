@@ -885,7 +885,7 @@ module.exports = function (app) {
     hints.detected = false;
     hints.headers = {};
 
-    var fwd = req.headers["x-forwarded-for"];
+    var fwd = req.headers["x-forwarded-for"]; // allow:raw-xff — diagnostic: surfaces raw proxy headers in /admin/proxy/detect, not actor-IP derivation
     var realIp = req.headers["x-real-ip"];
     var proto = req.headers["x-forwarded-proto"];
     var via = req.headers["via"];
