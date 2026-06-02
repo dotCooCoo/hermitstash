@@ -1,0 +1,17 @@
+{
+  "version": "1.11.38",
+  "date": "2026-06-02",
+  "headline": "Return problem-details on authentication-required 401 responses",
+  "summary": "The 401 emitted to JSON and API callers on cookie-protected routes now uses the RFC 9457 problem-details shape, matching the rest of the API.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Emit RFC 9457 problem-details for authentication-required 401s",
+          "body": "When a request to a protected route lacks an authenticated session, JSON and API callers now receive a 401 application/problem+json body with { type, title, status, detail } instead of the legacy { error } shape. The browser redirect to the login page and the Cache-Control: no-store directive are unchanged. Clients should read .detail (with .error as a fallback for older servers)."
+        }
+      ]
+    }
+  ]
+}

@@ -6,8 +6,9 @@ const requireAuth = require("../../middleware/require-auth");
 
 function mkRes() {
   return {
-    status: null, headers: null, body: "",
-    writeHead(s, h) { this.status = s; this.headers = h; return this; },
+    status: null, statusCode: null, headers: {}, body: "",
+    setHeader(k, v) { this.headers[k] = v; return this; },
+    writeHead(s, h) { this.status = s; this.statusCode = s; if (h) Object.assign(this.headers, h); return this; },
     end(x) { this.body = x || ""; return this; },
   };
 }
@@ -19,20 +20,22 @@ describe("require-auth — 2-arg shim over b.middleware.requireAuth", function (
     assert.strictEqual(res.status, null);
   });
 
-  it("rejects an API client (req.apiKey) with 401 application/json + Cache-Control no-store", function () {
+  it("rejects an API client (req.apiKey) with 401 application/problem+json + Cache-Control no-store", function () {
     const res = mkRes();
     assert.strictEqual(requireAuth({ headers: {}, apiKey: "k" }, res), false);
-    assert.strictEqual(res.status, 401);
-    assert.strictEqual(res.headers["Content-Type"], "application/json");
+    assert.strictEqual(res.statusCode, 401);
+    assert.strictEqual(res.headers["Content-Type"], "application/problem+json");
     assert.strictEqual(res.headers["Cache-Control"], "no-store");
-    assert.deepStrictEqual(JSON.parse(res.body), { error: "Authentication required." });
+    const problem = JSON.parse(res.body);
+    assert.strictEqual(problem.status, 401);
+    assert.strictEqual(typeof problem.title, "string");
   });
 
-  it("rejects a JSON-Accept client with 401 application/json", function () {
+  it("rejects a JSON-Accept client with 401 application/problem+json", function () {
     const res = mkRes();
     assert.strictEqual(requireAuth({ headers: { accept: "application/json" } }, res), false);
-    assert.strictEqual(res.status, 401);
-    assert.strictEqual(res.headers["Content-Type"], "application/json");
+    assert.strictEqual(res.statusCode, 401);
+    assert.strictEqual(res.headers["Content-Type"], "application/problem+json");
   });
 
   it("redirects a browser to /auth/login (302) with Cache-Control no-store", function () {
