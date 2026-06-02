@@ -668,7 +668,7 @@ module.exports = function (app) {
       if (!file) throw new ValidationError("No file uploaded.");
 
       var ext = uploadValidator.detectContentType(file.data);
-      if (!ext || [".png", ".jpg", ".gif", ".webp", ".svg"].indexOf(ext) === -1) {
+      if (!ext || [".gif", ".jpg", ".png", ".svg", ".webp"].indexOf(ext) === -1) {
         throw new ValidationError("Invalid image. Upload a PNG, JPG, SVG, WebP, or GIF.");
       }
 

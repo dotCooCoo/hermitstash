@@ -938,7 +938,7 @@ module.exports = function (app) {
 
       // Validate actual content, not just claimed MIME type
       var ext = detectContentType(file.data);
-      if (!ext || [".png", ".jpg", ".gif", ".webp", ".svg"].indexOf(ext) === -1) throw new ValidationError("Invalid image. Upload a PNG, JPG, SVG, WebP, or GIF.");
+      if (!ext || [".gif", ".jpg", ".png", ".svg", ".webp"].indexOf(ext) === -1) throw new ValidationError("Invalid image. Upload a PNG, JPG, SVG, WebP, or GIF.");
 
       var data = file.data;
 

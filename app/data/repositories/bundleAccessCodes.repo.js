@@ -7,21 +7,20 @@ var { TIME } = require("../../../lib/constants");
 function create(doc) { return bundleAccessCodes.insert(doc); }
 
 function findPendingCode(bundleShareId, emailHash) {
-  return bundleAccessCodes.find({ bundleShareId: bundleShareId, status: "pending" })
-    .filter(function (c) { return c.emailHash === emailHash && c.expiresAt > new Date().toISOString(); })
+  return bundleAccessCodes.find({ bundleShareId: bundleShareId, status: "pending", emailHash: emailHash })
+    .filter(function (c) { return c.expiresAt > new Date().toISOString(); })
     .sort(function (a, b) { return b.createdAt.localeCompare(a.createdAt); })[0] || null;
 }
 
 function countRecentCodes(bundleShareId, emailHash, sinceIso) {
-  return bundleAccessCodes.find({ bundleShareId: bundleShareId })
-    .filter(function (c) { return c.emailHash === emailHash && c.createdAt >= sinceIso; }).length;
+  return bundleAccessCodes.find({ bundleShareId: bundleShareId, emailHash: emailHash })
+    .filter(function (c) { return c.createdAt >= sinceIso; }).length;
 }
 
 function update(id, ops) { return bundleAccessCodes.update({ _id: id }, ops); }
 
 function invalidatePending(bundleShareId, emailHash) {
-  var pending = bundleAccessCodes.find({ bundleShareId: bundleShareId, status: "pending" })
-    .filter(function (c) { return c.emailHash === emailHash; });
+  var pending = bundleAccessCodes.find({ bundleShareId: bundleShareId, status: "pending", emailHash: emailHash });
   for (var i = 0; i < pending.length; i++) {
     bundleAccessCodes.update({ _id: pending[i]._id }, { $set: { status: "expired" } });
   }

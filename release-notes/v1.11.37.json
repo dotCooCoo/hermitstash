@@ -1,0 +1,17 @@
+{
+  "version": "1.11.37",
+  "date": "2026-06-02",
+  "headline": "Look up bundle access codes by indexed email hash",
+  "summary": "Email-gated bundle access-code operations now query on the indexed email-hash column instead of fetching by share id and filtering in memory.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Query bundle access codes by indexed email hash",
+          "body": "The pending-code lookup, recent-code rate count, and pending-code invalidation for email-gated bundles now push the email-hash match into the indexed database query rather than scanning by share id and filtering in memory. Behavior is unchanged; the lookups use the existing email-hash index."
+        }
+      ]
+    }
+  ]
+}

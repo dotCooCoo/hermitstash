@@ -12,9 +12,9 @@ var { sanitizeFilename, safeContentDisposition } = require("../../shared/sanitiz
 var { NotFoundError, ValidationError, ForbiddenError } = require("../../shared/errors");
 
 // MIME types safe for inline preview
-var SAFE_INLINE = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"]);
+var SAFE_INLINE = new Set(["application/pdf", "image/gif", "image/jpeg", "image/png", "image/webp"]);
 // Types that MUST be forced-download (never rendered inline)
-var FORCE_DOWNLOAD = new Set(["text/html", "application/xhtml+xml", "application/javascript", "text/javascript"]);
+var FORCE_DOWNLOAD = new Set(["application/javascript", "application/xhtml+xml", "text/html", "text/javascript"]);
 
 // Maximum SVG size to load into memory for sanitization (2 MiB)
 var SVG_SIZE_LIMIT = C.BYTES.mib(2);

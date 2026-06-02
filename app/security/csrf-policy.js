@@ -81,7 +81,7 @@ var bCsrf = b.middleware.csrfProtect({
   tokenLookup: function (req) { return req.session && req.session._csrf; },
   fieldName:   "_csrf",
   headerName:  "X-CSRF-Token",
-  audit:        true,
+  audit:       true,
 });
 
 function csrfMiddleware(req, res, next) {
