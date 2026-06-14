@@ -1,0 +1,43 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.15.7",
+  "date": "2026-06-13",
+  "headline": "Hardens the new URL canonicalizer against an IPv4-mapped allowlist bypass, enforces the OIDC azp authorized-party check, and closes a set of audited correctness gaps in retention, credential rehashing, the scheduler, and SD-JWT key binding",
+  "summary": "This release deepens the URL/host canonicalizer shipped in 0.15.6 and clears a batch of audited correctness gaps. The canonicalizer now folds an IPv4-mapped IPv6 address (::ffff:1.2.3.4) to its embedded IPv4 and strips every trailing dot from a host, so a dual-stack peer can no longer slip past an operator's dotted-IPv4 allowlist and host./host.. no longer evade a host comparison. (NAT64 and 6to4 hosts are deliberately kept as IPv6 so canonicalizing then classifying agrees with the SSRF classifier, which treats them as reserved.) On the OIDC side, verifyIdToken now enforces OIDC Core 3.1.3.7: a multi-audience ID token must carry an azp (authorized party) and a present azp must equal the client_id, closing a confused-deputy hole where a token minted for a different client but listing this RP in its audience array verified clean. The rest are audited fixes: retention.complianceFloor now honors the active posture set via applyPosture (the documented inheritance was unimplemented); credentialHash.needsRehash now drives the advertised SHAKE256 length-rotation (raising the output length now triggers a rehash, upgrade-only); the task scheduler no longer lets a run abandoned by its watchdog clobber the next run's state or emit a stale success when its slow promise settles late; and the SD-JWT key-binding JWT compares its audience and nonce in constant time.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "The URL canonicalizer folds IPv4-mapped IPv6 addresses to IPv4",
+          "body": "`b.safeUrl.canonicalize` / `b.ssrfGuard.canonicalizeHost` now fold an IPv4-mapped IPv6 address (`::ffff:1.2.3.4`, the `::ffff:0:0/96` block) to its embedded IPv4 dotted form. Previously it canonicalized to an IPv6 string, so a dual-stack peer never unified with an operator's `1.2.3.4` allow/deny entry — an allowlist bypass. Only the IPv4-mapped block folds, because the SSRF classifier maps it to the embedded v4 verdict directly; NAT64 (`64:ff9b::/96`) and 6to4 (`2002::/16`) are deliberately kept as IPv6, since the classifier treats a NAT64 literal as reserved and folding it would turn a blocked verdict into an allowed public IPv4. The host canonicalizer also now strips every trailing dot, so `host`, `host.`, and `host..` collapse to one form."
+        },
+        {
+          "title": "verifyIdToken enforces the OIDC azp (authorized party) check",
+          "body": "`b.auth.oauth`'s `verifyIdToken` validated only that its `client_id` was present in the token's `aud`, ignoring `azp`. Per OIDC Core 3.1.3.7, a multi-audience ID token must carry an `azp` and a present `azp` must equal the RP's `client_id`. Without it, a token whose authorized party is a different client — but whose `aud` array also lists this RP — verified clean (a confused-deputy / token-substitution hole). The verifier now rejects a multi-audience token with no `azp` (`auth-oauth/azp-required`) and any token whose `azp` is not the `client_id` (`auth-oauth/azp-mismatch`). A single-audience token with no `azp` (the common case) is unaffected."
+        },
+        {
+          "title": "SD-JWT key-binding audience and nonce compare in constant time",
+          "body": "`b.auth.sdJwtVc.verify` compared the key-binding JWT's `aud` and `nonce` with a short-circuiting `!==`, while the adjacent `sd_hash` check already used a constant-time compare. The `nonce` is a verifier-issued replay-defense value, so a non-constant-time compare leaks a matching-prefix timing oracle; both checks now use the constant-time helper."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "retention.complianceFloor honors the active compliance posture",
+          "body": "`b.retention.complianceFloor` required an explicit posture and never read the active posture set by `applyPosture` (the `b.compliance.set` cascade), so the documented inheritance was unimplemented dead state. It now inherits the active posture when none is passed — `complianceFloor(candidateTtlMs)` uses the active posture, an explicit posture still overrides it — and `applyPosture(null)` now clears the active posture (it was a silent no-op, so `b.compliance.clear` could not reset it)."
+        },
+        {
+          "title": "credentialHash.needsRehash drives the SHAKE256 length-rotation",
+          "body": "`b.credentialHash.needsRehash` never compared the stored SHAKE256 digest length against the configured length, so raising the output length never triggered a rehash and the advertised length-rotation was a silent no-op. It now flags a digest shorter than the configured/default length for rehash (upgrade-only — a longer-than-target digest is never shortened, matching the Argon2 convention)."
+        },
+        {
+          "title": "The scheduler no longer lets a watchdog-abandoned run corrupt the next run",
+          "body": "`b.scheduler`'s watchdog force-clears a task's running flag after `maxJobMs` so a hung handler can't lock out future fires, and the next tick re-fires. The original slow promise then settled late and unconditionally overwrote the task's running / lastFinish / lastError state and emitted a `system.scheduler.task.success`|`failure` for a run the watchdog had already given up on — clobbering the new run and double-counting. Each run is now tagged with a generation that the watchdog and every fire bump; a settle whose tag is stale is ignored."
+        }
+      ]
+    }
+  ]
+}

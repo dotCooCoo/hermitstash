@@ -15,8 +15,12 @@ Object.keys(require.cache).forEach(function (k) {
   if (k.includes("hermitstash") && !k.includes("node_modules") && !k.includes("test")) delete require.cache[k];
 });
 
+var vault = require("../../lib/vault");
 var db = require("../../lib/db");
 var storage = require("../../lib/storage");
+
+// Sealed columns + field-crypto's keyed-MAC blind index need the vault MAC key.
+before(async function () { await vault.init(); });
 // Expiry logic moved from lib/expiry to app/jobs/expiry-cleanup.job.js during
 // the DDD refactor. Shim the old API shape so these tests still exercise the
 // behavior without being rewritten end-to-end.

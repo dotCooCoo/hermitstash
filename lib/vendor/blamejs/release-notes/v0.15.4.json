@@ -1,0 +1,39 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.15.4",
+  "date": "2026-06-12",
+  "headline": "Telemetry attribute values are redacted before they leave the process, per-row data residency is enforced on every write and export path, DDL routes through the single-statement gate, the DPoP middleware requires its replay store, and session rotation re-keys the device binding",
+  "summary": "This release closes a set of egress, data-residency, and session-binding gaps. OTLP span, span-event, and resource attributes are now scrubbed through the telemetry redactor before serialization, on both the JSON and protobuf paths, matching the metric exporter - an attribute value holding a bearer token, password, or API key no longer reaches the collector verbatim. Per-row data residency, previously enforced only at the structured query builder, is now enforced on the three paths that bypassed it: raw SQL writes, read-replica fan-out, and backup export. Every CREATE TABLE / ALTER TABLE the schema reconciler and the DSR store emit now passes through the same single-statement gate the query builder uses. The DPoP middleware now requires its replay store at mount time instead of silently mounting a proof-of-possession gate that performed no replay check. And session rotation re-keys the device fingerprint to the new session id, so a rotated session stays bound to its device instead of falsely reporting drift on the next request.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "OTLP exporter redacts span, event, and resource attribute values before egress",
+          "body": "Span, span-event, and resource attributes were serialized to the OTLP collector verbatim on both the JSON and protobuf encodings - the metric exporter scrubbed its attributes through the telemetry redactor, but the span exporter did not. An attribute value carrying a secret or PII (a bearer token in `authorization`, a `password`, an `api_key`) was therefore shipped in clear to whatever collector the deployment points at (CWE-532). Every attribute-map encoder now runs each value through `b.observability.redactAttrs` (default composes `b.redact.redact`, dropping any attribute whose redactor throws) before the wire payload, so telemetry is redacted like the log and audit egress paths. The new `b.observability.redactAttrs(attrs)` is available for operators building custom exporters."
+        },
+        {
+          "title": "Per-row data residency is enforced on raw writes, read replicas, and backups",
+          "body": "Per-row residency was enforced only at the structured query builder. Three paths reached storage or left the deployment without it: raw SQL writes (`b.db.runSql` / `b.db.prepare().run()`, INSERT and UPDATE forms) bypassed the local residency check entirely, so a cross-border row could be written under a regulated posture with no refusal; read-replica fan-out dropped the row-residency tag, routing a regulated read with no row region identified to a residency-tagged, non-cross-border replica with no check; and `b.backup.create`'s residency check compared only the single deployment region to the destination, blind to a per-row-residency table that admits rows from several regions. Raw writes now parse the target table and residency value and apply the same gate the builder does; the replica read now fails closed when the row region is unidentified; and backup now emits a per-row cross-border advisory for any declared residency table whose admitted regions differ from the backup destination."
+        },
+        {
+          "title": "Schema and DSR DDL routes through the single-statement gate",
+          "body": "The CREATE TABLE / ALTER TABLE statements emitted by the schema reconciler and the DSR ticket store were assembled and run without the single-statement / NUL / unterminated-quote / unbalanced-paren gate that every query the builder emits already passes. That gate is now a shared check both the builder's catalog emitter and the schema/DSR DDL path call, so a terminator, comment marker, or unbalanced quote that reached a DDL fragment is refused at emit time on every backend."
+        },
+        {
+          "title": "DPoP middleware requires its replay store at mount time",
+          "body": "`b.middleware.dpop` documented `replayStore` as required, but the factory read it optionally and gated the jti-replay check behind its presence - omitting it mounted a proof-of-possession gate that performed no replay check, so a captured DPoP proof could be replayed indefinitely (RFC 9449 §11.1). The middleware now requires the store at config time: a missing store, or a store lacking `checkAndInsert`, throws when the middleware is created instead of failing open at request time. The low-level `b.auth.dpop.verify` primitive keeps `replayStore` optional for advanced callers that track jti themselves."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Session rotation re-keys the device fingerprint to the new session id",
+          "body": "A session's optional device fingerprint is keyed to its session id, so that a stolen database cannot replay the binding. `b.session.rotate` moved the session id but left the stored fingerprint keyed to the old id, so the next `verify` recomputed the fingerprint against the new id and mismatched - reporting a false `fingerprintDrift` (which destroys the session under strict operators, logging the user out on every rotation) or silently breaking the binding. Rotation now re-keys the fingerprint to the new session id from the live request: pass the same `{ req, fingerprintFields }` to `rotate`. A fingerprint-bound session rotated without `req` now throws, because the binding cannot otherwise follow the new id; unbound sessions are unaffected."
+        }
+      ]
+    }
+  ]
+}

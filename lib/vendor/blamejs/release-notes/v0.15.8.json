@@ -1,0 +1,48 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.15.8",
+  "date": "2026-06-13",
+  "headline": "Redacts OTLP log-sink attributes to close a secret/PII egress the span fix missed, adds EU DSA and China PIPL cross-border compliance record-builders, ships an SSDF producer self-attestation with every release, and makes the published tarball reproducible",
+  "summary": "This release closes a telemetry egress hole, adds two compliance record-builder namespaces, and hardens the release supply chain. The OTLP log sinks (HTTP-JSON and gRPC) shipped a log record's meta attributes and the resource attributes to the collector unredacted — a log line carrying a bearer token, password, or API key reached the wire verbatim (CWE-532). The 0.15.4 fix wired the telemetry redactor into the span and metric exporters but the log sinks were missed; both now run record and resource attributes through the same redactor before serialization. New b.dsa builds the EU Digital Services Act (Reg 2022/2065) records an intermediary or platform must keep — Art. 16 notice-and-action, Art. 17 statement of reasons, and the Art. 15 / 24(3) transparency report. New b.pipl builds the China PIPL cross-border transfer records — an Art. 38/40 assessment that determines whether a CAC security assessment is mandatory (CIIO, important data, or the volume / sensitive-PI thresholds), and an Art. 40 security-assessment certificate. On the supply-chain side, every release now ships ssdf-attestation.json, a machine-readable NIST SP 800-218 / OMB M-22-18 producer self-attestation mapping each secure-development practice to its implementing control, and the published tarball is now packed with SOURCE_DATE_EPOCH so an operator can rebuild it byte-for-byte from the release commit.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "b.dsa — EU Digital Services Act compliance record-builders",
+          "body": "`b.dsa` builds the dated, frozen records the EU Digital Services Act (Regulation (EU) 2022/2065) requires an online intermediary or platform to keep: `b.dsa.noticeAndAction` (Art. 16) records a notice against a piece of content and computes the action-due window; `b.dsa.statementOfReasons` (Art. 17) records a moderation decision with its legal or contractual ground (exactly one is required), the facts, whether it was automated, and the redress routes offered; `b.dsa.transparencyReport` (Art. 15 / 24(3)) aggregates the period counts into a report with the next-due date. The builders perform no network I/O and emit a best-effort audit event; they map to the `dsa` compliance posture."
+        },
+        {
+          "title": "b.pipl — China PIPL cross-border transfer record-builders",
+          "body": "`b.pipl.sccFilingAssessment` builds a PIPL Art. 38/40/55 cross-border transfer assessment and determines the lawful mechanism: it forces a CAC security assessment (over a self-selected standard contract or certification) when the exporter is a critical-information-infrastructure operator, exports important data, handles personal information of more than 1,000,000 individuals, or crosses the cumulative volume / sensitive-PI thresholds. `b.pipl.securityAssessmentCertificate` records an Art. 40 security-assessment self-declaration with a 3-year validity clock. Both return frozen dated records and map to the `pipl-cn` posture."
+        },
+        {
+          "title": "SSDF producer self-attestation shipped with every release",
+          "body": "Every release now attaches `ssdf-attestation.json` — a machine-readable NIST SP 800-218 (SSDF v1.1) / OMB M-22-18 producer self-attestation. It maps each secure-software-development practice to its implementing control in the tree (SLSA L3 provenance, SSH-signed tags, vendored zero-runtime-dep supply chain, OSV-Scanner gating, coordinated disclosure) and is deterministic from the release commit. Its sha256 is a subject of the SLSA L3 provenance, so verifying the provenance verifies the attestation has not been tampered with. Downstream consumers who require SSDF supplier-compliance evidence can download it from the release page."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "OTLP log sinks redact record and resource attributes before export",
+          "body": "`b.logStream`'s OTLP log sinks (HTTP-JSON and gRPC) shipped a log record's `meta` attributes and the sink's resource attributes to the collector UNREDACTED, so a log line whose meta carried a bearer token, password, or API key — or a credential placed in a resource attribute — reached the OTLP wire verbatim (CWE-532). The 0.15.4 change baked the telemetry redactor into the span and metric exporters but its detector was anchored on the span/metric encoder function names, leaving the log sinks uncovered. Both log sinks now run record and resource attributes through `b.observability.redactAttrs` before serialization, the same egress contract the span and metric exporters already hold."
+        },
+        {
+          "title": "Reproducible published tarball (SOURCE_DATE_EPOCH)",
+          "body": "The release workflow now exports `SOURCE_DATE_EPOCH` (derived from the tagged commit's author date) before `npm pack`, so the mtime stamped into every tar header is deterministic. An operator can re-pack the package from the same commit and match the published tarball's sha256 byte-for-byte, strengthening the source-to-artifact verification path alongside the existing SLSA L3 provenance and PQC signatures."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "otlp-log-sink-encodes-attrs-without-redactor",
+          "body": "Fires when an OTLP log-sink encoder hands a raw `record.meta` or resource-attribute map to serialization without routing it through `observability.redactAttrs` — the class the span/metric detector could not see because the log sinks carry the OTLP-logs schema function names."
+        }
+      ]
+    }
+  ]
+}

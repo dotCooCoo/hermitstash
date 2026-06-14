@@ -8,6 +8,7 @@ var totp = require("../lib/totp");
 var requireAuth = require("../middleware/require-auth");
 var audit = require("../lib/audit");
 var rateLimit = require("../lib/rate-limit");
+var replayNonce = require("../lib/replay-nonce");
 var sessionService = require("../app/domain/auth/session.service");
 var { send } = require("../middleware/send");
 var { AppError, ValidationError, AuthenticationError, ForbiddenError } = require("../app/shared/errors");
@@ -140,6 +141,14 @@ module.exports = function (app) {
       var lastStep = user.totpLastStep ? parseInt(user.totpLastStep, 10) : 0;
       var matchedStep = totp.verify(secret, code, lastStep, alg);
       if (matchedStep) {
+        // Atomically claim this (user, TOTP step). totpLastStep is written only
+        // AFTER the await below, so without this claim two concurrent requests
+        // carrying the same code both pass and both complete login. The step is
+        // sealed at rest (no SQL compare-and-swap), so the nonce store is the gate.
+        if (!(await replayNonce.claimOnce(user._id + ":totp:" + matchedStep, C.TIME.minutes(2)))) {
+          audit.log(audit.ACTIONS.TOTP_FAILED, { targetId: user._id, details: "TOTP code replay rejected (concurrent)", req: req });
+          throw new AuthenticationError("Invalid 2FA code.");
+        }
         await sessionService.complete2fa(req);
         if (isLegacyAlgorithm(alg)) req.session.requiresTotpReEnroll = "true";
         usersRepo.update(user._id, { $set: { lastLogin: new Date().toISOString(), totpLastStep: String(matchedStep) } });
@@ -155,6 +164,13 @@ module.exports = function (app) {
       var idx = backupCodes.indexOf(codeHash);
 
       if (idx !== -1) {
+        // Atomically claim this backup code before consuming it. The splice+write
+        // is last-writer-wins across the await on complete2fa, so two concurrent
+        // requests presenting the same code would otherwise both authenticate.
+        if (!(await replayNonce.claimOnce(user._id + ":backup:" + codeHash, C.TIME.minutes(5)))) {
+          audit.log(audit.ACTIONS.TOTP_FAILED, { targetId: user._id, details: "Backup code replay rejected (concurrent)", req: req });
+          throw new AuthenticationError("Invalid 2FA code.");
+        }
         // Consume the backup code (single-use)
         backupCodes.splice(idx, 1);
         usersRepo.update(user._id, { $set: { totpBackupCodes: JSON.stringify(backupCodes) } });

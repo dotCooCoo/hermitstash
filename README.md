@@ -225,7 +225,7 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | Timing attack on access codes | SHA3-512 hash comparison uses constant-time `timingSafeEqual` on all security-sensitive comparisons (access codes, CSRF, TOTP) |
 | Crash during backup restore | Pre-restore snapshots of vault.key, db.key.enc, hermitstash.db.enc enable rollback if restore is interrupted |
 
-Built on Node.js 24.14.1+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default signature) and ML-DSA-87 (legacy) via OpenSSL 3.5, XChaCha20-Poly1305 and SHAKE256 via vendored blamejs (which bundles @noble/ciphers and @noble/post-quantum), Argon2id via Node 24+'s built-in `crypto.argon2` (no native binding required), WebAuthn via vendored blamejs (which bundles @simplewebauthn/server), and built-in SQLite via `node:sqlite`. Zero npm runtime dependencies.
+Built on Node.js 24.16.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default signature) and ML-DSA-87 (legacy) via OpenSSL 3.5, XChaCha20-Poly1305 and SHAKE256 via vendored blamejs (which bundles @noble/ciphers and @noble/post-quantum), Argon2id via Node 24+'s built-in `crypto.argon2` (no native binding required), WebAuthn via vendored blamejs (which bundles @simplewebauthn/server), and built-in SQLite via `node:sqlite`. Zero npm runtime dependencies.
 
 ## Features
 
@@ -292,7 +292,7 @@ Built on Node.js 24.14.1+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 
 **Teams**
 - Create teams, add/remove members with role-based access
-- Team-scoped file visibility -- cross-team isolation enforced
+- Assign a stash to a team -- uploads to it appear in the team's member-only file list (`/teams/:id/files`)
 - Team admin and member roles
 
 **Profile**
@@ -504,14 +504,14 @@ cd hermitstash
 docker compose up -d
 ```
 
-Uses `cgr.dev/chainguard/node:latest-dev` — a wolfi-based, glibc-dynamic Node image rebuilt continuously by Chainguard when upstream CVE fixes land, so the image's CVE count at any given digest is typically near zero. Node 24.14.1+ is still required for PQC (OpenSSL 3.5) plus cumulative 24.x security patches. No config files needed — all dependencies vendored, no `npm install`. Starts with defaults and generates the vault keypair on first run. Configure everything from the admin panel at `/admin` once running.
+Uses `cgr.dev/chainguard/node:latest-dev` — a wolfi-based, glibc-dynamic Node image rebuilt continuously by Chainguard when upstream CVE fixes land, so the image's CVE count at any given digest is typically near zero. Node 24.16.0+ is still required for PQC (OpenSSL 3.5) plus cumulative 24.x security patches. No config files needed — all dependencies vendored, no `npm install`. Starts with defaults and generates the vault keypair on first run. Configure everything from the admin panel at `/admin` once running.
 
 ### Image details
 
 | | |
 |---|---|
 | **Base image** | `cgr.dev/chainguard/node:latest-dev` (wolfi, glibc — continuously rebuilt for CVE fixes) |
-| **Node.js** | 24.14.1+ (required for ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87 via OpenSSL 3.5 + cumulative 24.x security patches) |
+| **Node.js** | 24.16.0+ (required for ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87 via OpenSSL 3.5 + cumulative 24.x security patches) |
 | **User** | Runs as `hermit` (non-root) via `su-exec` (installed at build time) — PUID/PGID env vars remap UID/GID at runtime (default 99:100, standard Linux 1000:1000) |
 | **Tmpfs** | `HERMITSTASH_TMPDIR=/dev/shm` — plaintext DB held in memory, never on disk. Set `shm_size: 256m` in compose. Also consider `CHUNK_SCRATCH_DIR=/dev/shm/hermitstash-chunks` for RAM-backed chunked-upload staging. |
 | **Volumes** | `/app/data` (encrypted DB, vault keys, TLS certs), `/app/uploads` (files if using local storage) |
@@ -1339,7 +1339,7 @@ Managed via `scripts/vendor-update.sh`:
 
 | Vendored | Version | Author | Purpose |
 |----------|---------|--------|---------|
-| [`blamejs`](https://github.com/blamejs/blamejs) | 0.14.6 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, etc. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
+| [`blamejs`](https://github.com/blamejs/blamejs) | 0.15.10 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, etc. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
 | [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) (browser only) | 2.2.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | XChaCha20-Poly1305 in the browser vault + outbox flows |
 | [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (browser only) | 2.2.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | SHAKE256 KDF in the browser |
 | [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) (browser only) | 0.6.1 | [Paul Miller](https://github.com/paulmillr) (MIT) | ML-KEM-1024 in the browser vault flow |

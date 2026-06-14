@@ -1,6 +1,6 @@
 {
   "name": "@blamejs/core",
-  "version": "0.14.19",
+  "version": "0.15.10",
   "description": "The Node framework that owns its stack.",
   "license": "Apache-2.0",
   "author": "blamejs contributors",
@@ -54,7 +54,7 @@
     "owns-its-stack"
   ],
   "engines": {
-    "node": ">=24.14.1"
+    "node": ">=24.16.0"
   },
   "files": [
     "index.js",
@@ -75,7 +75,7 @@
     "check:vendor-currency": "node scripts/check-vendor-currency.js"
   },
   "devDependencies": {
-    "esbuild": "0.28.0",
+    "esbuild": "0.28.1",
     "postject": "1.0.0-alpha.6"
   }
 }

@@ -164,11 +164,45 @@ describe("teams integration", function () {
   });
 
   describe("GET /teams/:teamId/files", function () {
-    it("member can see files (empty list)", async function () {
-      await loginMember();
+    // Exercise the real assign -> upload -> inherit -> view chain. Creating a
+    // stash bound to a team and uploading through it is the only supported way a
+    // file acquires a teamId; a direct teamId insert would mask a broken
+    // inheritance chain (and once did — the feature shipped without it).
+    async function uploadThroughStash(slug, assignTeamId, filename, content) {
+      var create = { name: "Team Stash " + slug, slug: slug };
+      if (assignTeamId !== undefined) create.teamId = assignTeamId;
+      var made = await client.post("/admin/stash/create", { json: create });
+      if (!made.json) throw new Error("stash create returned no json: status=" + made.status + " text=" + String(made.text).slice(0, 500));
+      assert.strictEqual(made.json.success, true, "stash create should succeed: " + JSON.stringify(made.json));
+      testServer.resetAllRateLimits();
+      var init = await client.post("/stash/" + slug + "/init", { json: { fileCount: 1 } });
+      assert.ok(init.json.bundleId, "init should return a bundleId");
+      var up = await client.uploadFile("/stash/" + slug + "/file/" + init.json.bundleId, "file", filename, content);
+      assert.strictEqual(up.status, 200, "file upload should succeed: " + JSON.stringify(up.json));
+    }
+
+    it("a team-scoped stash makes its uploads visible in the team file list", async function () {
+      await loginAdmin();
+      testServer.resetAllRateLimits();
+      var slug = "tfs-" + Date.now().toString(36);
+      await uploadThroughStash(slug, teamId, "team-doc.txt", "team shared content");
+
       var res = await client.get("/teams/" + teamId + "/files");
       assert.strictEqual(res.status, 200);
       assert.ok(Array.isArray(res.json.files), "should return files array");
+      var names = res.json.files.map(function (f) { return f.originalName; });
+      assert.ok(names.indexOf("team-doc.txt") !== -1, "the team-scoped upload must appear in the team file list");
+    });
+
+    it("an unassigned stash's uploads do NOT leak into any team's file list", async function () {
+      await loginAdmin();
+      testServer.resetAllRateLimits();
+      var slug = "nts-" + Date.now().toString(36);
+      await uploadThroughStash(slug, undefined, "private-doc.txt", "not a team file");
+
+      var res = await client.get("/teams/" + teamId + "/files");
+      var names = res.json.files.map(function (f) { return f.originalName; });
+      assert.ok(names.indexOf("private-doc.txt") === -1, "a stash with no team must not surface in a team file list");
     });
 
     it("non-member rejected with 403", async function () {

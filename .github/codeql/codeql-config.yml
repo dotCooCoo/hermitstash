@@ -1,0 +1,13 @@
+name: "HermitStash CodeQL config"
+
+# Vendored third-party code is excluded from scanning. This source is not ours:
+# real findings are addressed upstream and pulled in via a dependency refresh,
+# never edited in place, so alerts located here are noise that churns on every
+# refresh. Excluding it also removes false positives where a framework constant
+# (such as a passphrase-length bound) is treated as a sensitive source and traced
+# into this application's own diagnostic logging.
+paths-ignore:
+  - "lib/vendor/**"
+  - "public/js/noble-ciphers.js"
+  - "public/js/noble-hashes.js"
+  - "public/js/noble-pq.js"

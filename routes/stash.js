@@ -10,6 +10,7 @@ var rateLimit = require("../lib/rate-limit");
 var stashRepo = require("../app/data/repositories/stash.repo");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
 var filesRepo = require("../app/data/repositories/files.repo");
+var teamsRepo = require("../app/data/repositories/teams.repo");
 var { parseMultipart } = require("../lib/multipart");
 var storage = require("../lib/storage");
 var { send } = require("../middleware/send");
@@ -46,6 +47,17 @@ function emailMatchesAllowedList(email, allowedEmails) {
     if (list[i].startsWith("@") && list[i] === domain) return true;
   }
   return false;
+}
+
+// Resolve an optional team assignment for a stash. Returns the canonical team
+// _id, or null when none is requested. Throws when a non-empty value names a
+// team that does not exist (so a typo can't silently produce an orphan FK that
+// no team list will ever surface). Caller is already admin-gated.
+function resolveStashTeam(rawTeamId) {
+  if (!rawTeamId) return null;
+  var team = teamsRepo.findTeamById(String(rawTeamId));
+  if (!team) throw new ValidationError("Team not found.");
+  return team._id;
 }
 
 module.exports = function (app) {
@@ -112,6 +124,12 @@ module.exports = function (app) {
     var password = String(body.password || "");
 
     if (!stash.passwordHash) {
+      // An email-gated stash carries no password; access is granted ONLY via the
+      // email access-code flow (which sets { emailVerified }). Treating a missing
+      // password as "unlocked" here would bypass the email gate entirely.
+      if (stash.accessMode === "email") {
+        throw new ForbiddenError("Email verification required.").withExtras({ requiresEmail: true });
+      }
       req.session["stashUnlocked_" + slug] = true;
       return res.json({ success: true });
     }
@@ -230,6 +248,9 @@ module.exports = function (app) {
       fileCount: body.fileCount,
       skippedCount: body.skippedCount,
       skippedFiles: body.skippedFiles,
+      // Team-scoped stash: every upload inherits the team so it surfaces in the
+      // team's shared file list. null for an unassigned stash.
+      teamId: stash.teamId || null,
     });
 
     // Set stashId on the bundle
@@ -369,6 +390,7 @@ module.exports = function (app) {
         maxBundleSize: p.maxBundleSize,
         defaultExpiry: p.defaultExpiry,
         allowedExtensions: p.allowedExtensions,
+        teamId: p.teamId || "",
         enabled: p.enabled === "true",
         bundleCount: p.bundleCount || 0,
         totalBytes: p.totalBytes || 0,
@@ -501,6 +523,11 @@ module.exports = function (app) {
       var hasEmailGate = !!allowedEmails;
       var accessMode = hasPassword && hasEmailGate ? "both" : hasPassword ? "password" : hasEmailGate ? "email" : "open";
 
+      // Optional team assignment: uploads to this stash become visible to the
+      // team via GET /teams/:teamId/files. The route is admin-only, so a site
+      // admin may assign any existing team; the team must exist.
+      var teamId = resolveStashTeam(body.teamId);
+
       var doc = {
         slug: slug,
         name: name,
@@ -516,6 +543,7 @@ module.exports = function (app) {
         maxBundleSize: parseInt(body.maxBundleSize, 10) || 0,
         defaultExpiry: parseInt(body.defaultExpiry, 10) || 0,
         allowedExtensions: String(body.allowedExtensions || "").trim().slice(0, 1000),
+        teamId: teamId,
         enabled: "true",
         createdBy: req.user._id,
         bundleCount: 0,
@@ -553,6 +581,10 @@ module.exports = function (app) {
       if (body.maxBundleSize !== undefined) updates.maxBundleSize = parseInt(body.maxBundleSize, 10) || 0;
       if (body.defaultExpiry !== undefined) updates.defaultExpiry = parseInt(body.defaultExpiry, 10) || 0;
       if (body.allowedExtensions !== undefined) updates.allowedExtensions = String(body.allowedExtensions).trim().slice(0, 1000);
+      // Team assignment: "" clears it, a value (re)assigns to an existing team.
+      // Only affects bundles initialized AFTER the change — already-uploaded
+      // files keep the team they were uploaded under.
+      if (body.teamId !== undefined) updates.teamId = resolveStashTeam(body.teamId);
 
       // Slug update with validation
       if (body.slug !== undefined) {

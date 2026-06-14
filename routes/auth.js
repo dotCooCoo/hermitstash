@@ -8,6 +8,7 @@ var usersRepo = require("../app/data/repositories/users.repo");
 var { getAuthUrl, exchangeCode, generateState } = require("../lib/google-auth");
 var emailService = require("../app/domain/integrations/email.service");
 var { send, host } = require("../middleware/send");
+var { emitError } = require("../middleware/respond-error");
 var audit = require("../lib/audit");
 var authService = require("../app/domain/auth/auth.service");
 var sessionService = require("../app/domain/auth/session.service");
@@ -212,7 +213,8 @@ module.exports = function (app) {
       var body = collector.result().toString("utf8");
       var params = Object.fromEntries(new URLSearchParams(body));
       if (!req.session || !validateToken(req.session, req, params)) {
-        return res.status(403).json({ error: "CSRF validation failed." });
+        emitError(req, res, { status: 403, code: "FORBIDDEN", detail: "CSRF validation failed." });
+        return;
       }
       audit.log(audit.ACTIONS.LOGOUT, { req: req });
       await sessionService.logoutUser(req);

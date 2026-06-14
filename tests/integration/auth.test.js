@@ -28,11 +28,11 @@ describe("auth integration", function () {
       assert.strictEqual(res.json.success, true);
       assert.strictEqual(res.json.redirect, "/dashboard");
 
-      // Verify PII is sealed in DB (use .raw() to bypass auto-unseal)
-      var vault = require(path.join(testServer.projectRoot, "lib", "vault"));
+      // Verify PII is sealed in DB. Resolve by email (translated to the keyed
+      // blind index), then read raw to bypass auto-unseal for the seal checks.
       var { users } = require(path.join(testServer.projectRoot, "lib", "db"));
-      var { hashEmail } = require(path.join(testServer.projectRoot, "lib", "crypto"));
-      var user = users.raw().findOne({ emailHash: hashEmail("test@test.com") });
+      var idRow = users.findOne({ email: "test@test.com" });
+      var user = idRow ? users.raw().findOne({ _id: idRow._id }) : null;
       assert.ok(user, "user should exist");
       assert.ok(isSealed(user.email), "email should be sealed in DB");
       assert.ok(isSealed(user.displayName), "displayName should be sealed in DB");

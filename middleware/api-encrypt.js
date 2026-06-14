@@ -25,6 +25,7 @@ var nodeCrypto = require("node:crypto");
 var vault = require("../lib/vault");
 var config = require("../lib/config");
 var { encryptPayload, decryptPayload, generateApiKey } = require("../lib/api-crypto");
+var replayNonce = require("../lib/replay-nonce");
 var { xchacha20poly1305 } = require("../lib/vendor/blamejs/lib/vendor/noble-ciphers.cjs");
 var { ml_kem1024 } = require("../lib/vendor/blamejs/lib/vendor/noble-post-quantum.cjs");
 
@@ -158,7 +159,7 @@ module.exports = function apiEncrypt(req, res, next) {
           });
         }
       });
-      origOn("end", function () {
+      origOn("end", async function () {
         if (aborted) return;
         var raw = collector.result().toString();
         // b.safeJson.parseOrDefault — bounded depth + key-count + null-
@@ -174,6 +175,14 @@ module.exports = function apiEncrypt(req, res, next) {
           try {
             var decrypted = decryptPayload(body._e, apiKey, REPLAY_WINDOW);
             if (decrypted === null || decrypted === undefined) throw new Error("Invalid payload");
+            // Atomic single-use claim of the exact envelope bytes. A replayed
+            // request re-sends a byte-identical _e (the XChaCha20 nonce lives
+            // inside the ciphertext), so claiming sha3(_e) within the staleness
+            // window refuses an in-window replay — the _t timestamp check alone
+            // admits unlimited replays for the whole 30s window (CWE-367).
+            if (!(await replayNonce.claimOnce("apienc:" + body._e, REPLAY_WINDOW))) {
+              throw new Error("Replayed request");
+            }
             raw = JSON.stringify(decrypted);
           } catch (_e) {
             // Encrypted cookie session: route the rejection through the wrapped

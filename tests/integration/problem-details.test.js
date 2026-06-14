@@ -264,9 +264,10 @@ describe("RFC 9457 problem-details (error-handler contract)", function () {
   });
 
   describe("known bypass paths (current behavior — guard against further drift)", function () {
-    // Both bypasses below are pre-RFC 9457 patterns that haven't been
-    // migrated yet. Asserting current behavior so a future fix knows
-    // to update both the test + the call site.
+    // onNotFound below is a pre-RFC 9457 pattern not yet migrated — asserted as
+    // current behavior so a future fix updates both the test + the call site.
+    // (requireAdmin USED to be here too; it now content-negotiates and is
+    // asserted as fixed behavior below.)
 
     it("onNotFound (server-main.js:570) renders HTML, not problem+json", async function () {
       var { TestClient } = require("../helpers/http-client");
@@ -284,7 +285,7 @@ describe("RFC 9457 problem-details (error-handler contract)", function () {
         "current behavior: 404 always HTML; migrate onNotFound to throw NotFoundError to fix");
     });
 
-    it("requireAdmin (middleware/require-admin.js) renders HTML on auth refusal", async function () {
+    it("requireAdmin (middleware/require-admin.js) returns problem+json to JSON clients", async function () {
       var { TestClient } = require("../helpers/http-client");
       var client = new TestClient(testServer.baseUrl());
       client.clearCookies();
@@ -293,10 +294,26 @@ describe("RFC 9457 problem-details (error-handler contract)", function () {
       });
       assert.ok([401, 403].includes(res.status));
       var ctype = (res.headers["content-type"] || "").toLowerCase();
-      // Currently HTML. requireAdmin uses send(res, "error", ...).
-      // Migration target: throw ForbiddenError / AuthenticationError.
+      // requireAdmin now content-negotiates via emitError: a JSON client gets a
+      // structured JSON error (problem+json on a plaintext session, or the
+      // problem document inside the api-encrypt envelope — application/json —
+      // on an encrypted one), NEVER the HTML error template. The exact ctype
+      // depends on the encryption layer; the contract is "JSON, not HTML".
+      assert.ok(ctype.includes("json") && !ctype.includes("text/html"),
+        "admin guard must return a JSON error, not the HTML template, to JSON clients, got: " + ctype);
+    });
+
+    it("requireAdmin still renders HTML to browser clients (Accept: text/html)", async function () {
+      var { TestClient } = require("../helpers/http-client");
+      var client = new TestClient(testServer.baseUrl());
+      client.clearCookies();
+      var res = await client.get("/admin/apikeys/api", {
+        headers: { Accept: "text/html" },
+      });
+      assert.ok([401, 403].includes(res.status));
+      var ctype = (res.headers["content-type"] || "").toLowerCase();
       assert.ok(ctype.includes("text/html"),
-        "current behavior: admin guard renders HTML; migrate to throw ForbiddenError to fix");
+        "admin guard must still render the HTML template to browser clients, got: " + ctype);
     });
   });
 });

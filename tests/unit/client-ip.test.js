@@ -14,12 +14,14 @@ describe("client-ip getIp()", function () {
     assert.strictEqual(clientIp.getIp(req), "10.0.0.1");
   });
 
-  it("returns XFF IP when from trusted proxy (127.0.0.1)", function () {
+  it("returns the rightmost (proxy-appended) XFF IP when from a trusted proxy", function () {
     var req = {
       socket: { remoteAddress: "127.0.0.1" },
       headers: { "x-forwarded-for": "203.0.113.50, 70.41.3.18" },
     };
-    assert.strictEqual(clientIp.getIp(req), "203.0.113.50");
+    // The bundled nginx appends $remote_addr, so the RIGHTMOST entry is the real
+    // peer; the leftmost is client-forgeable and must NOT be trusted.
+    assert.strictEqual(clientIp.getIp(req), "70.41.3.18");
   });
 
   it("returns socket IP when from untrusted source (ignores XFF)", function () {
@@ -28,6 +30,29 @@ describe("client-ip getIp()", function () {
       headers: { "x-forwarded-for": "10.10.10.10" },
     };
     assert.strictEqual(clientIp.getIp(req), "192.168.1.100");
+  });
+
+  it("canonicalizes an IPv4-mapped IPv6 socket peer to its dotted-quad", function () {
+    // A dual-stack listener surfaces ::ffff:1.2.3.4; folding it to 1.2.3.4 is
+    // what lets a block / rate-limit on the dotted-quad also catch the peer.
+    var req = { socket: { remoteAddress: "::ffff:203.0.113.5" }, headers: {} };
+    assert.strictEqual(clientIp.getIp(req), "203.0.113.5");
+  });
+});
+
+describe("client-ip canonicalize()", function () {
+  it("folds an IPv4-mapped IPv6 address to the dotted-quad", function () {
+    assert.strictEqual(clientIp.canonicalize("::ffff:1.2.3.4"), "1.2.3.4");
+  });
+  it("lowercases IPv6 so case variants collapse to one key", function () {
+    assert.strictEqual(clientIp.canonicalize("2001:DB8::1"), "2001:db8::1");
+  });
+  it("leaves a plain dotted-quad unchanged", function () {
+    assert.strictEqual(clientIp.canonicalize("1.2.3.4"), "1.2.3.4");
+  });
+  it("passes through empty / non-string input", function () {
+    assert.strictEqual(clientIp.canonicalize(""), "");
+    assert.strictEqual(clientIp.canonicalize(null), null);
   });
 });
 

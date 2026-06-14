@@ -24,6 +24,9 @@ var { getSettings, updateSettings } = config;
 var vault = require(path.join(projectRoot, "lib", "vault"));
 var db = require(path.join(projectRoot, "lib", "db"));
 
+// Sealed settings values need the vault initialized before any seal/unseal.
+before(async function () { await vault.init(); });
+
 after(function () {
   try { fs.unlinkSync(testDbPath); } catch {}
   try { fs.unlinkSync(testDbPath + "-shm"); } catch {}
@@ -43,8 +46,10 @@ describe("config", function () {
       // Verify the value is sealed in the DB (use .raw() to bypass auto-unseal)
       var row = db.settings.raw().findOne({ key: "SITE_NAME" });
       assert.ok(row, "settings row should exist in DB");
-      assert.ok(row.value.startsWith("vault:"), "DB value should be vault-sealed");
-      assert.strictEqual(vault.unseal(row.value), "TestSite", "unsealed DB value should match");
+      assert.ok((row.value.startsWith("vault.aad:") || row.value.startsWith("vault:")), "DB value should be vault-sealed");
+      // AAD-bound values can't be unsealed by plain vault.unseal (they need the
+      // row AAD); read through the auto-unsealing collection instead.
+      assert.strictEqual(db.settings.findOne({ key: "SITE_NAME" }).value, "TestSite", "unsealed DB value should match");
     });
 
     it("returns updated keys array", function () {
@@ -255,8 +260,8 @@ describe("config", function () {
       updateSettings({ heroTitle: "My Hero" });
       var row = db.settings.raw().findOne({ key: "HERO_TITLE" });
       assert.ok(row, "setting should exist in DB");
-      assert.ok(row.value.startsWith("vault:"), "value should be vault-sealed");
-      assert.strictEqual(vault.unseal(row.value), "My Hero");
+      assert.ok((row.value.startsWith("vault.aad:") || row.value.startsWith("vault:")), "value should be vault-sealed");
+      assert.strictEqual(db.settings.findOne({ key: "HERO_TITLE" }).value, "My Hero");
     });
 
     it("overwriting a setting updates existing DB row", function () {

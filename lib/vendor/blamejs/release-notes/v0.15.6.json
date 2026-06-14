@@ -1,0 +1,59 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.15.6",
+  "date": "2026-06-12",
+  "headline": "Closes SAML and OIDC assertion-replay windows, bounds SSE memory under a slow client, restores at-least-once delivery for a crashed outbox publisher, makes sealed-column membership queries work, ships JOSE-conformant SD-JWT signatures, and adds a URL canonicalizer for SSRF-safe comparison",
+  "summary": "A security and correctness release. On the identity surface: a SAML Response whose Bearer (or Holder-of-Key) SubjectConfirmation omits NotOnOrAfter is now rejected instead of accepted as fresh-forever, and the OIDC ID-token verifier no longer lets a caller disable expiry validation on a normal token - the exp bypass is restricted to back-channel-logout tokens and bounded by an issued-at freshness floor. SD-JWT-VC ES256/ES384 signatures are now emitted as JOSE raw r||s, so credentials this issuer signs verify in conformant wallets and verifiers. A new b.safeUrl.canonicalize (and b.ssrfGuard.canonicalizeHost) collapses obfuscated host and IP forms to one canonical string so allowlist and SSRF comparisons can't be bypassed by encoding tricks. On the reliability side: server-sent-event channels now cap their per-connection outbound buffer and evict a stalled client instead of growing the heap without bound; the outbox reclaims a job left in-flight by a publisher that crashed mid-delivery; the background worker pool no longer drops a task queued behind one that timed out; a retention preview no longer rewrites the whole database file; an equality / membership query on an encrypted column now hashes each candidate (membership queries previously failed outright); and the on-read re-hash of a legacy lookup digest now runs on Postgres and MySQL handles, not only SQLite.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "SAML SubjectConfirmation without NotOnOrAfter is rejected",
+          "body": "`b.auth.saml` SP response verification treated the `NotOnOrAfter` attribute on a Bearer SubjectConfirmationData as optional: a confirmation that omitted it was accepted with no upper bound on the assertion's freshness - a captured assertion replayable indefinitely. SAML 2.0 Web Browser SSO Profile §4.1.4.2 requires Bearer confirmations to carry NotOnOrAfter. `verifyResponse` now rejects a confirmation that is missing NotOnOrAfter, has an unparseable value, or is expired; the Holder-of-Key path (Profile §3.1) is hardened the same way, including the previously-accepted unparseable-value case."
+        },
+        {
+          "title": "ID-token expiry can no longer be disabled on a normal token",
+          "body": "`b.auth.oauth`'s `verifyIdToken` honored a `skipExpCheck` option with no constraint, so any caller could verify an expired - or replayed - ID token. That option exists only for OIDC Back-Channel Logout tokens, which carry no `exp`. It is now self-guarding: `verifyIdToken` rejects `skipExpCheck` (`auth-oauth/skip-exp-check-not-allowed`) on any token that lacks the back-channel-logout event claim, and even for a logout token it enforces an `iat` freshness floor (`auth-oauth/logout-token-stale`). The internal logout path is unaffected."
+        },
+        {
+          "title": "Server-sent-event channels bound their outbound buffer",
+          "body": "An SSE channel wrote to the response with no regard for backpressure and no cap on buffered bytes, so a single stalled client could make the server buffer events until the heap was exhausted (a memory-exhaustion denial of service). Each channel now tracks its unflushed-byte count and, past a per-channel cap (`maxBufferedBytes`, default 1 MiB), closes the connection and throws `sse/backpressure` - evicting the slow consumer instead of buffering without limit. A client that keeps up is never affected."
+        },
+        {
+          "title": "URL and host canonicalizer for SSRF-safe comparison",
+          "body": "New `b.safeUrl.canonicalize(url, opts?)` and `b.ssrfGuard.canonicalizeHost(host)` return the canonical, comparable form of a URL or host: scheme and host lowercased, IDN hosts emitted as their punycode A-label (a confusable / mixed-script host is rejected), every base of an IP literal (decimal, octal, hex, dotted, IPv4-mapped and zero-compressed IPv6) collapsed to one canonical address, default ports stripped, trailing-dot hosts normalized, and path percent-encoding normalized per RFC 3986. Use it to build host allowlists, deduplicate URLs, or compare a fetch target so an allowlist check can't be bypassed by encoding the same address a different way."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "SD-JWT-VC ES256 / ES384 signatures are JOSE-conformant",
+          "body": "`b.auth.sdJwtVc` signed and verified ES256 / ES384 credentials with node:crypto's default DER ECDSA encoding instead of the raw r||s (`ieee-p1363`) form JOSE and EUDI wallets require, so a credential this issuer signed was rejected by conformant verifiers and the library rejected conformant holders' key-binding JWTs. The issuer JWT and the holder KB-JWT now both sign and verify with `ieee-p1363`, matching the rest of the framework's JOSE signers."
+        },
+        {
+          "title": "Membership queries on an encrypted column now work",
+          "body": "Querying an encrypted (sealed) column with `IN` / `$in` - `b.db.from(table).whereIn(\"email\", [...])` or `b.db.collection(table).find({ email: { $in: [...] } })` - threw, because the sealed-field-to-derived-hash rewrite passed the whole candidate array to the hash lookup as a single value. Each candidate is now hashed individually and matched against both its active keyed digest and its legacy digest, so membership queries on an encrypted column return the right rows, including rows written before the lookup-hash default changed."
+        },
+        {
+          "title": "A timing-out background task no longer drops the task queued behind it",
+          "body": "When a `b.workerPool` task timed out or its worker errored, the slot was returned to the idle pool and drained one moment before it was marked for recycling, so a task queued behind it could be dispatched to the worker about to be terminated - and came back as `workerpool/worker-exit` (or hung) instead of running. The slot is now marked recycling before the queue is drained, so the queued task waits for the replacement worker."
+        },
+        {
+          "title": "The outbox recovers a job stranded by a crashed publisher",
+          "body": "`b.outbox` claims a row by flipping it to in-flight, but the claim scan only selected pending rows, so a publisher that crashed between claiming a row and recording delivery left that row in-flight forever - the event was silently dropped, breaking at-least-once delivery. The outbox now stamps each claim with a timestamp and, at the start of every poll, returns any in-flight row older than the claim lease (`claimReclaimMs`, default 5 minutes) to the pending pool so it is delivered. An existing outbox table gains the new column automatically."
+        },
+        {
+          "title": "A retention preview no longer rewrites the whole database",
+          "body": "Previewing a retention rule with `b.retention` (`run(name, { dryRun: true })` or the `retention preview` command) ran a full database VACUUM for every candidate row under a regulated posture (gdpr / hipaa / and similar), because the per-row erase - which schedules the vacuum - ran before the dry-run check. A preview now computes what it would erase without touching the database; the vacuum runs only on a real erase."
+        },
+        {
+          "title": "On-read lookup-digest upgrade runs on Postgres and MySQL",
+          "body": "When `b.cryptoField.unsealRow` re-hashed a legacy lookup digest to the current keyed form and persisted it, the UPDATE was always built for SQLite, so on a Postgres or MySQL handle the durable rewrite quoted identifiers for the wrong dialect and silently no-opped - the legacy digest stayed on disk and the migration never completed off SQLite. The rewrite now uses the handle's own dialect."
+        }
+      ]
+    }
+  ]
+}

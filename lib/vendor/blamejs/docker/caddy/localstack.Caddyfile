@@ -1,0 +1,19 @@
+# TLS terminator in front of LocalStack. LocalStack has no supported way to
+# present a cert chaining to our test CA on its own :4566 listener, so Caddy
+# terminates TLS with the CA-issued localstack leaf and reverse-proxies to
+# LocalStack over the internal compose network. The framework's AWS clients
+# (CloudWatch Logs, SQS) connect here and verify the cert against the test CA
+# via NODE_EXTRA_CA_CERTS — no rejectUnauthorized:false.
+#
+# LocalStack does not verify SigV4 signatures (it ignores the secret key), so
+# the Host header it receives is irrelevant to auth; reverse_proxy's defaults
+# pass X-Amz-Target / Authorization / Content-Type through verbatim.
+
+{
+	auto_https off
+}
+
+:4566 {
+	tls /certs/localstack.crt /certs/localstack.key
+	reverse_proxy localstack:4566
+}

@@ -153,6 +153,20 @@ app.use(b.middleware.composePipeline([
       contentSafety: null,
       contentSafetyDisabledReason: "operator-curated public build output (css/js/fonts/brand-svg); no untrusted uploads served from this mount",
     }), position: 45 },
+  // Fail-closed tail (4-arg → error handler, canonical position 90). composePipeline
+  // catches an unexpected throw from an inner entry and re-emits it as next(err),
+  // but the outer router's next callback ignores the error argument — so WITHOUT
+  // this handler the composed Promise resolves cleanly and the request advances to
+  // the route handler with the entire security stack (ipCheck / securityHeaders /
+  // botGuard / cors) SKIPPED (fail-OPEN). This converts a propagated error into a
+  // 500 and ENDS the response, so the chain halts. Only runs on an error path; the
+  // normal flow never reaches it.
+  { name: "errorHandler", position: 90, mw: function (err, req, res, _next) {
+    try { require("./app/shared/logger").error("security pipeline error — failing closed", { error: err && err.message, path: req && req.pathname }); } catch (_e) { /* logging must never break the fail-closed response */ }
+    if (!res.writableEnded) {
+      b.problemDetails.send(res, { type: "https://hermitstash.com/problems/internal", title: "Internal Server Error", status: 500 });
+    }
+  } },
 ]));
 
 // Serve admin custom logo + per-stash logos from the writable data directory.
@@ -274,8 +288,17 @@ app.post("/sync/enroll", rateLimit.guard({ max: SYNC_ENROLL_MAX, windowMs: C.TIM
 
     var record = records[0];
 
-    // Mark as redeemed (one-time use)
-    db.enrollmentCodes.update({ _id: record._id }, { $set: { status: "redeemed" } });
+    // Mark as redeemed — atomic compare-and-swap. Including status:"pending" in
+    // the WHERE means two concurrent redemptions of the same code can't both
+    // succeed: the loser changes 0 rows and is rejected here, before any
+    // provisioning bundle (apiKey/clientCert/clientKey/caCert) is emitted (CWE-367).
+    var claimed = db.enrollmentCodes.update({ _id: record._id, status: "pending" }, { $set: { status: "redeemed" } });
+    if (!claimed) {
+      return b.problemDetails.send(res, {
+        type: "https://hermitstash.com/problems/auth-required",
+        title: "Auth Required", status: 401, detail: "Invalid or expired enrollment code.",
+      });
+    }
 
     // Stash-bound enrollments (the default flow from routes/stash.js's
     // sync-token issuer) record stashId but leave bundleId null because
@@ -358,7 +381,7 @@ app.post("/sync/renew-cert",
       }
 
       // Check cert is not revoked (indexed lookup, not full-table scan)
-      if (certUtils.isCertRevoked(peerCert.fingerprint256)) {
+      if (certUtils.isPeerCertRevoked(peerCert)) {
         return b.problemDetails.send(res, {
           type: "https://hermitstash.com/problems/forbidden",
           title: "Forbidden",
@@ -965,7 +988,7 @@ server.on("upgrade", function (req, socket, head) {
       // binding below will still block keys that were enrolled with a cert.
     } else {
       // Check revocation list (indexed lookup, not full-table scan)
-      if (certUtils.isCertRevoked(peerCert.fingerprint256)) {
+      if (certUtils.isPeerCertRevoked(peerCert)) {
         return rejectUpgrade(socket, 403, "Forbidden");
       }
       // Check certificate expiry

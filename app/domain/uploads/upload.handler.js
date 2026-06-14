@@ -175,6 +175,7 @@ async function handleFileUpload(ctx) {
       originalName: sanitizeFilename(file.filename),
       storagePath: saved.path, mimeType: file.mimetype, size: file.size,
       checksum: checksum, encryptionKey: saved.encryptionKey,
+      teamId: bundle.teamId || null,
       updatedAt: now, seq: newSeq,
     }});
   } else {
@@ -183,6 +184,9 @@ async function handleFileUpload(ctx) {
       filename: file.filename, relativePath: cleanRelPath,
       mimeType: file.mimetype, uploadedBy: ctx.uploadedBy,
       uploaderEmail: ctx.uploaderEmail, expiresAt: ctx.expiresAt,
+      // Inherit the bundle's team so team-scoped uploads land in the team's
+      // shared file list (GET /teams/:teamId/files). null for non-team bundles.
+      teamId: bundle.teamId || null,
       seq: newSeq,
     });
     fileShareId = result.shareId;
@@ -198,15 +202,12 @@ async function handleFileUpload(ctx) {
   var action = replaced ? "file_replaced" : "file_added";
   audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: bundle._id, details: auditDetail({ action: action, bundleId: bundle._id, file: file.filename, relativePath: cleanRelPath, size: file.size, checksum: checksum }), req: ctx.req });
 
-  // Update counters (seq already bumped atomically above).
+  // Update counters atomically (seq already bumped atomically above). A plain
+  // read-modify-write from the pre-save `bundle` snapshot lost increments under
+  // concurrent uploads; incrementCounters does it in one UPDATE ... RETURNING.
   var sizeChange = replaced ? (file.size - oldSize) : file.size;
   var fileCountChange = replaced ? 0 : 1;
-  bundlesRepo.update(bundle._id, {
-    $set: {
-      receivedFiles: bundle.receivedFiles + fileCountChange,
-      totalSize: bundle.totalSize + sizeChange,
-    },
-  });
+  var counters = bundlesRepo.incrementCounters(bundle._id, fileCountChange, sizeChange);
 
   // Emit sync event for WebSocket subscribers
   if (bundle.bundleType === "sync") {
@@ -216,7 +217,7 @@ async function handleFileUpload(ctx) {
     });
   }
 
-  return { success: true, replaced: replaced, received: bundle.receivedFiles + fileCountChange, total: bundle.expectedFiles };
+  return { success: true, replaced: replaced, received: counters ? counters.receivedFiles : (bundle.receivedFiles + fileCountChange), total: bundle.expectedFiles };
 }
 
 /**
@@ -309,6 +310,9 @@ async function handleChunkUpload(ctx) {
     filename: filename, relativePath: relativePath,
     mimeType: fields.mimeType, uploadedBy: ctx.uploadedBy,
     uploaderEmail: ctx.uploaderEmail, expiresAt: ctx.expiresAt,
+    // Inherit the bundle's team so chunked uploads to a team-scoped stash also
+    // land in the team's file list (parity with the non-chunked path above).
+    teamId: bundle.teamId || null,
   });
   var checksum = chunkResult.checksum;
 
@@ -316,12 +320,10 @@ async function handleChunkUpload(ctx) {
     await _getIpQuota().record(clientIp.getIp(ctx.req), fullData.length);
   }
 
-  bundlesRepo.update(bundle._id, {
-    $set: { receivedFiles: bundle.receivedFiles + 1, totalSize: bundle.totalSize + fullData.length },
-  });
+  var chunkCounters = bundlesRepo.incrementCounters(bundle._id, 1, fullData.length);
 
   audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: bundle._id, details: auditDetail({ action: "file_added", bundleId: bundle._id, file: filename, size: fullData.length, chunks: totalChunks, checksum: checksum }), req: ctx.req });
-  return { success: true, assembled: true, received: bundle.receivedFiles + 1 };
+  return { success: true, assembled: true, received: chunkCounters ? chunkCounters.receivedFiles : (bundle.receivedFiles + 1) };
 }
 
 /**
@@ -413,11 +415,9 @@ async function handleSyncFileDelete(ctx) {
     storagePath: null, encryptionKey: null,
   }});
 
-  // Update bundle counters (seq already bumped atomically above).
-  bundlesRepo.update(bundle._id, { $set: {
-    receivedFiles: Math.max(0, bundle.receivedFiles - 1),
-    totalSize: Math.max(0, bundle.totalSize - (file.size || 0)),
-  }});
+  // Update bundle counters atomically (seq already bumped atomically above) —
+  // a snapshot read-modify-write would lose a concurrent increment/decrement.
+  bundlesRepo.incrementCounters(bundle._id, -1, -(file.size || 0));
 
   audit.log(audit.ACTIONS.FILE_DELETED, { targetId: file._id, details: auditDetail({ action: "file_removed", bundleId: bundle._id, file: file.originalName, relativePath: file.relativePath }), req: ctx.req });
 

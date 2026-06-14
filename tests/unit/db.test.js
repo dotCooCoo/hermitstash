@@ -10,12 +10,20 @@ var testId = b.crypto.generateToken(4);
 var testDbPath = path.join(__dirname, "..", "..", "data", "test-db-unit-" + testId + ".db");
 process.env.HERMITSTASH_DB_PATH = testDbPath;
 
-// Clear module cache so db.js loads fresh
+// Clear module cache so all lib modules load fresh against the test DB
 Object.keys(require.cache).forEach(function (k) {
-  if (k.includes("lib/db") || k.includes("lib\\db")) delete require.cache[k];
+  if (k.includes("hermitstash") && !k.includes("node_modules") && !k.includes("test")) delete require.cache[k];
 });
 
-var db = require("../../lib/db");
+// db.js reads db.key.enc via the vault at load, and field-crypto now computes a
+// keyed-MAC blind index (needs the vault MAC key) — so the vault must be
+// initialized BEFORE db is required.
+var vault = require("../../lib/vault");
+var db;
+before(async function () {
+  await vault.init();
+  db = require("../../lib/db");
+});
 
 after(function () {
   try { fs.unlinkSync(testDbPath); } catch {}

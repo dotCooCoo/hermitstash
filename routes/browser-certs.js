@@ -78,15 +78,21 @@ module.exports = function (app) {
       }
 
       var result = await mtlsCa.generateClientP12({ cn: cnRaw, password: password, validityDays: validityDays });
-      if (!result || !result.p12 || !result.fingerprint256) {
-        throw new AppError("Certificate generation failed. Is OpenSSL installed?", 500);
+      if (!result || !result.p12 || !result.certPem) {
+        throw new AppError("Certificate generation failed.", 500);
       }
+
+      // The CA returns { p12, certPem, issuedAt, expiresAt }; the fingerprint is
+      // derived from the issued cert. This is the SHA3-512 fingerprint the mTLS
+      // gate pins on — used both as the tracking-row keyHash sentinel and as the
+      // stored certFingerprint the revoke flow keys on, so the two always agree.
+      var certFp = certFingerprintSha3(result.certPem);
 
       // Tracking row in api_keys. keyHash uses a sentinel that can't be
       // produced by any valid Bearer token (colon outside token charset).
       apiKeysRepo.create({
         name: BROWSER_CERT_PREFIX + cnRaw,
-        keyHash: "browser:" + b.crypto.sha3Hash(result.fingerprint256),
+        keyHash: "browser:" + b.crypto.sha3Hash(certFp),
         prefix: "browser",
         permissions: "", // no scopes — the row is tracking-only
         userId: req.user._id,
@@ -94,7 +100,7 @@ module.exports = function (app) {
         boundBundleId: null,
         certIssuedAt: result.issuedAt,
         certExpiresAt: result.expiresAt,
-        certFingerprint: certFingerprintSha3(result.certPem),
+        certFingerprint: certFp,
         createdAt: new Date().toISOString(),
       });
 

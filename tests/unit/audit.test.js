@@ -15,9 +15,13 @@ Object.keys(require.cache).forEach(function (k) {
   if (k.includes("hermitstash") && !k.includes("node_modules") && !k.includes("test")) delete require.cache[k];
 });
 
+var vault = require("../../lib/vault");
 var db = require("../../lib/db");
 var audit = require("../../lib/audit");
 var { sha3Hash } = require("../../lib/crypto");
+
+// Sealed columns + field-crypto's keyed-MAC blind index need the vault MAC key.
+before(async function () { await vault.init(); });
 
 after(function () {
   try { fs.unlinkSync(testDbPath); } catch {}
@@ -377,7 +381,7 @@ describe("audit", function () {
       var rawEntries = db.auditLog.raw().find({});
       var rawEntry = rawEntries[rawEntries.length - 1];
       // Raw entry should have vault-sealed values
-      assert.ok(String(rawEntry.action).startsWith("vault:"), "raw action should be vault-sealed");
+      assert.ok(String(rawEntry.action).startsWith("vault.aad:") || String(rawEntry.action).startsWith("vault:"), "raw action should be vault-sealed");
 
       var unsealed = audit.unsealEntry(rawEntry);
       assert.strictEqual(unsealed.action, "user_registered");

@@ -593,8 +593,10 @@ describe("user management integration", function () {
       });
       // Use alice's ID (look up via admin API from within the test setup)
       var { users } = require(path.join(testServer.projectRoot, "lib", "db"));
-      var { hashEmail } = require(path.join(testServer.projectRoot, "lib", "crypto"));
-      var alice = users.findOne({ emailHash: hashEmail("alice@test.com") });
+      // Look up by email (the supported query path: field-crypto translates it to
+      // the keyed blind index with a legacy-digest dual-read). Re-deriving the
+      // raw emailHash here would miss app-created rows whose hash is the keyed MAC.
+      var alice = users.findOne({ email: "alice@test.com" });
       assert.ok(alice, "alice must exist for this test");
       var res = await client.post("/admin/users/" + alice._id + "/suspend", {
         json: {},
@@ -611,8 +613,10 @@ describe("user management integration", function () {
         json: { email: "reguser@test.com", password: "password123" },
       });
       var { users } = require(path.join(testServer.projectRoot, "lib", "db"));
-      var { hashEmail } = require(path.join(testServer.projectRoot, "lib", "crypto"));
-      var alice = users.findOne({ emailHash: hashEmail("alice@test.com") });
+      // Look up by email (the supported query path: field-crypto translates it to
+      // the keyed blind index with a legacy-digest dual-read). Re-deriving the
+      // raw emailHash here would miss app-created rows whose hash is the keyed MAC.
+      var alice = users.findOne({ email: "alice@test.com" });
       assert.ok(alice, "alice must exist for this test");
       var res = await client.post("/admin/users/" + alice._id + "/delete", {
         json: {},
@@ -629,8 +633,10 @@ describe("user management integration", function () {
         json: { email: "reguser@test.com", password: "password123" },
       });
       var { users } = require(path.join(testServer.projectRoot, "lib", "db"));
-      var { hashEmail } = require(path.join(testServer.projectRoot, "lib", "crypto"));
-      var alice = users.findOne({ emailHash: hashEmail("alice@test.com") });
+      // Look up by email (the supported query path: field-crypto translates it to
+      // the keyed blind index with a legacy-digest dual-read). Re-deriving the
+      // raw emailHash here would miss app-created rows whose hash is the keyed MAC.
+      var alice = users.findOne({ email: "alice@test.com" });
       assert.ok(alice, "alice must exist for this test");
       var res = await client.post("/admin/users/" + alice._id + "/role", {
         json: {},
@@ -687,8 +693,7 @@ describe("user management integration", function () {
       // Admin suspends the user
       await loginAsAdmin();
       var { users } = require(path.join(testServer.projectRoot, "lib", "db"));
-      var { hashEmail } = require(path.join(testServer.projectRoot, "lib", "crypto"));
-      var target = users.findOne({ emailHash: hashEmail("suspendme@test.com") });
+      var target = users.findOne({ email: "suspendme@test.com" });
       var suspendRes = await client.post("/admin/users/" + target._id + "/suspend", {
         json: {},
       });

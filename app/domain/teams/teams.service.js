@@ -4,6 +4,7 @@
  */
 var teamsRepo = require("../../data/repositories/teams.repo");
 var filesRepo = require("../../data/repositories/files.repo");
+var stashRepo = require("../../data/repositories/stash.repo");
 var { transaction } = require("../../data/db/transaction");
 var { ValidationError, NotFoundError, ForbiddenError } = require("../../shared/errors");
 
@@ -48,6 +49,12 @@ function deleteTeam(teamId, requestingUserId) {
     var teamFiles = filesRepo.findAll({ teamId: teamId });
     for (var i = 0; i < teamFiles.length; i++) {
       filesRepo.update(teamFiles[i]._id, { $set: { teamId: null } });
+    }
+    // Unassign any stash that fed this team, so new uploads don't keep writing
+    // a dangling team FK after the team is gone.
+    var teamStashes = stashRepo.findAll().filter(function (s) { return s.teamId === teamId; });
+    for (var j = 0; j < teamStashes.length; j++) {
+      stashRepo.update(teamStashes[j]._id, { $set: { teamId: null } });
     }
     // Remove team
     teamsRepo.removeTeam(teamId);

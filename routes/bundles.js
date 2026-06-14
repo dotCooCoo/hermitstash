@@ -33,6 +33,14 @@ function _shareIdHash(shareId) {
   return b.crypto.namespaceHash(C.HASH_PREFIX.SHARE_ID, shareId);
 }
 
+// A bundle past its expiresAt is gone for every content route, not only the
+// browse page — otherwise a share-link holder can still pull the bytes via
+// /download, /file/:fileShareId, or /folder/:prefix after expiry. Single gate
+// so the policy can't drift per-route.
+function isBundleExpired(bundle) {
+  return !!(bundle && bundle.expiresAt && bundle.expiresAt < new Date().toISOString());
+}
+
 async function _streamToBuffer(stream) {
   // Cap at 2 GiB — far above the per-file upload limit, but bounds memory
   // against a corrupted/hostile storage stream. The collector enforces the
@@ -43,12 +51,21 @@ async function _streamToBuffer(stream) {
   return collector.result();
 }
 
-function getBundleLockout(shareId) {
-  return db.bundleAccessLockouts.findOne({ shareIdHash: _shareIdHash(shareId) });
+// Per-IP lockout key: scope the failed-attempt counter to (shareId, client IP)
+// so a single share-link holder can't trip the exponential backoff for the
+// legitimate recipient (a denial-of-availability with a broadly-shared link).
+// The per-IP rate limiter (10/15min) stays the brute-force ceiling, and a
+// 256-bit shareId already makes guessing the link infeasible.
+function _lockoutKey(shareId, ip) {
+  return _shareIdHash(shareId + "|" + (ip || "unknown"));
 }
 
-function recordBundleFailure(shareId) {
-  var hash = _shareIdHash(shareId);
+function getBundleLockout(shareId, ip) {
+  return db.bundleAccessLockouts.findOne({ shareIdHash: _lockoutKey(shareId, ip) });
+}
+
+function recordBundleFailure(shareId, ip) {
+  var hash = _lockoutKey(shareId, ip);
   var existing = db.bundleAccessLockouts.findOne({ shareIdHash: hash });
   var now = new Date().toISOString();
   if (existing) {
@@ -60,33 +77,39 @@ function recordBundleFailure(shareId) {
   return { failures: 1, lastAttempt: Date.parse(now) };
 }
 
-function clearBundleLockout(shareId) {
-  db.bundleAccessLockouts.remove({ shareIdHash: _shareIdHash(shareId) });
+function clearBundleLockout(shareId, ip) {
+  db.bundleAccessLockouts.remove({ shareIdHash: _lockoutKey(shareId, ip) });
 }
 
 module.exports = function (app) {
   // Bundle password verification (rate limited to prevent brute force)
   app.post("/b/:shareId/unlock", rateLimit.guard({ max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async (req, res) => {
     var shareId = req.params.shareId;
+    var ip = clientIp.getIp(req);
     var bundle = bundlesRepo.findByShareId(shareId);
     if (!bundle || bundle.status !== "complete") throw new NotFoundError("Bundle not found.");
 
-    // Check exponential backoff lockout (persistent across restarts)
-    var lockout = getBundleLockout(shareId);
+    // Check exponential backoff lockout (persistent across restarts, per client IP)
+    var lockout = getBundleLockout(shareId, ip);
     if (lockout && lockout.failures >= BUNDLE_LOCKOUT_THRESHOLD) {
       var backoffSeconds = Math.pow(2, lockout.failures - BUNDLE_LOCKOUT_THRESHOLD) * 30;
       var lastMs = lockout.lastAttempt ? Date.parse(lockout.lastAttempt) : 0;
       var elapsed = (Date.now() - lastMs) / 1000;
       if (elapsed < backoffSeconds) {
         var retryAfter = Math.ceil(backoffSeconds - elapsed);
-        res.setHeader("Retry-After", String(retryAfter));
-        throw new RateLimitError("Too many failed attempts. Try again in " + retryAfter + " seconds.");
+        throw new RateLimitError("Too many failed attempts. Try again in " + retryAfter + " seconds.", retryAfter);
       }
     }
 
     var body = (await b.parsers.json(req)) || {};
     var password = String(body.password || "");
     if (!bundle.passwordHash) {
+      // An email-gated bundle carries no password; access is granted ONLY via the
+      // email access-code flow (which sets { emailVerified }). Treating a missing
+      // password as "unlocked" here would bypass the email gate entirely.
+      if (bundle.accessMode === "email") {
+        throw new ForbiddenError("Email verification required.").withExtras({ requiresEmail: true });
+      }
       req.session["bundle_" + shareId] = true;
       return res.json({ success: true });
     }
@@ -103,18 +126,17 @@ module.exports = function (app) {
       } else {
         req.session["bundle_" + shareId] = true;
       }
-      clearBundleLockout(shareId);
+      clearBundleLockout(shareId, ip);
       return res.json({ success: true });
     }
 
-    // Track failed attempt (persistent)
-    var after = recordBundleFailure(shareId);
+    // Track failed attempt (persistent, per client IP)
+    var after = recordBundleFailure(shareId, ip);
 
     if (after.failures >= BUNDLE_LOCKOUT_THRESHOLD) {
       var retryAfterSec = Math.pow(2, after.failures - BUNDLE_LOCKOUT_THRESHOLD) * 30;
       logger.warn("Bundle unlock lockout", { shareId: shareId, failures: after.failures, retryAfter: retryAfterSec });
-      res.setHeader("Retry-After", String(retryAfterSec));
-      throw new RateLimitError("Too many failed attempts. Try again in " + retryAfterSec + " seconds.");
+      throw new RateLimitError("Too many failed attempts. Try again in " + retryAfterSec + " seconds.", retryAfterSec);
     }
 
     throw new AuthenticationError("Incorrect password.");
@@ -205,7 +227,7 @@ module.exports = function (app) {
     if (!bundle) return send(res, "error", { title: "Not Found", message: "Bundle not found.", user: req.user }, 404);
 
     // Check expiry
-    if (bundle.expiresAt && bundle.expiresAt < new Date().toISOString()) {
+    if (isBundleExpired(bundle)) {
       return send(res, "error", { title: "Expired", message: "This bundle has expired.", user: req.user }, 410);
     }
 
@@ -266,8 +288,9 @@ module.exports = function (app) {
     var doc = filesRepo.findByShareId(req.params.fileShareId);
     if (!doc || doc.bundleShareId !== req.params.shareId) { res.writeHead(404); return res.end("Not found"); }
     if (doc.expiresAt && doc.expiresAt < new Date().toISOString()) { res.writeHead(410); return res.end("File expired"); }
-    // Enforce bundle access protection on single file downloads
+    // Enforce bundle expiry + access protection on single file downloads
     var parentBundle = bundlesRepo.findByShareId(req.params.shareId);
+    if (isBundleExpired(parentBundle)) { res.writeHead(410); return res.end("Bundle expired"); }
     if (parentBundle && isBundleLocked(parentBundle, req.session)) {
       res.writeHead(401); return res.end("Access restricted");
     }
@@ -296,6 +319,7 @@ module.exports = function (app) {
   app.get("/b/:shareId/download", async (req, res) => {
     var bundle = bundlesRepo.findCompleteByShareId(req.params.shareId);
     if (!bundle) { res.writeHead(404); return res.end("Not found"); }
+    if (isBundleExpired(bundle)) { res.writeHead(410); return res.end("Bundle expired"); }
     // Enforce bundle access protection on ZIP downloads
     if (isBundleLocked(bundle, req.session)) {
       res.writeHead(401); return res.end("Access restricted");
@@ -335,14 +359,20 @@ module.exports = function (app) {
   });
 
   // Download a subfolder from a bundle as ZIP
-  app.get("/b/:shareId/folder/*", async (req, res) => {
+  app.get("/b/:shareId/folder/:prefix", async (req, res) => {
     var bundle = bundlesRepo.findCompleteByShareId(req.params.shareId);
     if (!bundle) { res.writeHead(404); return res.end("Not found"); }
+    if (isBundleExpired(bundle)) { res.writeHead(410); return res.end("Bundle expired"); }
     if (isBundleLocked(bundle, req.session)) {
       res.writeHead(401); return res.end("Access restricted");
     }
-    // The folder prefix is everything after /folder/
-    var prefix = req.params[0];
+    // The folder prefix is a single percent-encoded path segment — the UI builds
+    // it with encodeURIComponent, so nested slashes arrive as %2F. The vendored
+    // segment router has no splat/catch-all, so the prefix is a named param we
+    // decode here (a literal `/folder/*` never matched a real folder path).
+    var prefix;
+    try { prefix = decodeURIComponent(req.params.prefix || ""); }
+    catch (_e) { res.writeHead(400); return res.end("Invalid folder path"); }
     if (!prefix) { res.writeHead(400); return res.end("Folder path required"); }
     // Normalize: ensure trailing slash for prefix matching
     if (!prefix.endsWith("/")) prefix += "/";

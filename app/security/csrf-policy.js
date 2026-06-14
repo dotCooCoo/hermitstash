@@ -26,6 +26,8 @@
  */
 "use strict";
 var b = require("../../lib/vendor/blamejs");
+var { emitError } = require("../../middleware/respond-error");
+var originPolicy = require("./origin-policy");
 
 var EXEMPT_PREFIXES = [
   "/drop/",           // public uploads (init, file, chunk, finalize)
@@ -103,12 +105,25 @@ function csrfMiddleware(req, res, next) {
 
   if (isExempt(req.pathname)) return next();
 
-  // JSON requests are CSRF-safe via the session-bound api-encrypt key
-  // (cross-site attacker can't produce a valid encrypted envelope).
-  // Skip the framework check rather than expecting an X-CSRF-Token
-  // on every fetch() call.
+  // JSON cookie-session requests: the api-encrypt envelope is the intended
+  // CSRF defense (a cross-site attacker can't produce a valid encrypted body),
+  // but the encrypted body is not enforced — so also reject a cross-site Origin.
+  // A browser sets Origin on every state-changing request and a forger can't
+  // spoof or omit it cross-site; a same-origin request, or a non-browser client
+  // with no Origin (which carries no ambient cookie), passes.
   var contentType = (req.headers && req.headers["content-type"]) || "";
-  if (contentType.includes("application/json")) return next();
+  if (contentType.includes("application/json")) {
+    var origin = (req.headers && req.headers.origin) || "";
+    if (origin && origin !== originPolicy.getOrigin()) {
+      // emitError routes problem+json through the encrypting res.json on an
+      // api-encrypt cookie session — a direct b.problemDetails.send would ship
+      // this 403 in CLEARTEXT on a session the client negotiated as encrypted
+      // (Security Invariant #2). Mirrors require-admin's content-negotiated deny.
+      emitError(req, res, { status: 403, code: "FORBIDDEN", detail: "Cross-origin request rejected." });
+      return;
+    }
+    return next();
+  }
 
   // Multipart uploads use bundle/finalize tokens for auth, not CSRF.
   if (contentType.includes("multipart/")) return next();

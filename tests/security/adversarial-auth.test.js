@@ -427,13 +427,12 @@ describe("adversarial auth and authorization", function () {
       );
       await client.post("/drop/finalize/" + init.json.bundleId, { json: { finalizeToken: init.json.finalizeToken } });
 
-      // Get the file shareId from DB (shareId and bundleShareId are sealed; use hash lookup)
+      // Query by bundleShareId; field-crypto translates it to the keyed blind
+      // index and auto-unseals the returned row, so shareId is already plaintext.
       var projectRoot = testServer.projectRoot;
-      var vault = require(path.join(projectRoot, "lib", "vault"));
-      var { sha3Hash } = require(path.join(projectRoot, "lib", "crypto"));
       var { files } = require(path.join(projectRoot, "lib", "db"));
-      var allFiles = files.find({ bundleShareIdHash: sha3Hash("hs-share:" + init.json.shareId) });
-      victimFileShareId = allFiles.length > 0 ? vault.unseal(allFiles[0].shareId) : null;
+      var allFiles = files.find({ bundleShareId: init.json.shareId });
+      victimFileShareId = allFiles.length > 0 ? allFiles[0].shareId : null;
 
       client.clearCookies();
       await client.initApiKey();

@@ -63,7 +63,7 @@ function clearCache() {
 var allRoutes = [
   "auth", "dashboard", "files", "drop", "bundles", "admin", "users",
   "profile", "audit", "apikeys", "webhooks", "verification", "passkey",
-  "two-factor", "teams", "vault", "password-reset",
+  "two-factor", "teams", "vault", "password-reset", "stash",
 ];
 
 function resetAllRateLimits() {

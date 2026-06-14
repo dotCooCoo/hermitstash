@@ -39,7 +39,7 @@ fi
 
 # Service list — each gets a leaf cert covering the docker-network
 # hostname, the host-bind 127.0.0.1 / [::1], and localhost.
-SERVICES="redis postgres mysql mongo minio rabbitmq nats syslog mailpit haproxy caddy nginx mitmproxy squid coredns"
+SERVICES="redis postgres mysql mongo minio rabbitmq nats syslog mailpit haproxy caddy nginx mitmproxy squid coredns azurite gcs otel localstack"
 
 for SVC in $SERVICES; do
   if [ -f "$CERT_DIR/$SVC.crt" ]; then

@@ -1,0 +1,58 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.15.9",
+  "date": "2026-06-13",
+  "headline": "Raises the Node floor to 24.16, adds SQLite parse-time resource caps, retries Windows rename locks on every atomic write and download, and ships a one-call secure logout that wipes client-side state",
+  "summary": "This release moves the engines floor to the current Node 24 LTS patch level and adds three hardening primitives. node:sqlite handles now construct with SQLITE_LIMIT_* caps: a statement over 1 MiB is rejected at parse time (a DoS floor on the raw-SQL surface, complementary to the existing row-count gate) and ATTACH DATABASE is denied. Every final temp-to-destination rename — the file written by an atomic write, a downloaded file, a sealed vault key, a rotated log, an extracted archive entry — now routes through a single retry that rides out a transient Windows lock (antivirus, the search indexer, or a file-sync client briefly holding the destination), instead of surfacing the lock as a hard failure; the retry, previously hand-rolled and unreachable, is now the reusable b.atomicFile.renameWithRetry. And b.session.logout destroys a session and tells the browser to wipe its client-side state in one call: it emits an RFC 9527 Clear-Site-Data header and expires the session cookie before destroying the row, the secure-default logout that previously had to be assembled by hand.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Node engines floor raised to >=24.16.0",
+          "body": "The minimum supported Node is now 24.16.0 (the current Node 24 LTS patch level), up from 24.14.1. This is an LTS-currency bump — there are no Node CVE fixes between 24.14.1 and 24.16.0 (24.14.1 already carried the CVE-2026-21713 HMAC fix); it keeps the framework on the latest patched LTS and makes the node:sqlite resource-cap hardening below available everywhere. Pre-1.0, operators upgrade across the floor; Node 26 continues to satisfy it."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "SQLite parse-time statement-size cap",
+          "body": "Every node:sqlite database the framework opens — the main db handle and the CLI's handle — now constructs with a SQLITE_LIMIT_LENGTH cap: a SQL statement over 1 MiB is rejected at parse time. Because the query builder parameterizes every value, the size cap guards the raw-SQL surface (`b.db.runSql`) against an attacker-influenced megaquery the parser would otherwise process (SQLite's default is 1 GB); it is a parse-time DoS floor complementary to the existing row-count gate. Legitimate framework and operator statements are far under the cap."
+        },
+        {
+          "title": "Windows rename-lock retry on every atomic rename and download",
+          "body": "On Windows a freshly-written file's destination is briefly held by antivirus, the search indexer, or a file-sync client (Dropbox, OneDrive), surfacing as a transient EPERM / EACCES / EBUSY on rename even though the temp file is fine. `b.atomicFile.writeSync` already retried this, but `b.httpClient.downloadStream` did not — a download into a cloud-synced or AV-scanned directory could fail hard on the lock. The retry is now the reusable `b.atomicFile.renameWithRetry`, and every final temp-to-destination rename in the framework routes through it: downloads, sealed vault keys, CA key/cert writes, log rotation, archive extraction, config-drift sidecars, the self-update binary swap, and restore/rollback moves. A non-transient error still throws immediately; POSIX renames are unaffected."
+        }
+      ]
+    },
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "b.session.logout — one-call secure logout",
+          "body": "`b.session.logout(res, token, opts?)` destroys the server-side session AND tells the browser to wipe its client-side state in one call: it emits an RFC 9527 Clear-Site-Data response header (cookies + storage + cache + execution contexts by default) and expires the session cookie, then destroys the session row. `b.session.destroy` alone is a store operation with no response object, so it could not wipe the browser's cached pages, storage, or a stale tab still holding the now-revoked cookie — that wiring previously had to be mounted by hand. Pass `cookieName` to match a non-default cookie and `types` to choose the Clear-Site-Data directives."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "b.watcher canonicalizes its root on Windows",
+          "body": "`b.watcher.create` now resolves its `root` to the real long path before watching. On Windows a root with an 8.3 short-name component (the system temp directory commonly resolves to one) made the native recursive backend deliver long-name event paths that no longer prefix-matched the watched root, which could abort the process under a strict libuv fs-event assertion. The watcher now canonicalizes the root (expanding short names and resolving symlinks), so events match the watched directory on Windows."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "Rename-retry, SQLite-limits, and Clear-Site-Data guards",
+          "body": "Three recurrence detectors ship with the fixes: a bare `nodeFs.renameSync` final rename that doesn't route through `atomicFile.renameWithRetry`; a main `DatabaseSync` handle constructed without the SQLITE_LIMIT_LENGTH `limits`; and a hand-rolled Clear-Site-Data header value that skips the shared RFC 9527 builder."
+        }
+      ]
+    }
+  ]
+}

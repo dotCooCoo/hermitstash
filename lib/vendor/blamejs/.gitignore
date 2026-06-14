@@ -100,3 +100,9 @@ scripts/gen-changelog.js
 # time and bundled into the tarball; never committed. Local `npm sbom`
 # runs would otherwise leave the file lying around.
 sbom.cdx.json
+
+# OTel collector readback (integration-test fixture) — the collector writes
+# received OTLP batches here for the egress-redaction test to read back; the
+# dir is tracked via .gitkeep, the generated output never is.
+docker/otel/export/*.json
+!docker/otel/export/.gitkeep

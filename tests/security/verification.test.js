@@ -48,8 +48,9 @@ describe("email verification flow", function () {
     assert.ok(res.json.pending, "response should indicate pending status");
     assert.ok(res.json.redirect.includes("/auth/pending"), "should redirect to pending page");
 
-    // Verify user is pending in DB
-    var user = users.findOne({ emailHash: hashEmail("verify@test.com") });
+    // Verify user is pending in DB (look up by email — the supported query path
+    // that translates to the keyed blind index; the app-created row is keyed).
+    var user = users.findOne({ email: "verify@test.com" });
     assert.ok(user, "user should exist in DB");
     assert.strictEqual(user.status, "pending", "user status should be pending");
     pendingUserId = user._id;

@@ -120,8 +120,9 @@ describe("field-crypto", function () {
       var doc = { _id: id, email: "Derived@Test.COM" };
       var sealed = fieldCrypto.sealDoc("users", doc, id);
       assert.ok(sealed.emailHash, "emailHash should be computed");
-      var expected = sha3Hash("hs-email:derived@test.com");
-      assert.strictEqual(sealed.emailHash, expected, "emailHash should match SHA3 of lowercased email with prefix");
+      var expected = fieldCrypto.derivedKeyed("hs-email", "derived@test.com", false);
+      assert.strictEqual(sealed.emailHash, expected, "emailHash should be the keyed MAC of the lowercased email");
+      assert.notStrictEqual(sealed.emailHash, sha3Hash("hs-email:derived@test.com"), "emailHash must not be the legacy plaintext-recomputable digest");
     });
 
     it("computes derived shareIdHash for files", function () {
@@ -129,7 +130,7 @@ describe("field-crypto", function () {
       var doc = { _id: id, shareId: "share-abc-123", originalName: "test.pdf" };
       var sealed = fieldCrypto.sealDoc("files", doc, id);
       assert.ok(sealed.shareIdHash, "shareIdHash should be computed");
-      var expected = sha3Hash("hs-share:share-abc-123");
+      var expected = fieldCrypto.derivedKeyed("hs-share", "share-abc-123", false);
       assert.strictEqual(sealed.shareIdHash, expected);
     });
 
@@ -138,7 +139,7 @@ describe("field-crypto", function () {
       var doc = { _id: id, uploaderEmail: "bundle@test.com", shareId: "bun1" };
       var sealed = fieldCrypto.sealDoc("bundles", doc, id);
       assert.ok(sealed.emailHash, "emailHash derived from uploaderEmail");
-      var expected = sha3Hash("hs-email:bundle@test.com");
+      var expected = fieldCrypto.derivedKeyed("hs-email", "bundle@test.com", false);
       assert.strictEqual(sealed.emailHash, expected);
     });
 
@@ -147,7 +148,7 @@ describe("field-crypto", function () {
       var doc = { _id: id, bundleShareId: "bsid-999" };
       var sealed = fieldCrypto.sealDoc("files", doc, id);
       assert.ok(sealed.bundleShareIdHash, "bundleShareIdHash should be computed");
-      var expected = sha3Hash("hs-share:bsid-999");
+      var expected = fieldCrypto.derivedKeyed("hs-share", "bsid-999", false);
       assert.strictEqual(sealed.bundleShareIdHash, expected);
     });
 
@@ -248,8 +249,8 @@ describe("field-crypto", function () {
       var doc = { _id: id, email: sealedEmail };
       var sealed = fieldCrypto.sealDoc("users", doc, id);
       // emailHash should still be computed from the plaintext email
-      var expected = sha3Hash("hs-email:presealed@test.com");
-      assert.strictEqual(sealed.emailHash, expected, "derived hash should unseal source before hashing");
+      var expected = fieldCrypto.derivedKeyed("hs-email", "presealed@test.com", false);
+      assert.strictEqual(sealed.emailHash, expected, "derived hash should unseal source before keyed hashing");
     });
   });
 
@@ -449,15 +450,20 @@ describe("field-crypto", function () {
       var result = fieldCrypto.lookupHash("users", "email", "lookup@test.com");
       assert.ok(result, "should return a lookup object");
       assert.strictEqual(result.key, "emailHash");
-      var expected = sha3Hash("hs-email:lookup@test.com");
+      var expected = fieldCrypto.derivedKeyed("hs-email", "lookup@test.com", false);
       assert.strictEqual(result.value, expected);
+      // dual-read: candidates carry both the active keyed MAC and the legacy digest
+      assert.ok(Array.isArray(result.candidates) && result.candidates.indexOf(expected) !== -1, "candidates include the keyed digest");
+      assert.ok(result.candidates.indexOf(sha3Hash("hs-email:lookup@test.com")) !== -1, "candidates include the legacy digest");
     });
 
     it("returns shareIdHash lookup for files.shareId", function () {
       var result = fieldCrypto.lookupHash("files", "shareId", "share-xyz");
       assert.ok(result);
       assert.strictEqual(result.key, "shareIdHash");
-      assert.strictEqual(result.value, sha3Hash("hs-share:share-xyz"));
+      var expectedKeyed = fieldCrypto.derivedKeyed("hs-share", "share-xyz", false);
+      assert.strictEqual(result.value, expectedKeyed);
+      assert.ok(result.candidates.indexOf(sha3Hash("hs-share:share-xyz")) !== -1, "dual-read candidates include the legacy digest");
     });
 
     it("returns emailHash lookup for files.uploaderEmail", function () {
@@ -484,12 +490,14 @@ describe("field-crypto", function () {
       assert.strictEqual(result.key, "bundleShareIdHash");
     });
 
-    it("returns null for blocked_ips.ip (no derived schema — hash-only table)", function () {
-      // blocked_ips has hash fields but no derived fields, so lookupHash
-      // short-circuits at the !schema.derived check before reaching HASH_FNS.
-      // The ip hashing for blocked_ips is applied via sealDoc, not lookupHash.
+    it("translates blocked_ips.ip to its one-way hash so the blocklist matches", function () {
+      // blocked_ips.ip is a one-way "hash" field: it is hashed on write, so a
+      // findOne({ ip }) must translate the raw IP to the same digest or the
+      // blocklist never matches (it short-circuited before HASH_FNS pre-fix).
       var result = fieldCrypto.lookupHash("blocked_ips", "ip", "192.168.0.1");
-      assert.strictEqual(result, null, "blocked_ips has no derived schema so lookupHash returns null");
+      assert.ok(result, "blocked_ips.ip should translate to its stored hash");
+      assert.strictEqual(result.key, "ip");
+      assert.strictEqual(result.value, b.crypto.namespaceHash("hs-blockedip", "192.168.0.1"));
     });
 
     it("returns null for non-derived field", function () {

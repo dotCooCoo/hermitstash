@@ -55,4 +55,26 @@ function incrementSeq(id) {
   return row ? row.seq : null;
 }
 
-module.exports = { findById, findByShareId, findCompleteByShareId, findAll, findPaginated, count, create, update, remove, incrementSeq };
+/**
+ * Atomically add to receivedFiles / totalSize and return the new values.
+ *
+ * Mirrors incrementSeq and the decrement helpers in stash.repo: parallel
+ * uploads to the same bundle previously each read receivedFiles/totalSize from
+ * a pre-save snapshot and wrote `value + delta`, so concurrent writers lost
+ * increments — undercounting the file count, the displayed size, and the
+ * storage-quota math derived from totalSize. receivedFiles/totalSize are raw
+ * INTEGER counters (not sealed), so the read-modify-write is one
+ * `UPDATE ... RETURNING`. totalSize is clamped at 0 so a negative delta (a sync
+ * replace shrinking a file) can't drive it below zero.
+ */
+function incrementCounters(id, fileDelta, sizeDelta) {
+  var row = db.rawGet(
+    "UPDATE bundles SET receivedFiles = MAX(0, COALESCE(receivedFiles, 0) + ?), " +
+    "totalSize = MAX(0, COALESCE(totalSize, 0) + ?) WHERE _id = ? " +
+    "RETURNING receivedFiles, totalSize",
+    fileDelta, sizeDelta, id
+  );
+  return row ? { receivedFiles: row.receivedFiles, totalSize: row.totalSize } : null;
+}
+
+module.exports = { findById, findByShareId, findCompleteByShareId, findAll, findPaginated, count, create, update, remove, incrementSeq, incrementCounters };

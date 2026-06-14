@@ -42,23 +42,25 @@ jobs:
     runs-on: ${{ matrix.os }}
     # Backstop against a hung child no watchdog reaped (and against the
     # watchdog logic itself regressing): without this a stuck job rides
-    # GitHub's 6-hour default. The full suite finishes in well under
-    # 20 min even on the slow macOS runners; 30 leaves headroom.
-    timeout-minutes: 30
+    # GitHub's 6-hour default. The per-file watchdog allows the heavy
+    # pattern-catalog file up to 10 minutes on a contended runner, so
+    # the job budget is sized to the suite (~20-30 min on the slow
+    # runners) plus that allowance.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           persist-credentials: false
 
-      - name: Set up Node 24.14.1 LTS
+      - name: Set up Node 24.16.0 LTS
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
         with:
-          node-version: '24.14.1'
+          node-version: '24.16.0'
 
       - name: Show Node + npm version
         run: node --version && npm --version
@@ -80,7 +82,7 @@ jobs:
         # runtime deps (everything vendored under lib/vendor/) and each
         # transpilation step is a supply-chain hop. The explicit
         # name@version specifiers are the source-of-truth pin.
-        run: npm install --no-audit --no-fund --no-save esbuild@0.28.0 postject@1.0.0-alpha.6
+        run: npm install --no-audit --no-fund --no-save esbuild@0.28.1 postject@1.0.0-alpha.6
 
       - name: Run framework smoke
         # NODE_OPTIONS heap bump — codebase-patterns duplicate-block
@@ -95,6 +97,35 @@ jobs:
         # accumulator design.
         env:
           NODE_OPTIONS: --max-old-space-size=6144
+          # Run layer-0 forked rather than as one long-lived in-process
+          # run. A forked file that hangs (e.g. a vault first-run keypair
+          # generation stalled on a starved runner) is SIGKILLed by the
+          # parent at SMOKE_FILE_TIMEOUT_MS and reported BY NAME, instead
+          # of freezing the single in-process run until the 40-minute job
+          # timeout — an unref'd in-process watchdog cannot fire while the
+          # event loop is blocked by a synchronous native call. Forking
+          # also hands each file a fresh process, so per-file memory does
+          # not accumulate toward the heap ceiling. 4 keeps the 3-core
+          # macOS runner from thrashing the pattern-catalog's own worker
+          # pool; the publish gate uses 8 on its ubuntu-only runner.
+          SMOKE_PARALLEL: "4"
+          # Defensive libuv threadpool headroom: under parallel smoke
+          # several async Argon2id key-stretch calls can queue onto the
+          # pool (default 4) at once; a larger pool avoids contention
+          # when they overlap. This knob does NOT govern vault first-run
+          # keypair generation — that is a synchronous main-thread call;
+          # an occasional ubuntu runner stalls there on low entropy and
+          # is cleared by re-running the job, not by sizing the pool.
+          UV_THREADPOOL_SIZE: "16"
+          # Per-file watchdog budget. codebase-patterns scans the whole
+          # lib/ corpus across eight shingle sizes; on the 3-core
+          # macos-latest runner that legitimately takes 13-18 min (vs
+          # ~2.5 min on ubuntu), so the budget must clear the macOS
+          # worst case with headroom while still failing a genuinely
+          # stuck file. 25 min sits above the observed macOS high-water
+          # and below the 40-min job ceiling. (600s guillotined a
+          # slow-but-passing macOS run.)
+          SMOKE_FILE_TIMEOUT_MS: "1500000"
         run: node test/smoke.js
 
   wiki-e2e:
@@ -107,14 +138,14 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           persist-credentials: false
 
-      - name: Set up Node 24.14.1 LTS
+      - name: Set up Node 24.16.0 LTS
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
         with:
-          node-version: '24.14.1'
+          node-version: '24.16.0'
 
       - name: Resolve wiki framework dep (file:../..)
         working-directory: examples/wiki
@@ -129,14 +160,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           persist-credentials: false
 
-      - name: Set up Node 24.14.1 LTS
+      - name: Set up Node 24.16.0 LTS
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
         with:
-          node-version: '24.14.1'
+          node-version: '24.16.0'
 
       - name: Compare against committed baseline
         # Fails on breaking changes (removed methods, type changes).
@@ -154,13 +185,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           persist-credentials: false
       - name: Set up Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
         with:
-          node-version: 24.14.1
+          node-version: 24.16.0
       - name: Run vendor-currency check
         # Hits registry.npmjs.org/<pkg>/latest for each npm-mapped entry
         # (vendored bundles plus per-component versions on meta-bundles
@@ -179,13 +210,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           persist-credentials: false
       - name: Set up Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
         with:
-          node-version: 24.14.1
+          node-version: 24.16.0
       - name: Run actions-currency check
         # Resolves each pinned `uses: owner/repo@<sha>  # vX.Y.Z` against
         # the GitHub API (releases/latest, falling back to highest
@@ -201,7 +232,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           persist-credentials: false
           # gitleaks scans full history on a non-shallow checkout, so an
@@ -260,14 +291,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           persist-credentials: false
 
-      - name: Set up Node 24.14.1 LTS
+      - name: Set up Node 24.16.0 LTS
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
         with:
-          node-version: '24.14.1'
+          node-version: '24.16.0'
 
       - name: Install wiki deps (links @blamejs/core for the opts probe)
         # opts-resolver.js requires @blamejs/core at top-of-file; the
@@ -291,14 +322,14 @@ jobs:
       output:  ${{ steps.eslint.outputs.output }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           persist-credentials: false
 
-      - name: Set up Node 24.14.1 LTS
+      - name: Set up Node 24.16.0 LTS
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
         with:
-          node-version: '24.14.1'
+          node-version: '24.16.0'
 
       - name: Run ESLint (max-warnings 0)
         # Capture full output so the PR comment / step summary can show
@@ -333,7 +364,7 @@ jobs:
       output:  ${{ steps.hadolint_result.outputs.output }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           persist-credentials: false
 
@@ -377,7 +408,7 @@ jobs:
       output:  ${{ steps.shellcheck.outputs.output }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           persist-credentials: false
 

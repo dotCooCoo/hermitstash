@@ -210,16 +210,16 @@ Code: `lib/field-crypto.js` (255 lines), `FIELD_SCHEMA` constant.
 
 Each table's fields are classified as:
 - **seal** — encrypted per-field via `vault.seal()`. Values stored as `vault:<base64>`
-- **hash** — one-way SHA3 hashed for indexed lookups (emails, IP addresses)
+- **hash** — keyed blind index for indexed lookups (emails, IP addresses): a keyed MAC (HMAC-SHAKE256) of the namespaced value under a per-deployment secret, not a bare hash
 - **argon2** — password hash, handled externally (not auto-processed by this layer)
 - **raw** — plaintext (IDs, counters, status enums, FK references, timestamps)
 
-Derived fields (e.g. `emailHash` from `email`) are auto-computed from a source field.
+Derived fields (e.g. `emailHash` from `email`) are auto-computed from a source field as a keyed MAC of `<prefix>:<value>` under a per-deployment secret (`vault.derived-hash-mac.sealed`, re-sealed — not regenerated — on vault-key rotation, so the index survives a rotation).
 
-The middleware also rewrites queries: `{ email: "x@y.com" }` becomes `{ emailHash: sha3("hs-email:x@y.com") }` transparently so callers use plaintext lookups.
+The middleware also rewrites queries transparently: `{ email: "x@y.com" }` becomes a match on the keyed `emailHash`, so callers still use plaintext lookups. During the rollover from the previous unkeyed digest, a query matches both the keyed index and the legacy digest; a one-time pass on first boot rewrites existing rows to the keyed form.
 
 **Security notes:**
-- Hash prefixes (`hs-email`, `hs-ip`, `hs-share`, `hs-certfp`, `hs-slug`, `hs-access-code`, `hs-enroll`, `hs-blockedip` — full list in `lib/constants.js:49-58`) are static strings. The `:` separator in the wire format (`hs-email:<value>`) is appended internally by `b.crypto.namespaceHash(prefix, value)`; it is not part of the stored constant. An attacker with vault-decrypted audit log entries can still cross-reference by hash — this is intentional for functionality (indexed lookup) but means the hashes are **not** an anonymization primitive, only a key-separation primitive. See N7
+- Hash prefixes (`hs-email`, `hs-ip`, `hs-share`, `hs-certfp`, `hs-slug`, `hs-access-code`, `hs-enroll`, `hs-blockedip` — full list in `lib/constants.js`) namespace the input before the MAC, so the same value in two columns produces different indexes. Because the MAC key lives only in the deployment's sealed keystore, an attacker holding only the database cannot recompute an index from a guessed plaintext (no confirmation oracle) and cannot correlate indexes across deployments. The index is still deterministic within one database — equal values produce equal indexes, which is what makes the lookup work — so it remains an *identifier*, not an anonymizer. See N7
 - Every envelope blob for field encryption has a fresh 24-byte nonce. No nonce reuse across fields
 
 ### 5.4 File encryption at rest
@@ -443,7 +443,7 @@ Code: `lib/mtls-ca.js` (53-line process-wide singleton over `b.mtlsCa.create`); 
 
 | Component | Algorithm | Rationale |
 |-----------|-----------|-----------|
-| CA signature | ECDSA P-384 with SHA-384 | Best available today on all browsers/OS cert stores. SLH-DSA-SHAKE-256f and ML-DSA-87 are supported in Node 24.14.1+ but no browser verifies PQ signatures on client certs; issuing PQ-signed certs today would break every mTLS handshake |
+| CA signature | ECDSA P-384 with SHA-384 | Best available today on all browsers/OS cert stores. SLH-DSA-SHAKE-256f and ML-DSA-87 are supported in Node 24.16.0+ but no browser verifies PQ signatures on client certs; issuing PQ-signed certs today would break every mTLS handshake |
 | Client cert signature | Same as CA | Chain consistency |
 | PKCS#12 key bag | PBES2 + AES-256-CBC + PBKDF2-HMAC-SHA-512 | SHA-512 PRF for consistency with MAC. AES-CBC chosen over AES-GCM because Windows / macOS importers still reject PBES2-AES-GCM key bags on some OS versions (confirmed 2026-04) |
 | PKCS#12 outer MAC | HMAC-SHA-512 | Matches key bag KDF |
@@ -679,8 +679,8 @@ The active 0xE2 envelope binds the 4-byte header (magic | KEM | cipher | KDF) as
 ### L5 — Hybrid KDF domain separation in §5.1 (RESOLVED on the active 0xE2 envelope)
 The active 0xE2 storage envelope appends a suite-binding `FixedInfo` to the KDF input: `SHAKE256(ml_kem_ss || ecdh_ss || suiteFixedInfo)`, where `suiteFixedInfo = "blamejs/v1" || 0x00 || kemId || cipherId || kdfId || 0x00` (NIST SP 800-56C r2 §4.1 OtherInfo / RFC 9180 §5.1 suite_id binding; `lib/vendor/blamejs/lib/crypto.js:691-696`, `:1105-1107`). The legacy 0xE1 path concatenated `ml_kem_ss || ecdh_ss` with no domain separator and is decrypt-only during the migration window.
 
-### L6 — Hash prefixes are not per-record salts
-Email / IP / share-ID hashes use static prefixes (`hs-email:`, `hs-ip:`, etc). This is intentional (indexed lookup requires determinism) but means they are *identifiers*, not anonymizers. See N7.
+### L6 — Blind indexes are deterministic identifiers, not anonymizers
+Email / IP / share-ID indexes use static prefixes (`hs-email:`, `hs-ip:`, etc) plus a per-deployment keyed MAC. The key closes the recompute oracle — an attacker holding only the database can't derive an index from a guessed plaintext — but indexed lookup still requires determinism, so equal values yield equal indexes within one database. They remain *identifiers*, not anonymizers. See N7.
 
 ### L7 — `random()` above 64 bytes degrades (FIXED in v1.9.11)
 Resolved by switching the post-hash from SHA3-512 to SHAKE256 (variable-length XOF). See §8 for the current implementation. Retained as a numbered limitation only so the L-series numbering remains stable for cross-references in older release notes; new readers can skip to L8.
@@ -724,7 +724,7 @@ This is unavoidable for any at-rest encryption scheme on a service that boots wi
 
 These are properties HermitStash assumes but does not verify:
 
-- **Node.js 24.14.1+ OpenSSL 3.5+** correctly implements ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87, ECDH P-384, SHAKE256, and HKDF-SHA3-512. Tested through the Node / OpenSSL test suites; HermitStash adds no independent validation
+- **Node.js 24.16.0+ OpenSSL 3.5+** correctly implements ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87, ECDH P-384, SHAKE256, and HKDF-SHA3-512. Tested through the Node / OpenSSL test suites; HermitStash adds no independent validation
 - **@noble libraries** correctly implement XChaCha20-Poly1305 (server + browser), SHAKE256 (browser), and ML-KEM-1024 (browser). noble-post-quantum was audited by Cure53 in 2024; noble-ciphers and noble-hashes are heavily used across the ecosystem
 - **Node 24+ built-in `crypto.argon2`** correctly implements Argon2id per RFC 9106 with our chosen parameters (64 MiB memory, 3 time, 4 parallelism)
 - **Host filesystem permissions are enforced**. `data/vault.key` is created with mode 0o600 and relies on the OS to honor it
@@ -754,7 +754,7 @@ If you are a cryptographer willing to spend an hour on this, these are the quest
 
 8. **Randomness wrapper (§8):** Cargo cult or defense-in-depth? Happy to remove the SHA3 wrapper if the consensus is it adds no value.
 
-9. **Hash prefix strategy (§5.3, L6):** `hs-email:` / `hs-ip:` / `hs-share-id:` as static prefixes. Are there better patterns for indexed-but-encrypted-at-rest lookups that don't require per-record salts (which would break indexed lookup entirely)?
+9. **Blind-index strategy (§5.3, L6):** static prefixes plus a per-deployment keyed MAC (HMAC-SHAKE256) give deterministic indexed lookup while closing the plaintext-recompute oracle, without per-record salts (which would break indexed lookup entirely). Is keying off a single per-deployment secret the right granularity, or is there value in per-column keys?
 
 10. **PKCS#12 parameters (§5.8):** AES-256-CBC + HMAC-SHA-512 + PBKDF2 + 2M iterations. Is the ongoing AES-CBC choice (driven by OS importer compatibility) a reasonable tradeoff, or should we force AES-GCM and accept the importer breakage?
 

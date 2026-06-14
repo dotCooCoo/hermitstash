@@ -55,13 +55,13 @@ describe("drop integration", function () {
     assert.strictEqual(res.json.success, true);
     assert.strictEqual(res.json.received, 1);
 
-    // Verify file metadata is sealed in DB (use .raw() to bypass auto-unseal)
-    var vault = require(path.join(testServer.projectRoot, "lib", "vault"));
-    var { sha3Hash } = require(path.join(testServer.projectRoot, "lib", "crypto"));
+    // Verify file metadata is sealed in DB. Resolve the row by bundleShareId
+    // (field-crypto translates that to the keyed blind index), then read it raw
+    // to bypass auto-unseal for the sealing assertions.
     var { files } = require(path.join(testServer.projectRoot, "lib", "db"));
-    var allFiles = files.raw().find({ bundleShareIdHash: sha3Hash("hs-share:" + bundleShareId) });
-    assert.ok(allFiles.length >= 1);
-    var f = allFiles[0];
+    var unsealed = files.find({ bundleShareId: bundleShareId });
+    assert.ok(unsealed.length >= 1);
+    var f = files.raw().findOne({ _id: unsealed[0]._id });
     assert.ok(isSealed(f.originalName), "originalName should be sealed");
     assert.ok(isSealed(f.relativePath), "relativePath should be sealed");
     assert.ok(isSealed(f.storagePath), "storagePath should be sealed");

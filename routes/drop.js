@@ -81,6 +81,14 @@ module.exports = function (app) {
       if (bundle.stashId && !(req.apiKey && req.apiKey.boundStashId === bundle.stashId)) {
         throw new ForbiddenError("This bundle must be uploaded via its stash endpoint.");
       }
+      // Owner-bound (non-stash) bundles — e.g. a user's sync bundle — must only
+      // accept writes from the owner or an API key bound to that user. The
+      // existence gate above lets a complete sync bundle through; without this an
+      // attacker who learns the bundleId could overwrite another user's files
+      // (matched by relativePath) and propagate the content to their sync clients.
+      if (bundle.ownerId && (!req.user || bundle.ownerId !== req.user._id) && !(req.apiKey && req.apiKey.userId === bundle.ownerId)) {
+        throw new ForbiddenError("Forbidden.");
+      }
       var limits = resolveUploadConfig(null);
       var { fields, files: uploaded } = await parseMultipart(req, limits.maxFileSize);
       var file = uploaded[0];
@@ -109,6 +117,14 @@ module.exports = function (app) {
       if (!bundle || (bundle.status === "complete" && bundle.bundleType !== "sync")) throw new NotFoundError("Bundle not found.");
       if (bundle.stashId && !(req.apiKey && req.apiKey.boundStashId === bundle.stashId)) {
         throw new ForbiddenError("This bundle must be uploaded via its stash endpoint.");
+      }
+      // Owner-bound (non-stash) bundles — e.g. a user's sync bundle — must only
+      // accept writes from the owner or an API key bound to that user. The
+      // existence gate above lets a complete sync bundle through; without this an
+      // attacker who learns the bundleId could overwrite another user's files
+      // (matched by relativePath) and propagate the content to their sync clients.
+      if (bundle.ownerId && (!req.user || bundle.ownerId !== req.user._id) && !(req.apiKey && req.apiKey.userId === bundle.ownerId)) {
+        throw new ForbiddenError("Forbidden.");
       }
       var limits = resolveUploadConfig(null);
       var { fields, files: uploaded } = await parseMultipart(req, limits.maxFileSize);

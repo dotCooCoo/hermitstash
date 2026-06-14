@@ -1,0 +1,1038 @@
+{
+  "minor": "1.11",
+  "releases": [
+    {
+      "version": "1.11.42",
+      "date": "2026-06-02",
+      "headline": "Retire the duplicate packed-envelope helpers from lib/crypto",
+      "summary": "Removes the unused local packed-buffer encrypt/decrypt helpers in favor of the framework's, leaving one implementation of the on-disk envelope.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Use the framework packed-envelope helpers everywhere",
+              "body": "lib/crypto carried its own encryptPacked/decryptPacked that no production code used — every storage and database path already goes through the framework's byte-identical implementation. The local pair is removed, the vault-key verifier now decrypts through the framework helper, and the regression tests exercise the framework path. No on-disk format change."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.41",
+      "date": "2026-06-02",
+      "headline": "Verify vault passkey unlock through the framework passkey surface",
+      "summary": "Vault unlock now verifies the passkey assertion through the framework's passkey API rather than a direct WebAuthn-library import, with user verification required explicitly.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Route vault passkey unlock through b.auth.passkey",
+              "body": "The passkey-gated vault unlock verified the assertion with a direct WebAuthn-library call; it now uses the framework's b.auth.passkey verification API — the same path the passkey login flow uses — and requires user verification explicitly. The verification semantics are unchanged (user verification was already the library default for this call)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.40",
+      "date": "2026-06-02",
+      "headline": "Decrement customer-stash counters atomically",
+      "summary": "Customer-stash bundle-count and byte-total decrements now run as a single atomic database update, so concurrent bundle deletions on the same stash can no longer lose a decrement.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Decrement stash bundle counters in a single atomic update",
+              "body": "Deleting a bundle decremented the owning stash's bundle count and byte total with a read-modify-write that could lose an update when two deletions on the same stash overlapped. Both decrements now run as one atomic UPDATE with a zero floor, keeping the displayed totals accurate under concurrency."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.39",
+      "date": "2026-06-02",
+      "headline": "Return the verification-flow errors as problem-details with extension members",
+      "summary": "The last inline error responses that carry a client-read signal field — email-gate unlock, pending-account login, and passkey-removal confirmation — now use the RFC 9457 problem-details shape, with the signal field preserved as a top-level extension member.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Emit problem-details for the email-gate, pending-login, and passkey-confirmation responses",
+              "body": "The email-verification-required response on stash and bundle unlock, the pending-account 403 on login and passkey login, and the vault-passkey-removal confirmation prompt now return application/problem+json with { type, title, status, detail } instead of the legacy { error } body. The fields the client reads to drive those flows — requiresEmail, pending, requiresConfirmation, email — are preserved as top-level problem extension members. AppError gained a withExtras() helper to attach them, and the error handler merges them into the problem document. This completes the problem-details migration for the API's error surface."
+            },
+            {
+              "title": "Update the vendored blamejs framework to v0.14.19",
+              "body": "Refreshes the bundled server framework and its SBOM-tracked nested dependencies to the current upstream release."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.38",
+      "date": "2026-06-02",
+      "headline": "Return problem-details on authentication-required 401 responses",
+      "summary": "The 401 emitted to JSON and API callers on cookie-protected routes now uses the RFC 9457 problem-details shape, matching the rest of the API.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Emit RFC 9457 problem-details for authentication-required 401s",
+              "body": "When a request to a protected route lacks an authenticated session, JSON and API callers now receive a 401 application/problem+json body with { type, title, status, detail } instead of the legacy { error } shape. The browser redirect to the login page and the Cache-Control: no-store directive are unchanged. Clients should read .detail (with .error as a fallback for older servers)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.37",
+      "date": "2026-06-02",
+      "headline": "Look up bundle access codes by indexed email hash",
+      "summary": "Email-gated bundle access-code operations now query on the indexed email-hash column instead of fetching by share id and filtering in memory.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Query bundle access codes by indexed email hash",
+              "body": "The pending-code lookup, recent-code rate count, and pending-code invalidation for email-gated bundles now push the email-hash match into the indexed database query rather than scanning by share id and filtering in memory. Behavior is unchanged; the lookups use the existing email-hash index."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.36",
+      "date": "2026-06-02",
+      "headline": "Throttle API-key last-used writes to cut per-request database churn",
+      "summary": "API-key last-used timestamps are now recorded only on successful authentication and at most once every five minutes, so a busy sync client no longer drives a database write on every request.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Throttle and gate API-key last-used updates",
+              "body": "The last-used timestamp on an API key is now written only when authentication succeeds — a suspended or deleted user's key no longer bumps it — and at most once per five minutes. This removes a database write on every authenticated request from a frequently-polling sync client."
+            },
+            {
+              "title": "Remove internal-process references from shipped source comments",
+              "body": "Stripped roadmap and phase references and a dated discovery note from source-file comments that ship in the package, and added a lint check so they cannot reappear."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.35",
+      "date": "2026-06-02",
+      "headline": "Surface database-encryption failures instead of swallowing them",
+      "summary": "The periodic and exit-time encryption of the on-disk database now logs on failure, so a stale-encrypted-database condition is visible in the logs rather than silently dropped. The vendored server framework is refreshed to its current release.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Update the vendored blamejs framework to v0.14.18",
+              "body": "Refreshes the bundled server framework — crypto envelopes, session storage, mTLS CA management, body parsers, the WebSocket layer, and the SBOM-tracked nested dependencies — to the current upstream release."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Log periodic and exit-time database-encryption failures",
+              "body": "The five-minute refresh and the shutdown flush that re-encrypt the database to disk previously swallowed any error. A failure now logs a clear message so operators can see when the encrypted database may be stale, rather than discovering it only on restore."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.34",
+      "date": "2026-06-02",
+      "headline": "Close a cleartext-error leak on encrypted API sessions",
+      "summary": "An API-key scope denial could ship a cleartext error body on a session the client negotiated as encrypted; it now flows through the encrypting error handler. Also fixes audit-log pagination, certificate auto-renewal, stale-bundle cleanup, and HTML escaping in account emails.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Encrypt scope-denial responses on encrypted sessions",
+              "body": "When an API key lacked the required scope, requireScope emitted the 403 problem-details body directly, bypassing the per-session payload encryption on routes such as /drop/init and /drop/finalize. It now throws at the boundary so the centralized handler returns the 403 through the encrypting response path, matching the rest of the API."
+            },
+            {
+              "title": "Escape user-controlled names in account emails",
+              "body": "Verification and invite emails now HTML-escape the recipient display name and inviter name (and the site name) before interpolating them into the message body, matching the password-reset email."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Audit log returned no entries past page 1 without a filter",
+              "body": "When no search, action, or date filter was applied, page 2 and beyond of the admin audit log returned an empty list and an incorrect total, because the SQL-paginated page was re-sliced with an absolute offset. Pagination now uses the SQL page with the real COUNT(*) total, and date-range filters correctly page across the full filtered set."
+            },
+            {
+              "title": "Certificate auto-renewal stored a non-canonical fingerprint",
+              "body": "The scheduled certificate renewal hashed the raw PEM instead of the canonical fingerprint, so the next sync request from a renewed client failed certificate binding with a 403. Renewal now stores the canonical fingerprint, matching the issuance path."
+            },
+            {
+              "title": "Stale-bundle cleanup left orphaned files and chunk directories",
+              "body": "The hourly cleanup of bundles stuck in the uploading state for over 24 hours deleted only the bundle record, leaving its stored files and chunk directory on disk. It now removes the associated files and chunk directory as well."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.32",
+      "date": "2026-06-02",
+      "headline": "Reject control bytes in email-address validation",
+      "summary": "Email validation now refuses addresses containing C0 or DEL control characters, which the format check previously accepted.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Refuse control bytes in email addresses",
+              "body": "validateEmail now rejects any address containing a control character (bytes 0x00–0x1F or 0x7F) before normalizing surrounding whitespace, instead of letting the format regex accept them. Registration, login, password reset, profile email changes, invites, and the stash and bundle email gates all validate through this path."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.31",
+      "date": "2026-06-02",
+      "headline": "Bounded JSON and safe URL parsing on the sync WebSocket channel",
+      "summary": "The sync WebSocket channel now decodes incoming frames with a size- and depth-limited JSON parser and parses the upgrade request-target through the hardened URL parser. Error responses on the remaining stash and bundle service paths move to the RFC 9457 problem-details shape.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Decode sync WebSocket frames with bounded JSON",
+              "body": "Messages on the /sync/ws channel are now parsed with a size- and nesting-limited JSON decoder, so an oversized or deeply nested frame is rejected with an error reply rather than parsed unbounded. The existing per-message size limit is unchanged; this adds an independent depth bound."
+            },
+            {
+              "title": "Parse the WebSocket upgrade target with the hardened URL parser",
+              "body": "The /sync/ws upgrade request-target is now parsed through b.safeUrl, which applies a length cap and a protocol allowlist, replacing the deprecated legacy URL parser. A malformed or over-long upgrade target is dropped at the handshake."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Return RFC 9457 problem-details on the remaining stash and bundle error paths",
+              "body": "The access-code verification, stash finalize, and sync file rename/delete responses now return application/problem+json with { type, title, status, detail } instead of the legacy { error } body, matching the rest of the API. The HTTP status is unchanged; read .detail with .error as a fallback for older servers."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.30",
+      "date": "2026-06-01",
+      "headline": "Problem-details error shape on the stash, bundle, and upload routes",
+      "summary": "Error responses on the stash, bundle, file, and public-upload routes now use the RFC 9457 problem-details shape, matching the rest of the API, instead of the legacy single-field error body.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Return RFC 9457 problem-details on the stash, bundle, file, and upload routes",
+              "body": "Error responses on these routes now return application/problem+json with { type, title, status, detail } — the human-readable message in detail — instead of the legacy { error: \"...\" } body. The HTTP status is unchanged. Clients should read .detail (with .error as a fallback for older servers), as documented since v1.10.1. A few responses keep their existing shape on purpose: those that carry an extra field a caller depends on (such as the email-gate hint) and those whose status is computed at runtime."
+            },
+            {
+              "title": "Suppress internal failure text on these routes' 5xx responses",
+              "body": "A 500 from these routes no longer echoes an internal message in the response body, matching the rest of the API where 5xx detail is withheld from clients. The failure is still logged server-side."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.29",
+      "date": "2026-06-01",
+      "headline": "Encrypt the remaining error responses on encrypted sessions",
+      "summary": "Error responses that previously bypassed the session encryption envelope are now delivered encrypted on a session the client negotiated as encrypted: sync-route authorization denials, the forced TOTP re-enrollment gate, and the payload-encryption layer's own oversize and decrypt-failure rejections.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Encrypt sync-route authorization denials",
+              "body": "A scope, bundle-ownership, bundle-binding, or client-certificate denial on POST /sync/rename now returns its problem document inside the session encryption envelope. These middleware denials previously wrote the problem document directly, shipping it in cleartext on a session the client had negotiated as encrypted; they now throw at the boundary so the central error handler routes them through the encrypting response path."
+            },
+            {
+              "title": "Encrypt the re-enrollment gate and payload-rejection responses",
+              "body": "The forced TOTP re-enrollment gate (for XHR/JSON callers) and the payload-encryption layer's own oversize (413) and decrypt-failure (400) rejections now ship inside the encryption envelope on an encrypted session instead of in cleartext. The re-enrollment response keeps its redirect field so the browser still routes the user to the re-enrollment page."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.28",
+      "date": "2026-06-01",
+      "headline": "Encrypted error responses on the per-session API routes",
+      "summary": "Error responses on the per-session encrypted routes are now delivered inside the same encryption envelope as successful responses, so a failure detail can no longer appear in cleartext on a session the client negotiated as encrypted.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Update the vendored framework to blamejs 0.14.17",
+              "body": "Refreshes the vendored blamejs framework to 0.14.17, whose encrypted HTTP client adds a responseMode: \"passthrough\" option so a client can resolve and decrypt a non-2xx response body instead of rejecting it as raw ciphertext."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Encrypt error responses on the per-session encrypted routes",
+              "body": "The blamejs-encrypted routes — POST /drop/init, POST /drop/finalize/:bundleId, and POST /sync/rename — now return error responses inside the session encryption envelope, matching successful responses. Previously a thrown error on these routes shipped as cleartext application/problem+json even though the client had negotiated the session as encrypted. The 5xx detail remains suppressed inside the envelope."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Read encrypted error bodies on the per-session routes",
+              "body": "A client that reads errors from /drop/init, /drop/finalize/:bundleId, or /sync/rename with the framework's encrypted HTTP client must now resolve non-2xx responses (responseMode: \"passthrough\") and decrypt the body to read .detail; these routes no longer return cleartext application/problem+json on an encrypted session."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 9457 — Problem Details for HTTP APIs",
+          "url": "https://www.rfc-editor.org/rfc/rfc9457"
+        }
+      ]
+    },
+    {
+      "version": "1.11.27",
+      "date": "2026-05-31",
+      "headline": "Problem-details errors on the upload, file, and scope-check endpoints",
+      "summary": "The public-upload, file rename/delete (browser and sync), and API-key scope-check endpoints now return RFC 9457 problem-details on failure, extending the format to the upload surface.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Return problem-details from the upload, file, and scope-check endpoints",
+              "body": "Public file/chunk upload, file rename and delete (browser and the sync client's download/delete), and the API-key scope check now emit RFC 9457 problem-details ({ type, title, status, detail }) on failure, joining the account and admin endpoints migrated earlier. Service-supplied status codes are preserved (a 403 stays a 403, not flattened to 400). Read .detail for the message; clients reading the legacy .error continue to work where it is still emitted."
+            },
+            {
+              "title": "Update the vendored framework to blamejs 0.14.14",
+              "body": "Refreshes the vendored blamejs framework from 0.14.13 to 0.14.14."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.26",
+      "date": "2026-05-31",
+      "headline": "Vault-key rotation re-seals row-bound values; actionable restore errors",
+      "summary": "Vault-key rotation again works on deployments that hold row-bound sealed values, and a failed restore now returns an actionable status code instead of a generic 500.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Re-seal row-bound values during vault-key rotation",
+              "body": "Vault-key rotation now re-seals the AEAD row-bound sealed values under the new key and verifies that the old key can no longer open them. The earlier safeguard that refused to rotate while such values were present — added when row-bound sealing shipped — is removed, so rotation works again on any deployment."
+            },
+            {
+              "title": "Update the vendored framework to blamejs 0.14.13",
+              "body": "Refreshes the vendored blamejs framework from 0.14.11 to 0.14.13, which adds the explicit-root re-seal the rotation tool relies on for row-bound values."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Return an actionable status code from a failed restore",
+              "body": "A failed backup restore previously reported a generic 500 with no detail. A missing backup now returns 404, a wrong passphrase or undecryptable archive returns 403, and a failed integrity check returns 422 — each with an operator-facing message — while genuinely internal failures remain a 500 with the detail suppressed."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.25",
+      "date": "2026-05-31",
+      "headline": "Problem-details errors across the account and admin endpoints",
+      "summary": "Authentication, account, and admin endpoints now return their failures as RFC 9457 problem-details instead of the legacy { error } body, extending the format introduced in v1.10.1 to the rest of the surface.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Return problem-details from the account and admin endpoints",
+              "body": "Authentication, profile, user and team management, two-factor, passkeys, the encrypted vault, the admin panel, API keys, webhooks, password reset, and certificate enrollment now emit RFC 9457 problem-details ({ type, title, status, detail }) on failure, matching the format the rest of the API already used. 5xx detail stays suppressed so internal failure text never reaches clients; 4xx carries the actionable message."
+            },
+            {
+              "title": "Update the vendored framework to blamejs 0.14.11",
+              "body": "Refreshes the vendored blamejs framework from 0.14.10 to 0.14.11."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Return a real status code for failed admin backup and storage actions",
+              "body": "A handful of admin backup and storage-connection actions reported failure with an HTTP 200 body; they now return the appropriate 4xx or 5xx status."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Read the problem detail field for error messages",
+              "body": "API clients that read the legacy { error } field for a failure message should read { detail }, using { type } as the stable problem identifier. The web UI was updated in the previous release. Reading detail and falling back to error handles every endpoint, including the upload and sync endpoints that still return the legacy shape."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.24",
+      "date": "2026-05-31",
+      "headline": "Surface problem-details error text in the web UI",
+      "summary": "The web UI now reads RFC 9457 problem-details error messages, so failed actions show the server's reason instead of a blank message.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Show problem-details error messages in the web UI",
+              "body": "Many web UI actions read only the legacy { error } field from a failed response, so when the server replied with an RFC 9457 problem-details body the on-screen message could be blank. The UI now reads the problem detail and falls back to the legacy field, and several actions that previously showed no message on failure (login, registration, user and stash management, and others) now display the server's reason."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.23",
+      "date": "2026-05-31",
+      "headline": "Encrypt error responses on payload-encrypted sessions",
+      "summary": "Error responses on sessions that use API payload encryption now travel inside the same encryption envelope as successful responses, instead of as cleartext problem-details.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Encrypt API error responses on payload-encrypted sessions",
+              "body": "On a session that uses API payload encryption (browser sessions), successful responses were already encrypted but error responses were emitted as cleartext RFC 9457 problem-details. They are now delivered inside the same encryption envelope as successful responses, keeping the error body and its integrity within the encrypted channel. This matters most on HTTP-mode deployments where the payload-encryption layer is the only on-wire protection. Clients that already decrypt successful responses need no change: the decrypted body is the same problem-details object, with the HTTP status preserved."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.22",
+      "date": "2026-05-31",
+      "headline": "Conditional and range static delivery, hardened webhook transport",
+      "summary": "Static assets now support conditional and partial requests, and outbound webhook delivery routes through the framework HTTP client for a single, well-tested egress path.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Serve static assets with conditional and range support",
+              "body": "Responses for built-in static assets (CSS, JavaScript bundles, fonts, images) now carry an ETag validator and honor If-None-Match with 304 Not Modified, plus RFC 7233 Range requests. Repeat page loads revalidate instead of re-downloading, and large assets can be fetched in parts."
+            },
+            {
+              "title": "Update the vendored framework to blamejs 0.14.10",
+              "body": "Refreshes the vendored blamejs framework from 0.14.9 to 0.14.10."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Route webhook delivery through the framework HTTP client",
+              "body": "Outbound webhook POSTs now go through the framework HTTP client. It re-checks the destination against the SSRF policy and pins the connection to the validated address, requires HTTPS, refuses to follow redirects, and caps both total and idle time. The X-Webhook-Signature (HMAC-SHA3-512) header, the per-delivery log, and the retry-with-backoff behavior are unchanged."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.21",
+      "date": "2026-05-31",
+      "headline": "Row-bound sealing for the remaining sealed columns",
+      "summary": "The TOTP secret, the per-file content-encryption key, and operator settings values now AEAD-bind to their row identity, completing the row-binding the other sealed columns received in the prior release. The request-id middleware moves to the framework primitive.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Adopt the framework request-id middleware",
+              "body": "The X-Request-Id middleware now uses the framework primitive: it honors a well-formed trusted upstream X-Request-Id and mints a longer random id otherwise, while preserving the per-request log-correlation context."
+            },
+            {
+              "title": "Update the vendored framework to blamejs 0.14.9",
+              "body": "Refreshes the vendored blamejs framework from 0.14.8 to 0.14.9."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Row-bind the remaining sealed columns",
+              "body": "The TOTP secret, the per-file content-encryption key, and operator settings values are now AEAD-bound to their (table, primary key, column) identity — the same protection the other sealed columns received in the prior release. A value copied into another row or column fails authentication and reads as absent instead of decrypting. Existing values read unchanged and are rewritten to the bound form the next time each row is written."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.20",
+      "date": "2026-05-31",
+      "headline": "Row-bound sealed columns and problem-details for the sync endpoints",
+      "summary": "Sealed database columns are now authenticated against their row identity, so a sealed value copied between rows or columns no longer decrypts. The remaining sync endpoints adopt RFC 9457 problem-details, and outbound host checks reject trailing-dot bypasses.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Return problem-details from the sync endpoints",
+              "body": "POST /sync/enroll, /sync/renew-cert, and /sync/rename now return application/problem+json (RFC 9457) on error, matching the rest of the API. A client that reads the legacy error field should read detail instead."
+            },
+            {
+              "title": "Update the vendored framework to blamejs 0.14.8",
+              "body": "Refreshes the vendored blamejs framework from 0.14.4 to 0.14.8."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Bind sealed database columns to their row identity",
+              "body": "Every sealed column is AEAD-bound to its table, primary key, and column name. A value copied into a different row or column fails authentication and reads as absent instead of decrypting, closing a database-write relocation attack. Existing sealed data reads unchanged and is rewritten to the bound form the next time each row is written. Vault-key rotation refuses to run while row-bound values are present, since rotation would otherwise leave them undecryptable; rotation support for bound values is pending a framework update."
+            },
+            {
+              "title": "Reject trailing-dot SSRF host bypasses",
+              "body": "Outbound host allow and deny checks strip trailing root-zone dots (RFC 1034) before comparison, so a host such as localhost. can no longer slip past the loopback and cloud metadata-endpoint guards."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.19",
+      "date": "2026-05-29",
+      "headline": "Application logs scrub secret-shaped fields by default",
+      "summary": "Structured application log lines now pass their fields through a redactor before they are written, so password-, token-, and key-shaped values are stripped automatically. This release also refreshes the vendored framework to blamejs 0.13.43.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Redact secret-shaped fields from application logs by default",
+              "body": "Structured log lines now scrub password / token / key-shaped values automatically before they are written. Unicode bidi and format controls in log messages are escaped so a hostile value cannot reorder a log line in a terminal or syslog viewer."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Refresh the vendored framework to blamejs 0.13.43",
+              "body": "Picks up the current framework crypto, logging, and middleware primitives."
+            }
+          ]
+        }
+      ],
+      "references": []
+    },
+    {
+      "version": "1.11.18",
+      "date": "2026-05-27",
+      "headline": "Browser features that need a secure context degrade gracefully over plain HTTP",
+      "summary": "On a plain-HTTP origin at a non-localhost hostname — a LAN host or a reverse-proxy deployment without TLS — several browser APIs are simply absent (WebAuthn, the async Clipboard API, crypto.randomUUID). HermitStash now detects their absence and adapts instead of throwing \"Cannot read properties of undefined\": the passkey option hides itself, copy-to-clipboard uses a legacy fallback, and multi-file uploads generate batch IDs without the secure-context API.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Passkey sign-in and registration hide on non-secure origins",
+              "body": "The login and profile passkey controls now feature-detect the WebAuthn API and, when it is absent (any plain-HTTP non-localhost origin, and Safari before 16.4 even over HTTPS), hide with a short \"Passkeys require a secure (HTTPS) connection\" note instead of throwing on click. They reappear automatically once the app is served over HTTPS. The PASSKEY_ENABLED setting is unchanged."
+            },
+            {
+              "title": "Copy-to-clipboard falls back to a legacy path over plain HTTP",
+              "body": "Share-link, stash-link, and enrollment-code copy buttons route through a shared helper that uses the async Clipboard API in a secure context and falls back to document.execCommand('copy') over plain HTTP, so copying works regardless of scheme."
+            },
+            {
+              "title": "Multi-file uploads no longer depend on a secure-context UUID API",
+              "body": "Batch IDs for multi-file uploads fall back from crypto.randomUUID (secure-context only) to crypto.getRandomValues, which is available over plain HTTP."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "MDN — Secure contexts",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts"
+        }
+      ]
+    },
+    {
+      "version": "1.11.17",
+      "date": "2026-05-26",
+      "headline": "Bot guard no longer blocks browsers that omit `Sec-Fetch-Mode`",
+      "summary": "Browsers reaching the app over plain HTTP at a non-localhost hostname — LAN access and reverse-proxy deployments that terminate TLS upstream — omit the `Sec-Fetch-*` request headers, which per the Fetch Metadata spec are sent only to secure-context origins. The bot guard treated a missing `Sec-Fetch-Mode` as a non-browser signal and returned `Forbidden` on every page load in those setups. The header is now advisory only; genuine automation is still refused by the missing-`Accept-Language` check and the User-Agent deny-list.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Bot guard demotes the `Sec-Fetch-Mode` heuristic to advisory",
+              "body": "The vendored `b.middleware.botGuard` no longer refuses a request solely because `Sec-Fetch-Mode` is absent. Browsers omit every `Sec-Fetch-*` header on a non-secure-context origin — a plain-HTTP LAN host such as `http://hermitstash.local:3080`, or any reverse proxy that terminates TLS upstream and forwards cleartext — and Safari omitted them even over HTTPS before 16.4. A missing `Sec-Fetch-Mode` now contributes only as an advisory signal; blocking decisions rest on the missing-`Accept-Language` check and the known-automation User-Agent deny-list (curl, wget, python-requests, …)."
+            },
+            {
+              "title": "`tests/unit/bot-guard.test.js`",
+              "body": "New unit test drives the bot-guard middleware with a request shaped like a browser behind a plain-HTTP reverse proxy (host header set, `Accept-Language` present, no `Sec-Fetch-Mode`) and asserts it reaches the app rather than a `403`, while a `curl` User-Agent and an `Accept-Language`-less request remain refused."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "W3C Fetch Metadata Request Headers",
+          "url": "https://www.w3.org/TR/fetch-metadata/"
+        }
+      ]
+    },
+    {
+      "version": "1.11.16",
+      "date": "2026-05-22",
+      "headline": "`RP_ORIGIN` and other URL settings accept cleartext `http://` values again",
+      "summary": "Restores `http://` support for `RP_ORIGIN`, `GOOGLE_CALLBACK_URL`, `S3_ENDPOINT`, and `BACKUP_S3_ENDPOINT`. Since v1.9.39 the settings validator silently rejected every cleartext URL and fell back to the code default, which made the server treat operator-set origins like `http://umbrel-dev.local:3080` as unconfigured — knock-on `Forbidden` responses from the origin-policy gate on every page load.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`isValidUrl` opts into `b.safeUrl.ALLOW_HTTP_ALL`",
+              "body": "`lib/settings-schema.js` now passes `allowedProtocols: b.safeUrl.ALLOW_HTTP_ALL` to `b.safeUrl.parse`, matching the validator's intent to accept both `http:` and `https:`. Previously the parse call relied on the safeUrl default (`ALLOW_HTTP_TLS = [\"https:\"]`), which threw `safe-url/protocol-disallowed` on every `http://` URL before the protocol check could run. Affected settings: `RP_ORIGIN`, `GOOGLE_CALLBACK_URL`, `S3_ENDPOINT`, `BACKUP_S3_ENDPOINT`. The `rpOrigin is not HTTPS` startup warning is unchanged — it remains the soft nudge toward TLS."
+            },
+            {
+              "title": "`tests/unit/settings-schema.test.js`",
+              "body": "New unit test asserts `settingsSchema.validate` accepts `http://` and `https://` for every url-typed setting, refuses non-http(s) schemes, refuses malformed input, and treats empty string as `use default`."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.15",
+      "date": "2026-05-21",
+      "headline": "Cross-origin `/health` regression test and `CORS_ORIGINS` documentation",
+      "summary": "Adds a security-suite test that locks in the v1.11.14 `/health` CORS contract — same-origin probes pass, listed gateway origins receive a matching `Access-Control-Allow-Origin`, unlisted origins are refused. Also documents `CORS_ORIGINS` in `.env.example` and clarifies in the README that browser-driven probes from a separate gateway origin need that origin on the allowlist.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`tests/security/cors-health.test.js`",
+              "body": "New security-suite test boots a minimal `b.router.Router` wired with `b.middleware.cors` using the same options `middleware/cors.js` passes (`refuseUnknown: true`, credentials enabled, single configured gateway origin), mounts the `/health` handler verbatim from `server-main.js`, and asserts three cases — same-origin (no `Origin` header) returns 200, listed origin returns 200 with matching `Access-Control-Allow-Origin`, unlisted origin returns a non-2xx with no `Access-Control-Allow-Origin`. Closes the coverage gap that allowed the v1.11.13 CORS regression to ship."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`.env.example` documents `CORS_ORIGINS`",
+              "body": "Adds a `CORS_ORIGINS=` stanza alongside `TRUST_PROXY`, explaining that this is the single allowlist that governs every cross-origin browser request (including `/health` probes from a separate gateway origin) and that wildcards are refused when credentials are enabled. Also tightens the `TRUST_PROXY` comment to mention the single-trusted-hop form (`127.0.0.1`)."
+            },
+            {
+              "title": "README clarifies cross-origin `/health` requirements",
+              "body": "The Health check section now states explicitly that same-origin probes (container `HEALTHCHECK`, in-pod liveness, TLS-terminating proxy) need no extra config, while a browser-driven probe from a different origin (the static PQC entry page) requires that origin on `CORS_ORIGINS` — listing the symptom (`403` + browser rejection) so operators can diagnose the misconfiguration without reading the source."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.14",
+      "date": "2026-05-21",
+      "headline": "Single CORS allowlist for `/health`; retire `autocannon` load-test harness",
+      "summary": "Collapses the two-allowlist arrangement introduced last patch back to a single `CORS_ORIGINS`-driven path: the per-endpoint CORS code inside `/health` and the bespoke `HEALTH_CORS_ORIGINS` setting are both removed, so the gateway-domain probe traverses the same middleware as every other cross-origin caller. The `autocannon`-based load test is also retired — no CI workflow exercised it, and the dependency was the source of the only outstanding `npm audit` finding (CVE-2026-41907 in transitive `uuid < 11.1.1`).",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "`/health` now uses the global CORS middleware",
+              "body": "`middleware/cors.js` no longer short-circuits for `/health`. The handler at `server-main.js` returns `{ status, uptime, timestamp }` with no per-endpoint CORS plumbing — the `Access-Control-Allow-Origin` header is set by `b.middleware.cors` against `CORS_ORIGINS` exactly as for any other route. Operators fronting the app with a separate gateway origin add that origin to `CORS_ORIGINS`."
+            }
+          ]
+        },
+        {
+          "heading": "Removed",
+          "items": [
+            {
+              "title": "`HEALTH_CORS_ORIGINS` setting",
+              "body": "The dedicated allowlist for `/health` is removed from `lib/config.js`, `lib/settings-schema.js`, and the General tab of the admin Settings panel. Operators that had this set should move the same origins into the global `CORS_ORIGINS` allowlist."
+            },
+            {
+              "title": "`tests/performance/load.test.js`",
+              "body": "The opt-in autocannon-based load test is removed. The retained `tests/performance/performance.test.js` continues to assert in-process timing budgets (template renders, hot-path operations) using the standard `TestClient` helper, with no external load-generator dependency."
+            },
+            {
+              "title": "`autocannon` devDependency",
+              "body": "Removed from `tests/package.json` along with the `npm run test:load` script. Regenerated `tests/package-lock.json` no longer carries `autocannon`, `hyperid`, or `uuid` (transitive), closing CVE-2026-41907 / GHSA-w5hq-g745-h8pq at the source. `npm audit` against the test workspace now reports 0 vulnerabilities."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.13",
+      "date": "2026-05-21",
+      "headline": "`/health` bypasses global CORS so gateway-domain probes reach the handler",
+      "summary": "The global CORS middleware (`refuseUnknown: true`) was rejecting cross-origin requests to `/health` with `403 CORS: origin not allowed` before the handler's own narrower allowlist (`RP_ORIGIN` + `HEALTH_CORS_ORIGINS`) could run. The handler is now the sole CORS authority for `/health`, so a gateway domain set via `HEALTH_CORS_ORIGINS` actually controls who can probe the endpoint.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Global CORS middleware skips `/health`",
+              "body": "`middleware/cors.js` now short-circuits when `req.pathname === \"/health\"`. The endpoint's existing per-request CORS logic (origin matched against `RP_ORIGIN` plus the `HEALTH_CORS_ORIGINS` list) remains the only allowlist that gates the response. Operators running a separate gateway origin (for example the PQC entry page at `hermitstash.com` in front of `app.hermitstash.com`) can now add the gateway domain to `HEALTH_CORS_ORIGINS` without also having to widen the global `CORS_ORIGINS` allowlist."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.12",
+      "date": "2026-05-21",
+      "headline": "Test-scoped codebase-patterns — sleep, hardcoded bind ports, DB isolation",
+      "summary": "Adds three test-scoped antipatterns to the codebase-patterns catalog so the lint gate now scans `tests/*.test.js` and `tests/helpers/` in addition to `lib/`. The detectors catch race-prone shapes that historically slipped through review: fixed-duration sleeps that inflate the suite's wall-clock floor, hardcoded server bind ports that collide under parallel runs, and DB-handle instantiations missing the per-test isolation primitives.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "`_testFiles()` walker + scanScope routing",
+              "body": "Adds the `tests/` walker that powers test-scoped antipatterns and a `scanScope: \"test\"` field on `KNOWN_ANTIPATTERNS` entries. The walker excludes `tests/node_modules/`, `tests/lint/` (the detector file itself), `tests/.test-output/`, and `tests/helpers/_*` (underscored infrastructure). Per-entry `requires:` companion regex satisfies the antipattern when the same file also matches a discipline-establishing shape (used by the DB-isolation detector)."
+            },
+            {
+              "title": "`test-promise-settimeout-sleep` antipattern",
+              "body": "Flags `await new Promise(r => setTimeout(r, N))` in test files. Fixed-duration sleeps race under parallel test runs and pad wall-clock floor. Replace with polling the actual condition (curl /health, check filesystem state, listen for child `exit` event). One legitimate offender is allowlisted with a documented reason: subprocess-exit wait in `vault-passphrase-server-boot.test.js` (the event being waited on IS the process death; polling cannot shortcut it)."
+            },
+            {
+              "title": "`test-hardcoded-server-bind-port` antipattern",
+              "body": "Flags `.listen(NNNN)` with a literal non-zero port in test files. Hardcoded bind ports collide under parallel runs when two suites pick the same value. Convention: `.listen(0)` + read `server.address().port` after bind. The existing HermitStash test helpers already follow this convention so the detector ships with an empty allowlist."
+            },
+            {
+              "title": "`test-creates-db-handle-without-isolation` antipattern",
+              "body": "Flags `b.db.create(` in test files when the same file does not also use one of the per-test isolation primitives (`setupTestEnv`, `startTestServer`, `setupTestDb`, `mkdtempSync`). Tests that spin up a real DB handle without isolation leak SQLite state to a shared directory; subsequent tests see prior rows under parallel runs. Static-API tests that reference `b.db` without instantiating a real handle don't trip the detector."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.11",
+      "date": "2026-05-21",
+      "headline": "CI gates for CHANGELOG drift + release-notes rollup",
+      "summary": "The structured-changelog scripts shipped in v1.11.7 had no CI enforcement — an operator could land a `release-notes/v<X>.json` edit without running `--rebuild`, and the drift wouldn't surface until the next release ran the generator. The Docker workflow's lint job now runs `generate-changelog-entry.js --check`, `consolidate-release-notes.js --check`, and the existing `check-changelog-extract.js` on every push, so the gates fail loud at lint time instead of mid-release. Adds `consolidate-release-notes.js` to the maintainer-side tool set.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "CHANGELOG drift gate in CI",
+              "body": "`node scripts/generate-changelog-entry.js --check` runs in the docker-publish lint job. The gate does an in-memory rebuild of `CHANGELOG.md` from `release-notes/` and refuses the build when the on-disk file drifts from the JSON source. Forgotten `--rebuild` after a release-notes edit fails CI before any image build runs."
+            },
+            {
+              "title": "release-notes rollup gate in CI",
+              "body": "`node scripts/consolidate-release-notes.js --check` runs in the same lint job and refuses the build when any non-current minor line still has per-patch files. Catches a missed consolidation between minor lines (the operator should run `--prune` when starting a new minor)."
+            },
+            {
+              "title": "`scripts/consolidate-release-notes.js` maintainer tool",
+              "body": "Rolls up `release-notes/v<X>.<Y>.<Z>.json` files for any minor line other than the current one (derived from `package.json#version`) into a single `release-notes/v<X>.<Y>.x.json` rollup. `--prune` deletes per-patch files after writing the rollup; the generator's lookup falls back to the rollup when per-patch files are absent. Run between releases only — never mid-release-flow, since reorganizing `release-notes/` would shift the tarball file set after the SHA-256 / SHA3-512 / ML-DSA digests were computed."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.10",
+      "date": "2026-05-21",
+      "headline": "Remove `sha-to-tag-verify` workflow — redundant with GitHub edge ruleset",
+      "summary": "The `sha-to-tag-verify` workflow added in v1.11.7 attempted to verify, from inside CI, that each tagged commit was on `main`'s first-parent history and signed by the maintainer's SSH key. Both checks were already enforced server-side by GitHub's repository ruleset (which rejects unsigned tag pushes, tag deletion, and tag force-update at the edge), so the in-CI workflow added no integrity value over the ruleset while consistently failing on this project's direct-push release flow. README now documents the GitHub-edge enforcement explicitly.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "README — Release provenance section",
+              "body": "Replaces the workflow-name reference with an explicit description of the GitHub edge ruleset that enforces tag integrity server-side. The verification chain for operators is unchanged: cosign image signature (Sigstore-keyless), SLSA L3 provenance (`slsa-verifier verify-image`), and ML-DSA-65 sidecar (`keys/release-pqc-pub.json`) all remain authoritative."
+            }
+          ]
+        },
+        {
+          "heading": "Removed",
+          "items": [
+            {
+              "title": "`.github/workflows/sha-to-tag-verify.yml`",
+              "body": "Tag integrity is enforced by the GitHub repository ruleset (signed-tag requirement + delete/force-update block), which cannot be bypassed at the edge. The in-CI workflow's first-parent walk depended on `origin/main` being available in the tag-push checkout context, which `actions/checkout@v6` does not reliably set up. Three rounds of fixes failed to make the gate green; removal is the correct response."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.9",
+      "date": "2026-05-21",
+      "headline": "Tag-verify gate now fetches `origin/main` before walking first-parent",
+      "summary": "The integrity gate added in v1.11.7 walks `git rev-list --first-parent origin/main` to confirm a tagged commit landed on the main branch. On a tag-push event, `actions/checkout@v6` checks out the tag's commit and leaves `origin/main` either unset or stale, so the rev-list grep returned no match and the gate failed every release with a misleading 'not on main' error. The fix adds an explicit `git fetch --no-tags origin main:refs/remotes/origin/main` before the walk.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`sha-to-tag-verify.yml` — explicit `origin/main` fetch",
+              "body": "The workflow now refreshes the `origin/main` remote-tracking ref before the first-parent walk, so the rev-list reflects the actual current state of the branch the tag was pushed against. The job's step name was also updated to drop the stale 'merged via PR' wording (the PR-merge check was removed in v1.11.8)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.8",
+      "date": "2026-05-21",
+      "headline": "Release pipeline hot-fix — version resolution + tag-verify gate",
+      "summary": "Fixes two release-pipeline regressions from v1.11.7. The version-resolution step in the Docker workflow silently fell back to `dev` on a node error, producing `hermitstash-vdev.image.tar.*` sidecars that the release job couldn't match against the expected `hermitstash-v1.11.7.image.tar.*` paths — the GitHub Release for v1.11.7 created with an empty asset list as a result. The sha-to-tag-verify gate also required every tagged commit to be the result of a PR merge, but HermitStash uses direct-to-main pushes on both private and public repos (no PR squash-merge flow), so the gate failed every release.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`docker-publish.yml` version resolution",
+              "body": "On tag pushes the version is now derived directly from `GITHUB_REF` (`refs/tags/vX.Y.Z` → `X.Y.Z`) and cross-checked against `lib/constants.js`; a mismatch fails the workflow loud. The prior shape ran `node -e \"...constants.version\" 2>/dev/null || echo \"dev\"` which masked a real error and silently produced `vdev`-named artifacts. Workflow-dispatch (manual) runs still fall back to `lib/constants.js` since there is no tag context."
+            },
+            {
+              "title": "`sha-to-tag-verify.yml` PR-merge requirement removed",
+              "body": "The gate now verifies the tag SHA is on `main`'s first-parent history AND the tag object is annotated + SSH-signed against the maintainer key — the two checks that actually defend against the tag-mutation class (CVE-2025-30066) and source-side malicious-publish class (TanStack 2025-05-11). The PR-merge requirement was ported verbatim from a PR-flow upstream but does not fit this project's direct-push release flow."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "CVE-2025-30066 (tj-actions tag mutation)",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2025-30066"
+        },
+        {
+          "label": "SLSA v1.0 specification",
+          "url": "https://slsa.dev/spec/v1.0/"
+        }
+      ]
+    },
+    {
+      "version": "1.11.7",
+      "date": "2026-05-21",
+      "headline": "Structured release notes + SLSA L3 container provenance + ML-DSA-65 release-signing sidecar",
+      "summary": "Releases now ship with a SLSA L3 provenance attestation bound to the workflow run + tag + commit, an ML-DSA-65 PQC signature sidecar over the saved image tarball, and SHA-256 + SHA3-512 byte-level digest sidecars. A new tag-push gate refuses tags that aren't on main's first-parent + merged via a PR + SSH-signed against the maintainer key. Release notes move to a structured `release-notes/v<version>.json` source with a leak-vocabulary validator; the GitHub Release page is generated from that source by the workflow at tag-push time.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "SLSA L3 provenance attestation on the OCI image",
+              "body": "The new `provenance` job in `docker-publish.yml` invokes `slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.1.0` against the pushed image digest. The container generator signs the attestation via Sigstore-keyless and pushes it to GHCR alongside the image. Operators verify with `slsa-verifier verify-image ghcr.io/dotcoocoo/hermitstash@<digest> --source-uri github.com/dotCooCoo/hermitstash --source-tag vX.Y.Z`."
+            },
+            {
+              "title": "ML-DSA-65 release-signing sidecar (`<image>.mldsa.sig`)",
+              "body": "`scripts/sign-release-artifact.js` signs the `docker save` tarball bytes with the project's ML-DSA-65 release-signing key (FIPS 204, NIST PQC level 3) and writes the signature alongside. The signer self-verifies against the in-tree public key (`keys/release-pqc-pub.json`) before writing, refusing to ship an unverifiable sidecar when the secret drifts from the committed pubkey. Skips gracefully with a warning when the operator has not yet completed the one-time key-setup."
+            },
+            {
+              "title": "SHA-256 + SHA3-512 digest sidecars (`<image>.sha256`, `<image>.sha3-512`)",
+              "body": "`scripts/sha3-digest.js` writes both digests in `sha256sum -c` / `sha3sum -a 512`-compatible format. Operators verify the saved-image bytes against the published sidecars without trusting the registry view: `sha256sum -c hermitstash-vX.Y.Z.image.tar.sha256` and `openssl dgst -sha3-512 hermitstash-vX.Y.Z.image.tar`."
+            },
+            {
+              "title": "Structured release notes — `release-notes/v<version>.json`",
+              "body": "Per-version JSON files are the single source of truth for the changelog. `scripts/generate-changelog-entry.js` validates each entry against the section allowlist (Added / Changed / Deprecated / Removed / Fixed / Security / Migration), the title/body format rules, and a leak-vocabulary sweep, then emits either the one-line CHANGELOG.md bullet or the multi-section GitHub Release page markdown. `--rebuild` regenerates the full CHANGELOG.md from the JSON tree; `--check` is a non-mutating drift gate."
+            },
+            {
+              "title": "`scripts/check-changelog-extract.js` — pre-push CHANGELOG gate",
+              "body": "Exercises the awk-extract path the release workflow uses to pull the current version's CHANGELOG section into the release-page markdown. Running it locally before tag-push catches format drift (e.g. a new entry that doesn't match the canonical `- vX.Y.Z (YYYY-MM-DD) — <summary>` shape) without burning a CI run."
+            },
+            {
+              "title": "`.github/workflows/sha-to-tag-verify.yml` — tag-push integrity gate",
+              "body": "Refuses tags whose commit SHA is not on `main`'s first-parent history, was not merged via a pull request, or whose tag object is not annotated + SSH-signed against the maintainer key (`ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPiE/PETpyiVPd8aMygJ+S9CsSVolp4HQZaAuiYVwbBa`). Defends against tag-mutation (CVE-2025-30066 `tj-actions/changed-files` class) and source-side-malicious-publish (TanStack 2025-05-11 class) by verifying the chain at the workflow boundary independently of the GitHub edge ruleset."
+            },
+            {
+              "title": "Atomic release creation with full asset bundle",
+              "body": "The new `release` job in `docker-publish.yml` calls `gh release create` once with the digest sidecars, the ML-DSA-65 sig sidecar (when available), and the CSAF 2.1 VEX document attached at creation time. Refuses to overwrite an existing release for the same tag — the workflow is now authoritative for release creation; the manual `gh release create` step is removed from the release playbook."
+            },
+            {
+              "title": "Codebase-patterns detectors — dense-wildcard / uncapped-searchparams-object / hex-sha-compare-equals / inline-require-in-deferred",
+              "body": "Four new lint gates ported from the upstream framework. `dense-wildcard` refuses 4+ consecutive `*` in lib/ (CVE-2026-4923 catastrophic-backtracking glob class). `uncapped-searchparams-object` flags `Object.fromEntries(searchParams)` without a key cap (CVE-2026-21717 V8 HashDoS). `hex-sha-compare-equals` flags `hmac*Hex` / `mac*Hex` / `signature*Hex` compared with `===` / `!==` (CVE-2026-21713 timing-leak). `inline-require-in-deferred` flags `require()` inside `setImmediate` / `process.nextTick` / `queueMicrotask` (CRYPTO-15 module-load race)."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Vendored blamejs framework: v0.11.2 → v0.11.30",
+              "body": "28 patches forward. New surface includes `b.mail.server.jmap` blob upload/download handlers (RFC 8620 §6), `b.mail.send.deliver` SMTP MX outbound, `b.fsm` finite-state machines, `b.money` decimal-safe arithmetic, `b.safeDecompress` bounded gunzip, `b.safeMountInfo`, and `b.cert` certificate primitives. The framework's own release pipeline (the source of the patterns adopted in this release) lives in `lib/vendor/blamejs/.github/workflows/` + `lib/vendor/blamejs/scripts/`."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "One-time operator step — generate the ML-DSA-65 release-signing key",
+              "body": "Run `node scripts/generate-release-signing-key.js` once locally. The script writes `keys/release-pqc-pub.json` (commit this file) and prints the matching private key. Set the private key as `RELEASE_PQC_SIGNING_KEY` in the public repo's `release` GitHub Actions environment: `gh secret set RELEASE_PQC_SIGNING_KEY --env release --repo dotCooCoo/hermitstash --body \"<paste>\"`. Until the key is generated + the secret is set, releases continue to ship with the L3 provenance + cosign image signature + digest sidecars; the ML-DSA-65 sidecar lights up automatically on the first release after setup."
+            },
+            {
+              "title": "CHANGELOG.md starts at v1.11.7",
+              "body": "Prior release history (v1.0 through v1.11.6) remains on the GitHub Releases page; the in-repo `CHANGELOG.md` is generated forward-only from `release-notes/v<version>.json`. Future entries land as a new JSON file per release plus a `node scripts/generate-changelog-entry.js --rebuild` commit; the workflow's pre-push gate (`--check`) refuses tag-push if the markdown drifts from the JSON source."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "SLSA v1.0 specification",
+          "url": "https://slsa.dev/spec/v1.0/"
+        },
+        {
+          "label": "slsa-github-generator (container builder)",
+          "url": "https://github.com/slsa-framework/slsa-github-generator/tree/main/internal/builders/container"
+        },
+        {
+          "label": "FIPS 204 — Module-Lattice-Based Digital Signature Standard",
+          "url": "https://csrc.nist.gov/pubs/fips/204/final"
+        },
+        {
+          "label": "CVE-2025-30066 (tj-actions tag mutation)",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2025-30066"
+        },
+        {
+          "label": "CSAF 2.1 VEX",
+          "url": "https://docs.oasis-open.org/csaf/csaf-vex/v2.1/"
+        }
+      ]
+    },
+    {
+      "version": "1.11.2",
+      "date": "2026-05-19",
+      "headline": "Fresh-install sync without a browser detour",
+      "summary": "Sync clients can complete enrollment + initial-seed against a freshly-deployed server without an operator first clicking through the setup wizard in a browser. Two server-side fixes close the loop: `/sync/enroll` now returns `shareId` alongside `bundleId`, and the first-run setup middleware bypasses Bearer-authed requests instead of redirecting the sync API key to the wizard.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`/sync/enroll` response carries `shareId`",
+              "body": "The sync daemon needs `shareId` for the initial `GET /b/:shareId` seed pull. Without it, the WebSocket connection establishes but the local mirror starts empty and only catches files uploaded after connect. Resolved from the bundle row alongside the existing `bundleId` resolution from `stash.syncBundleId`. Consumed by `dotCooCoo/hermitstash-sync` v0.8.8+; older sync-client builds ignore the new field."
+            },
+            {
+              "title": "First-run setup middleware bypasses Bearer-authed requests",
+              "body": "A sync API key owned by the default admin previously tripped the wizard's `req.user.role === \"admin\"` 302 to `/admin/setup` until an operator completed the browser flow. Setup is a browser-only flow; Bearer-authed callers now pass through."
+            },
+            {
+              "title": "Idempotency-Key body fingerprinting order",
+              "body": "`middleware/idempotency.js` composes `b.middleware.bodyParser` before `b.middleware.idempotencyKey` so the body fingerprint populates before the cache lookup. Same key with a different body now correctly returns 422 `idempotency/key-reuse-mismatch` (RFC draft-ietf-httpapi-idempotency-key §4.3) instead of a wrong cache hit."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Vendored blamejs 0.9.54 to 0.10.11",
+              "body": "Five upstream patches forward; entirely additive primitives. Upgrade is drop-in. No config changes."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.11.1",
+      "date": "2026-05-16",
+      "headline": "Full test surface published + SMTP transport modernization",
+      "summary": "The entire integration / security / performance / unit test suite (~18.8k LoC across 76 files) now ships in the repo tarball, outbound mail routes through `b.mail.transports.smtp`, vendored blamejs refreshes from v0.9.17 to v0.9.54, and `vault.init()` correctly awaits initialization before the first DB write under the sync fastpath. The `package.json` `version` field is corrected from a stale `3.x.y` typo to `1.11.1` to match `lib/constants.js`.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Public test surface in the repo tarball",
+              "body": "The full suite ships in tree so operators auditing the deployment can run it locally against a fresh checkout. Suite shape at this tag: Security 213 pass / 1 documented skip (CSRF policy, force-download `Content-Disposition`, rate-limit reset semantics, vault sealing of every protected field, zero-plaintext database verification, header hardening with `Referrer-Policy: no-referrer` + expanded `Permissions-Policy` deny set, passkey + WebAuthn flows); Performance 10 pass (template-render budget, 1000-record insert/query/cleanup, vault seal/unseal throughput, Argon2id hash/verify under 1s, concurrent upload behavior); Integration / E2E 422 pass with 4 documented failures tied to the Docker bind-mount sync gap on Windows Docker Desktop (host-to-container file events don't propagate through `b.watcher`'s `fs.watch`-only path; Linux and macOS hosts are unaffected)."
+            },
+            {
+              "title": "SMTP transport via `b.mail.transports`",
+              "body": "The hand-rolled SMTP state machine is gone; outbound mail now routes through `b.mail.transports.smtp` (with `b.mail.transports.resend` as the API-driven alternative). Same config keys, same boot-time validation; the transport itself is the framework primitive that backs the rest of the blamejs ecosystem and is exercised by upstream framework tests."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Vendored blamejs refreshed v0.9.17 to v0.9.54",
+              "body": "Brings in `b.cookies.parseSafe`, `b.safeJson.parseOrDefault`, `b.safeUrl.parse`, `b.safeAsync.sleep`, `b.problemDetails.send`, `b.middleware.composePipeline`, `b.testHarness.start`, `b.constants.TIME` / `BYTES`, and `b.auth.password.{hash,verify}`. Internal call sites have been migrated; no operator-visible API change beyond the wider RFC 9457 `application/problem+json` surface that started landing in v1.10.1."
+            },
+            {
+              "title": "Internal refactors (no operator-visible change)",
+              "body": "`b.middleware.composePipeline` adopted across the request-handling chain; raw time + byte literals (`* 1000`, `* 1024`) replaced with `b.constants.TIME` / `b.constants.BYTES`; `b.cookies` + `b.safeJson` + `b.safeUrl` sweep across cookie / JSON / URL parsing call sites; `b.safeAsync.sleep` replaces ad-hoc `setTimeout`-Promise wrapping; `b.problemDetails.send` adopted on additional error boundaries."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "`vault.init()` sync-fastpath race",
+              "body": "Boot path now correctly awaits vault initialization before the first DB write under the sync fastpath (was racing on cold start in v1.10.10). Symptom on the regression: `db.init() must be awaited` error emitted on the audit channel at boot, with the first write silently dropped. Fixed in tree as part of the v0.9.46 refresh."
+            },
+            {
+              "title": "`package.json` `version` field typo",
+              "body": "`package.json` `version` had been carrying a `3.x.y` typo since at least v1.10.8; corrected to `1.11.1` to match `lib/constants.js`. Test-suite stabilization on top of the v1.11.0 publish also lands here so operators running the suite locally see clean exit codes (security 213/0/1, performance 10/0)."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Drop-in upgrade",
+              "body": "Pull the new image with `docker pull ghcr.io/dotcoocoo/hermitstash:1.11.1` or use the floating tags `1.11`, `1`, `latest`. No config migration required; no breaking changes to API, envelope, or database schema."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

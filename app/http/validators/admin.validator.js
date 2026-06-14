@@ -152,7 +152,10 @@ function validatePaginationParams(query) {
  */
 function validateBlocklistInput(body) {
   if (!body) return { error: "Request body required." };
-  var ip = String(body.ip || "").trim();
+  // Lowercase so an admin-entered IPv6 matches the canonical form lib/client-ip
+  // produces on the read side (an IPv4-mapped form is rejected below, so the
+  // block and the peer lookup key off the same digest).
+  var ip = String(body.ip || "").trim().toLowerCase();
   if (!ip || ip.length > 45) return { error: "Valid IP required." };
 
   // Basic format check — IPv4 or IPv6 (simple patterns, no nested quantifiers)

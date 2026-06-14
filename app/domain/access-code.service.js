@@ -4,6 +4,7 @@
 var b = require("../../lib/vendor/blamejs");
 var nodeCrypto = require("node:crypto");
 var { HASH_PREFIX, TIME } = require("../../lib/constants");
+var fieldCrypto = require("../../lib/field-crypto");
 var accessCodesRepo = require("../data/repositories/bundleAccessCodes.repo");
 var emailService = require("../../lib/email");
 
@@ -20,7 +21,11 @@ async function requestCode(opts) {
   var shareId = opts.shareId;
   var email = opts.email;
 
-  var emailHash = b.crypto.namespaceHash(HASH_PREFIX.EMAIL, email);
+  // Must match exactly how field-crypto seals bundle_access_codes.emailHash — the
+  // keyed MAC (lower:true), NOT the legacy unkeyed namespaceHash. Computing the
+  // unkeyed digest here would never match the stored keyed digest, silently
+  // killing the whole email-access-code gate (the v1.12.0 keyed-index drift).
+  var emailHash = fieldCrypto.derivedKeyed(HASH_PREFIX.EMAIL, email, true);
   var tenMinAgo = new Date(Date.now() - TIME.minutes(10)).toISOString();
   var recentCount = accessCodesRepo.countRecentCodes(shareId, emailHash, tenMinAgo);
   if (recentCount >= 3) {
@@ -66,7 +71,11 @@ function verifyCode(opts) {
   var email = opts.email;
   var code = opts.code;
 
-  var emailHash = b.crypto.namespaceHash(HASH_PREFIX.EMAIL, email);
+  // Must match exactly how field-crypto seals bundle_access_codes.emailHash — the
+  // keyed MAC (lower:true), NOT the legacy unkeyed namespaceHash. Computing the
+  // unkeyed digest here would never match the stored keyed digest, silently
+  // killing the whole email-access-code gate (the v1.12.0 keyed-index drift).
+  var emailHash = fieldCrypto.derivedKeyed(HASH_PREFIX.EMAIL, email, true);
   var codeRecord = accessCodesRepo.findPendingCode(shareId, emailHash);
   if (!codeRecord) {
     return { success: false, error: "Invalid or expired code.", status: 401 };
@@ -76,7 +85,7 @@ function verifyCode(opts) {
     return { success: false, error: "Too many attempts. Request a new code.", status: 429 };
   }
 
-  var submittedHash = b.crypto.namespaceHash(HASH_PREFIX.ACCESS_CODE, code);
+  var submittedHash = fieldCrypto.derivedKeyed(HASH_PREFIX.ACCESS_CODE, code, false);
   if (!b.crypto.timingSafeEqual(submittedHash, codeRecord.codeHash)) {
     accessCodesRepo.update(codeRecord._id, { $set: { attempts: codeRecord.attempts + 1 } });
     return { success: false, error: "Incorrect code.", status: 401, attempts: codeRecord.attempts + 1 };

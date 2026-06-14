@@ -1,0 +1,39 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.15.3",
+  "date": "2026-06-12",
+  "headline": "DDL hardening in b.sql, schema-confined column introspection on Postgres and MySQL, and a classical-downgrade audit on proxy-tunneled TLS",
+  "summary": "This release hardens the data layer and closes a transport audit gap. The b.sql builder refuses an unrecognised column type that carries a statement terminator, quote, or comment marker - the one position in an otherwise quote-by-construction DDL builder where a verbatim string reached the emitted statement - and routes the finished CREATE TABLE through the same single-statement gate every other verb uses. The schema reconciler's column introspection is now confined to the schema or database the bare-named CREATE TABLE actually writes into (current_schema() on Postgres, DATABASE() on MySQL), so a same-named table in another schema no longer pollutes the column set, silently skipping an ADD COLUMN or fabricating false schema drift that refuses a regulated-posture boot. Two further builder gaps are fixed: a column-level primary key combined with a composite primaryKey now fails at build time with a clear error instead of producing invalid DDL, and a MySQL upsert read-back keyed by a cast or a server-evaluated function now renders the cast (or refuses the function) instead of binding an internal wrapper. Finally, an HTTPS request sent through a configured proxy now emits the tls.classical_downgrade audit when the handshake falls back to a classical group, the same as a direct connection.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "b.sql refuses an injection-bearing verbatim column type and gates every CREATE TABLE",
+          "body": "An unrecognised column type passed to b.sql.createTable / alterTable was emitted into the DDL verbatim - the single raw-emission position in a builder that otherwise quotes every identifier and guards every constraint fragment. A type such as \"text); DROP TABLE secrets; --\" could therefore smuggle a stacked statement. The builder now refuses, at build time, a verbatim type carrying a statement terminator or comment marker, and routes the finished CREATE TABLE / ALTER TABLE statement through the same single-statement / NUL / unterminated-quote / unbalanced-paren gate every SELECT / INSERT / UPDATE / DELETE / UPSERT already used - so an unbalanced quote is caught there. Legitimate types are unaffected: VARCHAR(255), NUMERIC(10,2), DOUBLE PRECISION, TIMESTAMP WITH TIME ZONE, and MySQL ENUM('a','b') / SET(...) (which need balanced quotes) all still pass."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Schema reconciliation reads columns from the right schema on Postgres and MySQL",
+          "body": "The reconciler's column introspection queried information_schema with no schema filter, so on a Postgres instance or MySQL server hosting more than one schema/database with a same-named table, the live column set was the union across schemas. That could silently skip an ADD COLUMN the table needed, or report false drift that refuses a boot under a pinned regulated posture. Introspection is now confined to current_schema() (Postgres) / DATABASE() (MySQL) - the schema the bare-named CREATE TABLE lands in. SQLite (PRAGMA, per-file) is unchanged."
+        },
+        {
+          "title": "createTable rejects a contradictory primary-key declaration at build time",
+          "body": "Declaring both a column-level primary key (primaryKey / autoIncrement / serial) and a composite opts.primaryKey emitted two PRIMARY KEY clauses, which every dialect rejects at the driver mid-migration. The builder now refuses the contradiction at build time with a clear error; a single column PK, or a composite primaryKey with no column-level PK, is unaffected."
+        },
+        {
+          "title": "MySQL upsert read-back resolves a cast or function conflict key instead of binding a wrapper",
+          "body": "On MySQL, an upsert whose conflict key was a b.sql.cast(...) or b.sql.fn(...) built a read-back SELECT that bound the wrapper object, so the read-back matched no rows. A cast conflict key now renders as CAST(? AS type) binding the inner value; a server-evaluated function conflict key (which has no stable read-back identity) is refused with a clear error. Plain scalar conflict keys are unchanged."
+        },
+        {
+          "title": "Proxy-tunneled TLS emits the classical-downgrade audit",
+          "body": "An HTTPS upstream reached through a configured proxy performed its TLS handshake without emitting the tls.classical_downgrade audit on a classical-group fallback, leaving the post-quantum-readiness inventory incomplete for proxied requests. Both the upstream handshake and the proxy-leg handshake now emit the audit on a classical fallback, matching the direct connection path. The handshake itself is unchanged (still hybrid-preferred TLSv1.3)."
+        }
+      ]
+    }
+  ]
+}

@@ -183,13 +183,12 @@ describe("business logic resilience", function () {
     await client.uploadFile("/drop/file/" + init.json.bundleId, "file", "gone.txt", "will be deleted", {relativePath: "gone.txt"});
     await client.post("/drop/finalize/" + init.json.bundleId, { json: { finalizeToken: init.json.finalizeToken } });
 
-    // Get file shareId from DB directly (sealed fields — use hash lookup + unseal)
-    var vault = require(path.join(projectRoot, "lib", "vault"));
-    var { sha3Hash } = require(path.join(projectRoot, "lib", "crypto"));
+    // Query by bundleShareId; field-crypto translates it to the keyed blind
+    // index and auto-unseals the returned row, so shareId is already plaintext.
     var { files } = require(path.join(projectRoot, "lib", "db"));
-    var bundleFiles = files.find({ bundleShareIdHash: sha3Hash("hs-share:" + init.json.shareId) });
+    var bundleFiles = files.find({ bundleShareId: init.json.shareId });
     if (bundleFiles.length > 0) {
-      var fileShareId = vault.unseal(bundleFiles[0].shareId);
+      var fileShareId = bundleFiles[0].shareId;
       // Login as admin to delete. POST with JSON body routes through the
       // session-encrypted JSON path (no CSRF token required); a bare POST
       // with no body would be treated as a form POST and refused with 403.
@@ -270,9 +269,11 @@ describe("rate limiting", function () {
   it("X-Forwarded-For trusted from loopback proxy", function () {
     var projectRoot = testServer.projectRoot;
     var rl = require(path.join(projectRoot, "lib", "rate-limit"));
-    // Connection from loopback (trusted proxy): XFF should be used
+    // Connection from a trusted loopback proxy: use the RIGHTMOST XFF entry (the
+    // one the proxy appended), NOT the leftmost — a client can forge the leftmost
+    // (e.g. "X-Forwarded-For: 1.1.1.1") to spoof its IP and evade the rate limit.
     var ip = rl.getIp({ headers: { "x-forwarded-for": "1.1.1.1, 2.2.2.2" }, socket: { remoteAddress: "127.0.0.1" } });
-    assert.strictEqual(ip, "1.1.1.1", "should use first XFF IP when from trusted proxy");
+    assert.strictEqual(ip, "2.2.2.2", "must use the proxy-appended (rightmost) XFF entry, not the client-forgeable leftmost");
   });
 });
 

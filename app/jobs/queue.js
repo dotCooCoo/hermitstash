@@ -52,7 +52,10 @@ async function processNext() {
 
   job.attempts++;
   try {
-    await handler(job.data);
+    // Pass the current attempt number so handlers that record per-attempt state
+    // (e.g. webhook_deliveries.attempts) reflect the real retry count, not a
+    // constant. Handlers that don't need it simply ignore the extra argument.
+    await handler(job.data, job.attempts);
   } catch (e) {
     if (job.attempts < MAX_RETRIES) {
       // Retry with exponential backoff

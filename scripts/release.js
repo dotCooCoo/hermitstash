@@ -319,8 +319,14 @@ function actionsGate() {
       } else if (s.ref.toLowerCase() !== latest.sha.toLowerCase()) {
         bad.push({ site: s, why: "SHA " + s.ref.slice(0, 12) + "… ≠ latest " + latest.tag });
       } else {
+        // Compare the comment's semver against the semver carried in the latest
+        // release tag, not the raw tag — some actions tag releases with a prefix
+        // (e.g. codeql-action's `codeql-bundle-vX.Y.Z`), so a literal tag compare
+        // would flag a correctly-pinned action as stale. Skip when either side
+        // has no parseable X.Y.Z.
         var cs = commentSemver(s.comment);
-        if (cs && cs !== latest.tag.replace(/^v/, "")) bad.push({ site: s, why: "comment `" + s.comment + "` ≠ latest " + latest.tag });
+        var lts = commentSemver(latest.tag);
+        if (cs && lts && cs !== lts) bad.push({ site: s, why: "comment `" + s.comment + "` ≠ latest " + latest.tag });
       }
     });
     if (bad.length) stale.push({ ownerRepo: ownerRepo, latest: latest, bad: bad });

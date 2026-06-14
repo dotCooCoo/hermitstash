@@ -13,8 +13,10 @@ var rateLimit = require("../lib/rate-limit");
 var { AppError, ValidationError } = require("../app/shared/errors");
 
 function createVerificationToken(userId) {
-  // Clean up any existing tokens for this user
-  verificationTokensRepo.remove({ userId: userId });
+  // Clean up only this user's existing EMAIL tokens — scoping by type so a
+  // verification-email resend can't wipe a pending password-reset token (and
+  // vice versa); each action type owns an independent token lifecycle.
+  verificationTokensRepo.remove({ userId: userId, type: "email" });
 
   var rawToken = b.crypto.generateToken();
   var tokenHash = b.crypto.sha3Hash(rawToken);

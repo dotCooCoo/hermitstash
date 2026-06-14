@@ -29,10 +29,15 @@ function getCurrentCode(secret) {
   return totp.computeCode(secret, Math.floor(Date.now() / 30000));
 }
 
-// Clear the TOTP replay prevention step so the same code can be reused across tests
+// Clear the TOTP replay prevention so the same code can be reused across tests.
+// There are TWO layers now: the stored totpLastStep (rejects a step <= last seen)
+// and the in-process single-use nonce (rejects an exact (user, step) replay within
+// the TTL). Production never reuses a live code; the suite deliberately does within
+// one 30s window, so both layers are reset here.
 function clearTotpLastStep(email) {
   var user = users.findOne({ email: email });
   if (user) users.update({ _id: user._id }, { $set: { totpLastStep: null } });
+  require(path.join(testServer.projectRoot, "lib", "replay-nonce"))._resetForTests();
 }
 
 async function registerAndLogin(name, email, password) {

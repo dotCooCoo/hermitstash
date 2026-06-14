@@ -206,6 +206,7 @@ async function saveAndCreateFileRecord(buffer, opts) {
     encryptionKey: saved.encryptionKey,
     uploadedBy: opts.uploadedBy,
     uploaderEmail: opts.uploaderEmail || null,
+    teamId: opts.teamId || null,
     downloads: 0,
     status: "complete",
     createdAt: now,

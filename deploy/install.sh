@@ -53,17 +53,17 @@ HERMITSTASH_AUTO_UPDATE="${HERMITSTASH_AUTO_UPDATE:-no}"
 log "Installing HermitStash to ${INSTALL_DIR}"
 echo ""
 
-# ---- Step 1: Node.js 24.14.1+ ----
+# ---- Step 1: Node.js 24.16.0+ ----
 #
 # HermitStash needs OpenSSL 3.5 PQC bindings (ML-KEM-1024,
 # SLH-DSA-SHAKE-256f, ML-DSA-87) plus the cumulative 24.x security
-# patches that have shipped since 24.8. The 24.14.1 floor pins the
+# patches that have shipped since 24.8. The 24.16.0 floor pins the
 # latest active 24.x patch series. NodeSource setup_24.x ships
-# current 24.x (well past 24.14.1).
+# current 24.x (well past 24.16.0).
 
 NODE_MIN_MAJOR=24
-NODE_MIN_MINOR=14
-NODE_MIN_PATCH=1
+NODE_MIN_MINOR=16
+NODE_MIN_PATCH=0
 
 needs_install=false
 if command -v node &>/dev/null; then

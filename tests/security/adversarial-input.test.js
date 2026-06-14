@@ -421,8 +421,9 @@ describe("database manipulation", function () {
     var nonAdmins = users.find({ role: { $ne: "admin" } });
     assert.ok(Array.isArray(nonAdmins), "$ne query must return an array");
 
-    // The ne-test user should be in the non-admin results (match by emailHash)
-    var found = nonAdmins.some(function (u) { return u.emailHash === hashEmail("ne-test@test.com"); });
+    // The ne-test user should be in the non-admin results (match by the row _id
+    // returned from insert — emailHash is now a keyed MAC, not recomputable here).
+    var found = nonAdmins.some(function (u) { return u._id === testUser._id; });
     assert.strictEqual(found, true, "$ne query should find user with role != admin");
 
     // $ne query should NOT include admins

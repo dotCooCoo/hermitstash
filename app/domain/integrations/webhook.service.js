@@ -86,7 +86,7 @@ function fire(eventName, payload) {
  * Dispatch a single webhook. Called by the job queue handler.
  * Returns a promise that resolves with delivery result.
  */
-function dispatchSingle(hookId, eventName, payload) {
+function dispatchSingle(hookId, eventName, payload, attempt) {
   var { webhookDeliveries } = require("../../../lib/db");
   var hook = webhooksRepo.findById(hookId);
   if (!hook) return Promise.resolve();
@@ -96,7 +96,7 @@ function dispatchSingle(hookId, eventName, payload) {
     webhookDeliveries.insert({
       webhookId: hookId, event: eventName, status: "failed",
       statusCode: 0, error: "Invalid URL: " + (check.reason || "unknown"),
-      attempts: 1, createdAt: new Date().toISOString(),
+      attempts: attempt || 1, createdAt: new Date().toISOString(),
     });
     return Promise.resolve();
   }
@@ -106,7 +106,7 @@ function dispatchSingle(hookId, eventName, payload) {
       webhookDeliveries.insert({
         webhookId: hookId, event: eventName, status: "failed",
         statusCode: 0, error: "Private/internal host blocked",
-        attempts: 1, createdAt: new Date().toISOString(),
+        attempts: attempt || 1, createdAt: new Date().toISOString(),
       });
       return;
     }
@@ -143,14 +143,14 @@ function dispatchSingle(hookId, eventName, payload) {
         webhookId: hookId, event: eventName,
         status: ok ? "success" : "failed",
         statusCode: res.statusCode, error: ok ? null : "HTTP " + res.statusCode,
-        attempts: 1, createdAt: new Date().toISOString(),
+        attempts: attempt || 1, createdAt: new Date().toISOString(),
       });
       return ok ? undefined : { error: "HTTP " + res.statusCode };
     }, function (err) {
       webhookDeliveries.insert({
         webhookId: hookId, event: eventName, status: "failed",
         statusCode: 0, error: (err && (err.message || String(err))) || "request failed",
-        attempts: 1, createdAt: new Date().toISOString(),
+        attempts: attempt || 1, createdAt: new Date().toISOString(),
       });
       return { error: err && err.message };
     });
@@ -174,8 +174,8 @@ function getDeliveries(webhookId, limit) {
 // silently dropped by the queue ("No handler for job type"). Keeping the
 // registration here makes the service self-contained.
 var queue = require("../../jobs/queue");
-queue.register("webhook-dispatch-single", function (data) {
-  return dispatchSingle(data.hookId, data.event, data.payload).then(function (r) {
+queue.register("webhook-dispatch-single", function (data, attempt) {
+  return dispatchSingle(data.hookId, data.event, data.payload, attempt).then(function (r) {
     // Throw on delivery failure so the queue applies its exponential-backoff
     // retry (3 attempts, then dead-letter). dispatchSingle has already
     // recorded the failure to webhook_deliveries either way.

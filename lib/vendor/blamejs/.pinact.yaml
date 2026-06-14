@@ -18,7 +18,7 @@
 #    re-verification that the upstream org makes impossible from a
 #    runner.
 #
-# See npm-publish.yml comment block + memory/specs/release-v0.10.19-plan.md.
+# See the npm-publish.yml comment block.
 
 version: 3
 

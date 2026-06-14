@@ -79,6 +79,7 @@ services:
       - certs:/certs:ro
       - ./docker/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
       - ./docker/postgres/init-tls.sh:/init-tls.sh:ro
+      - ./docker/postgres/initdb/10-replication.sh:/docker-entrypoint-initdb.d/10-replication.sh:ro
       - blamejs_test_pgdata:/var/lib/postgresql
     entrypoint:
       - "/bin/sh"
@@ -534,9 +535,217 @@ services:
       start_period: 60s
     restart: unless-stopped
 
+  # Azure Blob Storage emulator (blob service only), HTTPS via the test CA.
+  # Path-style account placement: blob URLs are
+  # https://<host>:10000/<account>/<container>/<blob> with the account in the
+  # PATH, not the host (unlike production <account>.blob.core.windows.net).
+  # The client uses endpoint=https://127.0.0.1:10000 with account
+  # devstoreaccount1 + the well-known emulator key. node:alpine image has no
+  # wget/curl and busybox sh lacks /dev/tcp, so the host-side checker probes
+  # :10000 (Azurite answers 400 on an unauthenticated GET, which is "up").
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.35.0
+    container_name: blamejs-test-azurite
+    ports:
+      - "127.0.0.1:10000:10000"
+      - "[::1]:10000:10000"
+    volumes:
+      - certs:/certs:ro
+      - blamejs_test_azuritedata:/data
+    command:
+      - "azurite-blob"
+      # Bind dual-stack (::) so both the IPv4 and IPv6 host-port mappings
+      # reach a listening socket — 0.0.0.0 is IPv4-only and the network's
+      # IPv6 publish path resets.
+      - "--blobHost"
+      - "::"
+      - "--blobPort"
+      - "10000"
+      - "--location"
+      - "/data"
+      - "--cert"
+      - "/certs/azurite.crt"
+      - "--key"
+      - "/certs/azurite.key"
+      - "--skipApiVersionCheck"
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+
+  # Google Cloud Storage emulator, HTTPS via the test CA (loads our leaf via
+  # -cert-location/-private-key-location). In-memory backend; tests create
+  # buckets at setup. public-host must equal the client's connect authority
+  # so the XML/V4 routes match. fake-gcs-server does NOT verify the bearer
+  # token or V4 signature — the live test proves wire/URL/marshalling +
+  # TLS-trust, not signature correctness (that stays a unit-vector concern).
+  # scratch image (no shell) → host-side probe of /_internal/healthcheck.
+  fake-gcs:
+    image: fsouza/fake-gcs-server:1.54.0
+    container_name: blamejs-test-gcs
+    ports:
+      - "127.0.0.1:4443:4443"
+      - "[::1]:4443:4443"
+    volumes:
+      - certs:/certs:ro
+    command:
+      - "-scheme=https"
+      - "-host=0.0.0.0"
+      - "-port=4443"
+      - "-cert-location=/certs/gcs.crt"
+      - "-private-key-location=/certs/gcs.key"
+      - "-public-host=127.0.0.1:4443"
+      - "-external-url=https://127.0.0.1:4443"
+      - "-backend=memory"
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+
+  # OpenTelemetry Collector (contrib) — receives OTLP/HTTP logs over TLS (test
+  # CA) on :4318/v1/logs and writes each received batch as NDJSON to
+  # ./docker/otel/export/otlp-logs.json so a test can read it back and assert
+  # secrets/PII were redacted before egress. scratch image (no shell) →
+  # host-side probe of the health_check extension on :13133.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.153.0
+    container_name: blamejs-test-otel-collector
+    ports:
+      - "127.0.0.1:4318:4318"
+      - "[::1]:4318:4318"
+      - "127.0.0.1:13133:13133"
+      - "[::1]:13133:13133"
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - certs:/certs:ro
+      - ./docker/otel/config.yaml:/etc/otel/config.yaml:ro
+      - ./docker/otel/export:/export
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+
+  # AWS emulator (CloudWatch Logs + SQS) for the cloudwatch log sink and the
+  # SQS queue backend. LocalStack stays plain HTTP on the internal network;
+  # the localstack-tls sidecar terminates TLS with the test CA so the client
+  # verifies the cert with no rejectUnauthorized:false. LocalStack does NOT
+  # verify SigV4 signatures (it ignores the secret key) — the live test proves
+  # request shape + sequence-token flow + read-back + redaction, not signature
+  # correctness. Image ships curl, so the readiness check is in-container.
+  localstack:
+    # Pinned to the last pre-unification semver. From 2026.03 (CalVer) the
+    # unified localstack/localstack image is Pro-gated and exits without a
+    # license token even with ACTIVATE_PRO=0; 4.14.0 is the community line and
+    # boots free. CloudWatch Logs + SQS are stable community services.
+    image: localstack/localstack:4.14.0
+    container_name: blamejs-test-localstack
+    environment:
+      ACTIVATE_PRO: "0"
+      SERVICES: "logs,sqs"
+      EAGER_SERVICE_LOADING: "1"
+      GATEWAY_LISTEN: "0.0.0.0:4566"
+    expose:
+      - "4566"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:4566/_localstack/health | grep -q '\"logs\"'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    restart: unless-stopped
+
+  localstack-tls:
+    image: caddy:2-alpine
+    container_name: blamejs-test-localstack-tls
+    ports:
+      - "127.0.0.1:4566:4566"
+      - "[::1]:4566:4566"
+    volumes:
+      - certs:/certs:ro
+      - ./docker/caddy/localstack.Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      localstack:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+
+  # Postgres hot-standby streaming replica of the primary, so tests can prove
+  # read-replica routing (b.externalDb.read.query) against a real standby and
+  # that crypto-shred residual ciphertext is gone from the replica too. First
+  # boot base-backs-up from the primary (replica-entrypoint.sh); serves TLS on
+  # 5433 with the same test-CA leaf as the primary.
+  postgres-replica:
+    image: postgres:18-alpine
+    container_name: blamejs-test-postgres-replica
+    ports:
+      - "127.0.0.1:5433:5432"
+      - "[::1]:5433:5432"
+    environment:
+      POSTGRES_USER: blamejs
+      POSTGRES_PASSWORD: blamejs_test
+      POSTGRES_DB: blamejs_test
+      PGDATA: /var/lib/postgresql/18/docker
+    volumes:
+      - certs:/certs:ro
+      - ./docker/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./docker/postgres/replica-entrypoint.sh:/replica-entrypoint.sh:ro
+      - blamejs_test_pgreplicadata:/var/lib/postgresql
+    entrypoint: ["/bin/sh", "/replica-entrypoint.sh"]
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blamejs -d blamejs_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 25s
+    restart: unless-stopped
+
+  # TCP fault-injection proxy in front of redis + postgres so tests can prove
+  # the framework's reconnect / failover behavior against a real backend that
+  # is made to drop, reset, or slow mid-connection (via the toxiproxy API on
+  # :8474). Transparent passthrough until a toxic is added, so the proxied
+  # ports speak the backend protocol verbatim. scratch image (no shell) →
+  # host-side probe. Bound dual-stack so both loopback families reach it.
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+    container_name: blamejs-test-toxiproxy
+    command: ["-host=::", "-config=/config/toxiproxy.json"]
+    ports:
+      - "127.0.0.1:8474:8474"
+      - "[::1]:8474:8474"
+      - "127.0.0.1:16379:16379"
+      - "[::1]:16379:16379"
+      - "127.0.0.1:15432:15432"
+      - "[::1]:15432:15432"
+    volumes:
+      - ./docker/toxiproxy/toxiproxy.json:/config/toxiproxy.json:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+
 volumes:
   certs:
+  blamejs_test_azuritedata:
   blamejs_test_pgdata:
+  blamejs_test_pgreplicadata:
   blamejs_test_mysqldata:
   blamejs_test_mongodata:
   blamejs_test_miniodata:

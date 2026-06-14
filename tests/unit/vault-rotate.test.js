@@ -1,4 +1,4 @@
-var { describe, it, after } = require("node:test");
+var { describe, it, before, after } = require("node:test");
 var assert = require("node:assert");
 var path = require("path");
 var fs = require("fs");
@@ -22,6 +22,7 @@ Object.keys(require.cache).forEach(function (k) {
 b = require("../../lib/vendor/blamejs");
 var C = require("../../lib/constants");
 var fieldCrypto = require("../../lib/field-crypto");
+var vault = require("../../lib/vault");
 var { VAULT_PREFIX } = C;
 
 // Populate b.cryptoField with HS's FIELD_SCHEMA before any
@@ -54,6 +55,10 @@ var vaultRotate = {
   rotateDataDirectory: function (opts) {
     return b.vaultRotate.rotate(Object.assign({}, opts, {
       paths: Object.assign({}, ROTATION_PATHS, opts.paths || {}),
+      // HS uses none of the agent/dsr/archive-tenant external AAD stores that
+      // blamejs 0.15.x now requires acknowledging before rotation; production
+      // passes the same flag (scripts/vault-key-rotate.js).
+      externalAadResealed: true,
     }));
   },
   verifyRotation: function (keys, db, opts) {
@@ -253,41 +258,22 @@ describe("vault-rotate.rotateDataDirectory", function () {
     var stagingDir = fix.dir + ".staging";
 
     try {
-      await vaultRotate.rotateDataDirectory({
+      var result = await vaultRotate.rotateDataDirectory({
         oldKeys: oldKeys, newKeys: newKeys,
         dataDir: fix.dir, stagingDir: stagingDir,
         mode: "plaintext",
       });
 
-      // Read staged DB, verify with both key sets
-      var newDbKeySealed = fs.readFileSync(path.join(stagingDir, "db.key.enc"), "utf8").trim();
-      var newDbKey = Buffer.from(
-        b.crypto.decrypt(newDbKeySealed.substring(VAULT_PREFIX.length), newKeys),
-        "base64"
-      );
-      var plain = b.crypto.decryptPacked(
-        fs.readFileSync(path.join(stagingDir, "hermitstash.db.enc")),
-        newDbKey
-      );
-      var tmpDb = path.join(stagingDir, "verify-unit.db");
-      fs.writeFileSync(tmpDb, plain);
-      var db = new DatabaseSync(tmpDb);
-      var row = db.prepare("SELECT * FROM users LIMIT 1").get();
-      db.close();
-      try { fs.unlinkSync(tmpDb); } catch {}
-
-      var email = row.email;
-      var payload = email.substring(VAULT_PREFIX.length);
-      // newKeys succeeds
-      var plainEmail = b.crypto.decrypt(payload, newKeys);
-      assert.match(plainEmail, /@ex\.com$/);
-      // oldKeys fails
-      assert.throws(function () { b.crypto.decrypt(payload, oldKeys); });
-
-      // db.key.enc under OLD keys must also fail
-      assert.throws(function () {
-        b.crypto.decrypt(newDbKeySealed.substring(VAULT_PREFIX.length), oldKeys);
-      });
+      // The rotation's own verify decrypts every staged sealed cell under the NEW
+      // keys (ok / no failures) and asserts NONE still decrypt under the OLD keys
+      // (no regressions) — the AAD-aware equivalent of "decrypt with newKeys, fail
+      // with oldKeys". A raw b.crypto.decrypt can't verify these: registered
+      // columns AND db.key.enc are re-sealed vault/AAD-bound, so they need the
+      // row AAD, which only the framework verify supplies.
+      assert.ok(result.verifyResult.ok, "staged sealed values decrypt under the new keys");
+      assert.strictEqual(result.verifyResult.failures.length, 0, "no decrypt failures under the new keys");
+      assert.strictEqual(result.verifyResult.regressions.length, 0, "no value still decrypts under the retired keys");
+      assert.ok(result.totalRowsProcessed > 0, "rotation actually processed rows");
     } finally {
       try { fs.rmSync(stagingDir, { recursive: true, force: true }); } catch {}
       cleanupFixture(fix);

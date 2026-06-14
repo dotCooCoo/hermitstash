@@ -1,0 +1,42 @@
+# Test-only OpenTelemetry Collector (contrib). Receives the framework's
+# OTLP/HTTP log export over TLS (the stack's test CA) and writes every
+# received batch to a host-readable NDJSON file so a test can read it back
+# and assert that secrets / PII were redacted before egress.
+#
+# The framework posts to <base>:4318/v1/logs (OTLP HTTP, JSON). With only
+# cert_file/key_file set (no client_ca_file) the receiver does server-side
+# TLS, not mTLS — the client just needs to trust the CA via
+# NODE_EXTRA_CA_CERTS, with no rejectUnauthorized:false.
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+        tls:
+          cert_file: /certs/otel.crt
+          key_file: /certs/otel.key
+
+exporters:
+  # One OTLP ExportLogsServiceRequest as JSON per line (NDJSON). append:false
+  # is the default, so the file is truncated on start — each stack run gets a
+  # clean file. create_directory makes the collector materialize the path
+  # inside the mounted volume.
+  file:
+    path: /export/otlp-logs.json
+    format: json
+    create_directory: true
+  # Mirror to stderr at full fidelity for interactive debugging.
+  debug:
+    verbosity: detailed
+
+service:
+  extensions: [health_check]
+  pipelines:
+    logs:
+      receivers: [otlp]
+      exporters: [file, debug]

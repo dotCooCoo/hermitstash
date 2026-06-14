@@ -17,8 +17,8 @@
  */
 "use strict";
 
-// Node version guard — fail fast with a clear message on <24.14.1.
-// HermitStash needs Node 24.14.1+ for OpenSSL 3.5 PQC bindings
+// Node version guard — fail fast with a clear message on <24.16.0.
+// HermitStash needs Node 24.16.0+ for OpenSSL 3.5 PQC bindings
 // (ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87) plus the cumulative
 // security patches that have shipped on the 24.x line since 24.8.
 // Operators bypassing deploy/install.sh + Dockerfile (e.g. running
@@ -26,14 +26,13 @@
 // blamejs / OpenSSL failures deep in the require chain.
 (function checkNodeVersion() {
   var parts = process.versions.node.split(".").map(Number);
-  var major = parts[0], minor = parts[1], patch = parts[2];
-  var tooOld = major < 24 ||
-    (major === 24 && (minor < 14 || (minor === 14 && patch < 1)));
+  var major = parts[0], minor = parts[1];
+  var tooOld = major < 24 || (major === 24 && minor < 16);
   if (tooOld) {
     console.error(
-      "FATAL: HermitStash requires Node.js 24.14.1 or newer (found v" + process.versions.node + ").\n" +
+      "FATAL: HermitStash requires Node.js 24.16.0 or newer (found v" + process.versions.node + ").\n" +
       "  HermitStash uses OpenSSL 3.5 post-quantum bindings (ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87)\n" +
-      "  plus crypto.argon2; the 24.14.1 floor pins the latest active 24.x patches. Upgrade Node and re-run.\n" +
+      "  plus crypto.argon2; the 24.16.0 floor pins the latest active 24.x patches. Upgrade Node and re-run.\n" +
       "  Install: https://nodejs.org/  |  Linux/systemd: deploy/install.sh"
     );
     process.exit(1);
@@ -136,6 +135,27 @@
     if (e && e.stack) console.error(e.stack);
     console.error("Restore data/ from a pre-upgrade backup, then either re-run the upgrade or run scripts/envelope-migrate-0xE1-to-0xE2.js manually.");
     process.exit(1);
+  }
+
+  // Boot-time keyed-MAC blind-index backfill. Rewrites legacy unkeyed derived
+  // indexes (emailHash, slugHash, ...) to the keyed MAC under the vault MAC key.
+  // Non-fatal by design: lookups dual-read both digests, so a failure here only
+  // defers the cleanup to the next boot — it never blocks startup. A completion
+  // marker short-circuits subsequent boots.
+  try {
+    var derivedBackfill = require("./lib/derived-hash-backfill");
+    if (!derivedBackfill.isComplete()) {
+      var dh = derivedBackfill.run({
+        log: { info: function (m) { console.log(m); }, warn: console.warn, error: console.error },
+      });
+      if (dh && !dh.skipped) {
+        console.log("[derived-hash] blind-index backfill complete — " + dh.rewritten + " of " + dh.checked +
+          " rows re-keyed" + (dh.sourceUnreadable ? " (" + dh.sourceUnreadable + " sources unreadable, indexes preserved)" : ""));
+      }
+    }
+  } catch (e) {
+    console.warn("[derived-hash] backfill deferred (non-fatal): " + (e && e.message) +
+      " — dual-read keeps lookups working; will retry next boot.");
   }
 
   require("./server-main");
