@@ -23,4 +23,13 @@ module.exports = function (app) {
     });
     res.json(result);
   });
+
+  // Tamper-evidence chain verification — admin-only. Walks every audit row and
+  // recomputes the hash chain; returns { ok, rowsVerified, lastHash } or, on a
+  // break, { ok:false, breakAt, reason, ... }. Async terminal handler: the
+  // router awaits it and any throw flows through the centralized error handler.
+  app.get("/admin/audit/verify", async function (req, res) {
+    if (!requireAdmin(req, res)) return;
+    res.json(await auditService.verifyAuditChain());
+  });
 };

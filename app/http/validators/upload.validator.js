@@ -3,6 +3,7 @@
  * Ensures consistent size/count/type enforcement across all upload paths.
  */
 var nodePath = require("node:path");
+var b = require("../../../lib/vendor/blamejs");
 
 /**
  * Validate a file against allowed extensions, max size, and empty check.
@@ -60,6 +61,23 @@ var RISKY_EXTENSIONS = new Set([
   ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".svg",
 ]);
 
+// Raster image types fed to b.guardImage for polyglot / format-integrity
+// tightening. SVG is deliberately absent — guardImage refuses SVG bytes via
+// an svg-routing issue, and SVG has its own sanitize path (lib/sanitize-svg.js).
+// Maps the detected extension to the MIME guardImage's magic table reports so
+// the declared-vs-detected mismatch check stays neutral and only the polyglot /
+// cap checks can fire (additive: guardImage can only TIGHTEN, never loosen).
+var RASTER_IMAGE_MIME = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".bmp": "image/bmp",
+  ".ico": "image/x-icon",
+  ".tiff": "image/tiff",
+};
+
 /**
  * Detect actual content type from file buffer (first 512 bytes).
  * Returns extension string (".png", ".jpg", etc.) or null if unrecognized.
@@ -116,11 +134,30 @@ function validateMagicBytes(filename, buffer) {
   // Normalize both sides through the compatibility map
   var expectedType = COMPAT[ext] || ext;
   var detectedType = COMPAT[detected] || detected;
-  if (expectedType === detectedType) return { valid: true };
-  // .jpg/.jpeg interchangeable
-  if ((expectedType === ".jpg" || expectedType === ".jpeg") && (detectedType === ".jpg" || detectedType === ".jpeg")) return { valid: true };
+  var extensionMatches = (expectedType === detectedType) ||
+    // .jpg/.jpeg interchangeable
+    ((expectedType === ".jpg" || expectedType === ".jpeg") && (detectedType === ".jpg" || detectedType === ".jpeg"));
 
-  return { valid: false, reason: "File content does not match " + ext + " format." };
+  if (!extensionMatches) {
+    return { valid: false, reason: "File content does not match " + ext + " format." };
+  }
+
+  // The buffer is a valid image whose extension agrees with its magic bytes.
+  // For raster images only, run the polyglot / format-integrity guard — it can
+  // only TIGHTEN this result. detectContentType() returns on the first magic
+  // match, so a polyglot carrying two valid image signatures is mislabeled and
+  // would otherwise pass; guardImage walks every signature and refuses a buffer
+  // that matches more than one format. SVG is excluded (it routes through
+  // lib/sanitize-svg.js; feeding it here trips a spurious svg-routing refusal).
+  var rasterMime = RASTER_IMAGE_MIME[detectedType];
+  if (rasterMime) {
+    var imageCheck = b.guardImage.validate({ bytes: buffer, declaredMime: rasterMime });
+    if (!imageCheck.ok) {
+      return { valid: false, reason: "Image failed polyglot/format-integrity check." };
+    }
+  }
+
+  return { valid: true };
 }
 
 module.exports = { validateFile, validateChunk, validateBundleLimits, detectContentType, validateMagicBytes };

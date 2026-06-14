@@ -286,6 +286,139 @@ jobs:
         run: |
           gitleaks git --config=.gitleaks.toml --redact --verbose --exit-code=1
 
+  osv-scan:
+    name: OSV-Scanner (vendored-dep known CVEs)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up Node 24.16.0 LTS
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24.16.0'
+
+      - name: Build vendored-deps CycloneDX SBOM
+        # The framework ships ZERO npm runtime deps — its security-critical
+        # crypto (@noble/ciphers, @noble/curves, @noble/post-quantum,
+        # @simplewebauthn/server, peculiar-pki) is VENDORED under
+        # lib/vendor/, so `npm audit` / Dependabot / Socket never see it.
+        # check-vendor-currency.js tracks whether the vendored copies are
+        # up to date, but currency is not the same as "no known CVE". This
+        # SBOM emits each vendored library as an npm purl so a published
+        # advisory can be matched against the exact pinned version we ship.
+        run: node scripts/build-vendored-sbom.js > sbom.vendored.cdx.json
+
+      - name: Install osv-scanner
+        # Same posture as the gitleaks gate: pull the OSS binary straight
+        # from GitHub releases tracking the latest tag — a CVE-database
+        # front-end is a forward-looking security gate, and pinning would
+        # silently miss new advisories the scanner learns to surface.
+        # Authenticate the API call so the shared-runner-IP unauthenticated
+        # rate limit (60/hour) doesn't 403 the install mid-run.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          OSV_VERSION=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            https://api.github.com/repos/google/osv-scanner/releases/latest \
+            | grep -oP '"tag_name":\s*"v\K[^"]+' | head -1)
+          if [ -z "$OSV_VERSION" ]; then
+            echo "::error::Could not resolve latest osv-scanner release tag from GitHub API"
+            exit 1
+          fi
+          echo "[osv-scanner] resolved latest release: v${OSV_VERSION}"
+          curl -fsSL "https://github.com/google/osv-scanner/releases/download/v${OSV_VERSION}/osv-scanner_linux_amd64" \
+            -o /tmp/osv-scanner
+          chmod +x /tmp/osv-scanner
+          sudo mv /tmp/osv-scanner /usr/local/bin/osv-scanner
+          osv-scanner --version
+
+      - name: Scan vendored deps for known CVEs
+        # Exit 1 on any advisory match. A hit means a published CVE/GHSA
+        # affects a version we vendor — refresh the vendored copy (the
+        # vendor-currency job points at the upstream release) and re-run.
+        run: osv-scanner scan -L sbom.vendored.cdx.json
+
+  semgrep:
+    name: Semgrep (complementary SAST)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Install Semgrep
+        # OSS CLI from PyPI tracking latest — same forward-looking posture
+        # as the gitleaks / osv-scanner gates (a SAST ruleset is a moving
+        # security target). pipx ships on the ubuntu-latest runner image
+        # and installs into an isolated venv, sidestepping PEP-668.
+        run: |
+          set -euo pipefail
+          pipx install semgrep
+          semgrep --version
+
+      - name: Run Semgrep (curated security packs, ERROR severity)
+        # Complementary to CodeQL: the Registry security-audit + javascript
+        # packs are a different rule set. Scoped to the shipped framework
+        # surface (lib/) at ERROR severity — the high-confidence subset —
+        # and fails the job on any match (--error). Structural-drift
+        # classes a generic SAST rule can't express are covered by the
+        # in-repo detector system (codebase-patterns.test.js). A confirmed
+        # false positive is silenced with an inline `// nosemgrep: <rule>`
+        # carrying the reason, mirroring the detector-allowlist discipline.
+        run: |
+          semgrep scan \
+            --config=p/security-audit \
+            --config=p/javascript \
+            --severity=ERROR \
+            --error \
+            --metrics=off \
+            --disable-version-check \
+            lib/
+
+  lint-actions:
+    name: actionlint (workflow lint)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Install actionlint
+        # OSS binary from GitHub releases (latest), same posture as the
+        # gitleaks / osv-scanner gates. actionlint statically checks the
+        # workflow YAML for the bug class this project has tripped on — a
+        # step referencing a value drifted out of agreement with a pinned
+        # tool version, a mistyped expression, an unsafe ${{ }}
+        # interpolation of untrusted input into a run block.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          AL_VERSION=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            https://api.github.com/repos/rhysd/actionlint/releases/latest \
+            | grep -oP '"tag_name":\s*"v\K[^"]+' | head -1)
+          if [ -z "$AL_VERSION" ]; then
+            echo "::error::Could not resolve latest actionlint release tag from GitHub API"
+            exit 1
+          fi
+          echo "[actionlint] resolved latest release: v${AL_VERSION}"
+          curl -fsSL "https://github.com/rhysd/actionlint/releases/download/v${AL_VERSION}/actionlint_${AL_VERSION}_linux_amd64.tar.gz" \
+            | tar -xz -C /tmp actionlint
+          sudo mv /tmp/actionlint /usr/local/bin/actionlint
+          actionlint --version
+
+      - name: Run actionlint
+        # -color for a readable run log. actionlint shells out to the
+        # shellcheck already on the runner for `run:` blocks, so a shell
+        # bug inside a workflow step is caught here too.
+        run: actionlint -color
+
   wiki-source-comment-blocks:
     name: Wiki @module / @primitive comment-block convention
     runs-on: ubuntu-latest

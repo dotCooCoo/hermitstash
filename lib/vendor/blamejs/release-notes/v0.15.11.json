@@ -1,0 +1,52 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.15.11",
+  "date": "2026-06-14",
+  "headline": "Replaces a family of quadratic-time regexes that hostile input could use to stall a worker with linear scans, refuses a relocatable sealed-cell downgrade on the read side, fails closed when enabling row-level security behind a non-native driver, and scans the vendored crypto for known CVEs on every build",
+  "summary": "Several text-handling primitives stripped trailing whitespace or extracted a mail address with a regex whose backtracking is quadratic in the input length on adversarial strings — a request body, a YAML document, a CSV cell, or a From header crafted as a long run of spaces could pin a worker's CPU. Each is now a linear character scan with identical output. The HTML-content check the MCP tool surface applies gained the vbscript: and data:text/html vectors it was missing. On the data-at-rest side, an AAD-bound (or per-row-key) column now refuses a plain, unbound vault cell on read — a relocatable envelope an attacker with write access could copy in from another row defeats the cross-row binding, so the field is nulled rather than surfaced; operators mid-migration opt back in with registerTable({ allowPlainMigration: true }). declareRowPolicy now treats row-level-security as enabled only on a value that unambiguously means true, so a non-native Postgres driver that returns the string \"f\" can no longer be read as \"already on\" and silently skip the ENABLE that protects the table's rows. Finally, because the framework's crypto is vendored rather than installed, npm audit and Dependabot never see it: every build now matches the vendored versions against the OSV vulnerability database, with a complementary Semgrep pass and workflow-file static analysis alongside.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "b.safeBuffer.indexAfterOpenTag(html, tagName)",
+          "body": "A linear helper that returns the offset just past a `<tag ...>` opening tag (case-insensitive), or -1 when absent or unterminated — the insertion point a response rewriter uses to splice content after <body> or <head> without a regex. It replaces the O(n^2) html.match(/<body[^>]*>/i) shape and is stricter than it: a real tag boundary is required after the name, so <bodyfoo> is not mistaken for <body>."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Linear-time replacements across a family of quadratic regexes (ReDoS class)",
+          "body": "Several primitives located or stripped text with a regex whose backtracking is quadratic in V8 on adversarial input (CWE-1333): b.safeBuffer and the safe-env / safe-yaml / guard-csv parsers stripped trailing horizontal whitespace with /[ \\t]+$/; b.mail extracted the address from a `Name <addr>` header with /<([^>]+)>/; the bot-disclosure and speculation-rules response middleware found the <body> insertion point with /<body[^>]*>/i; and the BIMI certificate-chain splitter walked PEM blocks with a lazy /BEGIN[\\s\\S]*?END/ scan. A crafted field — a long run of spaces, an unterminated bracket, a body carrying many <body starts with no closing >, a chain of BEGIN markers — could drive a worker's CPU to seconds of work. Each is now a linear scan: a shared b.safeBuffer.stripTrailingHspace (backward char walk), b.safeBuffer.indexAfterOpenTag (forward indexOf walk for the tag insertion point), a forward indexOf for address extraction, and an indexOf walk for the PEM split. Output is byte-identical (the tag-find is stricter — it no longer mistakes <bodyfoo> for <body>), and 400K-character adversarial inputs that took 8–85 seconds now complete in under 2 ms."
+        },
+        {
+          "title": "MCP HTML-content check covers vbscript: and data:text/html",
+          "body": "The dangerous-markup check applied to text/html tool content matched <script>/<iframe>/<object>/<embed> and javascript: URLs but not the vbscript: scheme or data:text/html payloads. Both are now refused; data: URLs carrying non-HTML media (data:image/png and similar) are unaffected."
+        },
+        {
+          "title": "AAD-bound columns refuse a plain sealed cell on read",
+          "body": "b.cryptoField.unsealRow now refuses a plain, unbound vault: envelope found on an AAD-bound (or per-row-key) column and nulls the field instead of returning it. A plain envelope carries no per-cell binding, so a writer who could place one — copied from anywhere under the same vault root — would otherwise relocate a value across rows or columns and defeat the copy-protection the AAD binding advertises. Operators migrating pre-AAD rows up to bound ciphertext opt into a bounded acceptance window with registerTable({ allowPlainMigration: true }) and clear it when migration completes."
+        },
+        {
+          "title": "Row-level-security enablement fails closed on non-native drivers",
+          "body": "b.db.declareRowPolicy read pg_class.relrowsecurity to skip a redundant ENABLE ROW LEVEL SECURITY, but tested it with a bare truthiness check. A native pg driver returns a JS boolean; a proxy or ORM may return the string \"f\" for a disabled table — and \"f\" is truthy, so the check read it as already-enabled and silently skipped the ENABLE, leaving every row in the table unprotected while the migration reported success. RLS now counts as enabled only on a value that unambiguously means true (true, 1, or \"t\"/\"true\"/\"1\"/\"on\"/\"yes\"); every other shape re-issues ENABLE, a harmless no-op on an already-enabled table."
+        },
+        {
+          "title": "Vendored-crypto CVE scanning, complementary SAST, and workflow static analysis in CI",
+          "body": "The framework ships zero npm runtime dependencies — its crypto (the noble suite, the WebAuthn server, the PKI layer) is vendored under lib/vendor/, where npm audit, Dependabot, and Socket cannot see it. Every build now generates a CycloneDX SBOM of the vendored tree (each library carrying an npm purl) and runs it through OSV-Scanner, matching the exact pinned version against the OSV vulnerability database; a published CVE or GHSA affecting a vendored version fails the build so the copy is refreshed before merge. A Semgrep pass (registry security-audit + javascript packs at ERROR severity) runs alongside CodeQL as complementary SAST, and actionlint statically checks the workflow files. All three install the OSS tool from its upstream release, matching the existing secret-scan gate's posture."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "Quadratic trailing-whitespace and tag-find regex detectors",
+          "body": "Two codebase-pattern detectors refuse reintroduction of the quadratic shapes: the /[ \\t]+$/ trailing-whitespace strip (as .replace, .test, or via the named TRAILING_HSPACE_RE export) outside the linear helper that owns it, and the str.match(/<tag[^>]*>/) document-tag find that the response middleware must route through b.safeBuffer.indexAfterOpenTag. Each is proven to fire on the removed shape and stay silent on the linear replacement, so the ReDoS class cannot creep back into a new parser, guard, or response rewriter."
+        }
+      ]
+    }
+  ]
+}

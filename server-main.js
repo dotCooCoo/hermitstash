@@ -11,6 +11,7 @@ var db = require("./lib/db");
 var { users } = db;
 var storage = require("./lib/storage");
 var audit = require("./lib/audit");
+var clientIp = require("./lib/client-ip");
 var logger = require("./app/shared/logger");
 var { sendHtml } = require("./lib/template");
 var certUtils = require("./lib/cert-utils");
@@ -40,7 +41,7 @@ var apiEncryptKeypair = require("./lib/api-encrypt-keypair");
 var scheduler = require("./lib/scheduler");
 
 // -- middleware/ --
-var { send } = require("./middleware/send");
+var { emitError } = require("./middleware/respond-error");
 var attachUser = require("./middleware/attach-user");
 var errorHandler = require("./middleware/error-handler");
 
@@ -549,6 +550,37 @@ app.use(function (req, res, next) {
   }, 503);
 });
 
+// Admin network fence — opt-in CIDR allowlist on the /admin surface. This is an
+// ADDITIVE network-layer gate that sits ON TOP OF requireAdmin auth: requireAdmin
+// stops unauthorized USERS, the fence stops the route being REACHABLE from
+// outside the operator's admin network at all (defends a credential leak).
+// Constructed ONLY when ADMIN_ALLOWED_CIDRS is non-empty, so the default
+// deployment mounts nothing and /admin behaves exactly as before. A miss is
+// answered 404 (not 403) so a probe can't even tell the fence exists.
+if (Array.isArray(config.adminAllowedCidrs) && config.adminAllowedCidrs.length > 0) {
+  app.use(b.middleware.networkAllowlist({
+    paths:        ["/admin"],
+    allowedCidrs: config.adminAllowedCidrs,
+    // Honour X-Forwarded-For only as far as HS's own trust model does: trust the
+    // configured reverse-proxy hop count when TRUST_PROXY is set, else read the
+    // raw socket peer (no XFF trust).
+    trustProxy:   config.trustProxy ? clientIp.trustHops() : false,
+    denyStatus:   404,
+    onDeny: function (req, res) {
+      audit.log(audit.ACTIONS.ADMIN_FENCE_DENIED, {
+        req: req,
+        details: "Admin request from a non-allowlisted network was refused: " + (req.pathname || ""),
+      });
+      res.statusCode = 404;
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.end("Not Found");
+    },
+  }));
+  logger.info("[admin-fence] /admin restricted to operator CIDR allowlist", {
+    cidrs: config.adminAllowedCidrs.length,
+  });
+}
+
 // Dynamic manifest — config for user text, constants for paths/theme
 app.get("/manifest.json", (req, res) => {
   res.json({
@@ -673,9 +705,15 @@ app.post("/sync/rename",
   }
 );
 
-// Custom 404 page
+// Custom 404 — content-negotiated: HTML error template for browsers, RFC 9457
+// problem+json for API/Bearer clients, via the shared error emitter.
 app.onNotFound(function (req, res) {
-  send(res, "error", { user: req.user || null, title: "Page Not Found", message: "The page you're looking for doesn't exist or has been moved." }, 404);
+  emitError(req, res, {
+    status: 404,
+    code: "NOT_FOUND",
+    htmlTitle: "Page Not Found",
+    detail: "The page you're looking for doesn't exist or has been moved.",
+  });
 });
 
 // Centralized error handler — catches all unhandled errors from routes
@@ -765,6 +803,41 @@ if (config.backup && config.backup.enabled) {
     return backupJob.run();
   }, { skipInitial: true, baseline: config.backup.timeOfDay, timezone: config.backup.timezone });
 }
+
+// Audit tamper-evidence chain (opt-in). Verify once at boot, then daily.
+// Default posture on a mismatch is log-at-ERROR-and-continue (the operator
+// still wants the app up to investigate); AUDIT_CHAIN_STRICT escalates a
+// mismatch to a refuse-to-boot.
+if (config.auditChainEnabled) {
+  var auditChainService = require("./app/domain/admin/audit.service");
+  auditChainService.verifyAuditChain().then(function (result) {
+    if (result && result.ok) {
+      logger.info("[audit-chain] verified at boot", { rowsVerified: result.rowsVerified });
+    } else {
+      logger.error("[audit-chain] verification FAILED — audit log may have been tampered with", {
+        reason: result && result.reason, breakAt: result && result.breakAt, breakRowId: result && result.breakRowId,
+      });
+      if (config.auditChainStrict) {
+        logger.error("[audit-chain] AUDIT_CHAIN_STRICT is set — refusing to boot");
+        process.exit(1);
+      }
+    }
+  }).catch(function (e) {
+    logger.error("[audit-chain] boot verification errored", { error: e && e.message });
+    if (config.auditChainStrict) process.exit(1);
+  });
+
+  scheduler.register("audit_chain_verify", C.TIME.days(1), function () { // daily
+    return auditChainService.verifyAuditChain().then(function (result) {
+      if (!result || !result.ok) {
+        logger.error("[audit-chain] scheduled verification FAILED", {
+          reason: result && result.reason, breakAt: result && result.breakAt, breakRowId: result && result.breakRowId,
+        });
+      }
+    }).catch(function (e) { logger.error("audit_chain_verify failed", { error: e && e.message }); });
+  });
+}
+
 scheduler.start();
 
 // TLS configuration — conditional HTTPS with PQC hybrid key exchange.

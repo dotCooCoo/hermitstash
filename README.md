@@ -739,6 +739,13 @@ Each row shows a ✓ / · / ! indicator, the current effective value (masked for
 
 **Boot-time secrets must come from environment variables** (or `*_FILE` variants for Docker secrets), never the admin UI. The Action buttons in v1.9.9+ create the sealed file artifacts but they CANNOT write your `.env` / Docker secret / Kubernetes Secret for you — those live on the host, outside the container's mount. The vault-passphrase-enable wizard surfaces a copyable env-var snippet tailored to your deployment style (Docker Compose with Secrets, Compose with .env, Kubernetes, or systemd) so you can paste it into your config before sealing.
 
+#### Optional network + audit hardening (v1.12.1+)
+
+Two additive layers, both **off by default** so an existing deployment is byte-identical until you turn them on:
+
+- **`ADMIN_ALLOWED_CIDRS`** — a comma-separated CIDR allowlist (env var or Admin → Settings) that fences the `/admin` surface at the network layer, on top of admin authentication. Empty (the default) means no fence. Example: `ADMIN_ALLOWED_CIDRS=10.0.0.0/8, 192.168.0.0/16, ::1/128`. A request to `/admin` from outside the listed ranges is refused before it reaches auth. Behind a proxy the source IP is resolved with the same `TRUST_PROXY` hop policy the rate limiter uses; a change to the list takes effect on restart.
+- **`AUDIT_CHAIN`** — when `true`, each audit-log row is hash-chained (SHA3-512 over the at-rest row, linked to its predecessor) so a row can't be altered or deleted without breaking the chain. Verify on demand at `GET /admin/audit/verify` (admin only). On a detected break the server logs at error severity and stays up so you can inspect it; set `AUDIT_CHAIN_STRICT=true` to refuse to boot instead. Retention pruning writes a purge anchor so trimming old rows doesn't read as tampering. Leave unset for the default synchronous audit path.
+
 #### How the Enable wizards work (v1.9.9+)
 
 For **vault key passphrase wrapping** — a 4-step wizard:
@@ -1229,6 +1236,7 @@ All require `admin` scope:
 | `GET /admin/settings` | Get all settings (sensitive values masked) |
 | `POST /admin/settings` | Update settings. Body: `{ "siteName": "...", ... }` |
 | `GET /admin/environment` | Runtime info (Node.js, OpenSSL, Docker, env overrides) |
+| `GET /admin/audit/verify` | Verify the audit-log hash chain (when `AUDIT_CHAIN` is enabled). Returns `{ ok, rowsVerified, ... }` |
 
 ## Webhooks
 
@@ -1339,7 +1347,7 @@ Managed via `scripts/vendor-update.sh`:
 
 | Vendored | Version | Author | Purpose |
 |----------|---------|--------|---------|
-| [`blamejs`](https://github.com/blamejs/blamejs) | 0.15.10 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, etc. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
+| [`blamejs`](https://github.com/blamejs/blamejs) | 0.15.11 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, etc. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
 | [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) (browser only) | 2.2.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | XChaCha20-Poly1305 in the browser vault + outbox flows |
 | [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (browser only) | 2.2.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | SHAKE256 KDF in the browser |
 | [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) (browser only) | 0.6.1 | [Paul Miller](https://github.com/paulmillr) (MIT) | ML-KEM-1024 in the browser vault flow |

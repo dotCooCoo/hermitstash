@@ -166,7 +166,7 @@ module.exports = function (app) {
   // Activity feed API
   app.get("/admin/activity/api", (req, res) => {
     if (!requireAdmin(req, res)) return;
-    var recent = auditRepo.findPaginated({}, { limit: 20, offset: 0, orderBy: "createdAt", orderDir: "DESC" });
+    var recent = auditRepo.findPaginated({}, { limit: C.PAGINATION.ACTIVITY_FEED, offset: 0, orderBy: "createdAt", orderDir: "DESC" });
     res.json({ entries: recent.data });
   });
 

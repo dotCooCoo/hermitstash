@@ -4,6 +4,8 @@
  * falls back to JS filtering for text search (sealed fields can't be searched in SQL).
  */
 var auditRepo = require("../../data/repositories/audit.repo");
+var audit = require("../../../lib/audit");
+var b = require("../../../lib/vendor/blamejs");
 
 /**
  * Query audit log with filters, search, date range, and pagination.
@@ -67,4 +69,15 @@ function queryAuditLog(opts) {
   return { entries: paged, total: total, page: page, pages: pages, limit: limit };
 }
 
-module.exports = { queryAuditLog };
+/**
+ * Verify the audit tamper-evidence chain end to end. Walks every audit_log row
+ * in monotonicCounter order, recomputing each rowHash, and returns the verifier
+ * result ({ ok:true, rowsVerified, lastHash } on a clean walk, or { ok:false,
+ * breakAt, reason, ... } on the first mismatch). Reuses the SAME query callbacks
+ * lib/audit.js writes through so the verify reads the live chain.
+ */
+function verifyAuditChain() {
+  return b.auditChain.verifyChain(audit.chainQueryAll, "audit_log", {});
+}
+
+module.exports = { queryAuditLog, verifyAuditChain };

@@ -3,6 +3,7 @@
  * Validates settings updates, user management actions, and export parameters.
  */
 var { validateEmail } = require("../../shared/validate");
+var C = require("../../../lib/constants");
 
 // Roles the admin can assign via invite or role toggle
 var VALID_ROLES = ["user", "admin"];
@@ -141,8 +142,8 @@ function validateExportParams(type) {
  */
 function validatePaginationParams(query) {
   query = query || {};
-  var page = Math.max(1, parseInt(query.page, 10) || 1);
-  var limit = Math.max(1, Math.min(200, parseInt(query.limit, 10) || 25));
+  var page = Math.max(C.PAGINATION.DEFAULT_PAGE, parseInt(query.page, 10) || C.PAGINATION.DEFAULT_PAGE);
+  var limit = Math.max(C.PAGINATION.MIN_LIMIT, Math.min(C.PAGINATION.MAX_LIMIT, parseInt(query.limit, 10) || C.PAGINATION.DEFAULT_LIMIT));
   return { page: page, limit: limit };
 }
 

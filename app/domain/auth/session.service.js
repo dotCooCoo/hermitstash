@@ -6,7 +6,7 @@
  * to `b.session` in v1.9.29. Every helper here is async; callers
  * (route handlers) await accordingly.
  */
-var { clearSessionsForUser, clearAllSessions, clearSessionById } = require("../../../lib/session");
+var { clearSessionsForUser, clearAllSessions, clearSessionById, secureLogout } = require("../../../lib/session");
 var { TIME } = require("../../../lib/constants");
 
 /**
@@ -48,10 +48,20 @@ async function complete2fa(req) {
 /**
  * Logout: clear app-side data + delete the storage row. The next
  * request gets a fresh anonymous session.
+ *
+ * Pass `res` (the live response) for a secure self-logout: it adds an
+ * RFC 9527 Clear-Site-Data header + an expired hs_sid cookie so the
+ * browser drops its client-side state, not just the server row. Callers
+ * without a response (e.g. flows that revoke the row but answer on a
+ * different surface) omit `res` and get the server-side-only revoke.
  */
-async function logoutUser(req) {
+async function logoutUser(req, res) {
   Object.keys(req.session).forEach(function (k) { delete req.session[k]; });
-  await clearSessionById(req.sessionId);
+  if (res) {
+    await secureLogout(res, req.sessionId);
+  } else {
+    await clearSessionById(req.sessionId);
+  }
 }
 
 /**

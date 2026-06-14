@@ -177,6 +177,39 @@ describe("auth integration", function () {
         logoutRes.status === 302 || logoutRes.status === 200,
         "logout should succeed, got " + logoutRes.status + " " + logoutRes.text
       );
+
+      // Secure logout (RFC 9527): the response carries a Clear-Site-Data
+      // header that wipes the browser's cookies/storage/cache.
+      var csd = logoutRes.headers["clear-site-data"] || "";
+      assert.ok(
+        csd.includes("cookies"),
+        "logout response should carry a Clear-Site-Data header containing \"cookies\", got: " + JSON.stringify(csd)
+      );
+
+      // The hs_sid Set-Cookie on the logout response must EXPIRE the
+      // cookie (Max-Age=0 or an already-past Expires), not re-emit a live
+      // 7-day cookie. The sessionMiddleware writeHead wrapper normally
+      // re-sets a live hs_sid on every response; the logout path must
+      // suppress that re-set so it can't clobber the expiry. This is the
+      // cookie-clobber regression guard.
+      var setCookies = logoutRes.headers["set-cookie"] || [];
+      if (!Array.isArray(setCookies)) setCookies = [setCookies];
+      var hsSidCookies = setCookies.filter(function (c) { return c.indexOf("hs_sid=") === 0; });
+      assert.ok(hsSidCookies.length > 0, "logout response should set the hs_sid cookie");
+      hsSidCookies.forEach(function (c) {
+        var expired = /max-age=0\b/i.test(c) ||
+          /expires=thu,\s*01\s*jan\s*1970/i.test(c) ||
+          /hs_sid=;/.test(c);   // empty value = cleared
+        assert.ok(
+          expired,
+          "logout hs_sid cookie must be EXPIRED (Max-Age=0 / past Expires / empty), not a live session: " + c
+        );
+        assert.ok(
+          !/max-age=[1-9]/i.test(c),
+          "logout hs_sid cookie must NOT carry a positive Max-Age (live cookie clobber): " + c
+        );
+      });
+
       // Dashboard should now redirect (session cleared)
       var res = await client.get("/dashboard");
       assert.strictEqual(res.status, 302, "dashboard should redirect when logged out");

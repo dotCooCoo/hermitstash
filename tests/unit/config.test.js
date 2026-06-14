@@ -225,6 +225,7 @@ describe("config", function () {
         "emailTemplateSubject", "emailTemplateHeader", "emailTemplateFooter",
         "emailVerification", "passkeyEnabled", "rpName", "rpId", "rpOrigin",
         "themeAccentColor", "themeBgColor", "themeFont", "trustProxy",
+        "adminAllowedCidrs",
       ];
       for (var i = 0; i < expectedKeys.length; i++) {
         assert.ok(expectedKeys[i] in settings, "getSettings should include key: " + expectedKeys[i]);

@@ -217,7 +217,11 @@ module.exports = function (app) {
         return;
       }
       audit.log(audit.ACTIONS.LOGOUT, { req: req });
-      await sessionService.logoutUser(req);
+      // Pass res for the secure self-logout: destroys the storage row AND
+      // emits RFC 9527 Clear-Site-Data + an expired hs_sid cookie so the
+      // browser wipes its client-side state. The token logoutUser revokes
+      // is req.sessionId — the live cookie this request carried.
+      await sessionService.logoutUser(req, res);
       res.redirect("/");
     });
   });

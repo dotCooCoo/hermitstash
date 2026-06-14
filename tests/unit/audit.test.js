@@ -367,6 +367,67 @@ describe("audit", function () {
     });
   });
 
+  // ---- Tamper-evidence chain (AUDIT_CHAIN on) ----
+
+  describe("tamper-evidence chain", function () {
+    var config = require("../../lib/config");
+    var auditService = require("../../app/domain/admin/audit.service");
+
+    // Enable the chain for this block only; restore after so the rest of the
+    // suite keeps the default synchronous (chain-off) write path.
+    before(function () { config.auditChainEnabled = true; });
+    after(function () { config.auditChainEnabled = false; });
+
+    it("writes a verifiable chain: counters increase, prevHash links, row0 anchors ZERO_HASH", async function () {
+      var N = 5;
+      for (var i = 0; i < N; i++) {
+        audit.log(audit.ACTIONS.LOGIN_SUCCESS, { performedBy: "chain-user-" + i, details: "chain entry " + i });
+      }
+      await audit.drainChain();
+
+      var rows = db.rawQuery("SELECT monotonicCounter, prevHash, rowHash FROM audit_log WHERE monotonicCounter IS NOT NULL ORDER BY monotonicCounter ASC");
+      assert.ok(rows.length >= N, "should have at least " + N + " chained rows");
+
+      // monotonicCounter strictly increasing by 1
+      for (var j = 1; j < rows.length; j++) {
+        assert.strictEqual(rows[j].monotonicCounter, rows[j - 1].monotonicCounter + 1,
+          "monotonicCounter should increase by exactly 1");
+      }
+      // prevHash[i] === rowHash[i-1]
+      for (var k = 1; k < rows.length; k++) {
+        assert.strictEqual(rows[k].prevHash, rows[k - 1].rowHash,
+          "each row's prevHash should equal the previous row's rowHash");
+      }
+      // First row anchors on ZERO_HASH
+      assert.strictEqual(rows[0].prevHash, b.auditChain.ZERO_HASH,
+        "the first chained row should anchor on ZERO_HASH");
+      // nonce stored as a 16-byte BLOB (not a JSON-mangled string)
+      var nonceMeta = db.rawGet("SELECT typeof(nonce) as t, length(nonce) as n FROM audit_log WHERE monotonicCounter IS NOT NULL ORDER BY monotonicCounter ASC LIMIT 1");
+      assert.strictEqual(nonceMeta.t, "blob", "nonce should be stored as a BLOB");
+      assert.strictEqual(nonceMeta.n, 16, "nonce should be 16 bytes");
+    });
+
+    it("verifyAuditChain returns ok with the full row count on an untampered chain", async function () {
+      await audit.drainChain();
+      var total = db.rawGet("SELECT COUNT(*) as c FROM audit_log WHERE monotonicCounter IS NOT NULL").c;
+      var result = await auditService.verifyAuditChain();
+      assert.strictEqual(result.ok, true, "untampered chain should verify ok");
+      assert.strictEqual(result.rowsVerified, total, "should verify every chained row");
+    });
+
+    it("verifyAuditChain detects a mutated rowHash (tamper)", async function () {
+      await audit.drainChain();
+      // Mutate the rowHash of the second chained row.
+      var target = db.rawGet("SELECT monotonicCounter FROM audit_log WHERE monotonicCounter IS NOT NULL ORDER BY monotonicCounter ASC LIMIT 1 OFFSET 1");
+      db.rawExec("UPDATE audit_log SET rowHash = ? WHERE monotonicCounter = ?",
+        "0".repeat(128), target.monotonicCounter);
+
+      var result = await auditService.verifyAuditChain();
+      assert.strictEqual(result.ok, false, "tampered chain must fail verification");
+      assert.ok(result.reason && /mismatch/.test(result.reason), "should report a hash mismatch");
+    });
+  });
+
   // ---- unsealEntry ----
 
   describe("unsealEntry", function () {

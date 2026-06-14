@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.15.10",
-  "createdAt": "2026-06-14T03:15:12.427Z",
+  "frameworkVersion": "0.15.11",
+  "createdAt": "2026-06-14T05:18:13.280Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -48327,6 +48327,10 @@
         "hasCrlf": {
           "type": "function",
           "arity": 1
+        },
+        "indexAfterOpenTag": {
+          "type": "function",
+          "arity": 2
         },
         "isHex": {
           "type": "function",

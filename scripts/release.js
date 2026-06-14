@@ -415,6 +415,7 @@ var PATTERNS_NA = {
   "inline-numeric-bounds-cascade": "blamejs opts-factory primitive shape; HS authors no framework primitives (consumes b.* via the public surface)",
   "inline-require-non-empty-string-validation": "blamejs opts-factory primitive shape; HS authors no framework primitives (consumes b.* via the public surface)",
   "internal-narrative-comment": "blamejs-specific label vocabulary (SUBSTRATE-/MAIL-/Codex P#/blamejs PR #N); HS lib/ comments carry none (0 sites); HS's no-internal-narrative discipline targets Phase/Sweep/Tier/Slice, enforced via the release-notes leak-vocabulary blocklist — a HS gate, if wanted, is a new detector, not this port.",
+  "hand-rolled-sql": "blamejs detector for migrating its OWN data layer (clusterStorage/externalDb + the b.sql builder + _blamejs_* framework tables) onto b.sql; HS owns a deliberate standalone SQLite substrate (lib/db.js, its own prepared-statement handle + schema migration) and consumes none of that data layer, so there is no b.sql to migrate onto — HS already uses the portable b.safeSql.quoteIdentifier for identifier-injection safety (lib/db.js).",
 };
 
 // Extract the detector class-id set from a codebase-patterns gate file.
