@@ -106,7 +106,16 @@ function enforceCertBinding(apiKey, socket) {
  */
 function enforceBundleOwnership(apiKey, bundle) {
   if (!bundle) return { status: 404, error: "Bundle not found." };
-  if (apiKey.boundStashId && bundle.stashId === apiKey.boundStashId) return null;
+  if (apiKey.boundStashId) {
+    // Stash-scoped tokens are confined to their stash, period — they must NOT
+    // fall through to the issuing user's personal-bundle ownership. A stash key
+    // carries the creating admin's userId (stash.js issuance), so the old
+    // fall-through let a stash-X token reach the admin's own non-stash bundles
+    // (rename/download/delete). Mirror the strict WS upgrade gate (server-main.js).
+    return (bundle.stashId === apiKey.boundStashId)
+      ? null
+      : { status: 403, error: "Forbidden." };
+  }
   if (!bundle.ownerId || bundle.ownerId !== apiKey.userId) {
     return { status: 403, error: "Forbidden." };
   }

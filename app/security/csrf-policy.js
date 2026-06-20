@@ -112,7 +112,18 @@ function csrfMiddleware(req, res, next) {
   // spoof or omit it cross-site; a same-origin request, or a non-browser client
   // with no Origin (which carries no ambient cookie), passes.
   var contentType = (req.headers && req.headers["content-type"]) || "";
-  if (contentType.includes("application/json")) {
+  // JSON and multipart cookie-session POSTs both rely on the cross-site Origin
+  // check: a browser sets Origin on every state-changing request, and a forger
+  // cannot spoof or omit it cross-site. multipart/form-data is CORS-safelisted
+  // (fires without preflight, with ambient cookies) but STILL carries Origin, so
+  // the same check that backstops JSON is the primary CSRF defense for multipart.
+  // The framework token check can't see a `_csrf` field inside HS's self-buffered
+  // multipart stream, so the Origin gate is what protects admin multipart routes
+  // (e.g. /admin/logo/upload). The genuinely token-bearing public upload portals
+  // (/drop, /stash) are already exempt above (isExempt) and Bearer/API clients
+  // skipped earlier, so the only non-exempt multipart routes are same-origin
+  // admin mutations, which pass cleanly.
+  if (contentType.includes("application/json") || contentType.includes("multipart/")) {
     var origin = (req.headers && req.headers.origin) || "";
     if (origin && origin !== originPolicy.getOrigin()) {
       // emitError routes problem+json through the encrypting res.json on an
@@ -124,9 +135,6 @@ function csrfMiddleware(req, res, next) {
     }
     return next();
   }
-
-  // Multipart uploads use bundle/finalize tokens for auth, not CSRF.
-  if (contentType.includes("multipart/")) return next();
 
   // Form-encoded or unknown content type → framework validates.
   return bCsrf(req, res, next);

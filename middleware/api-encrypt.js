@@ -173,7 +173,7 @@ module.exports = function apiEncrypt(req, res, next) {
 
         if (body && body._e) {
           try {
-            var decrypted = decryptPayload(body._e, apiKey, REPLAY_WINDOW);
+            var decrypted = decryptPayload(body._e, apiKey, REPLAY_WINDOW, MAX_JSON_BODY);
             if (decrypted === null || decrypted === undefined) throw new Error("Invalid payload");
             // Atomic single-use claim of the exact envelope bytes. A replayed
             // request re-sends a byte-identical _e (the XChaCha20 nonce lives

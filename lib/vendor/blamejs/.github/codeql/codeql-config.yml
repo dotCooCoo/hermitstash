@@ -1,0 +1,25 @@
+name: "blamejs CodeQL config"
+
+# Scope security analysis to DEPLOYED code: the npm package surface
+# (lib/, index.js, bin/) AND the examples/wiki documentation site, which ships
+# as a running container. Excluded are code paths that are never deployed —
+# test fixtures (test/, examples/wiki/test/), build/CI scripts (scripts/),
+# vendored third-party bundles (lib/vendor/, examples/wiki/public/vendor/),
+# the built client bundle (examples/wiki/public/dist/), and node_modules.
+# Test/build code quality is enforced separately by eslint and the framework's
+# own codebase-patterns detectors (which DO walk test/ and scripts/).
+queries:
+  - uses: security-extended
+
+paths:
+  - lib
+  - index.js
+  - bin
+  - examples/wiki
+
+paths-ignore:
+  - lib/vendor
+  - "**/node_modules"
+  - examples/wiki/test
+  - examples/wiki/public/vendor
+  - examples/wiki/public/dist

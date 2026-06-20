@@ -11,7 +11,7 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
 
 ---
 
-## blamejs v0.15.11
+## blamejs v0.15.13
 
 - **License:** Apache-2.0
 - **Copyright:** blamejs contributors
@@ -20,8 +20,8 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
 - **Used for:** Server-side framework — crypto, vault, identity, middleware,
   envelope versioning, audit chain
 - **Bundled packages (vendored under `lib/vendor/blamejs/lib/vendor/`):** see
-  the `@noble/ciphers`, `@noble/post-quantum`, `@simplewebauthn/server`,
-  `@peculiar/x509` + `pkijs`, and SecLists entries below.
+  the `@noble/ciphers`, `@noble/curves`, `@noble/post-quantum`,
+  `@simplewebauthn/server`, `@peculiar/x509` + `pkijs`, and SecLists entries below.
 
 ## @noble/ciphers v2.2.0
 
@@ -30,6 +30,14 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
 - **Source:** https://github.com/paulmillr/noble-ciphers
 - **Files:** `lib/vendor/blamejs/lib/vendor/noble-ciphers.cjs` (server, via blamejs), `public/js/noble-ciphers.js` (browser)
 - **Used for:** XChaCha20-Poly1305 symmetric encryption
+
+## @noble/curves v2.2.0
+
+- **License:** MIT
+- **Copyright:** (c) 2022 Paul Miller (paulmillr.com)
+- **Source:** https://github.com/paulmillr/noble-curves
+- **Files:** `lib/vendor/blamejs/lib/vendor/noble-curves.cjs` (server, via blamejs)
+- **Used for:** Oblivious-pseudorandom-function (OPRF) primitives over P-256 / P-384 / P-521 and ristretto255, used internally by blamejs
 
 ## @noble/hashes v2.2.0
 
@@ -50,7 +58,7 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
   SLH-DSA-SHAKE-256f / SLH-DSA-SHA2-256f (FIPS 205). Browser —
   ML-KEM-512/768/1024 (FIPS 203) key encapsulation only.
 
-## @simplewebauthn/server v13.3.0
+## @simplewebauthn/server v13.3.1
 
 - **License:** MIT
 - **Copyright:** (c) Matthew Miller

@@ -22,7 +22,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           persist-credentials: false
 
@@ -35,12 +35,13 @@ jobs:
         uses: github/codeql-action/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e  # v4.36.2
         with:
           languages: javascript-typescript
-          # security-extended adds higher-precision queries beyond the
-          # default suite. The query pack catches: SQL injection, XSS,
-          # prototype pollution, command injection, ReDoS, unsafe
-          # deserialization, server-side request forgery, hardcoded
-          # credentials. Findings surface as SARIF in the Security tab.
-          queries: security-extended
+          # Scope (paths) + query suite (security-extended) live in the config
+          # file so analysis covers only the shipped product (lib/, index.js,
+          # bin/) — the npm package surface — not test/build/example code.
+          # security-extended catches SQL injection, XSS, prototype pollution,
+          # command injection, ReDoS, unsafe deserialization, SSRF, hardcoded
+          # credentials; findings surface as SARIF in the Security tab.
+          config-file: ./.github/codeql/codeql-config.yml
 
       # Auto-build is skipped because CommonJS files don't need a build
       # step; CodeQL extracts straight from source.

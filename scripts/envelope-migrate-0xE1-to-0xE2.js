@@ -36,7 +36,13 @@ console.log("=== HermitStash envelope migration 0xE1 → 0xE2 (" + (DRY_RUN ? "D
   await hermitstashVault.init();
 
   var migrate = require("../lib/legacy-envelope-migrate");
-  var keys = JSON.parse(hermitstashVault.getKeysJson());
+  // Guard the parse: a SyntaxError of the keypair JSON would reach the top-level
+  // catch, which logs err.message + err.stack and would echo private-key bytes
+  // (CWE-532). getKeysJson() is our own in-memory serialization so this is
+  // defence-in-depth, but the leak class is the same as the on-disk readers.
+  var keys;
+  try { keys = JSON.parse(hermitstashVault.getKeysJson()); }
+  catch (_e) { console.error("[fatal] in-memory vault keypair did not serialize to valid JSON (parser detail suppressed to avoid logging key material)."); process.exit(1); }
 
   var result = migrate.run({
     keys:    keys,

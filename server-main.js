@@ -558,24 +558,38 @@ app.use(function (req, res, next) {
 // deployment mounts nothing and /admin behaves exactly as before. A miss is
 // answered 404 (not 403) so a probe can't even tell the fence exists.
 if (Array.isArray(config.adminAllowedCidrs) && config.adminAllowedCidrs.length > 0) {
-  app.use(b.middleware.networkAllowlist({
-    paths:        ["/admin"],
-    allowedCidrs: config.adminAllowedCidrs,
-    // Honour X-Forwarded-For only as far as HS's own trust model does: trust the
-    // configured reverse-proxy hop count when TRUST_PROXY is set, else read the
-    // raw socket peer (no XFF trust).
-    trustProxy:   config.trustProxy ? clientIp.trustHops() : false,
-    denyStatus:   404,
-    onDeny: function (req, res) {
-      audit.log(audit.ACTIONS.ADMIN_FENCE_DENIED, {
-        req: req,
-        details: "Admin request from a non-allowlisted network was refused: " + (req.pathname || ""),
-      });
-      res.statusCode = 404;
-      res.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res.end("Not Found");
-    },
-  }));
+  // Resolve the client IP through HS's canonical peer-gated reader and match it
+  // against the operator CIDR allowlist with b.ssrfGuard.cidrContains. clientIp.getIp
+  // honours X-Forwarded-For ONLY when the socket peer is a configured trusted proxy
+  // and canonicalizes ::ffff: IPv4-mapped IPv6. The framework networkAllowlist
+  // primitive resolves the client IP itself WITHOUT that peer gate, so an
+  // X-Forwarded-For header on a request that reaches the admin port off-proxy could
+  // spoof an in-range source (and a dual-stack listener could false-deny an in-range
+  // operator on a ::ffff: address); composing getIp here closes both. A miss is
+  // answered 404 so a probe can't tell the fence exists.
+  var adminFenceCidrs = config.adminAllowedCidrs.slice();
+  adminFenceCidrs.forEach(function (cidr) {
+    // Refuse to boot on a malformed CIDR rather than silently disabling an allow
+    // entry — a typo'd fence is an operator emergency, not a soft default.
+    try { b.ssrfGuard.cidrContains(cidr, "127.0.0.1"); }
+    catch (_e) { throw new Error("ADMIN_ALLOWED_CIDRS contains a malformed CIDR: " + JSON.stringify(cidr)); }
+  });
+  app.use(function adminNetworkFence(req, res, next) {
+    var pathname = req.pathname || (req.url || "").split("?")[0];
+    if (pathname !== "/admin" && pathname.indexOf("/admin/") !== 0) return next();
+    var ip = clientIp.getIp(req);
+    var allowed = !!ip && adminFenceCidrs.some(function (cidr) {
+      try { return b.ssrfGuard.cidrContains(cidr, ip); } catch (_e) { return false; }
+    });
+    if (allowed) return next();
+    audit.log(audit.ACTIONS.ADMIN_FENCE_DENIED, {
+      req: req,
+      details: "Admin request from a non-allowlisted network was refused: " + pathname,
+    });
+    res.statusCode = 404;
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.end("Not Found");
+  });
   logger.info("[admin-fence] /admin restricted to operator CIDR allowlist", {
     cidrs: config.adminAllowedCidrs.length,
   });

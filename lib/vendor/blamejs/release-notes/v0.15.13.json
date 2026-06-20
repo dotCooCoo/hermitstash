@@ -1,0 +1,81 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.15.13",
+  "date": "2026-06-19",
+  "headline": "Consolidates a large set of duplicated, security-sensitive code paths — injected-dependency validation, positive-integer option caps, TOCTOU-safe file reads, markup escaping, audit emission, structured-field parsing, and untrusted-JWK import — onto shared hardened primitives, so a fix or guard now applies everywhere at once; adds a TOCTOU-safe file reader; and makes several configuration errors throw typed framework errors instead of a bare Error",
+  "summary": "Across the framework, logic that had been hand-rolled in many places (and had quietly drifted between copies) is now single-sourced through shared primitives. The practical effect for operators is consistency: the strongest available guard is applied everywhere a given operation happens, rather than in whichever copy happened to have it. Injected dependencies (stores, backends, vaults, db handles, query objects) are validated through one contract; operator-tunable positive-integer options (pool sizes, byte caps, timeouts, stream limits) validate through one bounds primitive that forwards the caller's non-retryable / HTTP-status flags; the open-fd → fstat → read-fully pattern that several call sites used to defend file reads against a swap-after-stat race (CWE-367) is now the b.atomicFile.fdSafeReadSync primitive, with symlink refusal, inode-equality, a byte cap, and an integrity hash available as options and each caller's exact typed error preserved; and the XML/HTML markup escapers (including the b.guardHtml / b.guardSvg sanitizer output) route through one b.markupEscape so the base & < > \" chain can't drift between them. A few configuration-validation paths that threw a bare Error (httpClient.configurePool, b.db stream-limit validation) now throw the module's typed framework error. No security defaults change; this release tightens and unifies existing protections rather than adding opt-ins.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "b.atomicFile.fdSafeReadSync(filepath, opts?)",
+          "body": "A TOCTOU-safe synchronous file read (CWE-367 / js/file-system-race): it opens the path read-only, then binds the size, content, and integrity measurement to the inode the fd holds open, so a swap between stat and read can't change which bytes are returned. Optional guards layer on top — maxBytes (refuse an over-cap file), refuseSymlink + inodeCheck (refuse a symlink source and any inode swap, the strongest posture for operator-writable paths), expectedHash (SHA3-512), encoding (return a string), allowShortRead — and an errorFor(kind, detail) callback lets each caller keep its own typed error. The framework's own file reads (atomic-file, the TLS certificate-path loader, the sealed-PEM source reader, the backup bundle reader) all route through it."
+        },
+        {
+          "title": "Shared substrate primitives for previously-duplicated logic",
+          "body": "A set of shared primitives now back call sites that had each re-implemented the same logic: validateOpts.requireMethods (gains a `permanent` flag) for injected-dependency contract checks; numericBounds positive-finite-int validators (gain an errorOpts { permanent, statusCode }) for tunable integer options; b.markupEscape for the & < > \" markup chain; structured-field parsing helpers (parseTagList, forEachKeyValue, splitUnquoted, stripDoubleQuotes, unfoldHeaderContinuations); crypto.importPublicJwk and crypto.makeBase64UrlDecoder; safeSql.toPositional; safeBuffer.makeByteCoercer; nonceStore.enforceReplay; and the audit/observability namespaced emitters. These are mostly invisible substrate — the operator-visible benefit is that a guard or fix added to one of them now covers every caller."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Configuration errors throw typed framework errors",
+          "body": "Two configuration-validation paths that threw a bare `Error` now throw the module's typed framework error: httpClient.configurePool (bad maxSockets / maxFreeSockets / keepAliveMsecs → HttpClientError, code httpclient/bad-opts) and the b.db stream-limit validation (Query.stream → DbQueryError). The thrown error remains an Error subclass, so existing `instanceof Error` / try-catch handling is unaffected; code that matched the old free-text message should match the typed error's `code` instead. Several routed validators also report a slightly more precise message (\"positive finite integer\" instead of \"positive integer\")."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "TOCTOU-safe file reads applied uniformly",
+          "body": "The open-fd → fstat → read pattern that anchors a file read to one inode against a swap-after-stat race is now centralized in b.atomicFile.fdSafeReadSync, and every framework file read routes through it. The sealed-PEM source reader keeps the strongest posture (symlink refusal + inode-equality + byte cap), and those guards are now available as options to any caller — a re-introduced hand-rolled read-loop is flagged by a codebase-pattern detector."
+        },
+        {
+          "title": "Injected-dependency and integer-option validation can't silently drift",
+          "body": "Injected stores / backends / vaults / db handles / query objects are validated through one contract (validateOpts.requireMethods), and operator-tunable positive-integer options through one bounds primitive (numericBounds), both forwarding the caller's non-retryable / HTTP-status error flags so a config error stays permanent / carries its 4xx. Inverse detectors flag any re-introduced inline check, so the validation can no longer be partially copied or weakened in one place."
+        },
+        {
+          "title": "Single markup-escape chain for the HTML/SVG sanitizers",
+          "body": "The b.guardHtml and b.guardSvg sanitizer output escapers, the AI-Act transparency and mail HTML escapers, and the XML report escapers now share one b.markupEscape for the base & < > \" chain (apostrophe form as a parameter; each caller keeps its own input coercion and any extra escapes such as guardHtml.escapeAttr's backtick / = IE-attribute-injection hardening). Byte-for-byte parity with the prior escapers was verified across an XSS-vector corpus, so the consolidation cannot have introduced an escaping gap; a re-inlined & < > \" chain anywhere else is flagged by a detector."
+        },
+        {
+          "title": "One hardening point for untrusted public-JWK import",
+          "body": "The createPublicKey-from-JWK call that imports attacker-controlled key material (DID publicKeyJwk, DNSKEY, COSE_Key, DPoP / OAuth / OIDC / DBSC proof JWKs) is centralized in b.crypto.importPublicJwk, so the untrusted-key import has a single audited home; each caller keeps its own kty/crv pre-validation and typed error."
+        },
+        {
+          "title": "Linear-time Content-Security-Policy header parsing",
+          "body": "The CSP response-header parser split directives on a `/\\s*,\\s*/` regex that ran in O(n^2) on a long comma-less run of whitespace, letting a crafted header stall a worker (js/polynomial-redos). It now splits on the literal comma and trims each item, which is linear and byte-for-byte equivalent."
+        },
+        {
+          "title": "Parsed INI and OpenAPI path maps can't reach Object.prototype",
+          "body": "The INI parser already refuses a `__proto__` / `constructor` / `prototype` section or key (it throws before any write); as defense-in-depth, every parsed node — and the OpenAPI paths map keyed by URL pattern — is now a null-prototype object, so even a future gap could only ever set an own property, never mutate Object.prototype (CWE-1321)."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Webhook deliveries retry transient transport failures instead of dead-lettering them",
+          "body": "A delivery that failed with a transient transport error (connection reset, timeout, 5xx) was recorded as permanently failed and dead-lettered rather than retried. The destination-safety check (SSRF / blocked-host guard) now runs in its own step and is the only permanent failure; a transport failure backs off and retries up to the configured limit."
+        },
+        {
+          "title": "Webhook deliveries table creates on MySQL",
+          "body": "The pending-delivery index used a partial-index (WHERE) clause that MySQL does not support, so the deliveries table failed to create on a MySQL backend. The index is now dialect-aware — partial on PostgreSQL / SQLite, plain on MySQL."
+        },
+        {
+          "title": "Inline webhook delivery can't be double-sent by concurrent retry processing",
+          "body": "An inline delivery is now claimed (status set to in-flight with a claim timestamp) before the POST, so a concurrent retry pass can't pick up and re-send the same delivery; a row left in-flight by a crash is reclaimed after the stale-claim window."
+        },
+        {
+          "title": "Audit checkpoint can never be anchored against a replaced database",
+          "body": "close() fires a best-effort final checkpoint as the database shuts down. In a narrow close-then-reopen window that checkpoint's write could resume after a fresh database had opened and anchor the prior database's chain tip into it. checkpoint() now binds to the database it read the tip from and refuses to write (returns null, fail-closed) if that handle has since been closed or replaced — so a checkpoint is only ever written against the database it measured."
+        }
+      ]
+    }
+  ]
+}

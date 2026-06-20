@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.15.11",
-  "createdAt": "2026-06-14T05:18:13.280Z",
+  "frameworkVersion": "0.15.13",
+  "createdAt": "2026-06-19T21:36:12.932Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -2326,6 +2326,10 @@
           "type": "function",
           "arity": 1
         },
+        "fdSafeReadSync": {
+          "type": "function",
+          "arity": 2
+        },
         "fsync": {
           "type": "function",
           "arity": 1
@@ -2427,6 +2431,10 @@
           "type": "function",
           "arity": 1
         },
+        "namespaced": {
+          "type": "function",
+          "arity": 2
+        },
         "query": {
           "type": "function",
           "arity": 1
@@ -2474,7 +2482,7 @@
         },
         "getChainTip": {
           "type": "function",
-          "arity": 2
+          "arity": 3
         },
         "verifyChain": {
           "type": "function",
@@ -2534,6 +2542,10 @@
           "type": "instance",
           "ctorName": "Array"
         },
+        "anchor": {
+          "type": "function",
+          "arity": 2
+        },
         "getAlgorithm": {
           "type": "function",
           "arity": 0
@@ -2573,6 +2585,14 @@
         "verify": {
           "type": "function",
           "arity": 3
+        },
+        "verifyAnchor": {
+          "type": "function",
+          "arity": 1
+        },
+        "verifyAnchorChain": {
+          "type": "function",
+          "arity": 2
         }
       }
     },
@@ -6337,6 +6357,10 @@
           "valueType": "number"
         },
         "create": {
+          "type": "function",
+          "arity": 1
+        },
+        "registerTable": {
           "type": "function",
           "arity": 1
         }
@@ -14347,6 +14371,10 @@
             }
           }
         },
+        "importPublicJwk": {
+          "type": "function",
+          "arity": 2
+        },
         "isCertRevoked": {
           "type": "function",
           "arity": 2
@@ -14354,6 +14382,10 @@
         "kdf": {
           "type": "function",
           "arity": 2
+        },
+        "makeBase64UrlDecoder": {
+          "type": "function",
+          "arity": 1
         },
         "namespaceHash": {
           "type": "function",
@@ -14599,6 +14631,14 @@
         "hash": {
           "type": "function",
           "arity": 2
+        },
+        "mergeDirectives": {
+          "type": "function",
+          "arity": 3
+        },
+        "mergePermissionsPolicy": {
+          "type": "function",
+          "arity": 3
         },
         "nonce": {
           "type": "function",
@@ -16563,6 +16603,10 @@
           "type": "function",
           "arity": 4
         },
+        "GuardTextError": {
+          "type": "function",
+          "arity": 4
+        },
         "GuardTimeError": {
           "type": "function",
           "arity": 4
@@ -16744,6 +16788,10 @@
           "arity": 4
         },
         "WatcherError": {
+          "type": "function",
+          "arity": 4
+        },
+        "WebhookDispatcherError": {
           "type": "function",
           "arity": 4
         },
@@ -17211,6 +17259,10 @@
               "type": "primitive",
               "valueType": "string"
             },
+            "subjectHash": {
+              "type": "primitive",
+              "valueType": "string"
+            },
             "subjectId": {
               "type": "primitive",
               "valueType": "string"
@@ -17248,6 +17300,10 @@
               "valueType": "string"
             },
             "userIdHash": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "validFromEpoch": {
               "type": "primitive",
               "valueType": "string"
             },
@@ -17353,6 +17409,31 @@
             }
           }
         },
+        "CHAR_THREATS_REJECT_ALL": {
+          "type": "object",
+          "members": {
+            "bidiPolicy": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "controlPolicy": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "nullBytePolicy": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "zeroWidthPolicy": {
+              "type": "primitive",
+              "valueType": "string"
+            }
+          }
+        },
+        "DANGEROUS_URL_SCHEMES": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
         "GateContractError": {
           "type": "function",
           "arity": 4
@@ -17365,11 +17446,19 @@
           "type": "instance",
           "ctorName": "Array"
         },
+        "SAFE_URL_SCHEMES": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
         "aggregateIssues": {
           "type": "function",
           "arity": 1
         },
         "badInputResultIfNotStringOrBuffer": {
+          "type": "function",
+          "arity": 1
+        },
+        "buildContentGate": {
           "type": "function",
           "arity": 1
         },
@@ -17401,6 +17490,14 @@
           "type": "function",
           "arity": 2
         },
+        "charThreatDisposition": {
+          "type": "function",
+          "arity": 2
+        },
+        "compliancePostures": {
+          "type": "function",
+          "arity": 2
+        },
         "composeGates": {
           "type": "function",
           "arity": 2
@@ -17425,9 +17522,17 @@
           "type": "function",
           "arity": 1
         },
+        "detectStringInput": {
+          "type": "function",
+          "arity": 3
+        },
         "extractBytesAsText": {
           "type": "function",
           "arity": 1
+        },
+        "identifierFixtures": {
+          "type": "function",
+          "arity": 3
         },
         "lookupCompliancePosture": {
           "type": "function",
@@ -17449,9 +17554,17 @@
           "type": "function",
           "arity": 2
         },
+        "policyDisposition": {
+          "type": "function",
+          "arity": 1
+        },
         "resolveProfileAndPosture": {
           "type": "function",
           "arity": 2
+        },
+        "resolveProfileName": {
+          "type": "function",
+          "arity": 3
         },
         "runGate": {
           "type": "function",
@@ -17459,11 +17572,19 @@
         },
         "runIssueValidator": {
           "type": "function",
-          "arity": 3
+          "arity": 4
+        },
+        "severityDisposition": {
+          "type": "function",
+          "arity": 1
         },
         "shadowMode": {
           "type": "function",
           "arity": 3
+        },
+        "strictDefaults": {
+          "type": "function",
+          "arity": 2
         },
         "summarizeIssues": {
           "type": "function",
@@ -18890,6 +19011,10 @@
           "type": "function",
           "arity": 1
         },
+        "resolveOpts": {
+          "type": "function",
+          "arity": 1
+        },
         "sanitize": {
           "type": "function",
           "arity": 2
@@ -19378,6 +19503,10 @@
           "type": "function",
           "arity": 1
         },
+        "resolveOpts": {
+          "type": "function",
+          "arity": 1
+        },
         "sanitize": {
           "type": "function",
           "arity": 2
@@ -19401,7 +19530,19 @@
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "bomPrefix": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
                 "controlCharPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "dateFormat": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "dialectPolicy": {
                   "type": "primitive",
                   "valueType": "string"
                 },
@@ -19413,7 +19554,27 @@
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "homoglyphPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "nullByteHandling": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "nullSemantics": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "numericPrecisionPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
                 "piiPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "trailingWhitespacePolicy": {
                   "type": "primitive",
                   "valueType": "string"
                 }
@@ -19426,7 +19587,19 @@
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "bomPrefix": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
                 "controlCharPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "dateFormat": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "dialectPolicy": {
                   "type": "primitive",
                   "valueType": "string"
                 },
@@ -19438,11 +19611,27 @@
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "homoglyphPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
                 "nullByteHandling": {
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "nullSemantics": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "numericPrecisionPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
                 "piiPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "trailingWhitespacePolicy": {
                   "type": "primitive",
                   "valueType": "string"
                 }
@@ -19455,7 +19644,19 @@
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "bomPrefix": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
                 "controlCharPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "dateFormat": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "dialectPolicy": {
                   "type": "primitive",
                   "valueType": "string"
                 },
@@ -19467,11 +19668,27 @@
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "homoglyphPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
                 "nullByteHandling": {
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "nullSemantics": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "numericPrecisionPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
                 "piiPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "trailingWhitespacePolicy": {
                   "type": "primitive",
                   "valueType": "string"
                 }
@@ -19484,7 +19701,19 @@
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "bomPrefix": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
                 "controlCharPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "dateFormat": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "dialectPolicy": {
                   "type": "primitive",
                   "valueType": "string"
                 },
@@ -19496,7 +19725,23 @@
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "homoglyphPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
                 "nullByteHandling": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "nullSemantics": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "numericPrecisionPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "trailingWhitespacePolicy": {
                   "type": "primitive",
                   "valueType": "string"
                 }
@@ -19904,6 +20149,10 @@
           "arity": 1
         },
         "loadRulePack": {
+          "type": "function",
+          "arity": 1
+        },
+        "resolveOpts": {
           "type": "function",
           "arity": 1
         },
@@ -20720,6 +20969,10 @@
           "arity": 1
         },
         "loadRulePack": {
+          "type": "function",
+          "arity": 1
+        },
+        "resolveOpts": {
           "type": "function",
           "arity": 1
         },
@@ -21702,6 +21955,10 @@
           "type": "function",
           "arity": 1
         },
+        "resolveOpts": {
+          "type": "function",
+          "arity": 1
+        },
         "sanitize": {
           "type": "function",
           "arity": 2
@@ -21991,6 +22248,10 @@
             "gdpr": {
               "type": "object",
               "members": {
+                "adsPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
                 "bidiPolicy": {
                   "type": "primitive",
                   "valueType": "string"
@@ -21999,23 +22260,63 @@
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "extensionAllowlist": {
+                  "type": "primitive",
+                  "valueType": "null"
+                },
                 "forensicSnippetBytes": {
                   "type": "primitive",
                   "valueType": "number"
+                },
+                "homoglyphPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
                 },
                 "leadingTrailingPolicy": {
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxComponents": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
                 "nullBytePolicy": {
                   "type": "primitive",
                   "valueType": "string"
+                },
+                "pathSeparatorsPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "requireAscii": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireSingleDot": {
+                  "type": "primitive",
+                  "valueType": "boolean"
                 },
                 "reservedCharPolicy": {
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "reservedNamePolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "shellExecExtPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
                 "traversalPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "unicodeNormalization": {
                   "type": "primitive",
                   "valueType": "string"
                 },
@@ -22040,6 +22341,10 @@
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "extensionAllowlist": {
+                  "type": "primitive",
+                  "valueType": "null"
+                },
                 "forensicSnippetBytes": {
                   "type": "primitive",
                   "valueType": "number"
@@ -22052,6 +22357,14 @@
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxComponents": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
                 "nullBytePolicy": {
                   "type": "primitive",
                   "valueType": "string"
@@ -22061,6 +22374,10 @@
                   "valueType": "string"
                 },
                 "requireAscii": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireSingleDot": {
                   "type": "primitive",
                   "valueType": "boolean"
                 },
@@ -22077,6 +22394,10 @@
                   "valueType": "string"
                 },
                 "traversalPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "unicodeNormalization": {
                   "type": "primitive",
                   "valueType": "string"
                 },
@@ -22101,6 +22422,10 @@
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "extensionAllowlist": {
+                  "type": "primitive",
+                  "valueType": "null"
+                },
                 "forensicSnippetBytes": {
                   "type": "primitive",
                   "valueType": "number"
@@ -22113,6 +22438,14 @@
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxComponents": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
                 "nullBytePolicy": {
                   "type": "primitive",
                   "valueType": "string"
@@ -22122,6 +22455,10 @@
                   "valueType": "string"
                 },
                 "requireAscii": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireSingleDot": {
                   "type": "primitive",
                   "valueType": "boolean"
                 },
@@ -22138,6 +22475,10 @@
                   "valueType": "string"
                 },
                 "traversalPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "unicodeNormalization": {
                   "type": "primitive",
                   "valueType": "string"
                 },
@@ -22162,7 +22503,27 @@
                   "type": "primitive",
                   "valueType": "string"
                 },
+                "extensionAllowlist": {
+                  "type": "primitive",
+                  "valueType": "null"
+                },
                 "forensicSnippetBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "homoglyphPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "leadingTrailingPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxComponents": {
                   "type": "primitive",
                   "valueType": "number"
                 },
@@ -22173,6 +22534,14 @@
                 "pathSeparatorsPolicy": {
                   "type": "primitive",
                   "valueType": "string"
+                },
+                "requireAscii": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "requireSingleDot": {
+                  "type": "primitive",
+                  "valueType": "boolean"
                 },
                 "reservedCharPolicy": {
                   "type": "primitive",
@@ -22187,6 +22556,10 @@
                   "valueType": "string"
                 },
                 "traversalPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "unicodeNormalization": {
                   "type": "primitive",
                   "valueType": "string"
                 },
@@ -22569,6 +22942,10 @@
           "arity": 1
         },
         "loadRulePack": {
+          "type": "function",
+          "arity": 1
+        },
+        "resolveOpts": {
           "type": "function",
           "arity": 1
         },
@@ -23306,6 +23683,10 @@
           "type": "function",
           "arity": 1
         },
+        "resolveOpts": {
+          "type": "function",
+          "arity": 1
+        },
         "sanitize": {
           "type": "function",
           "arity": 2
@@ -23337,6 +23718,18 @@
             "gdpr": {
               "type": "object",
               "members": {
+                "allowComments": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowImageData": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowedAttrs": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
                 "allowedTags": {
                   "type": "instance",
                   "ctorName": "Array"
@@ -23361,73 +23754,19 @@
                   "type": "primitive",
                   "valueType": "number"
                 },
-                "mxssHintPolicy": {
-                  "type": "primitive",
-                  "valueType": "string"
-                }
-              }
-            },
-            "hipaa": {
-              "type": "object",
-              "members": {
-                "allowedTags": {
-                  "type": "instance",
-                  "ctorName": "Array"
-                },
-                "bidiPolicy": {
-                  "type": "primitive",
-                  "valueType": "string"
-                },
-                "controlPolicy": {
-                  "type": "primitive",
-                  "valueType": "string"
-                },
-                "cssPolicy": {
-                  "type": "primitive",
-                  "valueType": "string"
-                },
-                "domClobberPolicy": {
-                  "type": "primitive",
-                  "valueType": "string"
-                },
-                "forensicSnippetBytes": {
+                "maxAttrValueBytes": {
                   "type": "primitive",
                   "valueType": "number"
                 },
-                "mxssHintPolicy": {
+                "maxAttrsPerTag": {
                   "type": "primitive",
-                  "valueType": "string"
+                  "valueType": "number"
                 },
-                "nullBytePolicy": {
+                "maxBytes": {
                   "type": "primitive",
-                  "valueType": "string"
-                }
-              }
-            },
-            "pci-dss": {
-              "type": "object",
-              "members": {
-                "allowedTags": {
-                  "type": "instance",
-                  "ctorName": "Array"
+                  "valueType": "number"
                 },
-                "bidiPolicy": {
-                  "type": "primitive",
-                  "valueType": "string"
-                },
-                "controlPolicy": {
-                  "type": "primitive",
-                  "valueType": "string"
-                },
-                "cssPolicy": {
-                  "type": "primitive",
-                  "valueType": "string"
-                },
-                "domClobberPolicy": {
-                  "type": "primitive",
-                  "valueType": "string"
-                },
-                "forensicSnippetBytes": {
+                "maxTagDepth": {
                   "type": "primitive",
                   "valueType": "number"
                 },
@@ -23442,12 +23781,28 @@
                 "urlSchemes": {
                   "type": "instance",
                   "ctorName": "Array"
+                },
+                "zeroWidthPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
                 }
               }
             },
-            "soc2": {
+            "hipaa": {
               "type": "object",
               "members": {
+                "allowComments": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowImageData": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowedAttrs": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
                 "allowedTags": {
                   "type": "instance",
                   "ctorName": "Array"
@@ -23472,11 +23827,181 @@
                   "type": "primitive",
                   "valueType": "number"
                 },
+                "maxAttrValueBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxAttrsPerTag": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxTagDepth": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
                 "mxssHintPolicy": {
                   "type": "primitive",
                   "valueType": "string"
                 },
                 "nullBytePolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "urlSchemes": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
+                "zeroWidthPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "pci-dss": {
+              "type": "object",
+              "members": {
+                "allowComments": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowImageData": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowedAttrs": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
+                "allowedTags": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
+                "bidiPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "controlPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "cssPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domClobberPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "forensicSnippetBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxAttrValueBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxAttrsPerTag": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxTagDepth": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "mxssHintPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "nullBytePolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "urlSchemes": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
+                "zeroWidthPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "soc2": {
+              "type": "object",
+              "members": {
+                "allowComments": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowImageData": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowedAttrs": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
+                "allowedTags": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
+                "bidiPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "controlPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "cssPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "domClobberPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "forensicSnippetBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxAttrValueBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxAttrsPerTag": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxTagDepth": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "mxssHintPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "nullBytePolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "urlSchemes": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
+                "zeroWidthPolicy": {
                   "type": "primitive",
                   "valueType": "string"
                 }
@@ -23867,6 +24392,10 @@
           "arity": 1
         },
         "loadRulePack": {
+          "type": "function",
+          "arity": 1
+        },
+        "resolveOpts": {
           "type": "function",
           "arity": 1
         },
@@ -24863,6 +25392,10 @@
           "arity": 1
         },
         "loadRulePack": {
+          "type": "function",
+          "arity": 1
+        },
+        "resolveOpts": {
           "type": "function",
           "arity": 1
         },
@@ -26161,6 +26694,10 @@
           "type": "function",
           "arity": 2
         },
+        "resolveOpts": {
+          "type": "function",
+          "arity": 1
+        },
         "validate": {
           "type": "function",
           "arity": 2
@@ -26706,6 +27243,10 @@
           "arity": 1
         },
         "loadRulePack": {
+          "type": "function",
+          "arity": 1
+        },
+        "resolveOpts": {
           "type": "function",
           "arity": 1
         },
@@ -27550,6 +28091,10 @@
           "arity": 1
         },
         "loadRulePack": {
+          "type": "function",
+          "arity": 1
+        },
+        "resolveOpts": {
           "type": "function",
           "arity": 1
         },
@@ -29756,6 +30301,10 @@
           "type": "function",
           "arity": 1
         },
+        "resolveOpts": {
+          "type": "function",
+          "arity": 1
+        },
         "sanitize": {
           "type": "function",
           "arity": 2
@@ -30367,6 +30916,10 @@
           "arity": 1
         },
         "loadRulePack": {
+          "type": "function",
+          "arity": 1
+        },
+        "resolveOpts": {
           "type": "function",
           "arity": 1
         },
@@ -31024,6 +31577,10 @@
           "type": "function",
           "arity": 1
         },
+        "resolveOpts": {
+          "type": "function",
+          "arity": 1
+        },
         "sanitize": {
           "type": "function",
           "arity": 2
@@ -31615,6 +32172,10 @@
           "arity": 1
         },
         "loadRulePack": {
+          "type": "function",
+          "arity": 1
+        },
+        "resolveOpts": {
           "type": "function",
           "arity": 1
         },
@@ -32568,6 +33129,10 @@
           "type": "function",
           "arity": 1
         },
+        "resolveOpts": {
+          "type": "function",
+          "arity": 1
+        },
         "sanitize": {
           "type": "function",
           "arity": 2
@@ -33207,6 +33772,10 @@
           "arity": 1
         },
         "loadRulePack": {
+          "type": "function",
+          "arity": 1
+        },
+        "resolveOpts": {
           "type": "function",
           "arity": 1
         },
@@ -34096,6 +34665,10 @@
           "type": "function",
           "arity": 1
         },
+        "resolveOpts": {
+          "type": "function",
+          "arity": 1
+        },
         "sanitize": {
           "type": "function",
           "arity": 2
@@ -34233,11 +34806,31 @@
                   "type": "primitive",
                   "valueType": "boolean"
                 },
+                "allowExternalRefs": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowImageData": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowedAttrNames": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
+                "allowedAttrs": {
+                  "type": "primitive",
+                  "valueType": "null"
+                },
                 "allowedTags": {
                   "type": "instance",
                   "ctorName": "Array"
                 },
                 "bidiPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "cdataPolicy": {
                   "type": "primitive",
                   "valueType": "string"
                 },
@@ -34256,6 +34849,46 @@
                 "forensicSnippetBytes": {
                   "type": "primitive",
                   "valueType": "number"
+                },
+                "maxAttrValueBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxAttrsPerTag": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxElementCount": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxUseDepth": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "nullBytePolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "processingInstrPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "svgzPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "urlSchemes": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
+                "zeroWidthPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
                 }
               }
             },
@@ -34270,11 +34903,27 @@
                   "type": "primitive",
                   "valueType": "boolean"
                 },
+                "allowImageData": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowedAttrNames": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
+                "allowedAttrs": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
                 "allowedTags": {
                   "type": "instance",
                   "ctorName": "Array"
                 },
                 "bidiPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "cdataPolicy": {
                   "type": "primitive",
                   "valueType": "string"
                 },
@@ -34294,7 +34943,43 @@
                   "type": "primitive",
                   "valueType": "number"
                 },
+                "maxAttrValueBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxAttrsPerTag": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxElementCount": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxUseDepth": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
                 "nullBytePolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "processingInstrPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "svgzPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "urlSchemes": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
+                "zeroWidthPolicy": {
                   "type": "primitive",
                   "valueType": "string"
                 }
@@ -34311,11 +34996,27 @@
                   "type": "primitive",
                   "valueType": "boolean"
                 },
+                "allowImageData": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowedAttrNames": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
+                "allowedAttrs": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
                 "allowedTags": {
                   "type": "instance",
                   "ctorName": "Array"
                 },
                 "bidiPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "cdataPolicy": {
                   "type": "primitive",
                   "valueType": "string"
                 },
@@ -34335,13 +35036,45 @@
                   "type": "primitive",
                   "valueType": "number"
                 },
+                "maxAttrValueBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxAttrsPerTag": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxElementCount": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxUseDepth": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
                 "nullBytePolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "processingInstrPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "svgzPolicy": {
                   "type": "primitive",
                   "valueType": "string"
                 },
                 "urlSchemes": {
                   "type": "instance",
                   "ctorName": "Array"
+                },
+                "zeroWidthPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
                 }
               }
             },
@@ -34356,11 +35089,27 @@
                   "type": "primitive",
                   "valueType": "boolean"
                 },
+                "allowImageData": {
+                  "type": "primitive",
+                  "valueType": "boolean"
+                },
+                "allowedAttrNames": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
+                "allowedAttrs": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
                 "allowedTags": {
                   "type": "instance",
                   "ctorName": "Array"
                 },
                 "bidiPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "cdataPolicy": {
                   "type": "primitive",
                   "valueType": "string"
                 },
@@ -34380,7 +35129,43 @@
                   "type": "primitive",
                   "valueType": "number"
                 },
+                "maxAttrValueBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxAttrsPerTag": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxElementCount": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxUseDepth": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
                 "nullBytePolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "processingInstrPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "svgzPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "urlSchemes": {
+                  "type": "instance",
+                  "ctorName": "Array"
+                },
+                "zeroWidthPolicy": {
                   "type": "primitive",
                   "valueType": "string"
                 }
@@ -34843,6 +35628,10 @@
           "arity": 1
         },
         "loadRulePack": {
+          "type": "function",
+          "arity": 1
+        },
+        "resolveOpts": {
           "type": "function",
           "arity": 1
         },
@@ -35334,6 +36123,10 @@
           "type": "function",
           "arity": 1
         },
+        "resolveOpts": {
+          "type": "function",
+          "arity": 1
+        },
         "sanitize": {
           "type": "function",
           "arity": 2
@@ -35432,6 +36225,438 @@
         "compliancePosture": {
           "type": "function",
           "arity": 1
+        },
+        "validate": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
+    "guardText": {
+      "type": "object",
+      "members": {
+        "COMPLIANCE_POSTURES": {
+          "type": "object",
+          "members": {
+            "gdpr": {
+              "type": "object",
+              "members": {
+                "allowedScripts": {
+                  "type": "primitive",
+                  "valueType": "null"
+                },
+                "bidiPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "confusablePolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "controlPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "forensicSnippetBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "nullBytePolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "tagsPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "zeroWidthPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "hipaa": {
+              "type": "object",
+              "members": {
+                "allowedScripts": {
+                  "type": "primitive",
+                  "valueType": "null"
+                },
+                "bidiPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "confusablePolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "controlPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "forensicSnippetBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "nullBytePolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "tagsPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "zeroWidthPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "pci-dss": {
+              "type": "object",
+              "members": {
+                "allowedScripts": {
+                  "type": "primitive",
+                  "valueType": "null"
+                },
+                "bidiPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "confusablePolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "controlPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "forensicSnippetBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "nullBytePolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "tagsPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "zeroWidthPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "soc2": {
+              "type": "object",
+              "members": {
+                "allowedScripts": {
+                  "type": "primitive",
+                  "valueType": "null"
+                },
+                "bidiPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "confusablePolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "controlPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "forensicSnippetBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "nullBytePolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "tagsPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "zeroWidthPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            }
+          }
+        },
+        "DEFAULTS": {
+          "type": "object",
+          "members": {
+            "allowedScripts": {
+              "type": "primitive",
+              "valueType": "null"
+            },
+            "asciiOnly": {
+              "type": "primitive",
+              "valueType": "boolean"
+            },
+            "bidiPolicy": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "confusablePolicy": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "controlPolicy": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "encodingPolicy": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "forensicSnippetBytes": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "maxBytes": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "maxCodepoint": {
+              "type": "primitive",
+              "valueType": "null"
+            },
+            "maxRuntimeMs": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "mode": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "nullBytePolicy": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "sanitizeAmplificationCap": {
+              "type": "primitive",
+              "valueType": "number"
+            },
+            "tagsPolicy": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "zeroWidthPolicy": {
+              "type": "primitive",
+              "valueType": "string"
+            }
+          }
+        },
+        "EXTENSIONS": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "GuardTextError": {
+          "type": "function",
+          "arity": 4
+        },
+        "INTEGRATION_FIXTURES": {
+          "type": "object",
+          "members": {
+            "benignBytes": {
+              "type": "instance",
+              "ctorName": "Buffer"
+            },
+            "contentType": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "extension": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "hostileBytes": {
+              "type": "instance",
+              "ctorName": "Buffer"
+            },
+            "kind": {
+              "type": "primitive",
+              "valueType": "string"
+            }
+          }
+        },
+        "KIND": {
+          "type": "primitive",
+          "valueType": "string"
+        },
+        "MIME_TYPES": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "NAME": {
+          "type": "primitive",
+          "valueType": "string"
+        },
+        "PROFILES": {
+          "type": "object",
+          "members": {
+            "balanced": {
+              "type": "object",
+              "members": {
+                "allowedScripts": {
+                  "type": "primitive",
+                  "valueType": "null"
+                },
+                "bidiPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "confusablePolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "controlPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "nullBytePolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "tagsPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "zeroWidthPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "permissive": {
+              "type": "object",
+              "members": {
+                "allowedScripts": {
+                  "type": "primitive",
+                  "valueType": "null"
+                },
+                "bidiPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "confusablePolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "controlPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "encodingPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "nullBytePolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "tagsPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "zeroWidthPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "strict": {
+              "type": "object",
+              "members": {
+                "allowedScripts": {
+                  "type": "primitive",
+                  "valueType": "null"
+                },
+                "bidiPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "confusablePolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "controlPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "maxBytes": {
+                  "type": "primitive",
+                  "valueType": "number"
+                },
+                "nullBytePolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "tagsPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "zeroWidthPolicy": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            }
+          }
+        },
+        "buildProfile": {
+          "type": "function",
+          "arity": 1
+        },
+        "compliancePosture": {
+          "type": "function",
+          "arity": 1
+        },
+        "gate": {
+          "type": "function",
+          "arity": 1
+        },
+        "loadRulePack": {
+          "type": "function",
+          "arity": 1
+        },
+        "resolveOpts": {
+          "type": "function",
+          "arity": 1
+        },
+        "sanitize": {
+          "type": "function",
+          "arity": 2
         },
         "validate": {
           "type": "function",
@@ -36042,6 +37267,10 @@
           "arity": 1
         },
         "loadRulePack": {
+          "type": "function",
+          "arity": 1
+        },
+        "resolveOpts": {
           "type": "function",
           "arity": 1
         },
@@ -36728,6 +37957,10 @@
           "arity": 1
         },
         "loadRulePack": {
+          "type": "function",
+          "arity": 1
+        },
+        "resolveOpts": {
           "type": "function",
           "arity": 1
         },
@@ -37452,6 +38685,10 @@
           "arity": 1
         },
         "loadRulePack": {
+          "type": "function",
+          "arity": 1
+        },
+        "resolveOpts": {
           "type": "function",
           "arity": 1
         },
@@ -38223,6 +39460,10 @@
           "type": "function",
           "arity": 2
         },
+        "resolveOpts": {
+          "type": "function",
+          "arity": 1
+        },
         "validate": {
           "type": "function",
           "arity": 2
@@ -38458,6 +39699,10 @@
         "create": {
           "type": "function",
           "arity": 1
+        },
+        "localeChain": {
+          "type": "function",
+          "arity": 2
         },
         "messageFormat": {
           "type": "object",
@@ -40617,6 +41862,10 @@
               "type": "function",
               "arity": 1
             },
+            "canonHeaderRelaxed": {
+              "type": "function",
+              "arity": 2
+            },
             "create": {
               "type": "function",
               "arity": 1
@@ -41294,6 +42543,10 @@
                 "create": {
                   "type": "function",
                   "arity": 1
+                },
+                "resolve": {
+                  "type": "function",
+                  "arity": 1
                 }
               }
             },
@@ -41318,6 +42571,10 @@
                   "arity": 4
                 },
                 "context": {
+                  "type": "function",
+                  "arity": 1
+                },
+                "upgradeLineProtocol": {
                   "type": "function",
                   "arity": 1
                 },
@@ -43112,6 +44369,10 @@
           "type": "function",
           "arity": 1
         },
+        "roundMinor": {
+          "type": "function",
+          "arity": 3
+        },
         "zero": {
           "type": "function",
           "arity": 1
@@ -44006,6 +45267,14 @@
                 "create": {
                   "type": "function",
                   "arity": 1
+                },
+                "resolveTxt": {
+                  "type": "function",
+                  "arity": 3
+                },
+                "safeResolveTxt": {
+                  "type": "function",
+                  "arity": 2
                 }
               }
             },
@@ -44422,6 +45691,10 @@
               "type": "function",
               "arity": 1
             },
+            "auditInsecureTls": {
+              "type": "function",
+              "arity": 1
+            },
             "buildOptions": {
               "type": "function",
               "arity": 1
@@ -44663,6 +45936,10 @@
         "create": {
           "type": "function",
           "arity": 1
+        },
+        "enforceReplay": {
+          "type": "function",
+          "arity": 4
         }
       }
     },
@@ -45248,6 +46525,14 @@
           "type": "function",
           "arity": 0
         },
+        "makeCounterEmitter": {
+          "type": "function",
+          "arity": 1
+        },
+        "namespaced": {
+          "type": "function",
+          "arity": 2
+        },
         "otlpExporter": {
           "type": "object",
           "members": {
@@ -45260,6 +46545,10 @@
         "redactAttrs": {
           "type": "function",
           "arity": 1
+        },
+        "safeEmit": {
+          "type": "function",
+          "arity": 4
         },
         "safeEvent": {
           "type": "function",
@@ -47898,6 +49187,14 @@
           "type": "function",
           "arity": 1
         },
+        "makeResourceAuditEmitter": {
+          "type": "function",
+          "arity": 3
+        },
+        "makeSkipMatcher": {
+          "type": "function",
+          "arity": 2
+        },
         "parseListHeader": {
           "type": "function",
           "arity": 2
@@ -48231,6 +49528,22 @@
           "type": "function",
           "arity": 3
         },
+        "makeBatchDrain": {
+          "type": "function",
+          "arity": 1
+        },
+        "makeBatchingSink": {
+          "type": "function",
+          "arity": 1
+        },
+        "makeBufferedEnqueue": {
+          "type": "function",
+          "arity": 2
+        },
+        "makeDrainingClose": {
+          "type": "function",
+          "arity": 1
+        },
         "makeDropCallback": {
           "type": "function",
           "arity": 2
@@ -48320,6 +49633,10 @@
           "type": "function",
           "arity": 1
         },
+        "byteLengthOf": {
+          "type": "function",
+          "arity": 2
+        },
         "collectStream": {
           "type": "function",
           "arity": 2
@@ -48335,6 +49652,10 @@
         "isHex": {
           "type": "function",
           "arity": 2
+        },
+        "makeByteCoercer": {
+          "type": "function",
+          "arity": 1
         },
         "normalizeText": {
           "type": "function",
@@ -49925,6 +51246,10 @@
           "type": "function",
           "arity": 2
         },
+        "assertNoRawStringLiteral": {
+          "type": "function",
+          "arity": 3
+        },
         "assertOneOf": {
           "type": "function",
           "arity": 2
@@ -49946,6 +51271,10 @@
           "arity": 3
         },
         "quoteQualified": {
+          "type": "function",
+          "arity": 2
+        },
+        "toPositional": {
           "type": "function",
           "arity": 2
         },
@@ -50756,6 +52085,14 @@
           "type": "primitive",
           "valueType": "number"
         },
+        "bump": {
+          "type": "function",
+          "arity": 2
+        },
+        "check": {
+          "type": "function",
+          "arity": 2
+        },
         "count": {
           "type": "function",
           "arity": 0
@@ -50809,6 +52146,10 @@
           "type": "function",
           "arity": 1
         },
+        "validFrom": {
+          "type": "function",
+          "arity": 1
+        },
         "verify": {
           "type": "function",
           "arity": 2
@@ -50846,6 +52187,10 @@
         "create": {
           "type": "function",
           "arity": 1
+        },
+        "fingerprint": {
+          "type": "function",
+          "arity": 2
         }
       }
     },
@@ -51023,6 +52368,10 @@
           "arity": 1
         },
         "insert": {
+          "type": "function",
+          "arity": 2
+        },
+        "insertSelectWhere": {
           "type": "function",
           "arity": 2
         },
@@ -51281,9 +52630,25 @@
           "type": "function",
           "arity": 2
         },
+        "forEachKeyValue": {
+          "type": "function",
+          "arity": 2
+        },
         "parse": {
           "type": "function",
           "arity": 3
+        },
+        "parseKeyValuePiece": {
+          "type": "function",
+          "arity": 3
+        },
+        "parseKeyValuePieces": {
+          "type": "function",
+          "arity": 4
+        },
+        "parseTagList": {
+          "type": "function",
+          "arity": 2
         },
         "refuseControlBytes": {
           "type": "function",
@@ -51296,6 +52661,22 @@
         "splitTopLevel": {
           "type": "function",
           "arity": 2
+        },
+        "splitUnquoted": {
+          "type": "function",
+          "arity": 2
+        },
+        "stripDoubleQuotes": {
+          "type": "function",
+          "arity": 1
+        },
+        "unescapeSfStringBody": {
+          "type": "function",
+          "arity": 1
+        },
+        "unfoldHeaderContinuations": {
+          "type": "function",
+          "arity": 1
         },
         "unquoteSfString": {
           "type": "function",
@@ -52381,6 +53762,10 @@
         "WebhookError": {
           "type": "function",
           "arity": 4
+        },
+        "dispatcher": {
+          "type": "function",
+          "arity": 1
         },
         "sign": {
           "type": "function",
