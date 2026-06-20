@@ -9,7 +9,7 @@
     {% if (typeof stashLogoUrl !== 'undefined' && stashLogoUrl) { %}
     <div style="margin-bottom:20px"><img src="{{stashLogoUrl}}" alt="" style="height:96px;width:auto;max-width:280px;object-fit:contain;filter:drop-shadow(0 0 20px rgba(139,92,246,.3))"></div>
     {% } else { %}
-    <div class="drop-logo-shimmer" style="margin-bottom:16px"><img src="{{{brand.logoColor}}}" alt="{{{brand.siteName}}}" width="96" height="96" style="height:96px;width:auto;max-width:280px;object-fit:contain"></div>
+    <div class="drop-logo-shimmer" style="margin-bottom:16px"><img src="{{{brand.logoColor}}}" alt="{{brand.siteName}}" width="96" height="96" style="height:96px;width:auto;max-width:280px;object-fit:contain"></div>
     {% } %}
     {% if (typeof stashMode !== 'undefined' && stashMode) { %}
     <span class="sub-title">Secure Upload</span>
@@ -18,8 +18,8 @@
     {% } else { %}
     <span class="sub-title">Public Upload</span>
     {% } %}
-    <h1 class="drop-title">{{{dropTitle}}}</h1>
-    <p class="drop-subtitle">{{{dropSubtitle}}}</p>
+    <h1 class="drop-title">{{dropTitle}}</h1>
+    <p class="drop-subtitle">{{dropSubtitle}}</p>
   </div>
 </section>
 

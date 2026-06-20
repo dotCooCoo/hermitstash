@@ -29,7 +29,7 @@
           {% for (const f of b.files) { %}
             <div class="admin-user-row" id="file-{{f.shareId}}" style="padding-left:52px;background:rgba(255,255,255,.01);min-height:auto">
               <div style="flex:1;min-width:0;display:flex;align-items:center;gap:10px">
-                <span style="font-size:.8rem;font-weight:700;color:var(--main-color);background:rgba(139,92,246,.1);padding:2px 8px;border-radius:4px;flex-shrink:0">{{{f.originalName.split('.').pop().toUpperCase()}}}</span>
+                <span style="font-size:.8rem;font-weight:700;color:var(--main-color);background:rgba(139,92,246,.1);padding:2px 8px;border-radius:4px;flex-shrink:0">{{f.originalName.split('.').pop().toUpperCase()}}</span>
                 <div style="min-width:0">
                   <div style="font-size:.82rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer" title="Click to rename" onclick="renameFile('{{f.shareId}}',this)">{{f.originalName}}</div>
                   {% if (f.relativePath && f.relativePath !== f.originalName) { %}<div style="font-size:.7rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{f.relativePath}}</div>{% } %}
@@ -58,7 +58,7 @@
       {% for (const f of files) { %}
         <div class="admin-user-row" id="file-{{f.shareId}}" style="min-height:auto">
           <div style="flex:1;min-width:0;display:flex;align-items:center;gap:10px">
-            <span style="font-size:.8rem;font-weight:700;color:var(--main-color);background:rgba(139,92,246,.1);padding:2px 8px;border-radius:4px;flex-shrink:0">{{{f.originalName.split('.').pop().toUpperCase()}}}</span>
+            <span style="font-size:.8rem;font-weight:700;color:var(--main-color);background:rgba(139,92,246,.1);padding:2px 8px;border-radius:4px;flex-shrink:0">{{f.originalName.split('.').pop().toUpperCase()}}</span>
             <div style="min-width:0">
               <div style="font-size:.82rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer" title="Click to rename" onclick="renameFile('{{f.shareId}}',this)">{{f.originalName}}</div>
             </div>

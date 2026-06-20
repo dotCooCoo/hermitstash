@@ -1,0 +1,25 @@
+{
+  "version": "1.12.3",
+  "date": "2026-06-20",
+  "headline": "Escape stored branding text against XSS and reject revoked client certificates on the web UI",
+  "summary": "A security release. Operator-set branding strings (site name, hero and drop titles, setup fields) were rendered without HTML-escaping on pages served to every visitor, including unauthenticated ones, so a malicious or untrusted branding value could inject script. They are now escaped on output. Separately, a revoked browser/mTLS client certificate still reached the web UI because the web-layer guard trusted the TLS handshake alone, which has no revocation awareness; revoked certificates are now refused on that path as they already were on the sync paths.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Escape operator-set branding strings on output (stored XSS)",
+          "body": "The site name, landing hero title and subtitle, public-upload drop title and subtitle, the setup-wizard site-name and RP-name fields, theme colors, and the file-extension badge were emitted through the no-escape template tag and reached pages served to every visitor — including the public landing and upload pages. Settings sanitization only strips control characters, not HTML, so an admin-set (or imported/untrusted) value containing markup could execute in every session. All of these now render through the escaping tag."
+        },
+        {
+          "title": "Reject revoked client certificates on the web-UI mTLS path",
+          "body": "Revoking a browser/mTLS client certificate removed its row and recorded the revocation, but the web-layer guard admitted any connection the TLS handshake authorized — and the TLS layer has no CRL/OCSP, so a revoked-but-unexpired certificate stayed authorized and kept full web-UI access. The guard now consults the revocation list on every authorized peer certificate, before the soft-enforcement gate, so a revoked certificate is refused in both soft and strict mTLS modes — matching the sync and WebSocket paths, which already checked it."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "CWE-79 (cross-site scripting)", "url": "https://cwe.mitre.org/data/definitions/79.html" },
+    { "label": "CWE-299 (improper check for certificate revocation)", "url": "https://cwe.mitre.org/data/definitions/299.html" }
+  ]
+}

@@ -10,16 +10,16 @@
 <main id="main-content">
 <section class="hero" data-parallax="0.15">
   <div class="hero-content" data-anim>
-    <div class="hero-icon"><img src="{{{brand.logoColor}}}" alt="{{{brand.siteName}}}"></div>
+    <div class="hero-icon"><img src="{{{brand.logoColor}}}" alt="{{brand.siteName}}"></div>
     {% if (heroTitle) { %}
-      <h1 class="hero-title">{{{heroTitle}}}</h1>
+      <h1 class="hero-title">{{heroTitle}}</h1>
     {% } else { %}
       <h1 class="hero-title">
         <span><span class="fw-200">Stash</span> it <span class="stroke">quietly.</span></span><br>
         <span>Share it <span class="main-color">instantly.</span></span>
       </h1>
     {% } %}
-    <p class="hero-sub">{{{heroSubtitle || 'Post-quantum encrypted file sharing. Self-hosted. Your server, your keys, your data.'}}}</p>
+    <p class="hero-sub">{{heroSubtitle || 'Post-quantum encrypted file sharing. Self-hosted. Your server, your keys, your data.'}}</p>
     <div class="hero-buttons">
       <a href="/drop" class="butn butn-bg butn-md radius-30"><span>Public Drop</span></a>
       <a href="/auth/login" class="butn butn-bord butn-md radius-30"><span>Team Sign In</span></a>

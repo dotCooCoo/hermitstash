@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{{brand.siteName}}}</title>
+  <title>{{brand.siteName}}</title>
   <link rel="icon" type="image/png" sizes="32x32" href="{{{assets.favicon32}}}">
   <link rel="icon" type="image/png" sizes="16x16" href="{{{assets.favicon16}}}">
   <link rel="apple-touch-icon" sizes="180x180" href="{{{assets.appleTouchIcon}}}">
   <link rel="manifest" href="{{{assets.manifest}}}">
   <meta name="theme-color" content="{{{assets.themeColor}}}">
-  <meta property="og:title" content="{{{brand.siteName}}}">
+  <meta property="og:title" content="{{brand.siteName}}">
   <meta name="description" content="Post-quantum encrypted, self-hosted file uploads. ML-KEM-1024 hybrid KEM, XChaCha20-Poly1305, zero-knowledge vault.">
   <meta property="og:description" content="Post-quantum encrypted file uploads. ML-KEM-1024 + P-384 hybrid, XChaCha20-Poly1305, zero-knowledge vault. Self-hosted.">
   <meta property="og:image" content="{{{assets.ogImage}}}">
@@ -17,7 +17,7 @@
   <meta property="og:url" content="{{{site.origin}}}">
   <link rel="canonical" href="{{{site.origin}}}">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="{{{brand.siteName}}}">
+  <meta name="twitter:title" content="{{brand.siteName}}">
   <meta name="twitter:description" content="Post-quantum encrypted, self-hosted file uploads.">
   <meta name="twitter:image" content="{{{assets.ogImage}}}">
   {% if (user) { %}<meta name="robots" content="noindex, nofollow">{% } %}
@@ -27,8 +27,8 @@
   {% if (site && (site.themeAccentColor || site.themeBgColor || site.themeFont)) { %}
   <style>
     :root {
-      {% if (site.themeAccentColor) { %} --main-color: {{{site.themeAccentColor}}}; {% } %}
-      {% if (site.themeBgColor) { %} --bg: {{{site.themeBgColor}}}; {% } %}
+      {% if (site.themeAccentColor) { %} --main-color: {{site.themeAccentColor}}; {% } %}
+      {% if (site.themeBgColor) { %} --bg: {{site.themeBgColor}}; {% } %}
     }
     {% if (site.themeFont && /^[a-zA-Z0-9 ,\-]+$/.test(site.themeFont)) { %} body { font-family: '{{{site.themeFont}}}', system-ui, sans-serif; } {% } %}
   </style>
@@ -56,7 +56,7 @@ function toggleTheme(){
     <a href="/" class="navbar-logo">
       <img src="{{{brand.logo}}}" alt="{{brand.siteName}} logo" class="navbar-logo-img logo-light">
       <img src="{{{brand.logoDark}}}" alt="{{brand.siteName}} logo" class="navbar-logo-img logo-dark">
-      <span>{{{brand.siteName}}}</span>
+      <span>{{brand.siteName}}</span>
     </a>
     <div class="navbar-links">
       <a href="/drop"><span class="rolling-text" data-text="Drop Files">Drop Files</span></a>

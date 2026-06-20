@@ -25,6 +25,7 @@
  * the TLS handshake already rejected it.
  */
 var config = require("../lib/config");
+var certUtils = require("../lib/cert-utils");
 
 function isBearerAuth(req) {
   var h = req.headers && req.headers.authorization;
@@ -40,6 +41,23 @@ function isAlwaysAllowed(pathname) {
 }
 
 module.exports = function webGuard(req, res, next) {
+  // A revoked client cert must NEVER be honored — in soft OR strict mode. Node's
+  // TLS layer authorizes purely on chain-to-CA + not-expired (no CRL/OCSP), so a
+  // revoked-but-unexpired cert still sets socket.authorized. Consult the
+  // revocation list on every authorized peer cert, BEFORE the enforceMtls
+  // soft-gate below (under ENFORCE_MTLS_STRICT the TLS layer admits the revoked
+  // cert and config.enforceMtls may be unset, which would skip this check). The
+  // sync/WS paths already do this; the web-UI mTLS path — the feature's purpose —
+  // did not. isCertRevoked uses an indexed lookup, so this is cheap.
+  if (req.socket && req.socket.authorized === true &&
+      typeof req.socket.getPeerCertificate === "function") {
+    var peerCert = req.socket.getPeerCertificate(true);
+    if (peerCert && peerCert.raw && certUtils.isPeerCertRevoked(peerCert)) {
+      try { req.socket.destroy(); } catch (_e) { /* socket may already be gone */ }
+      return;
+    }
+  }
+
   if (!config.enforceMtls) return next();
 
   if (isAlwaysAllowed(req.pathname)) return next();
