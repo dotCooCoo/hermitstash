@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.15.13",
-  "createdAt": "2026-06-19T21:36:12.932Z",
+  "frameworkVersion": "0.15.14",
+  "createdAt": "2026-06-21T06:07:03.428Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -2346,6 +2346,10 @@
           "type": "function",
           "arity": 3
         },
+        "openNoFollowSync": {
+          "type": "function",
+          "arity": 2
+        },
         "pathTimestamp": {
           "type": "function",
           "arity": 1
@@ -2370,7 +2374,15 @@
           "type": "function",
           "arity": 3
         },
+        "writeExclSync": {
+          "type": "function",
+          "arity": 3
+        },
         "writeJson": {
+          "type": "function",
+          "arity": 3
+        },
+        "writeStream": {
           "type": "function",
           "arity": 3
         },
@@ -4921,7 +4933,7 @@
         },
         "decryptWithPassphrase": {
           "type": "function",
-          "arity": 3
+          "arity": 4
         },
         "deriveKey": {
           "type": "function",
@@ -4929,11 +4941,11 @@
         },
         "encryptWithFreshSalt": {
           "type": "function",
-          "arity": 2
+          "arity": 3
         },
         "encryptWithPassphrase": {
           "type": "function",
-          "arity": 3
+          "arity": 4
         }
       }
     },
@@ -15280,6 +15292,10 @@
           "type": "primitive",
           "valueType": "number"
         },
+        "INITIAL_REPORT_OUTER_DEADLINE_MS": {
+          "type": "primitive",
+          "valueType": "number"
+        },
         "INTERMEDIATE_REPORT_DEADLINE_MS": {
           "type": "primitive",
           "valueType": "number"
@@ -17537,6 +17553,10 @@
         "lookupCompliancePosture": {
           "type": "function",
           "arity": 4
+        },
+        "makePostureAccessor": {
+          "type": "function",
+          "arity": 2
         },
         "makeProfileBuilder": {
           "type": "function",
@@ -39868,6 +39888,10 @@
         "build": {
           "type": "function",
           "arity": 1
+        },
+        "scriptTag": {
+          "type": "function",
+          "arity": 2
         }
       }
     },
@@ -49218,6 +49242,14 @@
         "safeHeadersDistinct": {
           "type": "function",
           "arity": 1
+        },
+        "trustedClientIp": {
+          "type": "function",
+          "arity": 1
+        },
+        "trustedProtocol": {
+          "type": "function",
+          "arity": 1
         }
       }
     },
@@ -50635,6 +50667,10 @@
           "arity": 2
         },
         "stringify": {
+          "type": "function",
+          "arity": 2
+        },
+        "stringifyForScript": {
           "type": "function",
           "arity": 2
         },
@@ -53134,6 +53170,19 @@
           "type": "function",
           "arity": 4
         },
+        "Store": {
+          "type": "object",
+          "members": {
+            "seal": {
+              "type": "function",
+              "arity": 1
+            },
+            "unseal": {
+              "type": "function",
+              "arity": 1
+            }
+          }
+        },
         "VaultError": {
           "type": "function",
           "arity": 4
@@ -53196,6 +53245,10 @@
           }
         },
         "getCurrentPassphrase": {
+          "type": "function",
+          "arity": 0
+        },
+        "getDefaultStore": {
           "type": "function",
           "arity": 0
         },

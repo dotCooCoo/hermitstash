@@ -30,7 +30,28 @@ function errorHandler(err, req, res) {
     status = err.statusCode || 500;
     message = err.message || message;
     code = err.code || code;
+  } else if (err && typeof err === "object") {
+    // Map blamejs typed FrameworkErrors (thrown by config validators, the guards,
+    // the storage/queue/external-db adapters, safe-json, etc.) to their real HTTP
+    // status instead of degrading every one to a 500. Branch order mirrors the
+    // framework's own error-page._classify so HS stays in lockstep. A derived 4xx
+    // surfaces err.message as the problem-detail; a FrameworkError carrying no
+    // status stays a genuine 500 (and emitError suppresses its detail).
+    if (err.isAuthError) {
+      status = 401; code = err.code || "AUTH_FAILED"; message = err.message || message;
+    } else if (err.code === "VALIDATION_ERROR" || err.name === "ValidationError") {
+      status = 400; code = err.code || "VALIDATION_ERROR"; message = err.message || message;
+    } else if (err.isSafeJsonError) {
+      status = 400; code = err.code || "BAD_REQUEST"; message = err.message || message;
+    } else if ((err.isStorageError || err.isQueueError || err.isExternalDbError) && err.permanent) {
+      status = 400; code = err.code || "ERROR"; message = err.message || message;
+    } else if (Number.isInteger(err.statusCode) && err.statusCode >= 100 && err.statusCode <= 599) {
+      status = err.statusCode; code = err.code || code; message = err.message || message;
+    }
+    // else: leave the 500 / INTERNAL_ERROR default — a genuine internal failure.
   }
+  // Defensive floor: clamp any out-of-range derived status back to 500.
+  if (!(status >= 100 && status <= 599)) status = 500;
 
   // Log 500s with full stack trace to stderr
   if (status >= 500) {

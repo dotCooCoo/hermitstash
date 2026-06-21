@@ -103,4 +103,38 @@ describe("auth-suspend", function () {
       assert.strictEqual(res.status, 200);
     });
   });
+
+  describe("account deletion revokes sessions without 500 (C1-1 / blamejs#340 regression guard)", function () {
+    var delClient, delUserId;
+    before(async function () {
+      delClient = new TestClient(testServer.baseUrl());
+      await delClient.initApiKey();
+      var reg = await delClient.post("/auth/register", {
+        json: { displayName: "Deletable", email: "deletable@suspend-test.com", password: "password123" },
+      });
+      assert.strictEqual(reg.json.success, true);
+      var usersRes = await adminClient.get("/admin/users/api");
+      var u = usersRes.json.users.find(function (x) { return x.email === "deletable@suspend-test.com"; });
+      delUserId = u._id;
+    });
+
+    it("admin delete succeeds and clears the user's sessions (no MISCONFIGURED 500)", async function () {
+      // delete → clearSessionsForUser → b.session.destroyAllForUser, whose
+      // post-DELETE stateless valid-from bump throws MISCONFIGURED on HS's
+      // store-only model (no b.db.init). A 500 here means the swallow stopped
+      // matching the framework's re-wrapped error after a vendor bump.
+      var res = await adminClient.post("/admin/users/" + delUserId + "/delete", { json: {} });
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.json.success, true);
+    });
+
+    it("deleted user can no longer log in", async function () {
+      delClient.clearCookies();
+      await delClient.initApiKey();
+      var res = await delClient.post("/auth/login", {
+        json: { email: "deletable@suspend-test.com", password: "password123" },
+      });
+      assert.notStrictEqual(res.status, 200);
+    });
+  });
 });

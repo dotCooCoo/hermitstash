@@ -181,7 +181,11 @@ module.exports = function (app) {
         credential: {
           id: incomingCredId,
           publicKey: Buffer.from(matchedCred.publicKey, "base64"),
-          counter: typeof matchedCred.counter === "number" ? matchedCred.counter : 0,
+          // Pass the stored counter verbatim. The wrapper refuses undefined / null
+          // explicitly (clone-detection-bypass defense), so a legacy row with a
+          // dropped counter fails closed (login refused) instead of silently
+          // coercing to 0 and disabling clone detection for that credential.
+          counter: matchedCred.counter,
           transports: typeof matchedCred.transports === "string"
             ? b.safeJson.parseOrDefault(matchedCred.transports, [])
             : (matchedCred.transports || []),

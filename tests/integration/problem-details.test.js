@@ -140,6 +140,79 @@ describe("RFC 9457 problem-details (error-handler contract)", function () {
         "HTML client should NOT receive problem+json, got " + ctype);
       assert.ok(!ctype.includes("application/problem+json"));
     });
+
+    // --- blamejs typed FrameworkError classification (0.15.x) ---
+    // A non-AppError that carries the framework's duck-typed error shape must
+    // map to its real HTTP status instead of degrading to a generic 500. These
+    // mirror the properties error-handler reads (isAuthError / isSafeJsonError /
+    // isStorageError+permanent / statusCode), matching the framework's own
+    // error-page._classify ladder.
+
+    it("FrameworkError with statusCode 404 → 404 problem+json, code + detail carried", function () {
+      var req = Mocks.mockReq({ accept: "application/json" });
+      var res = Mocks.mockRes();
+      errorHandler({ isFrameworkError: true, statusCode: 404, code: "static-serve/not-found", message: "asset missing" }, req, res);
+      assert.strictEqual(res._state.statusCode, 404);
+      var body = JSON.parse(res._state.body);
+      assert.strictEqual(body.type, "https://hermitstash.com/problems/static-serve/not-found");
+      assert.strictEqual(body.status, 404);
+      assert.strictEqual(body.detail, "asset missing", "4xx detail must surface");
+    });
+
+    it("framework AuthError → 401 with detail", function () {
+      var req = Mocks.mockReq({ accept: "application/json" });
+      var res = Mocks.mockRes();
+      errorHandler({ isAuthError: true, code: "auth/expired", message: "token expired" }, req, res);
+      assert.strictEqual(res._state.statusCode, 401);
+      assert.strictEqual(JSON.parse(res._state.body).detail, "token expired");
+    });
+
+    it("framework SafeJsonError → 400 with detail", function () {
+      var req = Mocks.mockReq({ accept: "application/json" });
+      var res = Mocks.mockRes();
+      errorHandler({ isSafeJsonError: true, code: "json/invalid", message: "unexpected token" }, req, res);
+      assert.strictEqual(res._state.statusCode, 400);
+      assert.strictEqual(JSON.parse(res._state.body).detail, "unexpected token");
+    });
+
+    it("permanent storage FrameworkError → 400", function () {
+      var req = Mocks.mockReq({ accept: "application/json" });
+      var res = Mocks.mockRes();
+      errorHandler({ isStorageError: true, permanent: true, code: "storage/bad-opts", message: "bad maxSockets" }, req, res);
+      assert.strictEqual(res._state.statusCode, 400);
+    });
+
+    it("framework ValidationError shape (no isAppError) → 400 via code/name", function () {
+      var req = Mocks.mockReq({ accept: "application/json" });
+      var res = Mocks.mockRes();
+      errorHandler({ name: "ValidationError", code: "VALIDATION_ERROR", message: "x out of range" }, req, res);
+      assert.strictEqual(res._state.statusCode, 400);
+      assert.strictEqual(JSON.parse(res._state.body).detail, "x out of range");
+    });
+
+    it("FrameworkError with statusCode 503 → 503 with detail SUPPRESSED (5xx)", function () {
+      var req = Mocks.mockReq({ accept: "application/json" });
+      var res = Mocks.mockRes();
+      errorHandler({ isFrameworkError: true, statusCode: 503, code: "upstream/unavailable", message: "pool exhausted secret=abc" }, req, res);
+      assert.strictEqual(res._state.statusCode, 503);
+      assert.strictEqual(JSON.parse(res._state.body).detail, undefined, "5xx detail suppressed");
+      assert.ok(!res._state.body.includes("secret=abc"), "internal text must not leak on 5xx");
+    });
+
+    it("FrameworkError with no status stays 500 (genuine internal failure), detail suppressed", function () {
+      var req = Mocks.mockReq({ accept: "application/json" });
+      var res = Mocks.mockRes();
+      errorHandler({ isFrameworkError: true, code: "guard/blocked", message: "internal guard detail" }, req, res);
+      assert.strictEqual(res._state.statusCode, 500);
+      assert.strictEqual(JSON.parse(res._state.body).detail, undefined);
+    });
+
+    it("out-of-range statusCode clamps to 500", function () {
+      var req = Mocks.mockReq({ accept: "application/json" });
+      var res = Mocks.mockRes();
+      errorHandler({ isFrameworkError: true, statusCode: 999, code: "weird", message: "x" }, req, res);
+      assert.strictEqual(res._state.statusCode, 500);
+    });
   });
 
   describe("api-encrypt × error-handler — encrypted-session error responses", function () {

@@ -105,7 +105,7 @@ The wiki ships with development-friendly defaults (`vault: { mode: "plaintext" }
 3. Change `db.atRest` to `"encrypted"` (default; requires tmpfs at `/dev/shm` or `BLAMEJS_TMPDIR`)
 4. Change `db.auditSigning.mode` to `"wrapped"`
 5. Deploy behind a TLS-terminating reverse proxy OR enable `b.pqcGate`
-6. Set `WIKI_TRUST_PROXY=1` if (and only if) the wiki sits behind a reverse proxy that injects `x-forwarded-proto`. With trustProxy off (the default), the wiki ignores `x-forwarded-proto` for cookie Secure-flag detection, so a misconfigured deployment can't accept attacker-supplied `x-forwarded-proto: https` as proof a request was over TLS.
+6. Set `WIKI_ADMIN_TRUSTED_PROXIES` to your reverse proxy's CIDR(s) if the wiki sits behind a TLS terminator that injects `x-forwarded-*`. The wiki then peer-gates those headers — `x-forwarded-proto` (cookie Secure flag) and `x-forwarded-for` (the `/admin` CIDR fence) are honoured only when the request arrives via a trusted proxy, so a direct caller can't forge `https` or an allowed IP. Left empty (the default), forwarded headers are ignored and only the real TLS socket / socket address count.
 7. Set `WIKI_ADMIN_PASSWORD` to a strong value managed by your secret-store
 
 ## Trust model for editable page bodies

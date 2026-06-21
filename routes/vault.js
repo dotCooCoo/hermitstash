@@ -171,7 +171,11 @@ module.exports = function (app) {
         credential: {
           id: incomingCredId,
           publicKey: Buffer.from(matchedCred.publicKey, "base64"),
-          counter: matchedCred.counter || 0,
+          // Pass the stored counter verbatim (no `|| 0`): the wrapper refuses
+          // undefined / null explicitly, so a credential with a dropped counter
+          // fails closed (vault stays locked) rather than silently coercing to 0
+          // and defeating clone detection on the most sensitive unlock path.
+          counter: matchedCred.counter,
           transports: typeof matchedCred.transports === "string"
             ? b.safeJson.parseOrDefault(matchedCred.transports, [])
             : (matchedCred.transports || []),

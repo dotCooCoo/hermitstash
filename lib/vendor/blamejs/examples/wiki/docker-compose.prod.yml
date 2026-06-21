@@ -31,7 +31,7 @@
 #   BLAMEJS_DEPRECATIONS=warn
 #
 #   # security hardening (production overlay defaults shown)
-#   WIKI_TRUST_PROXY=1                              # honour x-forwarded-proto from Caddy
+#   WIKI_ADMIN_TRUSTED_PROXIES=10.0.0.0/8,172.16.0.0/12   # peer-gate x-forwarded-* to your proxy CIDRs
 #   WIKI_REQUIRE_PROD_ASSERTS=1                     # refuse to boot on weak posture
 #   WIKI_ADMIN_ALLOWED_CIDRS=10.0.0.0/8,192.168.0.0/16   # in-process CIDR fence on /admin
 #   WIKI_ADMIN_DENIED_CIDRS=                        # deny-then-allow precedence
@@ -94,13 +94,14 @@ services:
       WIKI_WEBHOOK_URL:     ${WIKI_WEBHOOK_URL:-}
       WIKI_WEBHOOK_SECRET:  ${WIKI_WEBHOOK_SECRET:-}
       # ---- Wiki security hardening ----
-      # Caddy terminates TLS in this stack and injects x-forwarded-*,
-      # so trust-proxy is on by default in the production overlay.
-      # The cookie Secure flag honours x-forwarded-proto when this
-      # is set; without it, only req.socket.encrypted counts and a
-      # misconfigured deploy can't accept attacker-supplied
-      # x-forwarded-proto: https as proof a request was over TLS.
-      WIKI_TRUST_PROXY:     ${WIKI_TRUST_PROXY:-1}
+      # Caddy terminates TLS on the internal docker network and injects
+      # x-forwarded-*. Peer-gating honours those headers ONLY from a
+      # trusted-proxy peer, so the default is the private ranges (Caddy's
+      # internal address) — the wiki container receives traffic only from
+      # Caddy, so a forged X-Forwarded-For / -Proto from a non-internal
+      # peer is rejected. Drives the /admin CIDR fence and the cookie
+      # Secure flag. Narrow this to Caddy's exact CIDR for a tighter gate.
+      WIKI_ADMIN_TRUSTED_PROXIES: ${WIKI_ADMIN_TRUSTED_PROXIES:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
       # In-process CIDR fence on /admin paths. The production overlay
       # leaves this empty by default — the operator sets the corporate
       # bastion / VPN / cloud-LB private CIDRs in their .env. Both

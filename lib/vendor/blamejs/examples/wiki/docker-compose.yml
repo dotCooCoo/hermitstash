@@ -33,19 +33,20 @@ services:
       WIKI_ADMIN_PASSWORD: ${WIKI_ADMIN_PASSWORD:-}
       WIKI_WEBHOOK_URL: ${WIKI_WEBHOOK_URL:-}
       WIKI_WEBHOOK_SECRET: ${WIKI_WEBHOOK_SECRET:-}
-      # Trust-proxy posture: set to "1" only when this container sits
-      # behind a TLS terminator (Caddy / Nginx / Traefik / cloud LB)
-      # that injects x-forwarded-proto. With it OFF (default), the
-      # cookie Secure-flag honours only req.socket.encrypted — a
-      # misconfigured deploy can't accept attacker-supplied
-      # x-forwarded-proto: https as proof a request was over TLS.
-      WIKI_TRUST_PROXY: ${WIKI_TRUST_PROXY:-}
+      # Reverse-proxy CIDRs (Caddy / Nginx / Traefik / cloud LB). When
+      # set, the wiki peer-gates the forwarded headers: X-Forwarded-For
+      # (the /admin CIDR fence) and X-Forwarded-Proto (the cookie Secure
+      # flag) are honoured ONLY when the request's immediate peer is one
+      # of these, so a direct caller can't forge an allowed IP or claim
+      # https. Empty (default) = ignore forwarded headers and use the
+      # socket address / real TLS state.
+      WIKI_ADMIN_TRUSTED_PROXIES: ${WIKI_ADMIN_TRUSTED_PROXIES:-}
       # In-process CIDR fence on /admin paths. Comma-separated CIDRs;
       # empty = no fence (operators using a reverse proxy / NACL
       # typically gate at that layer). When set, the wiki mounts
       # b.middleware.networkAllowlist as the in-process layer above
-      # the application-layer auth gate. Pair with WIKI_TRUST_PROXY=1
-      # if the proxy injects x-forwarded-for.
+      # the application-layer auth gate. Pair with WIKI_ADMIN_TRUSTED_PROXIES
+      # so X-Forwarded-For is peer-gated.
       WIKI_ADMIN_ALLOWED_CIDRS: ${WIKI_ADMIN_ALLOWED_CIDRS:-}
       WIKI_ADMIN_DENIED_CIDRS:  ${WIKI_ADMIN_DENIED_CIDRS:-}
       # Production-posture assertion gate. "1" = the wiki refuses to
