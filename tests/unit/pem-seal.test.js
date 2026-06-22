@@ -213,3 +213,25 @@ describe("pem-seal.loadPemDispatch (6-state table)", function () {
     assert.strictEqual(result, null);
   });
 });
+
+describe("pem-seal symlink-refusing writes (A3-1 / CWE-59)", function () {
+  // fs.symlinkSync needs a privilege on Windows; skip cleanly there so the
+  // guarantee is still exercised on Linux CI (where deployments run).
+  function trySymlink(target, linkPath) {
+    try { fs.symlinkSync(target, linkPath); return true; } catch (_e) { return false; }
+  }
+
+  it("sealPemFile does not write through a symlink planted at the .tmp path", function () {
+    var victim = tmpPath("-victim.txt");
+    fs.writeFileSync(victim, "VICTIM-UNTOUCHED");
+    var plain = tmpPath("-sl-plain.pem");
+    fs.writeFileSync(plain, EC_PEM, { mode: 0o600 });
+    var sealed = tmpPath("-sl.sealed");
+    if (!trySymlink(victim, sealed + ".tmp")) return; // no symlink privilege — skip
+    pemSeal.sealPemFile(plain, sealed, { keepPlaintext: true });
+    assert.strictEqual(fs.readFileSync(victim, "utf8"), "VICTIM-UNTOUCHED",
+      "the symlink target must never be written through");
+    assert.ok(fs.existsSync(sealed) && !fs.lstatSync(sealed).isSymbolicLink(),
+      "a real (non-symlink) sealed file is created");
+  });
+});

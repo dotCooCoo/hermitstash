@@ -218,6 +218,33 @@ describe("storage", function () {
     });
   });
 
+  describe("symlink-refusing reads + path-escape (A3-3 / A3-6 / C2-02)", function () {
+    function trySymlink(target, linkPath) {
+      try { fs.symlinkSync(target, linkPath); return true; } catch (_e) { return false; }
+    }
+
+    it("getRawBuffer rejects a path that escapes the upload dir", async function () {
+      await assert.rejects(function () { return storage.getRawBuffer("../../etc/passwd"); });
+    });
+
+    it("getRawBuffer / getFileStream refuse a symlinked blob (no symlink-follow on the download path)", async function () {
+      var victim = path.join(storage.uploadDir, testSubDir, "victim-secret.txt");
+      fs.mkdirSync(path.dirname(victim), { recursive: true });
+      fs.writeFileSync(victim, "TOP-SECRET-VICTIM");
+      var storagePath = testSubDir + "/symlink-blob.bin";
+      var result = await storage.saveFile(Buffer.from("real blob"), storagePath);
+      var onDisk = path.join(storage.uploadDir, result.path);
+      fs.unlinkSync(onDisk);
+      if (!trySymlink(victim, onDisk)) return; // no symlink privilege — skip
+      await assert.rejects(function () { return storage.getRawBuffer(storagePath); },
+        "getRawBuffer must refuse to read through a symlinked blob");
+      await assert.rejects(async function () {
+        var s = await storage.getFileStream(storagePath, null);
+        for await (var _chunk of s) { /* drain */ }
+      }, "getFileStream must refuse a symlinked blob");
+    });
+  });
+
   // ---- saveFile disk operations ----
 
   describe("saveFile", function () {

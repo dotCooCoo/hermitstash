@@ -304,13 +304,21 @@ module.exports = function (app) {
     var dbPath = nodeFs.existsSync(encDbPath) ? encDbPath : plainDbPath;
     var isEnc = dbPath === encDbPath;
     if (!nodeFs.existsSync(dbPath)) { res.writeHead(404); return res.end("No database found"); }
+    // Open read-only with O_NOFOLLOW before sending headers, so a symlink swapped
+    // in after the existence check (CWE-22 / CWE-367) is refused (404) rather than
+    // followed off the managed data dir. Defense-in-depth on an admin-only path.
+    var dbFd;
+    try { dbFd = b.atomicFile.openNoFollowSync(dbPath); }
+    catch (_e) { res.writeHead(404); return res.end("No database found"); }
     audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Database backup downloaded" + (isEnc ? " (encrypted)" : ""), req: req });
     var ext = isEnc ? ".db.enc" : ".db";
     res.writeHead(200, {
       "Content-Type": "application/octet-stream",
       "Content-Disposition": "attachment; filename=\"hermitstash-backup-" + new Date().toISOString().slice(0,10) + ext + "\""
     });
-    nodeFs.createReadStream(dbPath).pipe(res);
+    var dbStream = nodeFs.createReadStream(dbPath, { fd: dbFd });
+    dbStream.on("error", function () { if (!res.writableEnded) res.end(); });
+    dbStream.pipe(res);
   });
 
   // ---- Storage S3 test ----

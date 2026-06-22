@@ -190,8 +190,19 @@ function serveLogoFrom(dir) {
              : ext === ".gif" ? "image/gif"
              : ext === ".webp" ? "image/webp"
              : "application/octet-stream";
+    // Open with O_NOFOLLOW so a symlink swapped in after the lexical
+    // path-confinement check (CWE-22 / CWE-367) is refused (ELOOP → 404)
+    // instead of followed out of the logo dir.
+    var fd;
+    try {
+      fd = b.atomicFile.openNoFollowSync(resolved);
+    } catch (_e) {
+      res.writeHead(404); return res.end();
+    }
     res.writeHead(200, { "Content-Type": mime, "Cache-Control": "public, max-age=3600" });
-    fs.createReadStream(resolved).pipe(res);
+    var stream = fs.createReadStream(resolved, { fd: fd });
+    stream.on("error", function () { if (!res.writableEnded) res.end(); });
+    stream.pipe(res);
   };
 }
 app.get("/img/custom/:name", serveLogoFrom(C.PATHS.CUSTOM_LOGO_DIR));
