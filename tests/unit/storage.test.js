@@ -48,10 +48,6 @@ describe("storage", function () {
       assert.strictEqual(typeof storage.deleteFile, "function");
     });
 
-    it("exports getPresignedUrl function", function () {
-      assert.strictEqual(typeof storage.getPresignedUrl, "function");
-    });
-
     it("exports uploadDir string", function () {
       assert.strictEqual(typeof storage.uploadDir, "string");
       assert.ok(storage.uploadDir.length > 0, "uploadDir should not be empty");
@@ -335,16 +331,6 @@ describe("storage", function () {
       }
       assert.strictEqual(Buffer.concat(chunks).toString(), "legacy raw content",
         "null encryptionKey should return raw content");
-    });
-  });
-
-  // ---- getPresignedUrl (local backend) ----
-
-  describe("getPresignedUrl", function () {
-    it("returns null for local storage backend", function () {
-      // Default config is local backend, so presigned URLs should return null
-      var url = storage.getPresignedUrl("some/path.pdf", "test.pdf", "application/pdf");
-      assert.strictEqual(url, null, "local backend should not generate presigned URLs");
     });
   });
 

@@ -25,7 +25,9 @@ module.exports = function (app) {
       return send(res, "error", { title: "Not Configured", message: "Google OAuth is not set up. Add a Client ID in Admin Settings.", user: null }, 500);
     }
     var state = generateState();
-    req.session.oauthState = state;
+    // Bind a creation timestamp so a captured state can't be replayed across a
+    // long-lived session window (state is single-use and expires in 5 minutes).
+    req.session.oauthState = { value: state, ts: Date.now() };
     var url = getAuthUrl(state, req);
     res.redirect(url);
   });
@@ -38,10 +40,14 @@ module.exports = function (app) {
         return res.redirect("/auth/failed");
       }
 
-      // Verify state to prevent CSRF
-      if (!req.query.state || req.query.state !== req.session.oauthState) {
+      // Verify state to prevent CSRF: constant-time value match + freshness.
+      var st = req.session.oauthState;
+      var stateOk = !!st && !!req.query.state &&
+        b.crypto.timingSafeEqual(String(req.query.state), String(st.value || ""));
+      var fresh = !!st && (Date.now() - (st.ts || 0)) <= C.TIME.minutes(5);
+      if (!stateOk || !fresh) {
         delete req.session.oauthState;
-        audit.log(audit.ACTIONS.AUTH_FAILED_PAGE, { details: "OAuth state mismatch (CSRF protection)", req: req });
+        audit.log(audit.ACTIONS.AUTH_FAILED_PAGE, { details: "OAuth state mismatch or expired (CSRF protection)", req: req });
         return res.redirect("/auth/failed");
       }
       delete req.session.oauthState;
@@ -97,15 +103,16 @@ module.exports = function (app) {
         if (err.isAppError) {
           // Track failed attempts for lockout (only if user exists)
           if (err.statusCode === 401 && existing) {
-            var attempts = (parseInt(existing.failedLoginAttempts, 10) || 0) + 1;
-            var lockUpdate = { failedLoginAttempts: attempts };
+            // Atomic increment — a read-modify-write would let concurrent failed
+            // attempts each read the same pre-write counter and slip past the
+            // lockout threshold (TOCTOU bypass).
+            var attempts = usersRepo.incrementFailedAttempts(existing._id) || 0;
             if (attempts >= 10) {
-              lockUpdate.lockedUntil = new Date(Date.now() + C.TIME.minutes(30)).toISOString();
+              usersRepo.update(existing._id, { $set: { lockedUntil: new Date(Date.now() + C.TIME.minutes(30)).toISOString() } });
               audit.log(audit.ACTIONS.LOGIN_FAILED_BAD_PASSWORD, { targetId: existing._id, targetEmail: input.email, details: "Account locked after " + attempts + " failed attempts (30 min)", req: req });
             } else {
               audit.log(audit.ACTIONS.LOGIN_FAILED_BAD_PASSWORD, { targetId: existing._id, targetEmail: input.email, details: "Invalid password (attempt " + attempts + "/10)", req: req });
             }
-            usersRepo.update(existing._id, { $set: lockUpdate });
           } else if (err.statusCode === 401) {
             audit.log(audit.ACTIONS.LOGIN_FAILED_NO_ACCOUNT, { targetEmail: input.email, details: "No account found", req: req });
           } else if (err.statusCode === 403 && err.pending) {

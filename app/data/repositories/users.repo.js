@@ -16,6 +16,18 @@ function create(doc) { return users.insert(doc); }
 
 function update(id, ops) { return users.update({ _id: id }, ops); }
 
+// Atomic failed-login counter bump. A read-modify-write (read count → +1 →
+// $set) lets concurrent failed attempts each read the same pre-write value and
+// stay under the lockout threshold (TOCTOU bypass). failedLoginAttempts is a
+// raw INTEGER column, so a single SQL UPDATE increments it atomically; the
+// follow-up read returns the post-increment count for the lockout decision.
+function incrementFailedAttempts(id) {
+  var db = require("../../../lib/db");
+  db.rawExec("UPDATE users SET failedLoginAttempts = COALESCE(failedLoginAttempts, 0) + 1 WHERE _id = ?", id);
+  var row = db.rawGet("SELECT failedLoginAttempts FROM users WHERE _id = ?", id);
+  return row ? row.failedLoginAttempts : null;
+}
+
 /**
  * Delete a user and all associated data atomically.
  */
@@ -47,4 +59,4 @@ function deleteUser(userId, reassignTo) {
 
 function remove(id) { return users.remove({ _id: id }); }
 
-module.exports = { findById, findByEmail, findAll, count, findPaginated, create, update, remove, deleteUser };
+module.exports = { findById, findByEmail, findAll, count, findPaginated, create, update, remove, deleteUser, incrementFailedAttempts };

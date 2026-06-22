@@ -56,6 +56,52 @@ describe("client-ip canonicalize()", function () {
   });
 });
 
+// Operator-configured trusted proxies now accept CIDRs (TRUST_PROXY), resolved
+// through b.requestHelpers.trustedClientIp. These pin the peer-gating: an XFF is
+// honored only when the immediate peer falls inside a configured range, a bare
+// IP is treated as a /32, and a malformed CIDR fails safe to loopback-only —
+// never throwing and never silently widening trust.
+describe("client-ip operator-configured trusted proxies (CIDR)", function () {
+  var config = require("../../lib/config");
+
+  function withTrustProxy(value, fn) {
+    var saved = config.trustProxy;
+    config.trustProxy = value;
+    try { return fn(); } finally { config.trustProxy = saved; }
+  }
+
+  it("trusts an XFF from a peer inside an operator CIDR (10.0.0.0/8)", function () {
+    withTrustProxy("10.0.0.0/8", function () {
+      var req = { socket: { remoteAddress: "10.1.2.3" }, headers: { "x-forwarded-for": "203.0.113.9" } };
+      assert.strictEqual(clientIp.getIp(req), "203.0.113.9");
+    });
+  });
+
+  it("treats a bare-IP TRUST_PROXY entry as a /32", function () {
+    withTrustProxy("10.9.9.9", function () {
+      var req = { socket: { remoteAddress: "10.9.9.9" }, headers: { "x-forwarded-for": "203.0.113.9" } };
+      assert.strictEqual(clientIp.getIp(req), "203.0.113.9");
+    });
+  });
+
+  it("ignores XFF from a peer outside the configured CIDR", function () {
+    withTrustProxy("10.0.0.0/8", function () {
+      var req = { socket: { remoteAddress: "192.0.2.5" }, headers: { "x-forwarded-for": "203.0.113.9" } };
+      assert.strictEqual(clientIp.getIp(req), "192.0.2.5");
+    });
+  });
+
+  it("fails safe to loopback-only on a malformed CIDR (never throws, never widens)", function () {
+    withTrustProxy("not-a-cidr", function () {
+      // loopback proxy is still trusted; an untrusted peer is still ignored.
+      var loop = { socket: { remoteAddress: "127.0.0.1" }, headers: { "x-forwarded-for": "203.0.113.9" } };
+      assert.strictEqual(clientIp.getIp(loop), "203.0.113.9");
+      var ext = { socket: { remoteAddress: "8.8.8.8" }, headers: { "x-forwarded-for": "203.0.113.9" } };
+      assert.strictEqual(clientIp.getIp(ext), "8.8.8.8");
+    });
+  });
+});
+
 // lib/rate-limit.js wraps the framework limiter: guard(opts) mounts
 // b.middleware.rateLimit + the shared onDeny so every 429 is RFC 9457
 // problem+json. Pin the surface + the denial shape so a regression to

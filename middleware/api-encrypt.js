@@ -49,7 +49,7 @@ function hybridEciesEncrypt(sessionKeyBuffer, clientKemPubKeyBytes, clientEcdhPu
   // --- ML-KEM-1024 leg ---
   var kemResult = ml_kem1024.encapsulate(clientKemPubKeyBytes);
   var sharedSecretKem = kemResult.sharedSecret;   // 32 bytes
-  var ciphertextKem = kemResult.cipherText;        // 1088 bytes
+  var ciphertextKem = kemResult.cipherText;        // 1568 bytes (ML-KEM-1024, FIPS 203)
 
   // --- ECDH P-384 leg ---
   var ephemeral = nodeCrypto.generateKeyPairSync("ec", { namedCurve: "secp384r1" });

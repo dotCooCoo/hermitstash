@@ -617,15 +617,6 @@
               <input type="text" class="text-input" id="s-s3Endpoint" data-key="s3Endpoint" placeholder="https://nyc3.digitaloceanspaces.com">
             </div>
             <div class="settings-divider"></div>
-            <div class="settings-field">
-              <label class="settings-label">Direct S3 Downloads <span class="settings-hint">uses S3 SSE instead of app encryption</span></label>
-              <label class="toggle"><input type="checkbox" id="s-s3DirectDownloads" data-key="s3DirectDownloads"><span class="toggle-slider"></span></label>
-            </div>
-            <div class="settings-field">
-              <label class="settings-label">Pre-signed URL Expiry <span class="settings-hint">max 7 days (AWS limit), fresh URL generated per download</span></label>
-              <input type="number" class="text-input" id="s-s3PresignExpiry" data-key="s3PresignExpiry" min="60" max="604800" placeholder="604800">
-            </div>
-            <div class="settings-divider"></div>
             <div class="settings-field" style="display:flex;align-items:center;gap:12px">
               <button class="butn butn-bord-thin butn-sm radius-30" onclick="testStorageConnection()"><span>Test Connection</span></button>
               <span id="storageTestResult" style="font-size:.85rem"></span>
@@ -1590,7 +1581,7 @@ var tabFields={
   general:['port','sessionSecret'],
   auth:['localAuth','registrationOpen','enforceMtls','googleClientID','googleClientSecret','allowedDomains','emailVerification','passkeyEnabled','rpName','rpId','rpOrigin'],
   uploads:['publicUpload','maxFileSize','publicMaxFiles','publicMaxBundleSize','perUserQuotaBytes','publicIpQuotaBytes','uploadTimeout','uploadConcurrency','uploadRetries','allowedExtensions'],
-  storage:['storageBackend','uploadDir','s3Bucket','s3Region','s3AccessKey','s3SecretKey','s3Endpoint','s3DirectDownloads','s3PresignExpiry'],
+  storage:['storageBackend','uploadDir','s3Bucket','s3Region','s3AccessKey','s3SecretKey','s3Endpoint'],
   theme:['themeAccentColor','themeBgColor','themeFont'],
   email:['emailEnabled','emailBackend','resendApiKey','resendQuotaDaily','resendQuotaMonthly','smtpHost','smtpPort','smtpUser','smtpPass','smtpFrom','emailTemplateMode','emailTemplateSubject','emailTemplateHeader','emailTemplateFooter'],
   backup:['backupEnabled','backupScope','backupSchedule','backupTimeOfDay','backupTimezone','backupRetention','backupS3Bucket','backupS3Region','backupS3AccessKey','backupS3SecretKey','backupS3Endpoint','backupPassphrase']

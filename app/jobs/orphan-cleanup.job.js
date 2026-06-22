@@ -51,7 +51,11 @@ function scanLocalOrphans() {
     for (var j = 0; j < entries.length; j++) {
       var full = nodePath.join(dir, entries[j]);
       var stat;
-      try { stat = nodeFs.statSync(full); } catch (_e) { continue; }
+      // lstat (not stat) so a symlink is seen as a link, not its target. A
+      // legitimate upload is never a symlink; skip any symlink entirely rather
+      // than following it into / deleting through a path outside uploadDir.
+      try { stat = nodeFs.lstatSync(full); } catch (_e) { continue; }
+      if (stat.isSymbolicLink()) continue;
       if (stat.isDirectory()) {
         walk(full);
       } else {

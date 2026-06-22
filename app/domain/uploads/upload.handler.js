@@ -268,11 +268,23 @@ async function handleChunkUpload(ctx) {
     return { success: true, chunksReceived: received, totalChunks: totalChunks };
   }
 
-  // Estimate size + check quotas before reassembly
+  // Sum chunk sizes before reassembly. A missing chunk stat means the assembly
+  // is incomplete/corrupt — refuse rather than silently undercount, which would
+  // let an over-cap file slip the quota check and OOM on the Buffer.concat below.
   var estimatedSize = 0;
   for (var ce = 0; ce < totalChunks; ce++) {
     var cs = storage.statChunk(bundle.shareId, fileId, ce);
-    if (cs) estimatedSize += cs.size;
+    if (!cs) {
+      storage.removeChunkAssembly(bundle.shareId, fileId);
+      return { error: "Upload assembly incomplete or corrupt." };
+    }
+    estimatedSize += cs.size;
+  }
+  // Hard size cap BEFORE allocating the reassembly buffer (validateFile re-checks
+  // post-concat, but the concat itself is the memory-exhaustion point).
+  if (limits.maxFileSize && estimatedSize > limits.maxFileSize) {
+    storage.removeChunkAssembly(bundle.shareId, fileId);
+    return { error: "Assembled file exceeds the maximum allowed size." };
   }
   var quota = await checkAllQuotas(estimatedSize, bundle, ctx.req);
   if (!quota.allowed) {

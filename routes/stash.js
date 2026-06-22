@@ -26,6 +26,17 @@ var nodeFs = require("node:fs");
 var { sanitizeSvg } = require("../lib/sanitize-svg");
 var apiKeysRepo = require("../app/data/repositories/apiKeys.repo");
 var db = require("../lib/db");
+
+// Restrict an admin-supplied logo URL to a same-origin path or an explicit
+// https:// origin. Rejects javascript:/data: schemes AND protocol-relative
+// "//host" (which slips past a bare leading-slash check and loads external
+// content). CSP img-src is the outer gate; this is the storage-boundary belt.
+function _safeLogoUrl(u) {
+  u = String(u || "").trim().slice(0, 500);
+  if (!u || u.startsWith("//")) return "";
+  if (u.startsWith("/") || u.startsWith("https://")) return u;
+  return "";
+}
 var mtlsCa = require("../lib/mtls-ca");
 var { generateEnrollmentCode, certFingerprintSha3 } = require("../lib/cert-utils");
 
@@ -534,7 +545,7 @@ module.exports = function (app) {
         title: String(body.title || "").trim().slice(0, 200),
         subtitle: String(body.subtitle || "").trim().slice(0, 1000),
         accentColor: (function(c) { c = String(c || "").trim(); return /^#[0-9a-fA-F]{3,8}$/.test(c) ? c : ""; })(body.accentColor),
-        logoUrl: (function(u) { u = String(u || "").trim().slice(0, 500); return (u && !u.startsWith("https://") && !u.startsWith("/")) ? "" : u; })(body.logoUrl),
+        logoUrl: _safeLogoUrl(body.logoUrl),
         passwordHash: passwordHash,
         allowedEmails: allowedEmails,
         accessMode: accessMode,
@@ -575,7 +586,7 @@ module.exports = function (app) {
       if (body.title !== undefined) updates.title = String(body.title).trim().slice(0, 200);
       if (body.subtitle !== undefined) updates.subtitle = String(body.subtitle).trim().slice(0, 1000);
       if (body.accentColor !== undefined) { var c = String(body.accentColor).trim(); updates.accentColor = /^#[0-9a-fA-F]{3,8}$/.test(c) ? c : ""; }
-      if (body.logoUrl !== undefined) { var lu = String(body.logoUrl).trim().slice(0, 500); updates.logoUrl = (lu && !lu.startsWith("https://") && !lu.startsWith("/")) ? "" : lu; }
+      if (body.logoUrl !== undefined) updates.logoUrl = _safeLogoUrl(body.logoUrl);
       if (body.maxFileSize !== undefined) updates.maxFileSize = parseInt(body.maxFileSize, 10) || 0;
       if (body.maxFiles !== undefined) updates.maxFiles = parseInt(body.maxFiles, 10) || 0;
       if (body.maxBundleSize !== undefined) updates.maxBundleSize = parseInt(body.maxBundleSize, 10) || 0;
@@ -720,7 +731,9 @@ module.exports = function (app) {
       } catch (_e) { /* STASH_LOGO_DIR may not exist on first upload */ }
 
       var filename = stash._id + ext;
-      nodeFs.writeFileSync(nodePath.join(STASH_LOGO_DIR, filename), data);
+      // Atomic, symlink-refusing write (O_EXCL|O_NOFOLLOW temp + rename) so a
+      // pre-planted symlink at the logo path can't redirect the write (CWE-59).
+      b.atomicFile.writeExclSync(nodePath.join(STASH_LOGO_DIR, filename), data, { fileMode: 0o600 });
 
       var logoPath = "/img/stash/" + filename;
       stashRepo.update(stash._id, { $set: { logoUrl: logoPath } });

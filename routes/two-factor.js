@@ -161,7 +161,13 @@ module.exports = function (app) {
         ? user.totpBackupCodes
         : b.safeJson.parseOrDefault(user.totpBackupCodes || "[]", []);
       var codeHash = b.crypto.sha3Hash(code);
-      var idx = backupCodes.indexOf(codeHash);
+      // Constant-time scan: Array.indexOf short-circuits per character, leaking
+      // (via response timing) whether a candidate matched and at which position.
+      // timingSafeEqual compares each stored hash in constant time.
+      var idx = -1;
+      for (var bi = 0; bi < backupCodes.length; bi++) {
+        if (b.crypto.timingSafeEqual(String(backupCodes[bi]), codeHash)) { idx = bi; break; }
+      }
 
       if (idx !== -1) {
         // Atomically claim this backup code before consuming it. The splice+write

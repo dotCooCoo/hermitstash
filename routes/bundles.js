@@ -5,7 +5,6 @@ var bundlesRepo = require("../app/data/repositories/bundles.repo");
 var filesRepo = require("../app/data/repositories/files.repo");
 var accessLogRepo = require("../app/data/repositories/bundleAccessLog.repo");
 var logger = require("../app/shared/logger");
-var config = require("../lib/config");
 var b = require("../lib/vendor/blamejs");
 var storage = require("../lib/storage");
 var { safeContentDisposition } = require("../app/shared/sanitize-filename");
@@ -57,7 +56,10 @@ async function _streamToBuffer(stream) {
 // The per-IP rate limiter (10/15min) stays the brute-force ceiling, and a
 // 256-bit shareId already makes guessing the link infeasible.
 function _lockoutKey(shareId, ip) {
-  return _shareIdHash(shareId + "|" + (ip || "unknown"));
+  // Key the backoff on the /24 (v4) / /64 (v6) subnet, not the exact IP, so an
+  // attacker rotating addresses within a subnet can't reset the counter each try.
+  var masked = (ip && b.requestHelpers.ipPrefix(ip)) || ip || "unknown";
+  return _shareIdHash(shareId + "|" + masked);
 }
 
 function getBundleLockout(shareId, ip) {
@@ -285,7 +287,9 @@ module.exports = function (app) {
 
   // Download single file from bundle
   app.get("/b/:shareId/file/:fileShareId", async (req, res) => {
-    var doc = filesRepo.findByShareId(req.params.fileShareId);
+    // Serve only finalized files — an in-flight (chunking) upload must never be
+    // streamed to a downloader (partial/garbled bytes, missing encryption key).
+    var doc = filesRepo.findCompleteByShareId(req.params.fileShareId);
     if (!doc || doc.bundleShareId !== req.params.shareId) { res.writeHead(404); return res.end("Not found"); }
     if (doc.expiresAt && doc.expiresAt < new Date().toISOString()) { res.writeHead(410); return res.end("File expired"); }
     // Enforce bundle expiry + access protection on single file downloads
@@ -296,11 +300,6 @@ module.exports = function (app) {
     }
     filesRepo.incrementDownloads(doc._id);
     audit.log(audit.ACTIONS.BUNDLE_FILE_DOWNLOADED, { targetId: doc._id, details: "file: " + doc.originalName + ", bundle: " + req.params.shareId, req: req });
-    // S3 direct mode: redirect to pre-signed URL for files stored without app encryption
-    if (!doc.encryptionKey && config.storage.backend === "s3" && config.storage.s3DirectDownloads) {
-      var presignedUrl = storage.getPresignedUrl(doc.storagePath, doc.originalName, doc.mimeType);
-      if (presignedUrl) { res.writeHead(302, { "Location": presignedUrl, "Cache-Control": "no-store" }); return res.end(); }
-    }
     try {
       var stream = await storage.getFileStream(doc.storagePath, doc.encryptionKey);
       req.on("close", function () { if (stream.destroy) stream.destroy(); });

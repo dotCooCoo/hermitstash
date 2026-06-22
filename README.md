@@ -393,7 +393,7 @@ Built on Node.js 24.16.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 
 **Storage**
 - Local disk, NAS mount, or any S3-compatible bucket (MinIO, Cloudflare R2, DigitalOcean Spaces, Backblaze B2)
-- S3 direct downloads with pre-signed URLs (configurable expiry, AWS Signature V4)
+- Every stored object is encrypted by the application before it leaves the process -- there is no direct-download path that would serve a file under a classical S3-managed cipher instead of the app's post-quantum encryption
 - All file operations (uploads, vault, backups) go through a unified storage abstraction -- local and S3 backends are transparent to the application
 - Per-file XChaCha20-Poly1305 encryption at rest, keys sealed with hybrid vault
 
@@ -1378,7 +1378,7 @@ lib/
   db.js               SQLite + auto field crypto + DB file encryption
   api-crypto.js       API payload XChaCha20-Poly1305 encrypt/decrypt
   session.js          Hybrid KEM encrypted cookies, LRU eviction
-  storage.js          Local/S3 + XChaCha20-Poly1305 file encryption + pre-signed URLs
+  storage.js          Local/S3 + XChaCha20-Poly1305 file encryption (all backends)
                       saveRaw/getRawBuffer for pre-encrypted data (vault files)
   cert-utils.js       Certificate fingerprint hashing + indexed revocation checks
   config.js           Settings from encrypted DB, env fallback, onReset registry

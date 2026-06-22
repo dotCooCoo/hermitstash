@@ -145,7 +145,9 @@ module.exports = function (app) {
       for (var i = 0; i < allCreds.length; i++) {
         var row = allCreds[i];
         var storedB64url = Buffer.from(row.credentialId, "base64").toString("base64url");
-        if (storedB64url === incomingCredId) {
+        // Constant-time compare so verification timing can't enumerate which
+        // credential IDs exist (=== short-circuits on the first differing byte).
+        if (b.crypto.timingSafeEqual(storedB64url, String(incomingCredId || ""))) {
           matchedCred = row;
           break;
         }

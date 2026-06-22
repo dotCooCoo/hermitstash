@@ -1,0 +1,56 @@
+{
+  "version": "1.12.7",
+  "date": "2026-06-22",
+  "headline": "Always-encrypted object storage, constant-time credential checks, atomic login lockout, and proxy-aware session binding",
+  "summary": "Every stored object is now encrypted by the application before it leaves the process — the direct-download mode that could serve a file under a classical S3-managed cipher is removed. Backup-code, passkey, and backup-checksum comparisons run in constant time; the failed-login lockout counter increments atomically so concurrent attempts can no longer slip past the threshold; the Google OAuth state is time-bound and constant-time compared; and the session device fingerprint resolves the real client IP behind a trusted proxy so it stays stable (and meaningful) in reverse-proxy and container deployments. Trusted-proxy configuration accepts CIDR ranges, the bundle-password lockout is keyed on the subnet, chunked uploads are size-capped before reassembly, and the vendored framework is updated to its latest security release.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        { "title": "Trusted-proxy configuration accepts CIDR ranges", "body": "TRUST_PROXY now resolves the client IP through a peer-gated, right-to-left walk over CIDR ranges (a bare IP is treated as a /32 or /128). X-Forwarded-For is honored only for hops inside the trusted set, so a direct caller cannot forge an upstream address to walk an IP allowlist or evade a rate-limit key. A malformed range fails safe to loopback-only rather than throwing or widening trust." },
+        { "title": "Stash logo files are written atomically and refuse symlinks", "body": "Branding-logo writes go through an exclusive, no-follow temporary-file-and-rename, so a pre-planted symlink at the logo path can no longer redirect the write." },
+        { "title": "Bundle file downloads serve only finalized files", "body": "A single-file download from a bundle now returns the file only once its upload has completed, so an in-flight upload can never be streamed as a partial or unkeyed object." }
+      ]
+    },
+    {
+      "heading": "Removed",
+      "items": [
+        { "title": "S3 direct-download mode", "body": "The mode that stored objects under S3 server-side AES encryption and served them through pre-signed URLs — bypassing the application's post-quantum XChaCha20-Poly1305 layer — is removed, along with the S3_DIRECT_DOWNLOADS and S3_PRESIGN_EXPIRY settings. All objects on every backend are now encrypted by the application before storage and decrypted on the way out. See Migration." }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        { "title": "Admin stash-edit control escapes embedded data robustly", "body": "The per-row edit control in the admin stash list escapes its embedded JSON for the surrounding attribute context, closing a fragile hand-rolled escape." },
+        { "title": "Vendor refresh writes the dependency manifest in one step", "body": "The vendoring script records version, tag, and date in a single manifest write and always cleans its temporary clone (retrying through a transient filesystem lock), so an interrupted refresh can no longer leave the manifest half-updated or a stale clone behind." },
+        { "title": "Release version comparison fails loud on an unresolved tag", "body": "The release currency check now errors on a null or unresolved upstream tag instead of coercing it to a value that reads as current, so a failed lookup can't let a stale pin pass the gate." }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        { "title": "Constant-time credential and checksum comparisons", "body": "Two-factor backup-code lookup, passkey credential-ID matching, and backup/restore checksum verification now use a constant-time comparison, removing timing side-channels that could leak which value matched or whether a credential exists." },
+        { "title": "Atomic failed-login lockout", "body": "The failed-login counter is incremented with an atomic database update, so concurrent failed attempts can no longer each read the same pre-write value and stay under the lockout threshold." },
+        { "title": "Time-bound OAuth state", "body": "The Google OAuth state carries a creation timestamp, is rejected after five minutes, and is compared in constant time — a captured state can no longer be replayed across a long-lived session window." },
+        { "title": "Proxy-aware session device binding", "body": "The session device fingerprint resolves the real client IP through the trusted-proxy configuration, so behind nginx or a container network it binds to the client's subnet rather than an ephemeral proxy socket — keeping the binding both stable and effective." },
+        { "title": "Subnet-keyed bundle-password lockout", "body": "The exponential backoff on bundle-password attempts is keyed on the /24 (IPv4) or /64 (IPv6) subnet, so rotating addresses within a subnet can no longer reset the counter on each try." },
+        { "title": "Audit detail no longer logged on insert failure", "body": "When an audit row fails to insert, the process log records the action and error but no longer echoes the audit detail, which can contain sensitive freeform text." },
+        { "title": "Audit-chain verification scopes correctly without an explicit ordering", "body": "The chain-member filter is applied to audit-log reads whether or not the query carries an ORDER BY or LIMIT, so pre-chain rows can no longer leak into the verification walk and break the anchor." },
+        { "title": "Orphan cleanup refuses symlinks", "body": "The upload-tree orphan sweep stats links rather than their targets and skips any symlink, so it can neither follow nor delete through a path outside the upload directory." },
+        { "title": "Chunked uploads are size-capped before reassembly", "body": "A chunked upload is rejected if a chunk is missing and is capped against the maximum file size before the reassembly buffer is allocated, closing a memory-exhaustion path on the assembly step." },
+        { "title": "Vendored framework security update", "body": "The vendored framework is updated to its latest release, which fails more authentication and signature verifiers closed, bounds a fragmented WebSocket message before completion, refuses a directive-injecting Content-Security-Policy source, and settles a middleware pipeline that a write-and-halt handler previously left pending." }
+      ]
+    },
+    {
+      "heading": "Migration",
+      "items": [
+        { "title": "Remove S3_DIRECT_DOWNLOADS and S3_PRESIGN_EXPIRY", "body": "These settings are removed and ignored. Objects on every backend are always encrypted by the application, so no action is required beyond deleting the settings from your configuration; downloads stream through the application's decryption as they already do for non-direct objects." },
+        { "title": "TRUST_PROXY accepts CIDR ranges", "body": "An existing exact-IP TRUST_PROXY value keeps working (it is treated as a /32 or /128). To trust a proxy range, set the CIDR directly, e.g. TRUST_PROXY=10.0.0.0/8." }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "FIPS 203 (ML-KEM)", "url": "https://csrc.nist.gov/pubs/fips/203/final" },
+    { "label": "RFC 9457 (Problem Details)", "url": "https://www.rfc-editor.org/rfc/rfc9457" }
+  ]
+}

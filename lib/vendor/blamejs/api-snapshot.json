@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.15.14",
-  "createdAt": "2026-06-21T06:07:03.428Z",
+  "frameworkVersion": "0.15.15",
+  "createdAt": "2026-06-22T00:16:09.227Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -49211,6 +49211,10 @@
           "type": "function",
           "arity": 1
         },
+        "ipPrefix": {
+          "type": "function",
+          "arity": 1
+        },
         "makeResourceAuditEmitter": {
           "type": "function",
           "arity": 3
@@ -50653,6 +50657,10 @@
               "arity": 1
             }
           }
+        },
+        "isJsonObject": {
+          "type": "function",
+          "arity": 1
         },
         "parse": {
           "type": "function",
@@ -54046,6 +54054,19 @@
           "arity": 4
         },
         "connect": {
+          "type": "function",
+          "arity": 2
+        }
+      }
+    },
+    "x509Chain": {
+      "type": "object",
+      "members": {
+        "isCaCert": {
+          "type": "function",
+          "arity": 1
+        },
+        "issuerValidlyIssued": {
           "type": "function",
           "arity": 2
         }

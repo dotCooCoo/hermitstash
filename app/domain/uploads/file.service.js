@@ -43,15 +43,6 @@ function incrementDownloads(doc) {
 }
 
 /**
- * Get a pre-signed S3 URL for direct download (bypasses app decryption).
- * Returns null if not applicable (file is encrypted, backend is not S3, or direct mode is off).
- */
-function getDirectDownloadUrl(doc) {
-  if (doc.encryptionKey) return null;
-  return storage.getPresignedUrl(doc.storagePath, doc.originalName, doc.mimeType);
-}
-
-/**
  * Get a readable stream of decrypted file data + response headers for download.
  * Returns { stream, headers }.
  */
@@ -228,7 +219,6 @@ async function saveAndCreateFileRecord(buffer, opts) {
 module.exports = {
   lookupFile: lookupFile,
   incrementDownloads: incrementDownloads,
-  getDirectDownloadUrl: getDirectDownloadUrl,
   getDownloadStream: getDownloadStream,
   getPreviewMode: getPreviewMode,
   getInlinePreviewStream: getInlinePreviewStream,

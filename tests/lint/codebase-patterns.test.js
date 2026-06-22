@@ -99,6 +99,9 @@ function _libFiles() { return _walk(LIB_ROOT); }
 // A few guard shapes that live in the request-handling tree — deny-path
 // problem+json denials, reserved-hostname SSRF compares — and scan
 // _libFiles().concat(_appFiles()) so those dirs are covered too.
+// Maintenance: this is the full set of request-handler trees scanned for the
+// app-scope guard shapes. A new top-level handler directory (a sibling of
+// app/ middleware/ routes/) MUST be added here or its files escape the gate.
 var APP_ROOTS = ["app", "middleware", "routes"];
 function _appFiles() {
   var root = path.resolve(__dirname, "..", "..");

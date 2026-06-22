@@ -1,5 +1,4 @@
 var b = require("../lib/vendor/blamejs");
-var config = require("../lib/config");
 var logger = require("../app/shared/logger");
 var { safeContentDisposition, sanitizeRename } = require("../app/shared/sanitize-filename");
 var requireAuth = require("../middleware/require-auth");
@@ -36,11 +35,6 @@ module.exports = function (app) {
     }
     fileService.incrementDownloads(doc);
     audit.log(audit.ACTIONS.FILE_DOWNLOADED, { targetId: doc._id, targetEmail: doc.uploaderEmail, details: "file: " + doc.originalName + ", size: " + doc.size, req: req });
-    // S3 direct mode: redirect to pre-signed URL for files stored without app encryption
-    if (config.storage.backend === "s3" && config.storage.s3DirectDownloads) {
-      var presignedUrl = fileService.getDirectDownloadUrl(doc);
-      if (presignedUrl) { res.writeHead(302, { "Location": presignedUrl, "Cache-Control": "no-store" }); return res.end(); }
-    }
     try {
       var result = await fileService.getDownloadStream(doc);
       res.writeHead(200, {

@@ -294,7 +294,13 @@ ENTRY
     #   - CLAUDE.md / .claude/   (project instructions / session settings)
     #   - examples/wiki/C\357\200\272/...   (Windows-mangled `C:` test artifact paths)
     TMPCLONE=".vendor-blamejs.tmp"
-    rm -rf "$TMPCLONE"
+    # Clean up on ANY exit — including an early `exit 1` and the Windows+Dropbox
+    # "Device or resource busy" lock that has aborted a run mid-script, leaving
+    # MANIFEST un-updated. node's rmSync retries on EBUSY and the trap guarantees
+    # the temp clone can't leak or abort the run before MANIFEST is written.
+    _cleanup_tmpclone() { node -e "try{require('fs').rmSync('$TMPCLONE',{recursive:true,force:true,maxRetries:10,retryDelay:200})}catch(_e){}" 2>/dev/null || true; }
+    trap _cleanup_tmpclone EXIT
+    _cleanup_tmpclone
     git clone --depth 1 --branch "$TAG" "$REPO_URL" "$TMPCLONE"
     git -C "$TMPCLONE" archive HEAD | tar -x -C "$DEST" \
       --exclude='CLAUDE.md' \
@@ -305,7 +311,7 @@ ENTRY
       --exclude='.clusterfuzzlite/*' \
       --exclude='oss-fuzz' \
       --exclude='oss-fuzz/*'
-    rm -rf "$TMPCLONE"
+    _cleanup_tmpclone
 
     if [ ! -f "$DEST/package.json" ]; then
       echo "ERROR: extract failed — $DEST/package.json missing."
@@ -320,15 +326,10 @@ ENTRY
       exit 1
     fi
 
-    # Record the tag alongside the version so a later --check (or
-    # CI freshness gate) has a stable handle into the GitHub Releases
-    # API — same shape hermitstash-sync's MANIFEST uses.
-    node -e "
-      var fs = require('fs');
-      var m = JSON.parse(fs.readFileSync('$MANIFEST', 'utf8'));
-      if (m.packages.blamejs) m.packages.blamejs.tag = '$TAG';
-      fs.writeFileSync('$MANIFEST', JSON.stringify(m, null, 2) + '\n');
-    "
+    # The tag is written together with version + bundledAt in the single
+    # MANIFEST update below (one read-modify-write), so a mid-write failure
+    # can't leave the tag and version disagreeing (which would false-trip the
+    # CI freshness gate). The tag handle mirrors hermitstash-sync's MANIFEST.
     ;;
 
   *)
@@ -347,6 +348,7 @@ var pkg = '$PKG';
 if (m.packages[pkg]) {
   m.packages[pkg].version = '$INSTALLED_VER';
   m.packages[pkg].bundledAt = '$DATE';
+  if (pkg === 'blamejs' && '$TAG') m.packages[pkg].tag = '$TAG';
   fs.writeFileSync('$MANIFEST', JSON.stringify(m, null, 2) + '\n');
   console.log('Updated MANIFEST.json: ' + pkg + ' → ' + '$INSTALLED_VER');
 } else {

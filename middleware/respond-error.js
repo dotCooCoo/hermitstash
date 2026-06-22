@@ -55,7 +55,7 @@ function emitError(req, res, opts) {
   var detail = opts.detail;
 
   var accept = req.headers && req.headers.accept || "";
-  var wantsHtml = accept.indexOf("text/html") !== -1 && !req.apiKey;
+  var wantsHtml = (req && !req.apiKey) && accept.indexOf("text/html") !== -1;
 
   if (wantsHtml) {
     var htmlTitle = opts.htmlTitle || problemTitle;

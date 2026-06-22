@@ -166,6 +166,13 @@ function bashAvailable() {
 
 // Compare X.Y.Z (ignoring any -prerelease / +build suffix). -1 / 0 / 1.
 function semverCmp(a, b) {
+  // Fail loud on a null/undefined input (e.g. a failed GitHub-API tag resolve):
+  // without this it coerces to "null" → NaN → 0, falsely reporting a stale pin
+  // as current and slipping it past the currency gate. A non-semver string
+  // (e.g. a SHA ref) is still compared leniently, as before.
+  if (a == null || b == null) {
+    throw new Error("semverCmp: null/undefined version (" + JSON.stringify(a) + ", " + JSON.stringify(b) + ")");
+  }
   var pa = String(a).replace(/^v/, "").split(/[-+]/)[0].split(".").map(Number);
   var pb = String(b).replace(/^v/, "").split(/[-+]/)[0].split(".").map(Number);
   for (var i = 0; i < 3; i++) {
