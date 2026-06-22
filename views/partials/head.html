@@ -14,8 +14,8 @@
   <meta property="og:description" content="Post-quantum encrypted file uploads. ML-KEM-1024 + P-384 hybrid, XChaCha20-Poly1305, zero-knowledge vault. Self-hosted.">
   <meta property="og:image" content="{{{assets.ogImage}}}">
   <meta property="og:type" content="website">
-  <meta property="og:url" content="{{{site.origin}}}">
-  <link rel="canonical" href="{{{site.origin}}}">
+  <meta property="og:url" content="{{site.origin}}">
+  <link rel="canonical" href="{{site.origin}}">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="{{brand.siteName}}">
   <meta name="twitter:description" content="Post-quantum encrypted, self-hosted file uploads.">
@@ -27,8 +27,8 @@
   {% if (site && (site.themeAccentColor || site.themeBgColor || site.themeFont)) { %}
   <style>
     :root {
-      {% if (site.themeAccentColor) { %} --main-color: {{site.themeAccentColor}}; {% } %}
-      {% if (site.themeBgColor) { %} --bg: {{site.themeBgColor}}; {% } %}
+      {% if (site.themeAccentColor && /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+|(?:rgb|rgba|hsl|hsla)\([0-9.,%\s\/]+\))$/.test(site.themeAccentColor)) { %} --main-color: {{site.themeAccentColor}}; {% } %}
+      {% if (site.themeBgColor && /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+|(?:rgb|rgba|hsl|hsla)\([0-9.,%\s\/]+\))$/.test(site.themeBgColor)) { %} --bg: {{site.themeBgColor}}; {% } %}
     }
     {% if (site.themeFont && /^[a-zA-Z0-9 ,\-]+$/.test(site.themeFont)) { %} body { font-family: '{{{site.themeFont}}}', system-ui, sans-serif; } {% } %}
   </style>
@@ -54,8 +54,8 @@ function toggleTheme(){
   {% } %}
   <nav class="navbar" id="navbar">
     <a href="/" class="navbar-logo">
-      <img src="{{{brand.logo}}}" alt="{{brand.siteName}} logo" class="navbar-logo-img logo-light">
-      <img src="{{{brand.logoDark}}}" alt="{{brand.siteName}} logo" class="navbar-logo-img logo-dark">
+      <img src="{{brand.logo}}" alt="{{brand.siteName}} logo" class="navbar-logo-img logo-light">
+      <img src="{{brand.logoDark}}" alt="{{brand.siteName}} logo" class="navbar-logo-img logo-dark">
       <span>{{brand.siteName}}</span>
     </a>
     <div class="navbar-links">

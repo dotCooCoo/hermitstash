@@ -2,7 +2,7 @@
 <main class="main" id="main-content">
 <div class="auth-page" style="padding-top:80px">
   <div class="auth-card" style="max-width:540px">
-    <div class="auth-logo"><img src="{{{brand.logo}}}" alt="" class="auth-logo-img"></div>
+    <div class="auth-logo"><img src="{{brand.logo}}" alt="" class="auth-logo-img"></div>
     <h2 class="auth-title">Initial <span style="font-weight:200">Setup</span></h2>
     <p class="auth-desc">Welcome! Let's secure your instance before you get started.</p>
 
@@ -105,7 +105,7 @@
 <script>
 // Parse existing RP Origin into protocol + port
 (function(){
-  var origin='{{{config.rpOrigin}}}';
+  var origin={{{__scriptJson(config.rpOrigin || "")}}};
   if(origin){
     try{
       var u=new URL(origin);

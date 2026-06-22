@@ -1,0 +1,34 @@
+{
+  "version": "1.12.6",
+  "date": "2026-06-22",
+  "headline": "Escape admin-controlled branding in script, attribute, and CSS contexts, and reject CSP-source injection",
+  "summary": "Closes a set of cross-site-scripting and header-injection paths where admin-configured branding reached a page without context-correct escaping. The highest-impact fix neutralizes a stored DOM-XSS on the public upload page; the others harden attribute, inline-script, CSS, and Content-Security-Policy sinks. A reusable script-context JSON helper is added so server data embedded in an inline script is escaped correctly.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Neutralize a stored DOM-XSS on the public upload page",
+          "body": "The configured allowed-extensions list was serialized into an inline <script> on the public upload page with a plain JSON.stringify, which does not escape script-context characters. A value containing </script> or a JS line separator could break out and run in every visitor's browser. The value is now emitted through a script-safe serializer that escapes <, >, & and U+2028 / U+2029, so it can never close the script."
+        },
+        {
+          "title": "Reject Content-Security-Policy source injection",
+          "body": "Admin-configured analytics domains were concatenated into the CSP header without per-source validation. A value containing a directive separator or whitespace could splice an attacker-chosen directive into the policy. Each source is now validated as a single host token and dropped if it contains anything that could break out, while valid hosts (including wildcard subdomains, ports, and paths) are preserved."
+        },
+        {
+          "title": "Escape branding in attribute and CSS contexts",
+          "body": "A custom logo path, the RP origin, and the theme/stash accent and background colors are now context-correctly handled: logo and origin values are HTML-escaped in their attributes, and theme colors are validated against a color shape before they reach an inline <style> block, so neither an attribute breakout nor a CSS-rule injection is possible from admin settings."
+        }
+      ]
+    },
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "Script-context JSON template helper",
+          "body": "Templates gain a first-class helper for embedding server data in an inline <script> with script-safe escaping, so future inline-script data has a correct, non-raw path."
+        }
+      ]
+    }
+  ]
+}

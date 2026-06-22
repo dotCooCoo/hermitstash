@@ -1,5 +1,5 @@
 {{> head}}
-{% if (typeof stashAccentColor !== 'undefined' && stashAccentColor) { %}
+{% if (typeof stashAccentColor !== 'undefined' && stashAccentColor && /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+|(?:rgb|rgba|hsl|hsla)\([0-9.,%\s\/]+\))$/.test(stashAccentColor)) { %}
 <style>:root{--main-color: {{stashAccentColor}} !important}</style>
 {% } %}
 
@@ -9,7 +9,7 @@
     {% if (typeof stashLogoUrl !== 'undefined' && stashLogoUrl) { %}
     <div style="margin-bottom:20px"><img src="{{stashLogoUrl}}" alt="" style="height:96px;width:auto;max-width:280px;object-fit:contain;filter:drop-shadow(0 0 20px rgba(139,92,246,.3))"></div>
     {% } else { %}
-    <div class="drop-logo-shimmer" style="margin-bottom:16px"><img src="{{{brand.logoColor}}}" alt="{{brand.siteName}}" width="96" height="96" style="height:96px;width:auto;max-width:280px;object-fit:contain"></div>
+    <div class="drop-logo-shimmer" style="margin-bottom:16px"><img src="{{brand.logoColor}}" alt="{{brand.siteName}}" width="96" height="96" style="height:96px;width:auto;max-width:280px;object-fit:contain"></div>
     {% } %}
     {% if (typeof stashMode !== 'undefined' && stashMode) { %}
     <span class="sub-title">Secure Upload</span>
@@ -259,7 +259,7 @@
     <div class="result-card fade-in">
       <div class="result-glow"></div>
       <div class="result-mascot">
-        <img src="{{{brand.logoColor}}}" alt="" class="result-mascot-img">
+        <img src="{{brand.logoColor}}" alt="" class="result-mascot-img">
       </div>
       <h2 class="result-title" id="resultTitle">Stashed!</h2>
 
@@ -302,12 +302,12 @@
 </section>
 
 <script>
-var MAX_FILE={{{maxSize}}},MAX_BUNDLE={{{maxBundleSize}}},MAX_FILES={{{maxFiles}}},ALLOWED={{{JSON.stringify(allowedExtensions)}}};
+var MAX_FILE={{{maxSize}}},MAX_BUNDLE={{{maxBundleSize}}},MAX_FILES={{{maxFiles}}},ALLOWED={{{__scriptJson(allowedExtensions)}}};
 var CONCURRENCY={{{uploadConcurrency}}},RETRIES={{{uploadRetries}}},TIMEOUT={{{uploadTimeout}}};
 var CHUNK_SIZE=10*1024*1024; // 10MB chunks
 var IS_AUTHED={% if (user) { %}true{% } else { %}false{% } %};
 var VAULT_ENABLED={% if (vaultEnabled) { %}true{% } else { %}false{% } %};
-var VAULT_PK={% if (vaultPublicKey) { %}"{{{vaultPublicKey}}}"{% } else { %}null{% } %};
+var VAULT_PK={% if (vaultPublicKey) { %}{{{__scriptJson(vaultPublicKey)}}}{% } else { %}null{% } %};
 var VAULT_MODE=false;
 var STASH_MODE={% if (typeof stashMode !== 'undefined' && stashMode) { %}true{% } else { %}false{% } %};
 var STASH_SLUG={% if (typeof stashSlug !== 'undefined' && stashSlug) { %}"{{{stashSlug}}}"{% } else { %}""{% } %};

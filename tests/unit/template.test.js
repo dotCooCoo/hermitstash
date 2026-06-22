@@ -36,8 +36,9 @@ describe("template render", function () {
 
   it("renders raw expressions", function () {
     var html = render("error", Object.assign({}, baseData, { user: null, title: "T", message: "M" }));
-    // The brand logo uses {{{ }}} raw output
-    assert.ok(html.includes('src="/x"'));
+    // Versioned asset URLs use {{{ }}} raw output (trusted, server-built paths).
+    // (The brand logo moved to escaped {{ }} — see the A5 hardening suite below.)
+    assert.ok(html.includes('href="/css/style.css?v=1"'));
   });
 
   it("caches compiled templates", function () {
@@ -58,5 +59,43 @@ describe("template render", function () {
     assert.throws(function () {
       render("nonexistent_view_xyz", {});
     }, /View not found/);
+  });
+});
+
+describe("template XSS hardening (A5)", function () {
+  var base = {
+    brand: { siteName: "T", logo: "/x", logoDark: "/d", logoColor: "/c", version: "1", github: { stars: null, behindLatest: false, latestVersion: "", repoUrl: "#", releaseUrl: "#" } },
+    assets: { css: "/css/s.css?v=1", js: "/js/a.js?v=1", apiJs: "/a.js", vaultPq: "/v.js", helpers: "/h.js", webauthn: "/w.js", favicon16: "/f", favicon32: "/f", appleTouchIcon: "/a", manifest: "/m", ogImage: "/o", themeColor: "#000" },
+    site: { origin: "https://ok.example", announcement: "", maintenance: false, themeAccentColor: "", themeBgColor: "", themeFont: "", showMaintainerSupport: false, analyticsScript: "" },
+    user: null, csrfToken: "x", nonce: "n", apiKey: "",
+    maxSize: 1, maxBundleSize: 1, maxFiles: 1, uploadConcurrency: 1, uploadRetries: 1, uploadTimeout: 1,
+    dropTitle: "t", dropSubtitle: "s", vaultEnabled: false, allowedExtensions: ["pdf"], vaultPublicKey: null,
+  };
+  function pub(extra) { return Object.assign({}, base, extra); }
+
+  it("script-context JSON escapes </script> so an admin allowedExtensions can't DOM-XSS the public page", function () {
+    var html = render("public-upload", pub({ allowedExtensions: ["pdf", "</script><img src=x onerror=alert(1)>"] }));
+    assert.ok(!html.includes("</script><img src=x onerror=alert(1)>"), "raw breakout must not appear");
+    assert.ok(html.includes("\\u003c/script\\u003e"), "the < must be unicode-escaped inside the inline script");
+  });
+
+  it("escapes an admin logo path in the img src attribute (attribute XSS)", function () {
+    var html = render("public-upload", pub({ brand: Object.assign({}, base.brand, { logoColor: 'x" onerror="alert(1)' }) }));
+    assert.ok(!/src="x" onerror="alert\(1\)"/.test(html), "must not break out of the src attribute");
+  });
+
+  it("drops a non-color theme accent (CSS-context injection)", function () {
+    var html = render("public-upload", pub({ site: Object.assign({}, base.site, { themeAccentColor: "red;}body{visibility:hidden" }) }));
+    assert.ok(!/--main-color:\s*red;\}body/.test(html), "malicious CSS must be dropped by the color guard");
+  });
+
+  it("renders a valid hex theme accent unchanged", function () {
+    var html = render("public-upload", pub({ site: Object.assign({}, base.site, { themeAccentColor: "#8B5CF6" }) }));
+    assert.ok(/--main-color:\s*#8B5CF6/.test(html), "a valid hex color must render");
+  });
+
+  it("escapes an admin rpOrigin in the canonical/og:url attributes", function () {
+    var html = render("public-upload", pub({ site: Object.assign({}, base.site, { origin: 'https://x" onerror=alert(1)' }) }));
+    assert.ok(!/content="https:\/\/x" onerror=alert\(1\)>/.test(html), "rpOrigin must not break out of the attribute");
   });
 });

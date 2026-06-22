@@ -31,23 +31,39 @@ var config = require("../lib/config");
 // from the admin-configured analytics script snippet. Operators may
 // also set `analyticsCspDomains` explicitly (comma-separated) when the
 // auto-extract regex misses a host (e.g. dynamically loaded pixels).
+// Validate one admin-supplied CSP host-source before it is concatenated into
+// the policy. A CSP source-expression is a single token: a value containing a
+// directive separator (`;`) or whitespace would splice a brand-new directive
+// or source into the emitted header (CSP injection — the operator could turn
+// `script-src 'self'` into `script-src 'self' x; script-src *`). Restrict to
+// the characters that legitimately appear in a host-source — scheme, host,
+// wildcard, port, path — and require a dotted host, dropping anything else.
+// Returns the canonical `https://host…` form, or null to drop the entry.
+function _safeCspSource(raw) {
+  var s = String(raw || "").trim();
+  if (!s) return null;
+  if (!/^[A-Za-z0-9.:/*_-]+$/.test(s)) return null;   // no ; , whitespace ' " < >
+  var host = s.replace(/^https?:\/\//i, "");
+  if (!host || !host.includes(".")) return null;       // must be a real host, not a keyword
+  return /^https?:\/\//i.test(s) ? s : "https://" + s;
+}
+
 function resolveAnalyticsDomains() {
   if (config.analyticsCspDomains) {
     var raw = config.analyticsCspDomains;
     // settings-schema declares this as `type: "list"`, which the admin
     // settings store may persist as an array. Both shapes flow through.
-    if (Array.isArray(raw)) return raw.map(function (d) { return String(d).trim(); }).filter(Boolean);
-    return String(raw).split(",").map(function (d) { return d.trim(); }).filter(Boolean);
+    var list = Array.isArray(raw) ? raw : String(raw).split(",");
+    return list.map(_safeCspSource).filter(Boolean);
   }
   if (!config.analyticsScript) return [];
   var srcMatches = config.analyticsScript.match(/(?:src|href)=["']https?:\/\/([^"'\s/]+)/gi) || [];
   var urlMatches = config.analyticsScript.match(/https?:\/\/([^"'\s/)]+)/gi) || [];
   var domains = new Set();
   srcMatches.concat(urlMatches).forEach(function (m) {
-    try {
-      var host = m.replace(/^.*?https?:\/\//i, "").split(/[/"'\s]/)[0];
-      if (host && host.includes(".")) domains.add("https://" + host);
-    } catch (_e) { /* URL parse failure — skip this match */ }
+    var host = m.replace(/^.*?https?:\/\//i, "").split(/[/"'\s]/)[0];
+    var safe = _safeCspSource(host);
+    if (safe) domains.add(safe);
   });
   return Array.from(domains);
 }
@@ -152,3 +168,6 @@ module.exports = function securityHeaders(req, res, next) {
 
   return bSecurityHeaders(req, res, next);
 };
+
+// Exposed for unit testing of the CSP-source sanitizer (A5-2 injection guard).
+module.exports._safeCspSource = _safeCspSource;
