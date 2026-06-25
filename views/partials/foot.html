@@ -76,7 +76,7 @@
   })();
   </script>
   <script src="{{{assets.helpers}}}"></script>
-  {% if (typeof apiKey !== 'undefined' && apiKey) { %}<script>window.__ak="{{apiKey}}";</script>
+  {% if (typeof apiKey !== 'undefined' && apiKey) { %}<script>window.__ak={{{__scriptJson(apiKey)}}};</script>
   <script src="{{{assets.apiJs}}}"></script>{% } %}
   {% if (user) { %}<script src="{{{assets.webauthn}}}"></script>{% } %}
   {% if (user || (typeof vaultEnabled !== 'undefined' && vaultEnabled)) { %}<script src="{{{assets.vaultPq}}}"></script>{% } %}

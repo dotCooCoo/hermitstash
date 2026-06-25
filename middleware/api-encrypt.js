@@ -24,12 +24,20 @@ var b = require("../lib/vendor/blamejs");
 var nodeCrypto = require("node:crypto");
 var vault = require("../lib/vault");
 var config = require("../lib/config");
-var { encryptPayload, decryptPayload, generateApiKey } = require("../lib/api-crypto");
+var { encryptPayload, decryptPayload, generateApiKey, FUTURE_SKEW_MS } = require("../lib/api-crypto");
 var replayNonce = require("../lib/replay-nonce");
 var { xchacha20poly1305 } = require("../lib/vendor/blamejs/lib/vendor/noble-ciphers.cjs");
 var { ml_kem1024 } = require("../lib/vendor/blamejs/lib/vendor/noble-post-quantum.cjs");
 
 var REPLAY_WINDOW = 30000; // 30 seconds
+// The single-use nonce must outlive the maximum inner-AEAD freshness lifetime.
+// A freshly-stamped `_t` may lead server time by up to FUTURE_SKEW_MS, so the
+// freshness window stays open until receiveTime + REPLAY_WINDOW + FUTURE_SKEW_MS.
+// Claiming the nonce for only REPLAY_WINDOW would let it expire ~FUTURE_SKEW_MS
+// before that ceiling, re-opening an in-window replay gap. Bind the two values
+// to one constant (FUTURE_SKEW_MS from lib/api-crypto) so the future-skew
+// tolerance and the nonce TTL can never drift apart.
+var NONCE_TTL = REPLAY_WINDOW + FUTURE_SKEW_MS;
 var HYBRID_HKDF_INFO = "hermitstash-hybrid-ecies-v1";
 
 // ECIES protocol version — prefixed to _ek for algorithm agility.
@@ -179,8 +187,10 @@ module.exports = function apiEncrypt(req, res, next) {
             // request re-sends a byte-identical _e (the XChaCha20 nonce lives
             // inside the ciphertext), so claiming sha3(_e) within the staleness
             // window refuses an in-window replay — the _t timestamp check alone
-            // admits unlimited replays for the whole 30s window (CWE-367).
-            if (!(await replayNonce.claimOnce("apienc:" + body._e, REPLAY_WINDOW))) {
+            // admits unlimited replays for the whole 30s window (CWE-367). The
+            // TTL is REPLAY_WINDOW + FUTURE_SKEW_MS (not just REPLAY_WINDOW) so
+            // the nonce outlives a future-dated _t's freshness ceiling.
+            if (!(await replayNonce.claimOnce("apienc:" + body._e, NONCE_TTL))) {
               throw new Error("Replayed request");
             }
             raw = JSON.stringify(decrypted);

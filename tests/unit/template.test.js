@@ -98,4 +98,18 @@ describe("template XSS hardening (A5)", function () {
     var html = render("public-upload", pub({ site: Object.assign({}, base.site, { origin: 'https://x" onerror=alert(1)' }) }));
     assert.ok(!/content="https:\/\/x" onerror=alert\(1\)>/.test(html), "rpOrigin must not break out of the attribute");
   });
+
+  it("emits the session apiKey through the script-context serializer (JSON-quoted, </script> escaped)", function () {
+    var html = render("public-upload", pub({ apiKey: 'k</script><img src=x onerror=alert(1)>' }));
+    assert.ok(!html.includes("k</script><img src=x onerror=alert(1)>"), "raw breakout must not appear in the inline script");
+    assert.ok(html.includes("\\u003c/script\\u003e"), "the </script> must be unicode-escaped inside window.__ak");
+    // The serializer emits its own JSON quotes — assignment is bare, not "{{apiKey}}".
+    assert.ok(/window\.__ak="k\\u003c\/script\\u003e/.test(html), "window.__ak is assigned the JSON string directly");
+  });
+
+  it("round-trips a normal base64url apiKey unchanged through __scriptJson", function () {
+    var key = "abcXYZ_-0123456789";
+    var html = render("public-upload", pub({ apiKey: key }));
+    assert.ok(html.includes('window.__ak="' + key + '"'), "a base64url key renders as window.__ak=\"<key>\"");
+  });
 });

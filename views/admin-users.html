@@ -128,12 +128,12 @@ function renderUsers(list){
     html+='</div>';
     html+='<div class="admin-user-actions">';
     if(u.status==='pending'){
-      html+='<button class="user-action-btn user-action-role" title="Resend verification email (shows link if email delivery fails)" onclick="adminResendVerification(\''+u._id+'\',\''+esc(u.email)+'\',this)">';
+      html+='<button class="user-action-btn user-action-role" title="Resend verification email (shows link if email delivery fails)" onclick="adminResendVerification(\''+u._id+'\',this)">';
       html+='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>';
       html+='<span>Verify</span></button>';
     }
     if(u.authType==='local'){
-      html+='<button class="user-action-btn user-action-role" title="Generate a password reset link for out-of-band delivery" onclick="adminPasswordResetLink(\''+u._id+'\',\''+esc(u.email)+'\',this)">';
+      html+='<button class="user-action-btn user-action-role" title="Generate a password reset link for out-of-band delivery" onclick="adminPasswordResetLink(\''+u._id+'\',this)">';
       html+='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
       html+='<span>Reset link</span></button>';
     }
@@ -149,7 +149,7 @@ function renderUsers(list){
       html+='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>';
       html+='<span>Suspend</span></button>';
     }
-    html+='<button class="user-action-btn user-action-delete" title="Delete user" onclick="deleteUser(\''+u._id+'\',\''+esc(u.email)+'\')">';
+    html+='<button class="user-action-btn user-action-delete" title="Delete user" onclick="deleteUser(\''+u._id+'\',this)">';
     html+='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
     html+='<span>Delete</span></button>';
     html+='</div></div>';
@@ -185,14 +185,28 @@ function unsuspend(id){
     if(d.success)loadUsers(currentPage);else alert(d.detail||d.error||'Failed to reactivate user.');
   });
 }
-function deleteUser(id,email){
+// Reads the user's email from the row's already-rendered text node, given any
+// action button inside that row. The email is only ever interpolated into the
+// JS handler as a server-generated _id; the address itself stays in escaped
+// text/attribute context, never in an inline-handler JS string.
+function rowEmail(btn){
+  if(!btn)return'';
+  var row=btn.closest('.admin-user-row');
+  if(!row)return'';
+  var node=row.querySelector('.admin-user-email');
+  return node?node.textContent:'';
+}
+
+function deleteUser(id,btn){
+  var email=rowEmail(btn);
   if(!confirm('Delete user '+email+'? Their files will be preserved but unlinked.'))return;
   fetch('/admin/users/'+id+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
     if(d.success)loadUsers(currentPage);else alert(d.detail||d.error||'Failed to delete user.');
   });
 }
 
-function adminPasswordResetLink(id,email,btn){
+function adminPasswordResetLink(id,btn){
+  var email=rowEmail(btn);
   if(!confirm('Generate a password reset link for '+email+'? Any previous link is invalidated. You will need to deliver the link out-of-band (email is not sent).'))return;
   if(btn){btn.disabled=true;btn.querySelector('span').textContent='...'}
   fetch('/admin/users/'+encodeURIComponent(id)+'/password-reset-link',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
@@ -202,7 +216,8 @@ function adminPasswordResetLink(id,email,btn){
   }).catch(function(){if(btn){btn.disabled=false;btn.querySelector('span').textContent='Reset link'}alert('Network error')});
 }
 
-function adminResendVerification(id,email,btn){
+function adminResendVerification(id,btn){
+  var email=rowEmail(btn);
   if(btn){btn.disabled=true;btn.querySelector('span').textContent='...'}
   fetch('/admin/users/'+encodeURIComponent(id)+'/resend-verification',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
     if(btn){btn.disabled=false;btn.querySelector('span').textContent='Verify'}
@@ -265,10 +280,10 @@ function loadInvites(){
       if(inv.expired){html+='<span class="badge badge-suspended">expired</span>'}else{html+='<span class="badge" style="background:rgba(202,255,51,.08);color:var(--accent)">active</span>'}
       html+='</div>';
       html+='<div class="admin-user-actions">';
-      html+='<button class="user-action-btn user-action-role" onclick="resendInvite(\''+esc(inv.email)+'\',this)">';
+      html+='<button class="user-action-btn user-action-role" data-invite-email="'+esc(inv.email)+'" onclick="resendInvite(this)">';
       html+='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>';
       html+='<span>Resend</span></button>';
-      html+='<button class="user-action-btn user-action-delete" onclick="deleteInvite(\''+esc(inv._id)+'\',\''+esc(inv.email)+'\',this)">';
+      html+='<button class="user-action-btn user-action-delete" data-invite-id="'+esc(inv._id)+'" data-invite-email="'+esc(inv.email)+'" onclick="deleteInvite(this)">';
       html+='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
       html+='<span>Delete</span></button>';
       html+='</div></div>';
@@ -278,7 +293,8 @@ function loadInvites(){
   });
 }
 
-function resendInvite(email,btn){
+function resendInvite(btn){
+  var email=btn.getAttribute('data-invite-email');
   btn.disabled=true;btn.querySelector('span').textContent='Sending...';
   fetch('/admin/users/invite/resend',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})}).then(function(r){return r.json()}).then(function(d){
     btn.disabled=false;btn.querySelector('span').textContent='Resend';
@@ -289,7 +305,8 @@ function resendInvite(email,btn){
   }).catch(function(){btn.disabled=false;btn.querySelector('span').textContent='Resend';alert('Network error')});
 }
 
-function deleteInvite(id,email,btn){
+function deleteInvite(btn){
+  var id=btn.getAttribute('data-invite-id');var email=btn.getAttribute('data-invite-email');
   if(!confirm('Delete the pending invite for '+email+'? This immediately revokes the token; the recipient will no longer be able to use any link that was sent to them.'))return;
   btn.disabled=true;btn.querySelector('span').textContent='Deleting...';
   fetch('/admin/users/invite/'+encodeURIComponent(id)+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){

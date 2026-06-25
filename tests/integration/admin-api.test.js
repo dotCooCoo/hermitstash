@@ -141,7 +141,7 @@ describe("admin API integration", function () {
     it("creates webhook with valid URL and returns secret", async function () {
       await loginAs("apiadmin@test.com", "password123");
       var res = await client.post("/admin/webhooks/create", {
-        json: { url: "https://hooks.example.com/test", events: "upload" },
+        json: { url: "https://hooks.example.com/test", events: "bundle_finalized" },
       });
       // Note: isPrivateHost returns a Promise (truthy) without await in routes/webhooks.js,
       // so all URLs currently get blocked by the SSRF check. If this is fixed, change the assertion.
@@ -153,7 +153,7 @@ describe("admin API integration", function () {
         var { webhooks } = require(path.join(testServer.projectRoot, "lib", "db"));
         var inserted = webhooks.insert({
           url: "https://hooks.example.com/test",
-          events: "upload",
+          events: "bundle_finalized",
           secret: b.crypto.generateToken(32),
           active: "true",
           createdBy: "test",

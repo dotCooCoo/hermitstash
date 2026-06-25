@@ -147,9 +147,9 @@
             <input type="text" class="text-input" id="webhookUrl" placeholder="https://example.com/hook" style="flex:1">
             <select class="text-input" id="webhookEvents" style="width:160px">
               <option value="*">All events</option>
-              <option value="bundle.finalized">Bundle finalized</option>
-              <option value="file.uploaded">File uploaded</option>
-              <option value="user.registered">User registered</option>
+              <option value="bundle_finalized">Bundle finalized</option>
+              <option value="cert_expiring">Certificate expiring</option>
+              <option value="cert_renewed">Certificate renewed</option>
             </select>
             <button class="butn butn-bg butn-sm radius-30" onclick="createWebhook()"><span>Add</span></button>
           </div>

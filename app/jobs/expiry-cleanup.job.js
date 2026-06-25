@@ -134,4 +134,25 @@ function cleanupExpiredIdempotencyKeys() {
   }
 }
 
-module.exports = { cleanupExpiredFiles, cleanupStaleBundles, cleanupTombstones, cleanupExpiredAccessCodes, cleanupExpiredEnrollmentCodes, cleanupExpiredIdempotencyKeys };
+/**
+ * Clean up old webhook_deliveries rows (delivery-log retention).
+ * Every dispatch attempt — success, HTTP failure, and network/SSRF failure —
+ * inserts a row, and the queue retries failures, so a noisy or failing endpoint
+ * accumulates rows without bound. This sweep deletes anything past the retention
+ * window via the idx_wd_createdAt index (createdAt is a raw ISO8601 string,
+ * safe to compare in SQL). Direct SQL because the repo exposes no bulk delete.
+ */
+function cleanupWebhookDeliveries() {
+  try {
+    var db = require("../../lib/db");
+    var cutoff = new Date(Date.now() - TIME.days(30)).toISOString();
+    var info = db.rawExec("DELETE FROM webhook_deliveries WHERE createdAt < ?", cutoff);
+    return info && info.changes ? info.changes : 0;
+  } catch (e) {
+    if (/no such table/i.test(e.message || "")) return 0;
+    logger.warn("[expiry-cleanup] Webhook delivery cleanup failed", { error: e.message });
+    return 0;
+  }
+}
+
+module.exports = { cleanupExpiredFiles, cleanupStaleBundles, cleanupTombstones, cleanupExpiredAccessCodes, cleanupExpiredEnrollmentCodes, cleanupExpiredIdempotencyKeys, cleanupWebhookDeliveries };

@@ -786,6 +786,9 @@ scheduler.register("expired_access_codes_cleanup", C.TIME.hours(1), function () 
 scheduler.register("expired_idempotency_keys_cleanup", C.TIME.hours(1), function () { // hourly
   try { expiryCleanupJob.cleanupExpiredIdempotencyKeys(); } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
+scheduler.register("webhook_deliveries_cleanup", C.TIME.days(1), function () { // daily
+  try { expiryCleanupJob.cleanupWebhookDeliveries(); } catch (_e) { /* scheduled cleanup — retry next tick */ }
+});
 scheduler.register("bundle_lockout_cleanup", C.TIME.hours(1), function () { // hourly
   // Remove lockout rows that haven't seen an attempt in 24h.
   // lastAttempt is a raw ISO8601 string, safe to compare in SQL.
@@ -892,11 +895,12 @@ if (fs.existsSync(TLS_CERT) && tlsKeyAvailable()) {
     // Hard mTLS enforcement at the TLS layer — boot-time only.
     //   unset:  follow DB config.enforceMtls for app-layer soft enforcement
     //   "true": rejectUnauthorized: true — TLS handshake rejects non-mTLS
-    //   "false": forces all enforcement off (escape hatch for locked-out
-    //           operators). Also disables app-layer soft enforcement in
-    //           middleware/web-guard.js by overriding config.enforceMtls.
+    //   "false": forces TLS-layer enforcement off (escape hatch for locked-out
+    //           operators). App-layer soft enforcement (middleware/web-guard.js)
+    //           is disabled durably in lib/config.js _build(), which honors
+    //           ENFORCE_MTLS_STRICT on every rebuild so a settings hot-reload
+    //           can't silently re-lock the operator.
     var mtlsStrict = process.env.ENFORCE_MTLS_STRICT;
-    if (mtlsStrict === "false") config.enforceMtls = false; // escape hatch
     var hardMtls = mtlsStrict === "true" && !!mtlsCaCert;
     tlsOptions = {
       cert: fs.readFileSync(TLS_CERT),

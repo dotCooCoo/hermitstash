@@ -7,6 +7,14 @@ var webhooksRepo = require("../../data/repositories/webhooks.repo");
 var { isPrivateHost, validateOutboundUrl } = require("../../security/ssrf-policy");
 var { ValidationError, NotFoundError } = require("../../shared/errors");
 
+// The canonical set of event names the server actually fires. "*" (wildcard,
+// all events) is accepted in addition to these. Validated at create() so a
+// typo or a stale UI value is rejected at the boundary rather than silently
+// producing a webhook that never matches any dispatched event.
+//   bundle_finalized — app/domain/uploads/upload.handler.js
+//   cert_expiring / cert_renewed — app/jobs/cert-expiry.job.js
+var KNOWN_EVENTS = ["bundle_finalized", "cert_expiring", "cert_renewed"];
+
 /**
  * List all webhooks with secrets masked.
  */
@@ -31,6 +39,18 @@ async function create(url, events, createdBy) {
   }
   if (typeof events === "string" && events.length > 1024) {
     throw new ValidationError("events list too long.");
+  }
+
+  // Validate the requested events against the known-event allowlist. "*" alone
+  // is the wildcard; otherwise every comma-separated name must be one the
+  // server fires, so a UI/typo mismatch is refused instead of stored dead.
+  if (typeof events === "string" && events.trim() !== "" && events.trim() !== "*") {
+    var requested = events.split(",").map(function (e) { return e.trim(); }).filter(function (e) { return e.length > 0; });
+    for (var ri = 0; ri < requested.length; ri++) {
+      if (KNOWN_EVENTS.indexOf(requested[ri]) === -1) {
+        throw new ValidationError("Unknown event '" + requested[ri] + "'. Valid events: " + KNOWN_EVENTS.join(", ") + " (or '*').");
+      }
+    }
   }
 
   var check = validateOutboundUrl(url);
@@ -98,7 +118,12 @@ function fire(eventName, payload) {
 function dispatchSingle(hookId, eventName, payload, attempt) {
   var { webhookDeliveries } = require("../../../lib/db");
   var hook = webhooksRepo.findById(hookId);
-  if (!hook) return Promise.resolve();
+  // Re-validate the mutable active flag at delivery time. fire() only enqueues
+  // for hooks active at fire() time, but a queued or retrying job can outlive a
+  // toggle-off, so a hook the operator just disabled must not still receive the
+  // signed body. A deliberate skip resolves (does not throw) so the queue does
+  // not treat it as a retryable delivery failure.
+  if (!hook || hook.active !== "true") return Promise.resolve();
 
   var check = validateOutboundUrl(hook.url);
   if (!check.valid) {
@@ -163,9 +188,14 @@ function dispatchSingle(hookId, eventName, payload, attempt) {
  */
 function getDeliveries(webhookId, limit) {
   var { webhookDeliveries } = require("../../../lib/db");
-  return webhookDeliveries.find({ webhookId: webhookId })
-    .sort(function (a, b) { return (b.createdAt || "").localeCompare(a.createdAt || ""); })
-    .slice(0, limit || 20);
+  // Push the newest-first ordering + row cap into SQL via findPaginated so only
+  // the requested window is read through the idx_wd_createdAt index — not the
+  // hook's full retained history materialized + JS-sorted. Pairs with the
+  // cleanupWebhookDeliveries 30-day retention sweep that bounds total growth.
+  return webhookDeliveries.findPaginated(
+    { webhookId: webhookId },
+    { limit: limit || 20, offset: 0, orderBy: "createdAt", orderDir: "DESC" }
+  ).data;
 }
 
 // Self-register the queue handler at module load so any caller that requires

@@ -70,6 +70,59 @@ describe("restore-rollback createSnapshots", function () {
   });
 });
 
+describe("restore-rollback createSnapshots — TLS/mTLS-CA material", function () {
+  var dir;
+  beforeEach(function () { dir = tmpDir(); });
+  afterEach(function () { cleanup(dir); });
+
+  it("tracks the TLS/mTLS-CA files restore overwrites so they roll back symmetrically with DB/vault", function () {
+    // Seed the cert material restore-worker step 5b overwrites, alongside the
+    // DB/vault files. fullchain + privkey live under a tls/ subdir.
+    fs.mkdirSync(path.join(dir, "tls"));
+    writeFile(dir, "vault.key.sealed", "sealed-v1");
+    writeFile(dir, "db.key.enc", "db-key-v1");
+    writeFile(dir, "hermitstash.db.enc", "db-content-v1");
+    fs.writeFileSync(path.join(dir, "tls", "fullchain.pem"), "fullchain-v1", { mode: 0o600 });
+    fs.writeFileSync(path.join(dir, "tls", "privkey.pem"), "privkey-v1", { mode: 0o600 });
+    writeFile(dir, "ca.key", "ca-key-v1");
+    writeFile(dir, "ca.crt", "ca-crt-v1");
+
+    var created = rollback.createSnapshots(dir);
+    // Every seeded cert file is snapshotted (missing variants like
+    // privkey.pem.sealed / ca.key.sealed are simply skipped).
+    assert.ok(created.includes("tls/fullchain.pem"), "fullchain snapshotted");
+    assert.ok(created.includes("tls/privkey.pem"), "privkey snapshotted");
+    assert.ok(created.includes("ca.key"), "ca.key snapshotted");
+    assert.ok(created.includes("ca.crt"), "ca.crt snapshotted");
+    assert.ok(fs.existsSync(path.join(dir, "tls", "fullchain.pem.pre-restore")));
+
+    // Simulate step 5b overwriting the live CA pair, then a post-TLS throw
+    // reaching the outer catch → rollback.
+    fs.writeFileSync(path.join(dir, "tls", "fullchain.pem"), "RESTORED-DIVERGENT");
+    writeFile(dir, "ca.key", "RESTORED-DIVERGENT-CA");
+    writeFile(dir, "ca.crt", "RESTORED-DIVERGENT-CRT");
+
+    var errors = rollback.rollbackFromSnapshots(dir, created);
+    assert.deepStrictEqual(errors, []);
+    // Cert material reverts to pre-restore — no torn state.
+    assert.strictEqual(fs.readFileSync(path.join(dir, "tls", "fullchain.pem")).toString(), "fullchain-v1");
+    assert.strictEqual(readFile(dir, "ca.key").toString(), "ca-key-v1");
+    assert.strictEqual(readFile(dir, "ca.crt").toString(), "ca-crt-v1");
+    // And the DB/vault material still reverts too.
+    assert.strictEqual(readFile(dir, "vault.key.sealed").toString(), "sealed-v1");
+    assert.strictEqual(readFile(dir, "db.key.enc").toString(), "db-key-v1");
+  });
+
+  it("includes TLS .tmp variants in the cleanup set so orphaned cert renames are swept", function () {
+    fs.mkdirSync(path.join(dir, "tls"));
+    fs.writeFileSync(path.join(dir, "tls", "fullchain.pem.tmp"), "orphan");
+    fs.writeFileSync(path.join(dir, "ca.crt.tmp"), "orphan");
+    rollback.rollbackFromSnapshots(dir, []);
+    assert.ok(!fs.existsSync(path.join(dir, "tls", "fullchain.pem.tmp")), "TLS .tmp swept");
+    assert.ok(!fs.existsSync(path.join(dir, "ca.crt.tmp")), "ca .tmp swept");
+  });
+});
+
 describe("restore-rollback rollbackFromSnapshots", function () {
   var dir;
   beforeEach(function () { dir = tmpDir(); });
