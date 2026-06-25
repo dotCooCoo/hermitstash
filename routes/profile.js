@@ -10,8 +10,10 @@ var filesRepo = require("../app/data/repositories/files.repo");
 var credentialsRepo = require("../app/data/repositories/credentials.repo");
 var { validateEmail, validatePassword } = require("../app/shared/validate");
 var requireAuth = require("../middleware/require-auth");
-var { send } = require("../middleware/send");
+var { send, host } = require("../middleware/send");
 var sessionService = require("../app/domain/auth/session.service");
+var verificationRoutes = require("./verification");
+var emailService = require("../lib/email");
 var { AppError, ValidationError, AuthenticationError } = require("../app/shared/errors");
 
 module.exports = function (app) {
@@ -86,11 +88,50 @@ module.exports = function (app) {
       var valid = await b.auth.password.verify(req.user.passwordHash, password);
       if (!valid) throw new AuthenticationError("Password is incorrect.");
 
-      // Check for duplicate
+      var oldEmail = req.user.email;
+      if (newEmail === oldEmail) throw new ValidationError("New email matches the current one.");
+
+      // Reject a change to an address already tied to another account.
       var existing = usersRepo.findByEmail(newEmail);
       if (existing && existing._id !== req.user._id) throw new ValidationError("Email already in use.");
 
-      var oldEmail = req.user.email;
+      // Reject a change to an address with outstanding anonymous public uploads.
+      // Repointing an account at such an address must not be able to silently arm a
+      // future ownership claim of those uploads (see routes/dashboard.js); ownership
+      // of a stranger's anonymous uploads is never conferred by an email edit.
+      var pendingClaims = filesRepo.findAll({ uploaderEmail: newEmail, uploadedBy: "public" });
+      if (pendingClaims.length > 0) {
+        throw new ValidationError("That address has pending anonymous uploads and can't be claimed by changing your email.");
+      }
+
+      // Proof-of-control: when email verification is operative, the new address must
+      // be proven before it grants any privilege. Apply the address, drop the account
+      // to "pending" (so it carries no verified-email signal — no auto-claim, no
+      // sign-in — until the round-trip completes), revoke existing sessions, and mail
+      // a verification link to the NEW address. The account is reactivated only when
+      // that link is followed (/auth/verify/:token sets status back to "active").
+      if (config.emailVerification) {
+        usersRepo.update(req.user._id, { $set: { email: newEmail, status: "pending" } });
+
+        var rawToken = verificationRoutes.createVerificationToken(req.user._id);
+        var verifyUrl = host(req) + "/auth/verify/" + rawToken;
+        try {
+          await emailService.sendVerificationEmail({ to: newEmail, displayName: req.user.displayName, verifyUrl: verifyUrl });
+        } catch (emailErr) {
+          logger.error("Email change verification send failed", { error: emailErr.message || String(emailErr) });
+        }
+
+        await sessionService.revokeUser(req.user._id);
+        await sessionService.logoutUser(req);
+
+        audit.log(audit.ACTIONS.EMAIL_CHANGED, { targetId: req.user._id, targetEmail: newEmail, details: "old: " + oldEmail + ", pending verification", req: req });
+        audit.log(audit.ACTIONS.EMAIL_VERIFICATION_SENT, { targetId: req.user._id, targetEmail: newEmail, req: req });
+        return res.json({ success: true, pending: true, redirect: "/auth/pending?email=" + encodeURIComponent(newEmail) });
+      }
+
+      // Verification disabled: parity with registration's active path — a direct
+      // write is acceptable because no verified-email signal exists in this mode, so
+      // the address can never arm an ownership claim regardless.
       usersRepo.update(req.user._id, { $set: { email: newEmail } });
 
       audit.log(audit.ACTIONS.EMAIL_CHANGED, { targetId: req.user._id, targetEmail: newEmail, details: "old: " + oldEmail, req: req });

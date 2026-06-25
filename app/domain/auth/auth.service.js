@@ -3,10 +3,23 @@
  * Routes handle HTTP; this handles identity resolution and account creation.
  */
 var b = require("../../../lib/vendor/blamejs");
+var config = require("../../../lib/config");
 var usersRepo = require("../../data/repositories/users.repo");
 var filesRepo = require("../../data/repositories/files.repo");
 var { validateEmail, validatePassword, validateDisplayName } = require("../../shared/validate");
 var { ValidationError, AuthenticationError, ForbiddenError, ConflictError } = require("../../shared/errors");
+
+// Is this account's email address proven to be controlled by the account holder?
+// An anonymous public upload is reassigned to an account ONLY when this is true —
+// email equality alone is never proof of email ownership. Proof exists only when
+// email verification is operative (an account passes a token round-trip to its
+// address) AND the account has cleared that round-trip (status "active", i.e. not
+// "pending"). With verification disabled there is no proof-of-control signal at
+// all, so the equality auto-claim must not fire — an explicit, audited claim is a
+// separate action, never an equality grant.
+function emailIsVerified(user) {
+  return !!(user && config.emailVerification && user.status === "active");
+}
 
 // Lazily-cached dummy Argon2id hash (default params, so its verify cost matches a
 // real one). Verifying against it on the non-existent / passwordless login paths
@@ -48,10 +61,18 @@ async function registerLocal(displayName, email, password, opts) {
     lastLogin: new Date().toISOString(),
   });
 
-  // Claim public uploads made with this email
-  var claimed = filesRepo.findAll({ uploaderEmail: emailResult.email, uploadedBy: "public" });
-  for (var f of claimed) {
-    filesRepo.update(f._id, { $set: { uploadedBy: user._id } });
+  // Reassign anonymous public uploads made with this email — but ONLY once the
+  // account's email is proven (verification operative + account active). A brand-new
+  // account is either "pending" (verification on, address not yet proven) or has no
+  // proof signal at all (verification off), so this never fires at registration: a
+  // verified account's uploads are claimed later, on its first authenticated visit
+  // (see routes/dashboard.js), gated by the same emailIsVerified() check.
+  var claimed = [];
+  if (emailIsVerified(user)) {
+    claimed = filesRepo.findAll({ uploaderEmail: user.email, uploadedBy: "public" });
+    for (var f of claimed) {
+      filesRepo.update(f._id, { $set: { uploadedBy: user._id } });
+    }
   }
 
   return { user: user, claimed: claimed.length, needsVerification: needsVerification };
@@ -159,4 +180,4 @@ function touchLogin(userId) {
   usersRepo.update(userId, { $set: { lastLogin: new Date().toISOString() } });
 }
 
-module.exports = { registerLocal, authenticateLocal, resolveGoogleUser, requires2fa, touchLogin };
+module.exports = { registerLocal, authenticateLocal, resolveGoogleUser, requires2fa, touchLogin, emailIsVerified };

@@ -120,10 +120,14 @@ function csrfMiddleware(req, res, next) {
   // the same check that backstops JSON is the primary CSRF defense for multipart.
   // The framework token check can't see a `_csrf` field inside HS's self-buffered
   // multipart stream, so the Origin gate is what protects admin multipart routes
-  // (e.g. /admin/logo/upload). The genuinely token-bearing public upload portals
-  // (/drop, /stash) are already exempt above (isExempt) and Bearer/API clients
-  // skipped earlier, so the only non-exempt multipart routes are same-origin
-  // admin mutations, which pass cleanly.
+  // (e.g. /admin/logo/upload). Only /drop (its /drop/init exact match), the OAuth
+  // callbacks, and /auth/logout are exempt above (isExempt); Bearer/API clients
+  // were skipped earlier. The public /stash upload portals are NOT exempt — their
+  // JSON/multipart uploads reach this branch and rely on the same cross-site Origin
+  // gate as admin mutations (an exemption would strip their only cross-site defense,
+  // so the Origin gate is deliberately the default here). So the non-exempt
+  // JSON/multipart routes are same-origin admin mutations and the /stash upload
+  // portals, all of which pass the Origin check cleanly.
   if (contentType.includes("application/json") || contentType.includes("multipart/")) {
     var origin = (req.headers && req.headers.origin) || "";
     // Compare canonicalized origins. A browser Origin is bare scheme://host[:port]

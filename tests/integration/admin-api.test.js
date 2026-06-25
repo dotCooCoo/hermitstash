@@ -295,6 +295,92 @@ describe("admin API integration", function () {
     });
   });
 
+  describe("files API — sealed secret fields are projected out", function () {
+    before(function () {
+      // Seed a complete file carrying every sealed at-rest secret. The
+      // field-crypto middleware seals these on write; findPaginated unseals
+      // them on read, so without an explicit allowlist projection the admin
+      // response would ship the per-file content key + storage path verbatim.
+      var { files } = require(path.join(testServer.projectRoot, "lib", "db"));
+      files.insert({
+        shareId: "secret-projection-file",
+        originalName: "secret-projection.bin",
+        relativePath: "secret/secret-projection.bin",
+        storagePath: "blobs/aa/secret-projection.enc",
+        mimeType: "application/octet-stream",
+        uploaderEmail: "leak-check@example.com",
+        encryptionKey: "ZZZZ-plaintext-content-key-must-not-leak-ZZZZ",
+        checksum: "deadbeefchecksum",
+        vaultEncapsulatedKey: "vault-encaps-key-must-not-leak",
+        vaultIv: "vault-iv-must-not-leak",
+        size: 4096,
+        status: "complete",
+        createdAt: new Date().toISOString(),
+      });
+    });
+
+    it("does not expose encryptionKey / storagePath / vault material", async function () {
+      await loginAs("apiadmin@test.com", "password123");
+      var res = await client.get("/admin/files/api");
+      assert.strictEqual(res.status, 200);
+      var row = res.json.files.find(function (f) { return f.shareId === "secret-projection-file"; });
+      assert.ok(row, "seeded file should appear in the admin list");
+      // UI-consumed fields are present.
+      assert.strictEqual(row.originalName, "secret-projection.bin");
+      assert.strictEqual(row.size, 4096);
+      assert.strictEqual(typeof row.downloads !== "undefined", true);
+      // Sealed at-rest secrets must be absent.
+      assert.strictEqual(row.encryptionKey, undefined, "encryptionKey must not leak");
+      assert.strictEqual(row.storagePath, undefined, "storagePath must not leak");
+      assert.strictEqual(row.checksum, undefined, "checksum must not leak");
+      assert.strictEqual(row.vaultEncapsulatedKey, undefined, "vaultEncapsulatedKey must not leak");
+      assert.strictEqual(row.vaultIv, undefined, "vaultIv must not leak");
+    });
+
+    it("does not expose secrets in the search branch either", async function () {
+      await loginAs("apiadmin@test.com", "password123");
+      var res = await client.get("/admin/files/api?q=secret-projection");
+      assert.strictEqual(res.status, 200);
+      var row = res.json.files.find(function (f) { return f.shareId === "secret-projection-file"; });
+      assert.ok(row, "search should find the seeded file");
+      assert.strictEqual(row.encryptionKey, undefined, "encryptionKey must not leak in search");
+      assert.strictEqual(row.storagePath, undefined, "storagePath must not leak in search");
+    });
+  });
+
+  describe("bundles API — sealed secret fields are projected out", function () {
+    before(function () {
+      var { bundles } = require(path.join(testServer.projectRoot, "lib", "db"));
+      bundles.insert({
+        shareId: "secret-projection-bundle",
+        bundleName: "Secret Projection Bundle",
+        uploaderName: "Uploader",
+        uploaderEmail: "uploader@example.com",
+        passwordHash: "$argon2id$v=19$secret-bundle-hash-must-not-leak",
+        finalizeTokenHash: "finalize-token-hash-must-not-leak",
+        allowedEmails: "recipient1@example.com,recipient2@example.com",
+        accessMode: "both",
+        status: "complete",
+        createdAt: new Date().toISOString(),
+      });
+    });
+
+    it("does not expose passwordHash / finalizeTokenHash / allowedEmails", async function () {
+      await loginAs("apiadmin@test.com", "password123");
+      var res = await client.get("/admin/bundles/api");
+      assert.strictEqual(res.status, 200);
+      var row = res.json.bundles.find(function (b) { return b.shareId === "secret-projection-bundle"; });
+      assert.ok(row, "seeded bundle should appear in the admin list");
+      // UI-consumed fields present.
+      assert.strictEqual(row.bundleName, "Secret Projection Bundle");
+      assert.strictEqual(typeof row.liveFileCount, "number");
+      // Secrets / recipient PII must be absent.
+      assert.strictEqual(row.passwordHash, undefined, "passwordHash must not leak");
+      assert.strictEqual(row.finalizeTokenHash, undefined, "finalizeTokenHash must not leak");
+      assert.strictEqual(row.allowedEmails, undefined, "allowedEmails (recipient PII) must not leak");
+    });
+  });
+
   describe("purge database — module-level blamejs alias not shadowed", function () {
     it("purges all tables and returns success (no TypeError from loop-counter shadow)", async function () {
       // Regression: a `for (var b = 0; ...)` loop counter in this handler

@@ -184,6 +184,41 @@ describe("upload limits", function () {
     assert.match(overflow.json.detail || overflow.json.error, /Too many files|limit exceeded|count/i,
       "rejection should mention file-count limit, got: " + (overflow.json.detail || overflow.json.error));
   });
+
+  it("11b. concurrent uploads cannot overshoot publicMaxFiles (post-write TOCTOU guard)", async function () {
+    // publicMaxFiles is 5 via env. Pre-fill to one below the cap, then fire a
+    // burst of parallel uploads for the remaining slots in the same tick. Each
+    // parallel handler reads the same stale pre-write snapshot and passes the
+    // pre-save count check; only the authoritative post-write enforcement can
+    // hold the cap. Assert no more than (maxFiles - prefill) uploads land.
+    var init = await initBundle({ fileCount: 10 });
+    var bundleId = init.json.bundleId;
+
+    var prefill = 4; // leaves exactly 1 free slot under maxFiles=5
+    for (var i = 0; i < prefill; i++) {
+      var pre = await uploadFile(bundleId, "pre" + i + ".txt", "pre " + i);
+      assert.strictEqual(pre.status, 200, "prefill upload " + i + " should succeed");
+    }
+
+    var burst = 6;
+    var pending = [];
+    for (var j = 0; j < burst; j++) {
+      pending.push(uploadFile(bundleId, "burst" + j + ".txt", "burst payload " + j));
+    }
+    var results = await Promise.all(pending);
+    var accepted = results.filter(function (r) { return r.status === 200; }).length;
+
+    // Only one free slot remained; the post-write guard must let at most one
+    // of the concurrent burst uploads commit. Before the fix every burst upload
+    // passed the stale pre-read check and overshot the cap.
+    assert.strictEqual(accepted, 1,
+      "exactly one concurrent upload may fill the last slot, got " + accepted + " accepted");
+
+    // A subsequent serial upload is also refused — the bundle is now at the cap.
+    var after = await uploadFile(bundleId, "after.txt", "after");
+    assert.strictEqual(after.status, 400, "bundle at cap must reject further uploads");
+    assert.match(after.json.detail || after.json.error, /Too many files|limit exceeded|count/i);
+  });
 });
 
 // ---------------------------------------------------------------------------

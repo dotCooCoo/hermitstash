@@ -3,6 +3,7 @@ var filesRepo = require("../app/data/repositories/files.repo");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
 var requireAuth = require("../middleware/require-auth");
 var { send, host } = require("../middleware/send");
+var { emailIsVerified } = require("../app/domain/auth/auth.service");
 
 module.exports = function (app) {
   // Landing
@@ -20,8 +21,13 @@ module.exports = function (app) {
   app.get("/dashboard", (req, res) => {
     if (!requireAuth(req, res)) return;
 
-    // Claim unclaimed public uploads matching this user's email
-    if (req.user.email) {
+    // Reassign anonymous public uploads matching this user's email — ONLY when the
+    // account's email is proven (verification operative + account active). Email
+    // equality is not proof of control: without this gate, an attacker who changes
+    // their account email to a victim's anonymous-upload address (see
+    // routes/profile.js) would silently acquire the victim's "public" uploads on the
+    // next dashboard load. An unverified address must never trigger a claim.
+    if (req.user.email && emailIsVerified(req.user)) {
       var unclaimed = filesRepo.findAll({ uploaderEmail: req.user.email, uploadedBy: "public" });
       for (var f of unclaimed) {
         filesRepo.update(f._id, { $set: { uploadedBy: req.user._id } });

@@ -76,9 +76,34 @@ function resolveUploadConfig(stash) {
   };
 }
 
+// Refund a previously-reserved per-IP byte debit when the upload it was
+// reserved for fails downstream (validation, save, or a post-write cap breach).
+// b.network.byteQuota.record refuses negative byte counts, so the refund goes
+// through the documented internal backend seam (the same counter record()
+// mutates) with a negative delta. Best-effort: a missed refund only over-counts
+// the uploader's OWN rolling-24h budget (fail-closed) and self-heals as bins
+// slide, so a refund failure never grants extra quota.
+function _refundIpQuota(req, bytes) {
+  if (!(config.publicIpQuotaBytes > 0) || !bytes) return;
+  try {
+    var q = _getIpQuota();
+    if (q && q._backend && typeof q._backend.account === "function") {
+      q._backend.account(_ipQuotaKey(req), -bytes, q._now ? q._now() : Date.now());
+    }
+  } catch (_e) { /* refund best-effort — overcount fails closed, never grants quota */ }
+}
+
 /**
  * Check all quotas (storage, per-user, per-IP) for a file upload.
- * Returns { allowed: true } or { allowed: false, error: string }.
+ *
+ * The per-IP byte budget is RESERVED (debited) here the instant its check
+ * passes — not after the save resolves — so concurrent in-flight uploads see
+ * each other's debits and can't all pass a stale pre-write total and overrun
+ * the cap (read-check-then-record TOCTOU). The reservation is released via
+ * _refundIpQuota if the upload subsequently fails. The returned `ipReserved`
+ * byte count tells the caller exactly how much to refund on a later failure.
+ *
+ * Returns { allowed: true, ipReserved } or { allowed: false, error, reason }.
  */
 async function checkAllQuotas(fileSize, bundle, req) {
   // Storage quota
@@ -98,15 +123,21 @@ async function checkAllQuotas(fileSize, bundle, req) {
     }
   }
 
-  // Per-IP quota (anonymous only)
+  // Per-IP quota (anonymous only) — reserve-then-confirm.
+  var ipReserved = 0;
   if (config.publicIpQuotaBytes > 0 && !bundle.ownerId) {
-    var ipCheck = await _getIpQuota().check(_ipQuotaKey(req), fileSize);
+    var ipKey = _ipQuotaKey(req);
+    var ipCheck = await _getIpQuota().check(ipKey, fileSize);
     if (!ipCheck.allowed) {
       return { allowed: false, error: "Upload quota exceeded. Try again later.", reason: "per-IP quota exceeded" };
     }
+    // Debit immediately so the in-flight bytes are visible to a concurrent
+    // check before THIS upload's long save window yields the event loop.
+    await _getIpQuota().record(ipKey, fileSize);
+    ipReserved = fileSize;
   }
 
-  return { allowed: true };
+  return { allowed: true, ipReserved: ipReserved };
 }
 
 /**
@@ -152,6 +183,7 @@ async function handleFileUpload(ctx) {
 
   var cleanRelPath = sanitizeFilename(fields.relativePath || file.filename, 500);
   var fileShareId, checksum, saved;
+  var createdFileId = null; // set on the non-replace path; used for post-write rollback
 
   // Sync bundle: check for existing file with same relativePath → replace
   var replaced = false;
@@ -204,12 +236,13 @@ async function handleFileUpload(ctx) {
     fileShareId = result.shareId;
     checksum = result.checksum;
     saved = result.saved;
+    createdFileId = result.doc ? result.doc._id : null;
   }
 
-  // Track IP after save
-  if (config.publicIpQuotaBytes > 0 && !bundle.ownerId) {
-    await _getIpQuota().record(_ipQuotaKey(ctx.req), file.size);
-  }
+  // Per-IP byte quota was already debited at reservation time inside
+  // checkAllQuotas (reserve-then-confirm), so there's no post-save record here —
+  // recording again would double-count. A downstream failure refunds via
+  // _refundIpQuota(quota.ipReserved).
 
   var action = replaced ? "file_replaced" : "file_added";
   audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: bundle._id, details: auditDetail({ action: action, bundleId: bundle._id, file: file.filename, relativePath: cleanRelPath, size: file.size, checksum: checksum }), req: ctx.req });
@@ -220,6 +253,35 @@ async function handleFileUpload(ctx) {
   var sizeChange = replaced ? (file.size - oldSize) : file.size;
   var fileCountChange = replaced ? 0 : 1;
   var counters = bundlesRepo.incrementCounters(bundle._id, fileCountChange, sizeChange);
+
+  // Authoritative limit enforcement on the POST-write value. The pre-save
+  // validateBundleLimits check (above) reads a stale snapshot, so N concurrent
+  // uploads each see the same pre-read receivedFiles/totalSize and all pass —
+  // overshooting maxFiles/maxBundleSize by the in-flight concurrency. The atomic
+  // incrementCounters RETURNING gives the true committed value; re-check it here
+  // and, if THIS write pushed the bundle over a cap, undo the increment, delete
+  // the just-saved blob + record, and reject. A replace adds no file and net
+  // size delta is bounded by the per-file cap, but it can still grow totalSize,
+  // so the size cap is re-checked on both paths.
+  if (counters) {
+    var postCheck = uploadValidator.validateBundleLimits(counters.receivedFiles, limits.maxFiles, counters.totalSize, limits.maxBundleSize);
+    if (!postCheck.valid) {
+      // Roll back the exact increment this writer committed.
+      bundlesRepo.incrementCounters(bundle._id, -fileCountChange, -sizeChange);
+      // Remove the blob + DB record this writer created. On the replace path the
+      // old blob was already deleted and the existing record was overwritten in
+      // place, so there is nothing to delete here without losing the prior file;
+      // only the freshly-created (non-replace) record/blob is rolled back.
+      if (!replaced) {
+        try { if (saved && saved.path) { await storage.deleteFile(saved.path); } } catch (_e) { /* cleanup — blob may already be gone on S3 */ }
+        try { if (createdFileId) { filesRepo.remove(createdFileId); } } catch (_e) { /* cleanup — record removal best-effort */ }
+      }
+      // Release the per-IP byte reservation — this upload didn't land.
+      _refundIpQuota(ctx.req, quota.ipReserved);
+      audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + postCheck.reason + " (post-write)" + suffix, req: ctx.req });
+      return { error: postCheck.reason };
+    }
+  }
 
   // Emit sync event for WebSocket subscribers
   if (bundle.bundleType === "sync") {
@@ -339,11 +401,16 @@ async function handleChunkUpload(ctx) {
   var filename = fields.filename || "file";
   var relativePath = fields.relativePath || filename;
   var fileCheck = uploadValidator.validateFile(filename, fullData.length, limits.allowedExtensions, limits.maxFileSize);
-  if (!fileCheck.valid) return { error: fileCheck.reason };
+  if (!fileCheck.valid) {
+    // Release the per-IP byte reservation made on estimatedSize above.
+    _refundIpQuota(ctx.req, quota.ipReserved);
+    return { error: fileCheck.reason };
+  }
 
   try {
     var magicCheck = uploadValidator.validateMagicBytes(filename, fullData);
     if (!magicCheck.valid) {
+      _refundIpQuota(ctx.req, quota.ipReserved);
       audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + magicCheck.reason + " (chunked)" + suffix, req: ctx.req });
       return { error: magicCheck.reason };
     }
@@ -361,11 +428,33 @@ async function handleChunkUpload(ctx) {
   });
   var checksum = chunkResult.checksum;
 
-  if (config.publicIpQuotaBytes > 0 && !bundle.ownerId) {
-    await _getIpQuota().record(_ipQuotaKey(ctx.req), fullData.length);
+  // The per-IP byte quota was reserved on estimatedSize at checkAllQuotas above
+  // (reserve-then-confirm); no post-save record here. estimatedSize is the sum
+  // of the chunk sizes and equals fullData.length, but if they diverge, refund
+  // the difference so the debit matches the bytes actually stored.
+  if (quota.ipReserved && fullData.length !== quota.ipReserved) {
+    _refundIpQuota(ctx.req, quota.ipReserved - fullData.length);
   }
 
   var chunkCounters = bundlesRepo.incrementCounters(bundle._id, 1, fullData.length);
+
+  // Authoritative POST-write limit enforcement — same TOCTOU close as the
+  // single-file path. The reassembly-time checkAllQuotas + size cap above gate
+  // on the stale pre-write bundle snapshot, so concurrent chunked finalizations
+  // can each pass and overshoot maxFiles/maxBundleSize. Re-check the committed
+  // receivedFiles/totalSize and roll this write back if it breached a cap.
+  if (chunkCounters) {
+    var chunkPostCheck = uploadValidator.validateBundleLimits(chunkCounters.receivedFiles, limits.maxFiles, chunkCounters.totalSize, limits.maxBundleSize);
+    if (!chunkPostCheck.valid) {
+      bundlesRepo.incrementCounters(bundle._id, -1, -fullData.length);
+      try { if (chunkResult.saved && chunkResult.saved.path) { await storage.deleteFile(chunkResult.saved.path); } } catch (_e) { /* cleanup — blob may already be gone on S3 */ }
+      try { if (chunkResult.doc && chunkResult.doc._id) { filesRepo.remove(chunkResult.doc._id); } } catch (_e) { /* cleanup — record removal best-effort */ }
+      // Release the per-IP byte reservation (reconciled above to fullData.length).
+      _refundIpQuota(ctx.req, fullData.length);
+      audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + chunkPostCheck.reason + " (chunked, post-write)" + suffix, req: ctx.req });
+      return { error: chunkPostCheck.reason };
+    }
+  }
 
   audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: bundle._id, details: auditDetail({ action: "file_added", bundleId: bundle._id, file: filename, size: fullData.length, chunks: totalChunks, checksum: checksum }), req: ctx.req });
   return { success: true, assembled: true, received: chunkCounters ? chunkCounters.receivedFiles : (bundle.receivedFiles + 1) };

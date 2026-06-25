@@ -8,6 +8,7 @@ var { canEditOwned } = require("../app/shared/authz");
 var fileService = require("../app/domain/uploads/file.service");
 var filesRepo = require("../app/data/repositories/files.repo");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
+var stashRepo = require("../app/data/repositories/stash.repo");
 var C = require("../lib/constants");
 var syncGuards = require("../middleware/sync-guards");
 var rateLimit = require("../lib/rate-limit");
@@ -146,6 +147,14 @@ module.exports = function (app) {
       if (remaining.length === 0) {
         var bundle = bundlesRepo.findByShareId(doc.bundleShareId);
         if (bundle) {
+          // Decrement stash stats if the bundle belongs to a stash page, before
+          // removing it — mirrors the three sibling delete paths (bundles.js,
+          // admin.js, stash.js). Without this the customer_stash.bundleCount /
+          // totalBytes aggregates stay permanently inflated when a stash bundle
+          // is emptied via this auto-cleanup path.
+          if (bundle.stashId) {
+            try { stashRepo.decrementBundleStats(bundle.stashId, bundle.totalSize); } catch (_e) {}
+          }
           bundlesRepo.remove(bundle._id);
           audit.log(audit.ACTIONS.ADMIN_BUNDLE_DELETED, { targetId: bundle._id, details: "auto-cleanup: last file deleted", req: req });
         }

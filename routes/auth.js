@@ -15,7 +15,7 @@ var sessionService = require("../app/domain/auth/session.service");
 var { validateLoginInput, validateRegisterInput } = require("../app/http/validators/auth.validator");
 var { createVerificationToken } = require("./verification");
 var { validateToken } = require("../app/security/csrf-policy");
-var { AppError, ValidationError, ForbiddenError } = require("../app/shared/errors");
+var { AppError, ValidationError, AuthenticationError, ForbiddenError } = require("../app/shared/errors");
 
 module.exports = function (app) {
   // Google OAuth
@@ -96,17 +96,38 @@ module.exports = function (app) {
       // window since the real remaining time can't be computed.
       var existing = usersRepo.findByEmail(input.email);
       var lockedUntilMs = existing && existing.lockedUntil ? Date.parse(existing.lockedUntil) : 0;
-      if (existing && existing.lockedUntil && (!Number.isFinite(lockedUntilMs) || lockedUntilMs > Date.now())) {
-        var remainingMs = Number.isFinite(lockedUntilMs) ? lockedUntilMs - Date.now() : C.TIME.minutes(30);
-        var lockMinutes = Math.ceil(remainingMs / C.TIME.minutes(1));
+      var isLocked = !!(existing && existing.lockedUntil && (!Number.isFinite(lockedUntilMs) || lockedUntilMs > Date.now()));
+
+      // A locked existing account must be indistinguishable, at the client
+      // boundary, from a non-existent or wrong-password account: same uniform 401
+      // body, no remaining-minutes countdown, no auth-type tell. Otherwise the
+      // distinct "temporarily locked" 403 is an attacker-triggerable existence +
+      // local-auth-method oracle (lock a target via 10 wrong guesses, then read
+      // the divergent response). The lock is still fully enforced — a locked
+      // account never logs in even with the correct password — and the detailed
+      // reason is kept in the server-side audit log. Timing is equalized by
+      // running the same Argon2id verify path (authenticateLocal) before
+      // collapsing to the uniform error, rather than short-circuiting.
+      function lockedReject() {
+        var lockMinutes = Number.isFinite(lockedUntilMs) ? Math.ceil((lockedUntilMs - Date.now()) / C.TIME.minutes(1)) : 30;
         audit.log(audit.ACTIONS.LOGIN_FAILED_BAD_PASSWORD, { targetId: existing._id, targetEmail: input.email, details: "Account locked (" + lockMinutes + " min remaining)", req: req });
-        throw new ForbiddenError("Account temporarily locked. Try again in " + lockMinutes + " minutes.");
+        var err = new AuthenticationError("Invalid email or password.");
+        err._locked = true; // already audited — the catch must not re-process it
+        return err;
       }
 
       var user;
       try {
         user = await authService.authenticateLocal(input.email, input.password);
+        // Correct credentials but the account is locked: do NOT establish a
+        // session — collapse to the uniform 401.
+        if (isLocked) throw lockedReject();
       } catch (err) {
+        // Any failure on a locked account (wrong password, pending, suspended)
+        // also collapses to the uniform 401 without incrementing the counter or
+        // revealing the lock — a locked account never has its state mutated by a
+        // guess and never surfaces a distinguisher. Audit exactly once.
+        if (isLocked) throw err._locked ? err : lockedReject();
         if (err.isAppError) {
           // Track failed attempts for lockout (only if the user exists AND has a
           // local password — a passwordless OAuth/passkey account can't be

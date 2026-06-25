@@ -7,6 +7,8 @@ var b = require("../lib/vendor/blamejs");
 var nodePath = require("node:path");
 var config = require("../lib/config");
 var rateLimit = require("../lib/rate-limit");
+var clientIp = require("../lib/client-ip");
+var accessLockout = require("../lib/access-lockout");
 var stashRepo = require("../app/data/repositories/stash.repo");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
 var filesRepo = require("../app/data/repositories/files.repo");
@@ -42,7 +44,11 @@ var { generateEnrollmentCode, certFingerprintSha3 } = require("../lib/cert-utils
 
 var { isStashLocked } = require("../middleware/require-access");
 var accessCodeService = require("../app/domain/access-code.service");
-var { AppError, ValidationError, AuthenticationError, ForbiddenError, NotFoundError } = require("../app/shared/errors");
+var { AppError, ValidationError, AuthenticationError, ForbiddenError, NotFoundError, RateLimitError } = require("../app/shared/errors");
+
+// Namespace for the shared subnet-keyed unlock lockout (disjoint from the
+// bundle route's "bundle" namespace; both share lib/access-lockout + table).
+var STASH_LOCKOUT_NS = "stash";
 
 /**
  * Check if an email matches the stash's allowed list.
@@ -58,6 +64,15 @@ function emailMatchesAllowedList(email, allowedEmails) {
     if (list[i].startsWith("@") && list[i] === domain) return true;
   }
   return false;
+}
+
+// Predicate the access gate re-runs on every request to re-validate a session's
+// verified email against the stash's CURRENT allowedEmails — so removing an
+// address from the list cuts off a live session on its next request instead of
+// at session expiry. Bound to the stash's current list, using the same matcher
+// (exact + @domain patterns) the request-code path uses.
+function stashAllowedMatch(stash) {
+  return function (email) { return emailMatchesAllowedList(email, stash.allowedEmails); };
 }
 
 // Resolve an optional team assignment for a stash. Returns the canonical team
@@ -84,7 +99,7 @@ module.exports = function (app) {
     }
 
     // Access protection (password, email, or both)
-    var locked = isStashLocked(stash, req.session);
+    var locked = isStashLocked(stash, req.session, stashAllowedMatch(stash));
     if (locked === "email") {
       return send(res, "bundle-email-gate", {
         user: req.user || null,
@@ -134,6 +149,21 @@ module.exports = function (app) {
     var body = (await b.parsers.json(req)) || {};
     var password = String(body.password || "");
 
+    // Persistent subnet-keyed exponential-backoff lockout (shared with the
+    // bundle unlock route). The per-IP rate limiter above caps attempts while
+    // the process is up; this DB-backed counter survives restart and keys on
+    // the routing subnet so the escalating backoff can't be reset by a restart
+    // or by IP rotation within a /24 / /64.
+    var ip = clientIp.getIp(req);
+    var retryAfter = accessLockout.lockedFor(accessLockout.getLockout(STASH_LOCKOUT_NS, stash._id, ip));
+    if (retryAfter > 0) {
+      throw new RateLimitError("Too many failed attempts. Try again in " + retryAfter + " seconds.", retryAfter);
+    }
+
+    // Session unlock state is keyed by the stable stash._id (never the reusable
+    // slug) so a freed-and-reused slug can't carry a prior stash's unlock.
+    var stashKey = "stashUnlocked_" + stash._id;
+
     if (!stash.passwordHash) {
       // An email-gated stash carries no password; access is granted ONLY via the
       // email access-code flow (which sets { emailVerified }). Treating a missing
@@ -141,7 +171,7 @@ module.exports = function (app) {
       if (stash.accessMode === "email") {
         throw new ForbiddenError("Email verification required.").withExtras({ requiresEmail: true });
       }
-      req.session["stashUnlocked_" + slug] = true;
+      req.session[stashKey] = true;
       return res.json({ success: true });
     }
 
@@ -149,15 +179,22 @@ module.exports = function (app) {
     if (valid) {
       var mode = stash.accessMode || "password";
       if (mode === "both") {
-        var prev = req.session["stashUnlocked_" + slug];
+        var prev = req.session[stashKey];
         if (!prev || typeof prev !== "object" || typeof prev.emailVerified !== "string") {
           throw new ForbiddenError("Email verification required first.").withExtras({ requiresEmail: true });
         }
-        req.session["stashUnlocked_" + slug] = { emailVerified: prev.emailVerified, passwordVerified: true };
+        req.session[stashKey] = { emailVerified: prev.emailVerified, passwordVerified: true };
       } else {
-        req.session["stashUnlocked_" + slug] = true;
+        req.session[stashKey] = true;
       }
+      accessLockout.clearLockout(STASH_LOCKOUT_NS, stash._id, ip);
       return res.json({ success: true });
+    }
+
+    var after = accessLockout.recordFailure(STASH_LOCKOUT_NS, stash._id, ip);
+    if (after.retryAfter > 0) {
+      logger.warn("Stash unlock lockout", { stash: stash.slug, failures: after.failures, retryAfter: after.retryAfter });
+      throw new RateLimitError("Too many failed attempts. Try again in " + after.retryAfter + " seconds.", after.retryAfter);
     }
 
     throw new AuthenticationError("Incorrect password.");
@@ -215,10 +252,11 @@ module.exports = function (app) {
     }
 
     var mode = stash.accessMode || "email";
+    var stashKey = "stashUnlocked_" + stash._id;
     if (mode === "both") {
-      req.session["stashUnlocked_" + stash.slug] = { emailVerified: email, passwordVerified: false };
+      req.session[stashKey] = { emailVerified: email, passwordVerified: false };
     } else {
-      req.session["stashUnlocked_" + stash.slug] = email;
+      req.session[stashKey] = email;
     }
 
     audit.log(audit.ACTIONS.BUNDLE_ACCESS_CODE_VERIFIED, { details: "stash: " + stash.slug + ", email verified", req: req });
@@ -232,7 +270,7 @@ module.exports = function (app) {
     if (!stash || stash.enabled !== "true") throw new NotFoundError("Not found.");
 
     // Access check
-    if (isStashLocked(stash, req.session)) throw new ForbiddenError("Stash page is locked.");
+    if (isStashLocked(stash, req.session, stashAllowedMatch(stash))) throw new ForbiddenError("Stash page is locked.");
 
     // Sync-enabled stash: reuse persistent sync bundle
     if (stash.syncEnabled === "true" && stash.syncBundleId) {
@@ -281,7 +319,7 @@ module.exports = function (app) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") throw new NotFoundError("Not found.");
-    if (isStashLocked(stash, req.session)) throw new ForbiddenError("Stash page is locked.");
+    if (isStashLocked(stash, req.session, stashAllowedMatch(stash))) throw new ForbiddenError("Stash page is locked.");
 
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
@@ -313,7 +351,7 @@ module.exports = function (app) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") throw new NotFoundError("Not found.");
-    if (isStashLocked(stash, req.session)) throw new ForbiddenError("Stash page is locked.");
+    if (isStashLocked(stash, req.session, stashAllowedMatch(stash))) throw new ForbiddenError("Stash page is locked.");
 
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
@@ -345,7 +383,7 @@ module.exports = function (app) {
     var slug = req.params.slug;
     var stash = stashRepo.findBySlug(slug);
     if (!stash || stash.enabled !== "true") throw new NotFoundError("Not found.");
-    if (isStashLocked(stash, req.session)) throw new ForbiddenError("Stash page is locked.");
+    if (isStashLocked(stash, req.session, stashAllowedMatch(stash))) throw new ForbiddenError("Stash page is locked.");
 
     var existingBundle = bundlesRepo.findById(req.params.bundleId);
     if (!existingBundle) throw new NotFoundError("Bundle not found.");

@@ -161,7 +161,7 @@ describe("drop integration — Bearer + blamejs apiEncrypt", function () {
 });
 
 describe("drop + claim flow", function () {
-  it("files claimed on registration via emailHash", async function () {
+  it("anonymous uploads are NOT auto-claimed on registration when email verification is off", async function () {
     await client.initApiKey();
     var init = await client.post("/drop/init", {
       json: { uploaderName: "Claimer", uploaderEmail: "claimer@test.com", fileCount: 1, skippedCount: 0, skippedFiles: [] },
@@ -169,13 +169,16 @@ describe("drop + claim flow", function () {
     await client.uploadFile("/drop/file/" + init.json.bundleId, "file", "claim.txt", "claim content", { relativePath: "claim.txt" });
     await client.post("/drop/finalize/" + init.json.bundleId, { json: { finalizeToken: init.json.finalizeToken } });
 
-    // Register with that email — files should be claimed via emailHash
+    // Register with that email. Email equality is NOT proof of address control,
+    // so with EMAIL_VERIFICATION off (no verified signal) the claim gate never
+    // fires — the anonymous uploads must NOT transfer (closes the cross-account
+    // takeover class). Ownership is conferred only on a verified email.
     client.clearCookies();
     await client.initApiKey();
     var reg = await client.post("/auth/register", {
       json: { displayName: "Claimer", email: "claimer@test.com", password: "password123" },
     });
     assert.strictEqual(reg.json.success, true);
-    assert.ok(reg.json.claimed >= 1, "should claim at least 1 file via emailHash");
+    assert.strictEqual(reg.json.claimed, 0, "must not auto-claim anonymous uploads on an unverified email");
   });
 });

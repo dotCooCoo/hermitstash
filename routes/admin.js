@@ -205,25 +205,44 @@ module.exports = function (app) {
     }
     var pages = Math.ceil(result.total / limit) || 1;
 
-    // Enrich files with uploader attribution when missing
+    // Enrich files with uploader attribution when missing, then project each
+    // row to an explicit allowlist of UI-consumed fields. Sealed file rows are
+    // fully unsealed by findPaginated (encryptionKey, storagePath, checksum,
+    // vaultEncapsulatedKey, vaultIv — the per-file content key and at-rest
+    // material — are all plaintext here); the admin browser must never receive
+    // them. A positive allowlist (not delete-from-a-copy) guarantees a future
+    // sealed column added to the files table cannot silently re-leak.
     var userCache = {};
     var mapped = result.data.map(function (f) {
-      var obj = Object.assign({}, f);
+      var uploaderEmail = f.uploaderEmail || "";
+      var uploaderName = f.uploaderName || "";
       // If file has uploadedBy (user ID) but no uploaderEmail, look up the user
-      if (obj.uploadedBy && obj.uploadedBy !== "public" && obj.uploadedBy !== "deleted" && !obj.uploaderEmail) {
-        if (!userCache[obj.uploadedBy]) {
-          var u = usersRepo.findById(obj.uploadedBy);
-          userCache[obj.uploadedBy] = u || null;
+      if (f.uploadedBy && f.uploadedBy !== "public" && f.uploadedBy !== "deleted" && !uploaderEmail) {
+        if (!userCache[f.uploadedBy]) {
+          var u = usersRepo.findById(f.uploadedBy);
+          userCache[f.uploadedBy] = u || null;
         }
-        var cached = userCache[obj.uploadedBy];
+        var cached = userCache[f.uploadedBy];
         if (cached) {
-          obj.uploaderEmail = cached.email || "";
-          obj.uploaderName = obj.uploaderName || cached.displayName || "";
+          uploaderEmail = cached.email || "";
+          uploaderName = uploaderName || cached.displayName || "";
         }
       }
-      obj.uploaderName = obj.uploaderName || "";
-      obj.uploaderEmail = obj.uploaderEmail || "";
-      return obj;
+      return {
+        _id: f._id,
+        shareId: f.shareId,
+        originalName: f.originalName,
+        relativePath: f.relativePath,
+        mimeType: f.mimeType,
+        size: f.size,
+        uploaderEmail: uploaderEmail,
+        uploaderName: uploaderName,
+        uploadedBy: f.uploadedBy,
+        bundleId: f.bundleId,
+        status: f.status,
+        downloads: f.downloads,
+        createdAt: f.createdAt,
+      };
     });
 
     res.json({ files: mapped, total: result.total, page: page, pages: pages, limit: limit });
@@ -242,14 +261,36 @@ module.exports = function (app) {
     // table directly. Avoids displaying stale bundle.receivedFiles /
     // bundle.totalSize when counter maintenance has fallen out of sync
     // (e.g. legacy admin-deletes that didn't decrement totalSize).
-    var enriched = result.data.map(function (b) {
-      var bundleFiles = filesRepo.findAll({ bundleId: b._id })
+    // Project each bundle to an explicit allowlist of UI-consumed fields.
+    // findPaginated unseals every sealed column, so passwordHash (Argon2id
+    // bundle-unlock hash), finalizeTokenHash, and allowedEmails (recipient PII)
+    // are plaintext here and must not cross to the admin browser. A positive
+    // allowlist (not delete-from-a-copy) keeps any future sealed column from
+    // silently re-leaking.
+    var enriched = result.data.map(function (bundle) {
+      var bundleFiles = filesRepo.findAll({ bundleId: bundle._id })
         .filter(function (f) { return !f.deletedAt; });
       var liveSize = bundleFiles.reduce(function (s, f) { return s + (f.size || 0); }, 0);
-      return Object.assign({}, b, {
+      return {
+        _id: bundle._id,
+        shareId: bundle.shareId,
+        bundleName: bundle.bundleName,
+        uploaderName: bundle.uploaderName,
+        uploaderEmail: bundle.uploaderEmail,
+        status: bundle.status,
+        accessMode: bundle.accessMode,
+        bundleType: bundle.bundleType,
+        stashId: bundle.stashId,
+        expectedFiles: bundle.expectedFiles,
+        receivedFiles: bundle.receivedFiles,
+        skippedCount: bundle.skippedCount,
+        totalSize: bundle.totalSize,
+        downloads: bundle.downloads,
+        expiresAt: bundle.expiresAt,
+        createdAt: bundle.createdAt,
         liveFileCount: bundleFiles.length,
         liveFileSize: liveSize,
-      });
+      };
     });
     res.json({ bundles: enriched, total: result.total, page: page, pages: pages, limit: limit });
   });

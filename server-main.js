@@ -284,10 +284,18 @@ app.post("/sync/enroll", rateLimit.guard({ max: SYNC_ENROLL_MAX, windowMs: C.TIM
       });
     }
 
-    // Look up by hash
+    // Look up by the indexed codeHash blind index (idx_enrollment_codeHash,
+    // lib/db.js) — an exact-match digest query that returns at most the one
+    // matching row, mirroring the bundle access-code redemption path
+    // (access-code.service.js). Loading every pending row and JS-filtering on
+    // `===` would force an O(N) field-decrypt of every provisioned credential
+    // bundle per unauthenticated request; the indexed query avoids that and
+    // makes the codeHash equality implicit (no plaintext comparison to leak
+    // timing on). The expiry is the only remaining JS predicate.
     var codeHash = b.crypto.namespaceHash(C.HASH_PREFIX.ENROLLMENT, code);
-    var records = db.enrollmentCodes.find({ status: "pending" })
-      .filter(function (r) { return r.codeHash === codeHash && r.expiresAt > new Date().toISOString(); });
+    var nowIso = new Date().toISOString();
+    var records = db.enrollmentCodes.find({ codeHash: codeHash, status: "pending" })
+      .filter(function (r) { return r.expiresAt > nowIso; });
 
     if (records.length === 0) {
       return b.problemDetails.send(res, {

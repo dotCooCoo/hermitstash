@@ -395,6 +395,63 @@ describe("adversarial auth and authorization", function () {
       assert.ok(res.status === 400 || res.status === 403,
         "null/empty body must yield 400 (validator) or 403 (CSRF), got " + res.status);
     });
+
+    // 26. A locked existing account must be INDISTINGUISHABLE, at the client
+    //     boundary, from a non-existent / wrong-password account. The login
+    //     handler must not surface the distinct "Account temporarily locked"
+    //     403 + remaining-minutes countdown, which would be an account-existence
+    //     + local-auth-method oracle (lock a target, then read the divergent
+    //     response). Both a correct and an incorrect password on a locked
+    //     account collapse to the same uniform 401 the generic failures use.
+    it("locked account returns the uniform 401, not a distinct lockout oracle", async function () {
+      // Require the repo lazily through the server's projectRoot so it shares the
+      // already-initialized vault/db instance the server booted (a top-of-file
+      // require would bind to a separate, uninitialized vault — the keyed-MAC
+      // blind index for findByEmail then throws vault/not-initialized).
+      var usersRepo = require(path.join(testServer.projectRoot, "app", "data", "repositories", "users.repo"));
+      var lockedEmail = "locked-adv-" + testId + "@test.com";
+      // Seed a fresh account, then lock it directly (avoids tripping the
+      // per-IP login limiter with 10 brute-force attempts).
+      client.clearCookies();
+      await client.initApiKey();
+      await client.post("/auth/register", {
+        json: { displayName: "Locked User", email: lockedEmail, password: strongPassword },
+      });
+      var locked = usersRepo.findByEmail(lockedEmail);
+      assert.ok(locked, "seed user must exist");
+      usersRepo.update(locked._id, { $set: { lockedUntil: new Date(Date.now() + 30 * 60 * 1000).toISOString() } });
+
+      // Correct password against a locked account → uniform 401, no login.
+      client.clearCookies();
+      await client.initApiKey();
+      var correctRes = await client.post("/auth/login", {
+        json: { email: lockedEmail, password: strongPassword },
+      });
+      assert.strictEqual(correctRes.status, 401, "locked + correct password must be 401, not 403");
+      assert.strictEqual(correctRes.json.detail, "Invalid email or password.",
+        "locked account must not surface a distinct 'temporarily locked' message");
+      assert.ok(!correctRes.json.success, "locked account must never establish a session");
+
+      // Wrong password against the same locked account → identical 401.
+      client.clearCookies();
+      await client.initApiKey();
+      var wrongRes = await client.post("/auth/login", {
+        json: { email: lockedEmail, password: "Wr0ng!Pass_" + testId },
+      });
+      assert.strictEqual(wrongRes.status, 401);
+      assert.strictEqual(wrongRes.json.detail, "Invalid email or password.");
+
+      // Non-existent account → same uniform 401: the three responses are
+      // byte-identical at the client boundary.
+      client.clearCookies();
+      await client.initApiKey();
+      var ghostRes = await client.post("/auth/login", {
+        json: { email: "ghost-adv-" + testId + "@test.com", password: strongPassword },
+      });
+      assert.strictEqual(ghostRes.status, 401);
+      assert.strictEqual(ghostRes.json.detail, correctRes.json.detail,
+        "locked-account response must match the non-existent-account response");
+    });
   });
 
   // =============================================================
@@ -478,6 +535,93 @@ describe("adversarial auth and authorization", function () {
       });
       assert.strictEqual(res.status, 200, "owner must be able to delete own file");
       assert.strictEqual(res.json.success, true);
+    });
+  });
+
+  // =============================================================
+  // ANONYMOUS-UPLOAD OWNERSHIP CLAIM (cross-account file takeover)
+  // =============================================================
+  // An anonymous public upload carries an uploaderEmail but stays uploadedBy:"public".
+  // Ownership of those rows must transfer to an account ONLY on proof the account
+  // controls that address — never on bare email equality. The test server runs with
+  // EMAIL_VERIFICATION=false, so NO account carries a verified-email signal and the
+  // equality auto-claim must not fire for anyone.
+  describe("anonymous-upload claim requires a verified email", function () {
+    var victimEmail = "victim-claim-" + testId + "@test.com";
+    var attackerEmail = "attacker-claim-" + testId + "@test.com";
+
+    function publicUploadRows(email) {
+      var projectRoot = testServer.projectRoot;
+      var { files } = require(path.join(projectRoot, "lib", "db"));
+      return files.find({ uploaderEmail: email });
+    }
+
+    // Anonymous drop attributing the upload to the victim's address.
+    before(async function () {
+      // Prior describes in this file exhaust the per-IP register/drop/login
+      // limiters; clear them so this describe's setup + logins succeed.
+      require(path.join(testServer.projectRoot, "lib", "rate-limit")).resetAllInstances();
+      client.clearCookies();
+      await client.initApiKey();
+      var init = await client.post("/drop/init", {
+        json: { uploaderName: "Anon", uploaderEmail: victimEmail, fileCount: 1, skippedCount: 0, skippedFiles: [] },
+      });
+      await client.uploadFile(
+        "/drop/file/" + init.json.bundleId,
+        "file", "victim.txt", "victim-content",
+        { relativePath: "victim.txt" }
+      );
+      await client.post("/drop/finalize/" + init.json.bundleId, { json: { finalizeToken: init.json.finalizeToken } });
+
+      client.clearCookies();
+      await client.initApiKey();
+      await client.post("/auth/register", {
+        json: { displayName: "Attacker", email: attackerEmail, password: strongPassword },
+      });
+      client.clearCookies();
+      await client.initApiKey();
+    });
+
+    it("anonymous upload stays uploadedBy:public after drop", function () {
+      var rows = publicUploadRows(victimEmail);
+      assert.ok(rows.length >= 1, "the victim's anonymous upload must exist");
+      assert.ok(rows.some(function (r) { return r.uploadedBy === "public"; }),
+        "the anonymous upload must remain uploadedBy:public");
+    });
+
+    it("attacker cannot point their account email at an address holding pending anonymous uploads", async function () {
+      client.clearCookies();
+      await client.initApiKey();
+      // Prior describes in this file exhaust the per-IP login limiter; clear it
+      // so the attacker's legitimate login establishes a session.
+      require(path.join(testServer.projectRoot, "lib", "rate-limit")).resetAllInstances();
+      await client.post("/auth/login", { json: { email: attackerEmail, password: strongPassword } });
+
+      var res = await client.post("/profile/email", {
+        json: { password: strongPassword, newEmail: victimEmail },
+      });
+      assert.notStrictEqual(res.status, 200,
+        "changing email to an address with pending anonymous uploads must be refused");
+      assert.ok(res.status >= 400 && res.status < 500,
+        "refusal must be a 4xx, got " + res.status);
+    });
+
+    it("victim's anonymous upload is NOT reassigned to the attacker on dashboard load", async function () {
+      client.clearCookies();
+      await client.initApiKey();
+      require(path.join(testServer.projectRoot, "lib", "rate-limit")).resetAllInstances();
+      await client.post("/auth/login", { json: { email: attackerEmail, password: strongPassword } });
+
+      var dash = await client.get("/dashboard");
+      assert.strictEqual(dash.status, 200, "attacker dashboard must load");
+
+      // With EMAIL_VERIFICATION off, no verified signal exists — the claim loop must
+      // not fire even though the attacker is an active account. The victim's upload
+      // stays uploadedBy:public (and certainly is not owned by the attacker).
+      var rows = publicUploadRows(victimEmail);
+      assert.ok(rows.length >= 1, "the victim's upload must still exist");
+      assert.ok(rows.every(function (r) { return r.uploadedBy === "public"; }),
+        "victim anonymous upload must remain uploadedBy:public — never claimed on equality");
     });
   });
 });

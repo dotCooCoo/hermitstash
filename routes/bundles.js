@@ -21,16 +21,22 @@ var { sanitizeRename } = require("../app/shared/sanitize-filename");
 var stashRepo = require("../app/data/repositories/stash.repo");
 var uploadHandler = require("../app/domain/uploads/upload.handler");
 var accessCodeService = require("../app/domain/access-code.service");
+var accessLockout = require("../lib/access-lockout");
 
-// Persistent exponential backoff for bundle password attempts.
-// Stored in bundle_access_lockouts (keyed by shareIdHash) so counters survive
-// restart and are shared across workers. Stale entries (> 24h idle) are swept
-// by the scheduled cleanup job in server.js.
-var BUNDLE_LOCKOUT_THRESHOLD = 5;
+// Persistent exponential backoff for bundle password attempts, keyed on the
+// (namespace, shareId, client subnet) tuple. Stored in bundle_access_lockouts
+// so counters survive restart and are shared across workers; stale entries
+// (> 24h idle) are swept by the scheduled cleanup job in server.js. The same
+// shared module backs the stash unlock route under the "stash" namespace.
+var BUNDLE_LOCKOUT_NS = "bundle";
 
-function _shareIdHash(shareId) {
-  return b.crypto.namespaceHash(C.HASH_PREFIX.SHARE_ID, shareId);
-}
+// Aggregate ceiling on bytes a single ZIP build may hold resident at once. The
+// ZIP routes pre-buffer each decrypted file (to keep per-file skip-on-error
+// semantics), so without a running-total cap one request to a large open
+// bundle could pin hundreds of MB of plaintext in the single-process heap.
+// Once cumulative buffered bytes cross this line the build stops queuing more
+// files and emits a truncation notice instead of OOMing the process.
+var ZIP_BUFFER_CAP = C.BYTES.mib(512);
 
 // A bundle past its expiresAt is gone for every content route, not only the
 // browse page — otherwise a share-link holder can still pull the bytes via
@@ -38,6 +44,15 @@ function _shareIdHash(shareId) {
 // so the policy can't drift per-route.
 function isBundleExpired(bundle) {
   return !!(bundle && bundle.expiresAt && bundle.expiresAt < new Date().toISOString());
+}
+
+// Predicate the access gate re-runs every request to re-validate a session's
+// verified email against the bundle's CURRENT allowedEmails, so an address
+// removed from the list loses access on its next request rather than at session
+// expiry. Same exact-membership test the request-code path uses.
+function bundleAllowedMatch(bundle) {
+  var allowedList = (bundle.allowedEmails || "").split(",").map(function (e) { return e.trim().toLowerCase(); }).filter(Boolean);
+  return function (email) { return allowedList.includes(String(email).toLowerCase()); };
 }
 
 async function _streamToBuffer(stream) {
@@ -50,39 +65,6 @@ async function _streamToBuffer(stream) {
   return collector.result();
 }
 
-// Per-IP lockout key: scope the failed-attempt counter to (shareId, client IP)
-// so a single share-link holder can't trip the exponential backoff for the
-// legitimate recipient (a denial-of-availability with a broadly-shared link).
-// The per-IP rate limiter (10/15min) stays the brute-force ceiling, and a
-// 256-bit shareId already makes guessing the link infeasible.
-function _lockoutKey(shareId, ip) {
-  // Key the backoff on the /24 (v4) / /64 (v6) subnet, not the exact IP, so an
-  // attacker rotating addresses within a subnet can't reset the counter each try.
-  var masked = (ip && b.requestHelpers.ipPrefix(ip)) || ip || "unknown";
-  return _shareIdHash(shareId + "|" + masked);
-}
-
-function getBundleLockout(shareId, ip) {
-  return db.bundleAccessLockouts.findOne({ shareIdHash: _lockoutKey(shareId, ip) });
-}
-
-function recordBundleFailure(shareId, ip) {
-  var hash = _lockoutKey(shareId, ip);
-  var existing = db.bundleAccessLockouts.findOne({ shareIdHash: hash });
-  var now = new Date().toISOString();
-  if (existing) {
-    var updated = { failures: (existing.failures || 0) + 1, lastAttempt: now };
-    db.bundleAccessLockouts.update({ _id: existing._id }, { $set: updated });
-    return { failures: updated.failures, lastAttempt: Date.parse(now) };
-  }
-  db.bundleAccessLockouts.insert({ shareIdHash: hash, failures: 1, lastAttempt: now });
-  return { failures: 1, lastAttempt: Date.parse(now) };
-}
-
-function clearBundleLockout(shareId, ip) {
-  db.bundleAccessLockouts.remove({ shareIdHash: _lockoutKey(shareId, ip) });
-}
-
 module.exports = function (app) {
   // Bundle password verification (rate limited to prevent brute force)
   app.post("/b/:shareId/unlock", rateLimit.guard({ max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async (req, res) => {
@@ -91,16 +73,10 @@ module.exports = function (app) {
     var bundle = bundlesRepo.findByShareId(shareId);
     if (!bundle || bundle.status !== "complete") throw new NotFoundError("Bundle not found.");
 
-    // Check exponential backoff lockout (persistent across restarts, per client IP)
-    var lockout = getBundleLockout(shareId, ip);
-    if (lockout && lockout.failures >= BUNDLE_LOCKOUT_THRESHOLD) {
-      var backoffSeconds = Math.pow(2, lockout.failures - BUNDLE_LOCKOUT_THRESHOLD) * 30;
-      var lastMs = lockout.lastAttempt ? Date.parse(lockout.lastAttempt) : 0;
-      var elapsed = (Date.now() - lastMs) / 1000;
-      if (elapsed < backoffSeconds) {
-        var retryAfter = Math.ceil(backoffSeconds - elapsed);
-        throw new RateLimitError("Too many failed attempts. Try again in " + retryAfter + " seconds.", retryAfter);
-      }
+    // Check exponential backoff lockout (persistent across restarts, per subnet)
+    var retryAfter = accessLockout.lockedFor(accessLockout.getLockout(BUNDLE_LOCKOUT_NS, shareId, ip));
+    if (retryAfter > 0) {
+      throw new RateLimitError("Too many failed attempts. Try again in " + retryAfter + " seconds.", retryAfter);
     }
 
     var body = (await b.parsers.json(req)) || {};
@@ -128,17 +104,16 @@ module.exports = function (app) {
       } else {
         req.session["bundle_" + shareId] = true;
       }
-      clearBundleLockout(shareId, ip);
+      accessLockout.clearLockout(BUNDLE_LOCKOUT_NS, shareId, ip);
       return res.json({ success: true });
     }
 
-    // Track failed attempt (persistent, per client IP)
-    var after = recordBundleFailure(shareId, ip);
+    // Track failed attempt (persistent, per subnet)
+    var after = accessLockout.recordFailure(BUNDLE_LOCKOUT_NS, shareId, ip);
 
-    if (after.failures >= BUNDLE_LOCKOUT_THRESHOLD) {
-      var retryAfterSec = Math.pow(2, after.failures - BUNDLE_LOCKOUT_THRESHOLD) * 30;
-      logger.warn("Bundle unlock lockout", { shareId: shareId, failures: after.failures, retryAfter: retryAfterSec });
-      throw new RateLimitError("Too many failed attempts. Try again in " + retryAfterSec + " seconds.", retryAfterSec);
+    if (after.retryAfter > 0) {
+      logger.warn("Bundle unlock lockout", { shareId: shareId, failures: after.failures, retryAfter: after.retryAfter });
+      throw new RateLimitError("Too many failed attempts. Try again in " + after.retryAfter + " seconds.", after.retryAfter);
     }
 
     throw new AuthenticationError("Incorrect password.");
@@ -234,7 +209,7 @@ module.exports = function (app) {
     }
 
     // Access protection (password, email, or both)
-    var locked = isBundleLocked(bundle, req.session);
+    var locked = isBundleLocked(bundle, req.session, bundleAllowedMatch(bundle));
     if (locked === "email") {
       return send(res, "bundle-email-gate", { shareId: req.params.shareId, user: req.user });
     }
@@ -299,7 +274,7 @@ module.exports = function (app) {
     var parentBundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!parentBundle) { res.writeHead(404); return res.end("Not found"); }
     if (isBundleExpired(parentBundle)) { res.writeHead(410); return res.end("Bundle expired"); }
-    if (isBundleLocked(parentBundle, req.session)) {
+    if (isBundleLocked(parentBundle, req.session, bundleAllowedMatch(parentBundle))) {
       res.writeHead(401); return res.end("Access restricted");
     }
     try {
@@ -322,12 +297,17 @@ module.exports = function (app) {
   });
 
   // Download entire bundle as ZIP
-  app.get("/b/:shareId/download", async (req, res) => {
+  // Rate-limited per subnet like every other /b/ endpoint: the handler buffers
+  // each decrypted file to keep the per-file skip-on-error semantic, so an
+  // unbounded request rate could pin many large bundles in the single-process
+  // heap (memory-exhaustion DoS). The limiter bounds concurrent/looped builds;
+  // ZIP_BUFFER_CAP below bounds the bytes any single build can hold at once.
+  app.get("/b/:shareId/download", rateLimit.guard({ max: 10, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
     var bundle = bundlesRepo.findCompleteByShareId(req.params.shareId);
     if (!bundle) { res.writeHead(404); return res.end("Not found"); }
     if (isBundleExpired(bundle)) { res.writeHead(410); return res.end("Bundle expired"); }
     // Enforce bundle access protection on ZIP downloads
-    if (isBundleLocked(bundle, req.session)) {
+    if (isBundleLocked(bundle, req.session, bundleAllowedMatch(bundle))) {
       res.writeHead(401); return res.end("Access restricted");
     }
     // Exclude sync-bundle tombstones (deletedAt) so the ZIP matches the browse
@@ -346,33 +326,48 @@ module.exports = function (app) {
 
     var zip = b.archive.zip();
     var skippedFiles = [];
+    var truncatedFiles = [];
+    var bufferedBytes = 0;
     // Buffer each file before queuing — keeps the per-file skip-on-error
     // semantic (b.archive.zip aborts the whole stream if a queued source
     // throws mid-pipe; pre-buffering surfaces source errors here so we
-    // can log + skip without poisoning the archive).
+    // can log + skip without poisoning the archive). ZIP_BUFFER_CAP bounds the
+    // cumulative resident bytes so one request can't OOM the process.
     for (var f of bundleFiles) {
+      if (bufferedBytes >= ZIP_BUFFER_CAP) {
+        truncatedFiles.push(f.relativePath || f.originalName);
+        continue;
+      }
       try {
         var stream = await storage.getFileStream(f.storagePath, f.encryptionKey);
         var buf = await _streamToBuffer(stream);
+        bufferedBytes += buf.length;
         zip.addFile(f.relativePath || f.originalName, buf);
       } catch (e) {
         logger.error("Zip skip", { error: e.message || String(e), file: f.originalName, bundle: bundle.shareId });
         skippedFiles.push(f.relativePath || f.originalName);
       }
     }
+    var notices = [];
     if (skippedFiles.length > 0) {
-      var manifest = "The following files could not be included in this download:\n\n" + skippedFiles.join("\n") + "\n";
-      zip.addFile("_MISSING_FILES.txt", Buffer.from(manifest, "utf8"));
+      notices.push("The following files could not be included in this download:\n\n" + skippedFiles.join("\n"));
+    }
+    if (truncatedFiles.length > 0) {
+      notices.push("This download exceeded the per-request size limit; the following files were omitted. Download them individually or by folder:\n\n" + truncatedFiles.join("\n"));
+    }
+    if (notices.length > 0) {
+      zip.addFile("_MISSING_FILES.txt", Buffer.from(notices.join("\n\n") + "\n", "utf8"));
     }
     await zip.toStream(res);
   });
 
-  // Download a subfolder from a bundle as ZIP
-  app.get("/b/:shareId/folder/:prefix", async (req, res) => {
+  // Download a subfolder from a bundle as ZIP (same DoS posture as /download —
+  // rate-limited per subnet, with the same ZIP_BUFFER_CAP aggregate ceiling).
+  app.get("/b/:shareId/folder/:prefix", rateLimit.guard({ max: 10, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
     var bundle = bundlesRepo.findCompleteByShareId(req.params.shareId);
     if (!bundle) { res.writeHead(404); return res.end("Not found"); }
     if (isBundleExpired(bundle)) { res.writeHead(410); return res.end("Bundle expired"); }
-    if (isBundleLocked(bundle, req.session)) {
+    if (isBundleLocked(bundle, req.session, bundleAllowedMatch(bundle))) {
       res.writeHead(401); return res.end("Access restricted");
     }
     // The folder prefix is a single percent-encoded path segment — the UI builds
@@ -402,16 +397,27 @@ module.exports = function (app) {
     });
 
     var zip = b.archive.zip();
+    var truncated = [];
+    var folderBufferedBytes = 0;
     for (var i = 0; i < folderFiles.length; i++) {
+      if (folderBufferedBytes >= ZIP_BUFFER_CAP) {
+        truncated.push((folderFiles[i].relativePath || folderFiles[i].originalName).slice(prefix.length) || folderFiles[i].originalName);
+        continue;
+      }
       try {
         var stream = await storage.getFileStream(folderFiles[i].storagePath, folderFiles[i].encryptionKey);
         var buf = await _streamToBuffer(stream);
+        folderBufferedBytes += buf.length;
         // Strip the prefix so the ZIP contains relative paths within the folder
         var relPath = (folderFiles[i].relativePath || folderFiles[i].originalName).slice(prefix.length) || folderFiles[i].originalName;
         zip.addFile(relPath, buf);
       } catch (e) {
         logger.error("Zip skip", { error: e.message || String(e), file: folderFiles[i].originalName });
       }
+    }
+    if (truncated.length > 0) {
+      var truncNotice = "This download exceeded the per-request size limit; the following files were omitted. Download them individually:\n\n" + truncated.join("\n") + "\n";
+      zip.addFile("_MISSING_FILES.txt", Buffer.from(truncNotice, "utf8"));
     }
     await zip.toStream(res);
   });
