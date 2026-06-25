@@ -127,14 +127,13 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.TEAM_DELETED, { targetId: req.params.teamId, req: req });
       res.json({ success: true });
     } catch (e) {
-      // Site admins pass the route-level check but may not be team members;
-      // the service enforces team-admin membership — suppress ForbiddenError for site admins
+      // Site admins pass the route-level check but may not be team members (or
+      // may hold only a plain member row); the service enforces team-admin
+      // membership. Re-run the delete with the privileged site-admin flag so the
+      // membership check is skipped — no membership mutation as a side effect.
       if (e.isAppError && e.code === "FORBIDDEN" && isAdmin(req.user)) {
-        // Force-delete as site admin using the service's transactional path
-        // by temporarily adding the admin as team admin, then retrying
         try {
-          teamsService.addMember(req.params.teamId, req.user._id, "admin");
-          teamsService.deleteTeam(req.params.teamId, req.user._id);
+          teamsService.deleteTeam(req.params.teamId, req.user._id, { asSiteAdmin: true });
           audit.log(audit.ACTIONS.TEAM_DELETED, { targetId: req.params.teamId, req: req });
           return res.json({ success: true });
         } catch (e2) {

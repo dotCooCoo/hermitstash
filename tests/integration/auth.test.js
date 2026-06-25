@@ -91,6 +91,48 @@ describe("auth integration", function () {
       });
       assert.strictEqual(res.status, 401);
     });
+
+    it("resets the failed-attempt counter when the lockout engages (no indefinite re-lock after expiry)", async function () {
+      var dbmod = require(path.join(testServer.projectRoot, "lib", "db"));
+      var usersRepo = require(path.join(testServer.projectRoot, "app", "data", "repositories", "users.repo"));
+      var rateLimit = require(path.join(testServer.projectRoot, "lib", "rate-limit"));
+
+      // Dedicated account so the lockout dance can't disturb the shared user.
+      client.clearCookies();
+      await client.initApiKey();
+      await client.post("/auth/register", { json: { displayName: "Lock Test", email: "lockout@test.com", password: "password123" } });
+      var idRow = dbmod.users.findOne({ email: "lockout@test.com" });
+      assert.ok(idRow, "lockout test user registered");
+
+      // Pre-saturate to one below the threshold (10) so a SINGLE wrong password
+      // crosses it — keeps attempts under the per-IP login throttle.
+      rateLimit.resetAllInstances();
+      usersRepo.update(idRow._id, { $set: { failedLoginAttempts: 9, lockedUntil: null } });
+      client.clearCookies();
+      await client.initApiKey();
+      var res = await client.post("/auth/login", { json: { email: "lockout@test.com", password: "wrongpassword" } });
+      assert.strictEqual(res.status, 401);
+
+      var locked = dbmod.users.raw().findOne({ _id: idRow._id });
+      assert.ok(locked.lockedUntil, "lockout engaged on the 10th failure");
+      assert.strictEqual(locked.failedLoginAttempts, 0, "counter reset to 0 at lock-engage");
+
+      // Simulate the lockout window lapsing; with the counter at 0 a single
+      // post-expiry failure goes 0->1 (below threshold) and must NOT re-lock.
+      // Before the fix it went 10->11 and re-locked for another 30 minutes,
+      // indefinitely.
+      rateLimit.resetAllInstances();
+      usersRepo.update(idRow._id, { $set: { lockedUntil: new Date(Date.now() - 1000).toISOString() } });
+      client.clearCookies();
+      await client.initApiKey();
+      var res2 = await client.post("/auth/login", { json: { email: "lockout@test.com", password: "wrongpassword" } });
+      assert.strictEqual(res2.status, 401);
+
+      var after = dbmod.users.raw().findOne({ _id: idRow._id });
+      var afterMs = after.lockedUntil ? Date.parse(after.lockedUntil) : 0;
+      assert.ok(!afterMs || afterMs <= Date.now(), "a single post-expiry failure must not re-engage the lockout");
+      assert.strictEqual(after.failedLoginAttempts, 1, "counter advanced 0->1, not 10->11");
+    });
   });
 
   describe("email verification", function () {

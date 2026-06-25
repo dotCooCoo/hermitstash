@@ -163,22 +163,24 @@ case "$PKG" in
     npx esbuild _entry.mjs --bundle --format=esm --minify --outfile=public/js/noble-pq.js --platform=browser
     rm _entry.mjs
     sed -i "1s|^|// ML-KEM — vendored from @noble/post-quantum v${INSTALLED_VER} by Paul Miller\n// License: MIT — https://github.com/paulmillr/noble-post-quantum\n// Bundled with esbuild. Exports: ml_kem512, ml_kem768, ml_kem1024\n|" public/js/noble-pq.js
-    # Server CJS bundle — convert ESM to CJS by replacing export statement
-    node -e "
-var fs = require('fs');
-var src = fs.readFileSync('public/js/noble-pq.js', 'utf8');
+    # Server CJS bundle — convert ESM to CJS by replacing export statement.
+    # INSTALLED_VER reaches the program via the environment so a version string
+    # can never break out of the JS header literal.
+    INSTALLED_VER="$INSTALLED_VER" node -e '
+var fs = require("fs");
+var src = fs.readFileSync("public/js/noble-pq.js", "utf8");
 var exportMatch = src.match(/export\{([^}]+)\}/);
-if (!exportMatch) { console.error('No export statement found'); process.exit(1); }
-var mappings = exportMatch[1].split(',').map(function(s) {
-  var parts = s.trim().split(' as ');
+if (!exportMatch) { console.error("No export statement found"); process.exit(1); }
+var mappings = exportMatch[1].split(",").map(function(s) {
+  var parts = s.trim().split(" as ");
   return { local: parts[0].trim(), exported: parts[1].trim() };
 });
-var code = src.replace(/export\{[^}]+\};?\s*/, '');
-var header = '// ML-KEM (FIPS 203) — vendored from @noble/post-quantum v${INSTALLED_VER} by Paul Miller\n// License: MIT — https://github.com/paulmillr/noble-post-quantum\n// Converted from ESM to CJS for server-side use (hybrid ECIES key exchange)\n// Exports: ml_kem512, ml_kem768, ml_kem1024\n';
-var exports = mappings.filter(function(m) { return m.exported.startsWith('ml_kem'); }).map(function(m) { return '  ' + m.exported + ': ' + m.local; }).join(',\n');
-fs.writeFileSync('lib/vendor/noble-pq.cjs', header + code + '\nmodule.exports = {\n' + exports + '\n};\n');
-console.log('Created lib/vendor/noble-pq.cjs');
-"
+var code = src.replace(/export\{[^}]+\};?\s*/, "");
+var header = "// ML-KEM (FIPS 203) — vendored from @noble/post-quantum v" + process.env.INSTALLED_VER + " by Paul Miller\n// License: MIT — https://github.com/paulmillr/noble-post-quantum\n// Converted from ESM to CJS for server-side use (hybrid ECIES key exchange)\n// Exports: ml_kem512, ml_kem768, ml_kem1024\n";
+var exports = mappings.filter(function(m) { return m.exported.startsWith("ml_kem"); }).map(function(m) { return "  " + m.exported + ": " + m.local; }).join(",\n");
+fs.writeFileSync("lib/vendor/noble-pq.cjs", header + code + "\nmodule.exports = {\n" + exports + "\n};\n");
+console.log("Created lib/vendor/noble-pq.cjs");
+'
     ;;
 
   "@simplewebauthn/server")
@@ -345,20 +347,23 @@ ENTRY
 esac
 
 # Update MANIFEST.json
-node -e "
-var fs = require('fs');
-var m = JSON.parse(fs.readFileSync('$MANIFEST', 'utf8'));
-var pkg = '$PKG';
+# Pass the resolved values through the environment, never spliced into the JS
+# source — a quote- or newline-bearing tag is then inert data, not code.
+INSTALLED_VER="$INSTALLED_VER" PKG="$PKG" TAG="$TAG" DATE="$DATE" MANIFEST="$MANIFEST" node -e '
+var fs = require("fs");
+var manifestPath = process.env.MANIFEST;
+var m = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+var pkg = process.env.PKG;
 if (m.packages[pkg]) {
-  m.packages[pkg].version = '$INSTALLED_VER';
-  m.packages[pkg].bundledAt = '$DATE';
-  if (pkg === 'blamejs' && '$TAG') m.packages[pkg].tag = '$TAG';
-  fs.writeFileSync('$MANIFEST', JSON.stringify(m, null, 2) + '\n');
-  console.log('Updated MANIFEST.json: ' + pkg + ' → ' + '$INSTALLED_VER');
+  m.packages[pkg].version = process.env.INSTALLED_VER;
+  m.packages[pkg].bundledAt = process.env.DATE;
+  if (pkg === "blamejs" && process.env.TAG) m.packages[pkg].tag = process.env.TAG;
+  fs.writeFileSync(manifestPath, JSON.stringify(m, null, 2) + "\n");
+  console.log("Updated MANIFEST.json: " + pkg + " → " + process.env.INSTALLED_VER);
 } else {
-  console.log('Warning: ' + pkg + ' not in MANIFEST.json — add it manually');
+  console.log("Warning: " + pkg + " not in MANIFEST.json — add it manually");
 }
-"
+'
 
 # Project the vendored blamejs tree's own dependency manifest into the
 # top-level SBOM (packages.blamejs.components) so Trivy / Grype scan an
@@ -375,16 +380,19 @@ npm uninstall "$PKG" --no-save 2>/dev/null || true
 # Verify bundle is self-contained (no unresolved requires after npm removal)
 echo ""
 echo "=== Verifying bundle integrity ==="
-node -e "
-var files = require('./$MANIFEST').packages['$PKG'].files || {};
+PKG="$PKG" MANIFEST="$MANIFEST" node -e '
+var fs = require("fs");
+var path = require("path");
+var m = JSON.parse(fs.readFileSync(process.env.MANIFEST, "utf8"));
+var files = (m.packages[process.env.PKG] || {}).files || {};
 var ok = true;
 Object.values(files).forEach(function(f) {
-  if (typeof f !== 'string' || !f.endsWith('.cjs')) return;
-  try { require('./' + f); console.log('  ' + f + ': OK'); }
-  catch(e) { console.log('  ' + f + ': FAIL — ' + e.message); ok = false; }
+  if (typeof f !== "string" || !f.endsWith(".cjs")) return;
+  try { require(path.resolve(f)); console.log("  " + f + ": OK"); }
+  catch(e) { console.log("  " + f + ": FAIL — " + e.message); ok = false; }
 });
-if (!ok) { console.log('ERROR: Bundle has unresolved dependencies!'); process.exit(1); }
-" || { echo "Bundle verification failed! Do not commit."; exit 1; }
+if (!ok) { console.log("ERROR: Bundle has unresolved dependencies!"); process.exit(1); }
+' || { echo "Bundle verification failed! Do not commit."; exit 1; }
 
 # Show what changed
 echo ""
@@ -394,21 +402,21 @@ echo ""
 
 # Show file size changes
 echo "=== Bundle sizes ==="
-node -e "
-var fs = require('fs');
-var m = JSON.parse(fs.readFileSync('$MANIFEST', 'utf8'));
-var pkg = m.packages['$PKG'];
+PKG="$PKG" MANIFEST="$MANIFEST" node -e '
+var fs = require("fs");
+var m = JSON.parse(fs.readFileSync(process.env.MANIFEST, "utf8"));
+var pkg = m.packages[process.env.PKG];
 if (!pkg) process.exit();
 var files = pkg.files || {};
 Object.keys(files).forEach(function(role) {
   var f = files[role];
-  if (typeof f !== 'string') return;
+  if (typeof f !== "string") return;
   try {
     var stat = fs.statSync(f);
-    console.log('  ' + f + ': ' + (stat.size / 1024).toFixed(1) + ' KB');
+    console.log("  " + f + ": " + (stat.size / 1024).toFixed(1) + " KB");
   } catch(e) {}
 });
-"
+'
 
 echo ""
 echo "=== Done: $PKG v$INSTALLED_VER vendored ==="

@@ -118,7 +118,15 @@ module.exports = function (app) {
             // lockout threshold (TOCTOU bypass).
             var attempts = usersRepo.incrementFailedAttempts(existing._id) || 0;
             if (attempts >= 10) {
-              usersRepo.update(existing._id, { $set: { lockedUntil: new Date(Date.now() + C.TIME.minutes(30)).toISOString() } });
+              // Engage the lock AND reset the counter to 0 in the same write so
+              // the post-expiry window starts fresh. Without the reset, the DB
+              // keeps the saturated count (e.g. 10); once the 30-minute window
+              // lapses the gate at :99 reads only lockedUntil and lets the next
+              // request through, but a single wrong password then increments
+              // 10→11 and immediately re-locks for another 30 minutes — locking
+              // the account indefinitely. The atomic incrementFailedAttempts
+              // (single SQL UPDATE) above still guards the pre-lock TOCTOU path.
+              usersRepo.update(existing._id, { $set: { lockedUntil: new Date(Date.now() + C.TIME.minutes(30)).toISOString(), failedLoginAttempts: 0 } });
               audit.log(audit.ACTIONS.LOGIN_FAILED_BAD_PASSWORD, { targetId: existing._id, targetEmail: input.email, details: "Account locked after " + attempts + " failed attempts (30 min)", req: req });
             } else {
               audit.log(audit.ACTIONS.LOGIN_FAILED_BAD_PASSWORD, { targetId: existing._id, targetEmail: input.email, details: "Invalid password (attempt " + attempts + "/10)", req: req });
@@ -137,7 +145,10 @@ module.exports = function (app) {
 
       // Successful login — reset lockout counters
       usersRepo.update(user._id, { $set: { failedLoginAttempts: 0, lockedUntil: null } });
-      loginLimiter.reset(clientIp.getIp(req));
+      // Reset through the SAME key transform the limiter's keyFn uses
+      // (clientIp.rateKey collapses IPv6 to /64). Resetting on the full /128
+      // would clear the wrong bucket and leave an IPv6 client's counter intact.
+      loginLimiter.reset(clientIp.rateKey(req));
 
       // Check if 2FA is required
       if (authService.requires2fa(user._id)) {

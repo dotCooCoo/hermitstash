@@ -1,7 +1,31 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert");
+const nodeCrypto = require("node:crypto");
 
 var totp = require("../../lib/totp");
+
+// Reconstruct the 6-digit RFC 4226 SHA-1 HOTP code an authenticator app would
+// emit for a base32 secret + counter, so the legacy verify path can be exercised
+// against a code computed independently of lib/totp.
+var BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+function legacySha1Code(secret, timeStep) {
+  var bits = "";
+  for (var i = 0; i < secret.length; i++) {
+    var idx = BASE32.indexOf(secret[i].toUpperCase());
+    if (idx === -1) continue;
+    bits += idx.toString(2).padStart(5, "0");
+  }
+  var bytes = [];
+  for (var j = 0; j + 8 <= bits.length; j += 8) bytes.push(parseInt(bits.substring(j, j + 8), 2));
+  var key = Buffer.from(bytes);
+  var time = Buffer.alloc(8);
+  time.writeUInt32BE(0, 0);
+  time.writeUInt32BE(timeStep, 4);
+  var hmac = nodeCrypto.createHmac("sha1", key).update(time).digest();
+  var offset = hmac[hmac.length - 1] & 0x0f;
+  var code = ((hmac[offset] & 0x7f) << 24) | (hmac[offset + 1] << 16) | (hmac[offset + 2] << 8) | hmac[offset + 3];
+  return String(code % 1000000).padStart(6, "0");
+}
 
 describe("totp", function () {
   describe("generateSecret()", function () {
@@ -37,6 +61,28 @@ describe("totp", function () {
     it("returns false for non-numeric code", function () {
       var secret = totp.generateSecret();
       assert.strictEqual(totp.verify(secret, "abcdef"), false);
+    });
+
+    it("verifies a legacy 6-digit SHA-1 code and returns the matched step", function () {
+      // Pre-v1.9.11 enrollments used a 20-byte base32 secret + 6-digit SHA-1
+      // codes; that path must still complete one final login through the
+      // verify-only SHA-1 branch.
+      var secret = "JBSWY3DPEHPK3PXP";
+      var step = Math.floor(Date.now() / 30000);
+      var code = legacySha1Code(secret, step);
+      var result = totp.verify(secret, code, 0, "SHA1");
+      assert.strictEqual(result, step, "valid SHA-1 code should return the matched step");
+    });
+
+    it("rejects a wrong SHA-1 code", function () {
+      assert.strictEqual(totp.verify("JBSWY3DPEHPK3PXP", "000000", 0, "SHA1"), false);
+    });
+
+    it("rejects a replayed SHA-1 step (step <= lastUsedStep)", function () {
+      var secret = "JBSWY3DPEHPK3PXP";
+      var step = Math.floor(Date.now() / 30000);
+      var code = legacySha1Code(secret, step);
+      assert.strictEqual(totp.verify(secret, code, step, "SHA1"), false, "a replayed step must not verify");
     });
   });
 

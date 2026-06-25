@@ -1,0 +1,36 @@
+{
+  "version": "1.12.9",
+  "date": "2026-06-25",
+  "headline": "Per-end-site IPv6 rate-limit and quota keying, idle-session and lockout fixes, a restored admin reset endpoint, and a TLS-aware offline-tool safety guard",
+  "summary": "Per-IP throttles and the anonymous-upload quota now key IPv6 clients on their routing prefix, so a client rotating the low bits of its address can no longer mint unlimited buckets to slip past login, vault-unlock, two-factor, bundle/stash, password-reset, and upload limits. The idle-session timeout fires again, an engaged login lockout no longer re-locks an account indefinitely, the offline vault tools correctly detect a running server on a TLS deployment before mutating the data directory, and a set of audit, quota, search, download, and admin-endpoint defects are fixed. Security comparisons and randomness move onto the vendored framework's hardened primitives.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        { "title": "Per-IP throttles and the upload quota key IPv6 clients on their routing prefix", "body": "Every per-IP rate limiter (login, vault-unlock, two-factor, bundle and stash unlock, verify-code, password-reset, passkey login, registration, invite-accept) and the anonymous-upload byte quota now collapse an IPv6 client to its routing-significant /64 instead of its full 128-bit address. An end-site is allocated a whole /64 and can freely rotate the low 64 bits; keying on the full address let one site present a fresh bucket per request and evade the throttle entirely. IPv4 clients remain keyed per host, the lockout-reset path uses the same key derivation so it can't clear the wrong bucket, and the audit trail still records the precise client address." },
+        { "title": "An engaged login lockout no longer re-locks an account indefinitely", "body": "When the failed-login lockout engages, the attempt counter is reset in the same write. Previously the saturated counter persisted, so once the lockout window lapsed a single further wrong password re-crossed the threshold and re-locked the account for another full window — repeating forever. A clean login or password reset was the only escape." },
+        { "title": "The idle-session timeout fires again", "body": "The authenticated-page liveness heartbeat no longer advances the session's last-activity and expiry on every poll, so the idle timeout actually elapses for an abandoned session. The heartbeat is now a side-effect-free liveness probe; the idle clock advances on real user requests." },
+        { "title": "Offline vault tools detect a running server on a TLS deployment", "body": "The key-rotation and passphrase tools probed for a running server with a plain-HTTP request that never completes against a TLS or post-quantum-gated port, so the guard always concluded no server was running and proceeded. The probe is now protocol-agnostic — a bare connection test against both the gate and internal ports — so the tools refuse to mutate the data directory under a live server, the failure mode the guard exists to prevent." },
+        { "title": "Security comparisons and randomness use the framework's hardened primitives", "body": "Constant-time comparison now rejects a non-string, non-buffer input rather than coercing it through a stringification an attacker-influenced object could redirect, and token and key-material generation route through the framework's uniformity-guarded generator. Duplicated local copies of these primitives are retired in favor of the single vendored implementation; the legacy storage-envelope reader and the application's address-hash remain application-specific." },
+        { "title": "Repeated wrong bundle access codes are audited", "body": "A wrong bundle or stash access code now records the brute-force audit event that was previously dropped because the attempt count never reached the audit gate. The unknown-code response stays indistinguishable to avoid an enumeration oracle." },
+        { "title": "Email-gate allow-lists are validated through the shared validator", "body": "A bundle's email-gate allow-list is now cleaned through the same address validator used for the uploader address, so a malformed entry can't be stored verbatim and silently lock the intended recipient out of an email-gated bundle." },
+        { "title": "The Resend send quota is enforced in combined backends", "body": "The daily and monthly Resend send caps are now enforced when Resend is used as part of a combined SMTP-and-Resend backend, not only when Resend is the sole backend. The quota previously short-circuited to allowed for any combined mode." },
+        { "title": "Deleted bundle files are excluded from downloads", "body": "A file deleted from a sync bundle is now excluded from the full-bundle and folder ZIP downloads and from single-file download, matching the browse view. Deleted file names no longer appear in the archive's missing-files manifest, and a deleted file returns a clean not-found instead of a server error." }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        { "title": "The admin database-reset endpoint works again", "body": "The admin factory-reset endpoint failed on every call because a loop variable shadowed the framework binding it used to parse the request body. The endpoint now runs as intended." },
+        { "title": "Admin file search matches filenames and uploader addresses", "body": "Admin file search queried an indexed digest column with a substring match that no human-typed term could ever satisfy, so it always returned nothing. It now searches a bounded, decrypted window in memory like the user search, matching on filename, path, and uploader address." },
+        { "title": "A site administrator can delete a team they already belong to", "body": "A site administrator who already holds a membership row in a team can now force-delete it without a misleading \"already a member\" rejection; the privileged delete no longer depends on inserting a fresh admin membership." },
+        { "title": "A failed download no longer inflates statistics or the audit trail", "body": "The per-file download counter and the download audit entry are now written only after the file stream opens successfully, so a download that fails before any bytes are sent no longer records a phantom success." }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "RFC 4291 (IPv6 addressing)", "url": "https://www.rfc-editor.org/rfc/rfc4291" },
+    { "label": "RFC 6177 (IPv6 end-site allocation)", "url": "https://www.rfc-editor.org/rfc/rfc6177" },
+    { "label": "FIPS 205 (SLH-DSA)", "url": "https://csrc.nist.gov/pubs/fips/205/final" }
+  ]
+}

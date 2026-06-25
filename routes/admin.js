@@ -179,8 +179,27 @@ module.exports = function (app) {
     var q = req.query.q || "";
     var opts = { limit: limit, offset: (page - 1) * limit, orderBy: "createdAt", orderDir: "DESC" };
     var result;
+
+    // Encrypted/derived fields can't be searched via SQL LIKE — originalName,
+    // relativePath and uploaderEmail are sealed at rest, and shareIdHash is a
+    // keyed-MAC index (a filename fragment is never a substring of the digest).
+    // Fetch a bounded window, then filter the in-memory unsealed rows in JS,
+    // mirroring the user-search path in routes/users.js. 500 rows bounds the
+    // per-request unseal cost for any realistic corpus.
+    var FILE_SEARCH_SCAN_LIMIT = 500;
     if (q) {
-      result = filesRepo.searchPaginated(["shareIdHash"], q, { status: "complete", vaultEncrypted: { $ne: "true" } }, opts);
+      result = filesRepo.findPaginated(
+        { status: "complete", vaultEncrypted: { $ne: "true" } },
+        { limit: FILE_SEARCH_SCAN_LIMIT, offset: 0, orderBy: "createdAt", orderDir: "DESC" }
+      );
+      var qLower = q.toLowerCase();
+      result.data = result.data.filter(function (f) {
+        return (f.originalName || "").toLowerCase().includes(qLower) ||
+          (f.relativePath || "").toLowerCase().includes(qLower) ||
+          (f.uploaderEmail || "").toLowerCase().includes(qLower);
+      });
+      result.total = result.data.length;
+      result.data = result.data.slice((page - 1) * limit, page * limit);
     } else {
       result = filesRepo.findPaginated({ status: { $ne: "chunking" }, vaultEncrypted: { $ne: "true" } }, opts);
     }
@@ -1313,7 +1332,7 @@ module.exports = function (app) {
       var allF = filesRepo.findAll({});
       for (var f = 0; f < allF.length; f++) filesRepo.remove(allF[f]._id);
       var allB = bundlesRepo.findAll({});
-      for (var b = 0; b < allB.length; b++) bundlesRepo.remove(allB[b]._id);
+      for (var bi = 0; bi < allB.length; bi++) bundlesRepo.remove(allB[bi]._id);
       var allCreds = credentialsRepo.find({});
       for (var c = 0; c < allCreds.length; c++) {
         if (allCreds[c].userId !== req.user._id) credentialsRepo.remove({ _id: allCreds[c]._id });

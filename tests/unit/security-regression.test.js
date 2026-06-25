@@ -22,7 +22,8 @@ Object.keys(require.cache).forEach(function (k) {
 var vault = require("../../lib/vault");
 var clientIp = require("../../lib/client-ip");
 var fieldCrypto = require("../../lib/field-crypto");
-var db, bundlesRepo, accessCodeService, accessCodesRepo;
+var config = require("../../lib/config");
+var db, bundlesRepo, accessCodeService, accessCodesRepo, email;
 
 before(async function () {
   await vault.init();
@@ -30,6 +31,7 @@ before(async function () {
   bundlesRepo = require("../../app/data/repositories/bundles.repo");
   accessCodeService = require("../../app/domain/access-code.service");
   accessCodesRepo = require("../../app/data/repositories/bundleAccessCodes.repo");
+  email = require("../../lib/email");
 });
 
 function seedCode(shareId, email, code) {
@@ -138,6 +140,22 @@ describe("email access-code gate works after the keyed-index migration (service 
     seedCode(shareId, "gate@ex.com", "111111");
     assert.strictEqual(accessCodeService.verifyCode({ shareId: shareId, email: "other@ex.com", code: "111111" }).success, false, "wrong email must not resolve a record");
   });
+  it("a wrong code surfaces a truthy post-increment `attempts` so the BUNDLE_ACCESS_CODE_FAILED audit gate fires", function () {
+    var shareId = "b-" + b.crypto.generateToken(4);
+    seedCode(shareId, "gate@ex.com", "222333");
+    var r1 = accessCodeService.verifyCode({ shareId: shareId, email: "gate@ex.com", code: "000000" });
+    assert.strictEqual(r1.success, false, "wrong code must fail");
+    assert.strictEqual(r1.attempts, 1, "first wrong attempt reports the post-increment count (1) — the audit gate keys on truthy attempts");
+    var r2 = accessCodeService.verifyCode({ shareId: shareId, email: "gate@ex.com", code: "111111" });
+    assert.strictEqual(r2.attempts, 2, "second wrong attempt reports 2");
+  });
+  it("a no-pending-code path deliberately omits `attempts` (anti-enumeration — no oracle for which emails have a code outstanding)", function () {
+    var shareId = "b-" + b.crypto.generateToken(4);
+    seedCode(shareId, "gate@ex.com", "444555");
+    var r = accessCodeService.verifyCode({ shareId: shareId, email: "nobody@ex.com", code: "444555" });
+    assert.strictEqual(r.success, false);
+    assert.strictEqual(r.attempts, undefined, "no-pending-code path must not surface an attempts count");
+  });
 });
 
 describe("verification-token cleanup is type-scoped (a resent verification email must not wipe a pending password reset)", function () {
@@ -156,5 +174,66 @@ describe("verification-token cleanup is type-scoped (a resent verification email
     var em = rows.filter(function (t) { return t.type === "email"; });
     assert.strictEqual(pw.length, 1, "the pending password-reset token must survive an email-verification resend");
     assert.strictEqual(em.length, 1, "the prior email token is replaced by exactly one fresh email token");
+  });
+});
+
+describe("Resend quota is enforced in combo backends (was bypassed — strict backend===\"resend\" test)", function () {
+  function seedSends(n) {
+    var now = new Date().toISOString();
+    for (var i = 0; i < n; i++) {
+      db.emailSends.insert({ recipient: "q" + i + "@ex.com", subject: "q", backend: "resend", status: "sent", createdAt: now });
+    }
+  }
+  function clearSends() {
+    db.emailSends.find({}).forEach(function (s) { db.emailSends.remove({ _id: s._id }); });
+  }
+  var savedBackend, savedDaily, savedMonthly;
+  before(function () {
+    savedBackend = config.email.backend;
+    savedDaily = config.email.resendQuotaDaily;
+    savedMonthly = config.email.resendQuotaMonthly;
+  });
+  after(function () {
+    config.email.backend = savedBackend;
+    config.email.resendQuotaDaily = savedDaily;
+    config.email.resendQuotaMonthly = savedMonthly;
+    clearSends();
+  });
+
+  it("smtp+resend: a Resend-backed attempt past the daily cap is rejected (combo mode no longer bypasses the quota)", function () {
+    clearSends();
+    config.email.backend = "smtp+resend";
+    config.email.resendQuotaDaily = 2;
+    config.email.resendQuotaMonthly = 1000;
+    seedSends(3);
+    // The concrete-backend gate trySend uses for a Resend attempt:
+    var q = email.checkQuota({ backend: "resend" });
+    assert.strictEqual(q.allowed, false, "a Resend send in smtp+resend mode must hit the cap, not skip it");
+    assert.ok(/Daily/.test(q.reason), "rejection cites the daily cap");
+  });
+
+  it("smtp+resend: an SMTP-backed attempt is never quota-gated (the cap is Resend-only)", function () {
+    config.email.backend = "smtp+resend";
+    config.email.resendQuotaDaily = 2;
+    seedSends(0);
+    assert.strictEqual(email.checkQuota({ backend: "smtp" }).allowed, true, "SMTP has no quota");
+  });
+
+  it("admin-widget path (no backend arg) reports the real cap state in combo modes", function () {
+    clearSends();
+    config.email.backend = "resend+smtp";
+    config.email.resendQuotaDaily = 2;
+    config.email.resendQuotaMonthly = 1000;
+    seedSends(3);
+    assert.strictEqual(email.checkQuota().allowed, false, "the widget must report not-allowed when Resend is in the chain and over cap");
+  });
+
+  it("pure-smtp mode still has no quota", function () {
+    clearSends();
+    config.email.backend = "smtp";
+    config.email.resendQuotaDaily = 1;
+    seedSends(5);
+    assert.strictEqual(email.checkQuota().allowed, true, "a non-Resend mode is never quota-gated");
+    assert.strictEqual(email.checkQuota({ backend: "smtp" }).allowed, true);
   });
 });

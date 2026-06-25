@@ -8,6 +8,7 @@ var { TIME } = require("../../../lib/constants");
 var { getTotalStorageUsed } = require("../../../lib/db");
 var { ValidationError, NotFoundError, ForbiddenError } = require("../../shared/errors");
 var { sanitizeRename } = require("../../shared/sanitize-filename");
+var { validateEmail } = require("../../shared/validate");
 
 /**
  * Initialize a new upload bundle.
@@ -22,7 +23,6 @@ async function initBundle(opts) {
   var uploaderEmail = opts.uploaderEmail || null;
   if (uploaderEmail) {
     uploaderEmail = String(uploaderEmail).slice(0, 254);
-    var { validateEmail } = require("../../shared/validate");
     // Comma-separated recipients: validate each
     var parts = uploaderEmail.split(",").map(function (e) { return e.trim(); }).filter(Boolean);
     var validParts = parts.filter(function (e) { return validateEmail(e).valid; });
@@ -34,12 +34,16 @@ async function initBundle(opts) {
   var expiresAt = (expiryDays > 0) ? new Date(Date.now() + expiryDays * TIME.days(1)).toISOString()
     : (defaultExpiry > 0 ? new Date(Date.now() + defaultExpiry * TIME.days(1)).toISOString() : null);
 
-  // Email-gated access: clean and validate allowed emails
+  // Email-gated access: clean and validate allowed emails through the same
+  // canonical validator used for uploaderEmail above. validateEmail lowercases,
+  // trims, caps length, and rejects control bytes / consecutive-dot locals —
+  // so a stored entry always matches the validateEmail-normalized submission the
+  // gate compares against (routes/bundles.js), closing the silent-lockout gap.
   var allowedEmails = null;
   if (opts.allowedEmails) {
     var cleaned = String(opts.allowedEmails).split(",")
-      .map(function (e) { return e.trim().toLowerCase(); })
-      .filter(function (e) { return e && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); });
+      .map(function (e) { var v = validateEmail(e); return v.valid ? v.email : null; })
+      .filter(Boolean);
     if (cleaned.length > 0) allowedEmails = cleaned.join(",");
   }
 

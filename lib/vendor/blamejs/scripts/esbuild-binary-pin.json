@@ -1,0 +1,10 @@
+{
+  "_comment": "Single source of truth for the SEA-build esbuild native-binary hash pin. The pinned VERSION is package.json devDependencies.esbuild (+ postject); this file carries only the reviewed per-platform SHA-256 hashes for the versions actually reviewed. The smoke gate (test/layer-5-integration/bundler-output.test.js) verifies the on-disk binary against binarySha256; scripts/check-esbuild-pin.js (release.js regen + the codebase-patterns esbuild-pin-cross-artifact-drift detector) enforces that the version package.json/ci.yml/npm-publish.yml install has a COMPLETE reviewed-hash entry here. Hashes are captured BY HAND on every esbuild bump via the dependency-review discipline (diff the published tarballs, sha256 each native binary) and never auto-derived: deriving-and-trusting would record whatever npm served, defeating the pin. requiredPlatforms is the floor that MUST be present for the pinned version (CI ubuntu = linux-x64 authoritative; maintainer host = win32-x64).",
+  "requiredPlatforms": ["linux-x64", "win32-x64"],
+  "binarySha256": {
+    "0.28.1": {
+      "linux-x64": "0c6588b092a2c291a72bab90659f3c9e0e25e0fe59c9ac12b4dae4d945e5548c",
+      "win32-x64": "ec02ee9b14ab332416fedd10614dfb80eed5304d94f67745067c011934a8c3c3"
+    }
+  }
+}

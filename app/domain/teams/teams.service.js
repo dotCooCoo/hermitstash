@@ -31,15 +31,22 @@ function createTeam(name, createdBy) {
 
 /**
  * Delete a team and clean up all related data atomically.
+ * Pass asSiteAdmin:true to skip the team-admin membership check — used by a
+ * site admin acting in a privileged capacity (the route already gates this on
+ * isAdmin), so a site admin can delete a team they don't belong to, or belong
+ * to only as a plain member, without mutating membership as a side effect.
  */
-function deleteTeam(teamId, requestingUserId) {
+function deleteTeam(teamId, requestingUserId, opts) {
+  var asSiteAdmin = !!(opts && opts.asSiteAdmin);
   var team = teamsRepo.findTeamById(teamId);
   if (!team) throw new NotFoundError("Team not found.");
 
-  // Verify requester is team admin or site admin
-  var membership = teamsRepo.findMember(teamId, requestingUserId);
-  if (!membership || membership.role !== "admin") {
-    throw new ForbiddenError("Only team admins can delete teams.");
+  // Verify requester is team admin (skipped for a privileged site-admin delete)
+  if (!asSiteAdmin) {
+    var membership = teamsRepo.findMember(teamId, requestingUserId);
+    if (!membership || membership.role !== "admin") {
+      throw new ForbiddenError("Only team admins can delete teams.");
+    }
   }
 
   transaction(function () {

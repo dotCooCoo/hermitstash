@@ -87,12 +87,16 @@ function verifyCode(opts) {
   }
 
   if (codeRecord.attempts >= 5) {
-    return { success: false, error: "Too many attempts. Request a new code.", status: 429 };
+    // Surface the current attempt count so the lockout itself becomes auditable
+    // (callers gate the BUNDLE_ACCESS_CODE_FAILED audit on a truthy `attempts`).
+    return { success: false, error: "Too many attempts. Request a new code.", status: 429, attempts: codeRecord.attempts };
   }
 
   if (!b.crypto.timingSafeEqual(submittedHash, codeRecord.codeHash)) {
     accessCodesRepo.update(codeRecord._id, { $set: { attempts: codeRecord.attempts + 1 } });
-    return { success: false, error: "Invalid or expired code.", status: 401 };
+    // Return the post-increment count (matching what was just written) so the
+    // caller's `if (result.attempts)` brute-force audit gate fires.
+    return { success: false, error: "Invalid or expired code.", status: 401, attempts: codeRecord.attempts + 1 };
   }
 
   accessCodesRepo.update(codeRecord._id, { $set: { status: "used" } });

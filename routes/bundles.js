@@ -242,8 +242,7 @@ module.exports = function (app) {
       var emailVerified = locked === "email-then-password";
       return send(res, "bundle-locked", { shareId: req.params.shareId, user: req.user, emailVerified: emailVerified });
     }
-    var bundleFiles = filesRepo.findByBundleShareId(bundle.shareId)
-      .filter(f => !f.deletedAt)
+    var bundleFiles = filesRepo.findLiveByBundleShareId(bundle.shareId)
       .sort((a, b) => (a.relativePath || "").localeCompare(b.relativePath || ""));
     var verifiedEmail = req.session["bundle_" + req.params.shareId];
     var viewerEmail = (typeof verifiedEmail === "object" && verifiedEmail.emailVerified && typeof verifiedEmail.emailVerified === "string") ? verifiedEmail.emailVerified : (typeof verifiedEmail === "string" ? verifiedEmail : null);
@@ -303,10 +302,13 @@ module.exports = function (app) {
     if (isBundleLocked(parentBundle, req.session)) {
       res.writeHead(401); return res.end("Access restricted");
     }
-    filesRepo.incrementDownloads(doc._id);
-    audit.log(audit.ACTIONS.BUNDLE_FILE_DOWNLOADED, { targetId: doc._id, details: "file: " + doc.originalName + ", bundle: " + req.params.shareId, req: req });
     try {
       var stream = await storage.getFileStream(doc.storagePath, doc.encryptionKey);
+      // Count the download + write the audit row only once a stream actually
+      // opened — a failed/unavailable read (missing blob, decrypt error, S3
+      // outage) must not inflate the counter or assert a phantom success.
+      filesRepo.incrementDownloads(doc._id);
+      audit.log(audit.ACTIONS.BUNDLE_FILE_DOWNLOADED, { targetId: doc._id, details: "file: " + doc.originalName + ", bundle: " + req.params.shareId, req: req });
       req.on("close", function () { if (stream.destroy) stream.destroy(); });
       res.writeHead(200, {
         "Content-Disposition": safeContentDisposition(doc.originalName, "attachment"),
@@ -328,7 +330,10 @@ module.exports = function (app) {
     if (isBundleLocked(bundle, req.session)) {
       res.writeHead(401); return res.end("Access restricted");
     }
-    var bundleFiles = filesRepo.findByBundleShareId(bundle.shareId);
+    // Exclude sync-bundle tombstones (deletedAt) so the ZIP matches the browse
+    // view — a deleted file must not be fed to getFileStream (it would land in
+    // the user-visible _MISSING_FILES.txt manifest and leak its name).
+    var bundleFiles = filesRepo.findLiveByBundleShareId(bundle.shareId);
     if (bundleFiles.length === 0) { res.writeHead(404); return res.end("Empty bundle"); }
 
     db.rawExec("UPDATE bundles SET downloads = downloads + 1 WHERE _id = ?", bundle._id);
@@ -381,7 +386,7 @@ module.exports = function (app) {
     // Normalize: ensure trailing slash for prefix matching
     if (!prefix.endsWith("/")) prefix += "/";
 
-    var allFiles = filesRepo.findByBundleShareId(bundle.shareId);
+    var allFiles = filesRepo.findLiveByBundleShareId(bundle.shareId);
     var folderFiles = allFiles.filter(function (f) {
       var rel = f.relativePath || f.originalName;
       return rel.startsWith(prefix) || rel === prefix.slice(0, -1);

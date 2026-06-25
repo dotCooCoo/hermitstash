@@ -5,12 +5,15 @@ var { files } = require("../../../lib/db");
 
 function findById(id) { return files.findOne({ _id: id }); }
 function findByShareId(shareId) { return files.findOne({ shareId: shareId }); }
-// Lookup a file by shareId ONLY when its upload finalized (status "complete").
-// Content-serving routes must use this so an in-flight/chunking upload is never
-// streamed; admin/management paths may use findByShareId to act on any status.
+// Lookup a file by shareId ONLY when its upload finalized (status "complete")
+// AND it is not a sync-bundle tombstone (deletedAt set). handleSyncFileDelete
+// keeps the row with status "complete" and clears storagePath/encryptionKey, so
+// a status-only check would still serve a deleted file. Content-serving routes
+// must use this so neither an in-flight (chunking) upload nor a deleted file is
+// ever streamed; admin/management paths may use findByShareId to act on any row.
 function findCompleteByShareId(shareId) {
   var f = files.findOne({ shareId: shareId });
-  return (f && f.status === "complete") ? f : null;
+  return (f && f.status === "complete" && !f.deletedAt) ? f : null;
 }
 function findByBundle(bundleId) { return files.find({ bundleId: bundleId }); }
 function findByUploader(userId) { return files.find({ uploadedBy: userId }); }
@@ -32,6 +35,15 @@ function incrementDownloads(id) {
 }
 
 function findByBundleShareId(shareId) { return files.find({ bundleShareId: shareId }); }
+// Live (non-tombstone) files in a bundle. Sync-bundle deletes leave a
+// deletedAt row with status "complete" (handleSyncFileDelete clears
+// storagePath/encryptionKey only), so content-serving paths — the bundle
+// browse view and the ZIP/folder download handlers — must use this variant to
+// stay in sync with what the viewer is shown. find({}) callers that act on the
+// whole row set (e.g. the last-file auto-cleanup check) keep findByBundleShareId.
+function findLiveByBundleShareId(shareId) {
+  return files.find({ bundleShareId: shareId }).filter(function (f) { return !f.deletedAt; });
+}
 function searchPaginated(fields, q, query, opts) { return files.searchPaginated(fields, q, query, opts); }
 
-module.exports = { findById, findByShareId, findCompleteByShareId, findByBundle, findByBundleShareId, findByUploader, findAll, findPaginated, searchPaginated, count, create, update, remove, incrementDownloads };
+module.exports = { findById, findByShareId, findCompleteByShareId, findByBundle, findByBundleShareId, findLiveByBundleShareId, findByUploader, findAll, findPaginated, searchPaginated, count, create, update, remove, incrementDownloads };

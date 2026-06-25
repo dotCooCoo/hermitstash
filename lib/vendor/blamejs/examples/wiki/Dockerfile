@@ -22,20 +22,20 @@
 # The :latest runtime image runs as `nonroot` (different user, lower
 # privilege); --chown=nonroot:nonroot on the COPY --from=deps rewrites
 # ownership at copy time into the runtime image.
-# Base images are NOT digest-pinned in source: Chainguard rebuilds :latest
-# continuously to ship CVE fixes, so a committed digest goes stale within hours
-# and the Trivy CRITICAL/HIGH release gate then rejects the build (e.g. a fixed
-# npm/undici DoS the rolling tag already carries). For a deployed, Trivy-gated
-# image, rolling + always-patched beats reproducible-but-frozen. (Scorecard
-# PinnedDependencies flags this by design — accepted.)
-#
-# To make the Trivy-scanned image identical to the multi-arch image that gets
-# published (release-container.yml builds those separately), the workflow
-# resolves the rolling tag to a digest ONCE at build time and passes it via
-# these build-args, so scan == publish without a stale committed pin. A local
-# `docker build` with no build-args falls back to the rolling tag.
-ARG BASE_DEPS=cgr.dev/chainguard/node:latest-dev
-ARG BASE_RUNTIME=cgr.dev/chainguard/node:latest
+# Base images are digest-pinned in source (tag@sha256) for reproducible local
+# builds and supply-chain provenance. Dependabot's docker updater bumps these
+# digests weekly so they track Chainguard's continuous CVE rebuilds instead of
+# freezing — the historical objection to a committed pin (it goes stale and the
+# Trivy CRITICAL/HIGH gate rejects the build) does not apply here, because the
+# committed digest never reaches that gate: release-container.yml resolves the
+# rolling tag to a FRESH digest at build time and passes it via the BASE_DEPS /
+# BASE_RUNTIME build-args below, overriding these defaults, so the scanned image
+# always carries current patches and scan == publish. A local `docker build`
+# with no build-args uses the pinned (Dependabot-current) digest; the
+# human-readable tag is retained alongside the digest for readability and as the
+# rolling source the release workflow resolves.
+ARG BASE_DEPS=cgr.dev/chainguard/node:latest-dev@sha256:b165c3da2bc85bb4d7a4749854a087996bf51f540bc0655689ab5c43409bb741
+ARG BASE_RUNTIME=cgr.dev/chainguard/node:latest@sha256:05d2ed6a0b3e6d3b9ca1d7f0b76e88dd06b91fa95c4f1e849f99bba7bd5a21b8
 
 FROM ${BASE_DEPS} AS deps
 WORKDIR /home/node

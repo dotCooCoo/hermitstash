@@ -45,7 +45,6 @@
 
 var fs = require("fs");
 var path = require("path");
-var http = require("http");
 var { DatabaseSync } = require("node:sqlite");
 
 var C = require("../lib/constants");
@@ -53,6 +52,7 @@ var b = require("../lib/vendor/blamejs");
 var cryptoLib = require("../lib/crypto");
 var passphraseSource = require("../lib/passphrase-source");
 var fieldCrypto = require("../lib/field-crypto");
+var serverLiveness = require("./lib/server-liveness");
 
 // Populate b.cryptoField with HS's FIELD_SCHEMA before any
 // b.vaultRotate call — its schema walker reads from b.cryptoField.
@@ -200,19 +200,9 @@ function preflightSync(opts) {
 }
 
 function preflightHealthCheck(opts) {
-  if (opts.forceWithServerRunning) return Promise.resolve();
-  return new Promise(function (resolve) {
-    var port = Number(process.env.PORT || 3000);
-    var req = http.get({ host: "127.0.0.1", port: port, path: "/health", timeout: 1500 }, function (res) {
-      res.resume();
-      console.error("ERROR: a HermitStash server appears to be running on port " + port + ".");
-      console.error("  Stop it first, or pass --force-with-server-running.");
-      console.error("  CAUTION: rotating with a running server corrupts the DB in unpredictable ways.");
-      process.exit(1);
-    });
-    req.on("error", function () { resolve(); });
-    req.on("timeout", function () { req.destroy(); resolve(); });
-  });
+  return serverLiveness.assertServerNotRunning(opts, [
+    "  CAUTION: rotating with a running server corrupts the DB in unpredictable ways.",
+  ]);
 }
 
 // ---- Mode detection and passphrase acquisition ----

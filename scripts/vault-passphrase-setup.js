@@ -36,11 +36,11 @@
 var fs = require("fs");
 var path = require("path");
 var os = require("os");
-var http = require("http");
 
 var C = require("../lib/constants");
 var b = require("../lib/vendor/blamejs");
 var passphraseSource = require("../lib/passphrase-source");
+var serverLiveness = require("./lib/server-liveness");
 ;
 
 var PLAINTEXT_PATH = C.PATHS.VAULT_KEY;
@@ -142,21 +142,8 @@ function preflight(opts) {
     process.exit(1);
   }
 
-  // Best-effort: check if server is responding on localhost:3000
-  if (!opts.forceWithServerRunning) {
-    return new Promise(function (resolve) {
-      var port = Number(process.env.PORT || 3000);
-      var req = http.get({ host: "127.0.0.1", port: port, path: "/health", timeout: 1500 }, function (res) {
-        res.resume();
-        console.error("ERROR: a HermitStash server appears to be running on port " + port + ".");
-        console.error("  Stop it first, then re-run. Or pass --force-with-server-running.");
-        process.exit(1);
-      });
-      req.on("error", function () { resolve(); });
-      req.on("timeout", function () { req.destroy(); resolve(); });
-    });
-  }
-  return Promise.resolve();
+  // Refuse if a server is running (protocol-agnostic TCP liveness probe)
+  return serverLiveness.assertServerNotRunning(opts);
 }
 
 // ---- Passphrase acquisition + confirmation ----

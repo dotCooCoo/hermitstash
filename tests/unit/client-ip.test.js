@@ -102,6 +102,46 @@ describe("client-ip operator-configured trusted proxies (CIDR)", function () {
   });
 });
 
+// clientIp.rateKey is the single bucket-key transform shared by the rate-limit
+// keyFn and every loginLimiter.reset() site. IPv4 stays per-host EXACT; IPv6
+// collapses to its routing-significant /64 so an end-site rotating the low 64
+// bits of its allocation can't mint a fresh per-IP throttle bucket per request.
+describe("client-ip rateKey()", function () {
+  function reqWithSocket(addr) {
+    return { socket: { remoteAddress: addr }, headers: {} };
+  }
+
+  it("collapses two IPv6 addresses in the same /64 to ONE key", function () {
+    var a = clientIp.rateKey(reqWithSocket("2001:db8:abcd:1234::1"));
+    var b2 = clientIp.rateKey(reqWithSocket("2001:db8:abcd:1234:ffff:ffff:ffff:fffe"));
+    assert.strictEqual(a, b2, "low-64-bit rotation within one /64 must share a bucket");
+  });
+
+  it("keeps two IPv6 addresses in DIFFERENT /64s on distinct keys", function () {
+    var a = clientIp.rateKey(reqWithSocket("2001:db8:abcd:1234::1"));
+    var b2 = clientIp.rateKey(reqWithSocket("2001:db8:abcd:5678::1"));
+    assert.notStrictEqual(a, b2, "distinct /64 prefixes must not collide");
+  });
+
+  it("keeps two IPv4 hosts on distinct keys (per-host exact, no /24 masking)", function () {
+    var a = clientIp.rateKey(reqWithSocket("203.0.113.10"));
+    var b2 = clientIp.rateKey(reqWithSocket("203.0.113.11"));
+    assert.notStrictEqual(a, b2, "IPv4 must stay per-host exact");
+    assert.strictEqual(a, "203.0.113.10");
+  });
+
+  it("falls back to 'unknown' when no IP can be resolved", function () {
+    assert.strictEqual(clientIp.rateKey(null), "unknown");
+  });
+
+  it("is deterministic for one request, so keyFn and reset() agree", function () {
+    // routes/auth.js mounts the limiter with this default keyFn and calls
+    // loginLimiter.reset(clientIp.rateKey(req)) — both must hit one bucket.
+    var req = reqWithSocket("2001:db8:abcd:1234::abcd");
+    assert.strictEqual(clientIp.rateKey(req), clientIp.rateKey(req));
+  });
+});
+
 // lib/rate-limit.js wraps the framework limiter: guard(opts) mounts
 // b.middleware.rateLimit + the shared onDeny so every 429 is RFC 9457
 // problem+json. Pin the surface + the denial shape so a regression to

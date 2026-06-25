@@ -33,10 +33,13 @@ module.exports = function (app) {
       if (err.name === "ValidationError") { res.writeHead(410); return res.end("File expired"); }
       res.writeHead(404); return res.end("Not found");
     }
-    fileService.incrementDownloads(doc);
-    audit.log(audit.ACTIONS.FILE_DOWNLOADED, { targetId: doc._id, targetEmail: doc.uploaderEmail, details: "file: " + doc.originalName + ", size: " + doc.size, req: req });
     try {
       var result = await fileService.getDownloadStream(doc);
+      // Count the download + write the audit row only once a stream actually
+      // opened — a failed/unavailable read (missing blob, decrypt error, S3
+      // outage) must not inflate the counter or assert a phantom success.
+      fileService.incrementDownloads(doc);
+      audit.log(audit.ACTIONS.FILE_DOWNLOADED, { targetId: doc._id, targetEmail: doc.uploaderEmail, details: "file: " + doc.originalName + ", size: " + doc.size, req: req });
       res.writeHead(200, {
         "Content-Disposition": safeContentDisposition(doc.originalName, "attachment"),
         "Content-Type": result.headers["Content-Type"],

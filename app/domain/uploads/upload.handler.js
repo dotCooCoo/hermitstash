@@ -29,6 +29,18 @@ function _getIpQuota() {
   }
   return _ipQuota;
 }
+
+// Per-IP quota bucket key. b.requestHelpers.ipKey keeps IPv4 exact but collapses
+// IPv6 to its /64 — an end-site is allocated a whole /64 (RFC 6177 / RFC 4291
+// §2.5.4) and rotates the low 64 bits at will, so keying the rolling-24h byte
+// budget on the full /128 lets it mint unlimited fresh buckets and upload
+// unbounded anonymous bytes past the cap. ipKey returns "" for an unparseable
+// input; byteQuota throws on an empty key, so fall back to the raw canonical IP
+// (which is exactly today's behavior for a degenerate input).
+function _ipQuotaKey(req) {
+  var ip = clientIp.getIp(req);
+  return b.requestHelpers.ipKey(ip, { ipv6Bits: 64 }) || ip; // allow:raw-byte-literal — IPv6 routing prefix length (RFC 4291 §2.5.4), not a byte size
+}
 var { sanitizeFilename } = require("../../shared/sanitize-filename");
 var syncEmitter = require("../../../lib/sync-emitter");
 var usersRepo = require("../../data/repositories/users.repo");
@@ -88,7 +100,7 @@ async function checkAllQuotas(fileSize, bundle, req) {
 
   // Per-IP quota (anonymous only)
   if (config.publicIpQuotaBytes > 0 && !bundle.ownerId) {
-    var ipCheck = await _getIpQuota().check(clientIp.getIp(req), fileSize);
+    var ipCheck = await _getIpQuota().check(_ipQuotaKey(req), fileSize);
     if (!ipCheck.allowed) {
       return { allowed: false, error: "Upload quota exceeded. Try again later.", reason: "per-IP quota exceeded" };
     }
@@ -196,7 +208,7 @@ async function handleFileUpload(ctx) {
 
   // Track IP after save
   if (config.publicIpQuotaBytes > 0 && !bundle.ownerId) {
-    await _getIpQuota().record(clientIp.getIp(ctx.req), file.size);
+    await _getIpQuota().record(_ipQuotaKey(ctx.req), file.size);
   }
 
   var action = replaced ? "file_replaced" : "file_added";
@@ -350,7 +362,7 @@ async function handleChunkUpload(ctx) {
   var checksum = chunkResult.checksum;
 
   if (config.publicIpQuotaBytes > 0 && !bundle.ownerId) {
-    await _getIpQuota().record(clientIp.getIp(ctx.req), fullData.length);
+    await _getIpQuota().record(_ipQuotaKey(ctx.req), fullData.length);
   }
 
   var chunkCounters = bundlesRepo.incrementCounters(bundle._id, 1, fullData.length);

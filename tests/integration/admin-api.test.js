@@ -236,4 +236,94 @@ describe("admin API integration", function () {
       assert.strictEqual(found, undefined, "deleted webhook should not appear in list");
     });
   });
+
+  describe("files API — search over sealed fields", function () {
+    before(function () {
+      // Seed two complete files with distinct, human-readable originalName /
+      // uploaderEmail values. The field-crypto middleware seals these columns
+      // transparently on write, so the stored originalName/uploaderEmail are
+      // ciphertext and a SQL LIKE against them (or against the keyed-MAC
+      // shareIdHash index) can never match — search must unseal-then-filter.
+      var { files } = require(path.join(testServer.projectRoot, "lib", "db"));
+      files.insert({
+        shareId: "search-fixture-share-quarterly",
+        originalName: "quarterly-report.pdf",
+        relativePath: "reports/quarterly-report.pdf",
+        uploaderEmail: "alice@example.com",
+        size: 1024,
+        status: "complete",
+        createdAt: new Date().toISOString(),
+      });
+      files.insert({
+        shareId: "search-fixture-share-vacation",
+        originalName: "vacation-photo.jpg",
+        relativePath: "media/vacation-photo.jpg",
+        uploaderEmail: "bob@example.com",
+        size: 2048,
+        status: "complete",
+        createdAt: new Date().toISOString(),
+      });
+    });
+
+    it("matches a filename fragment against the sealed originalName", async function () {
+      await loginAs("apiadmin@test.com", "password123");
+      var res = await client.get("/admin/files/api?q=quarterly");
+      assert.strictEqual(res.status, 200);
+      var names = res.json.files.map(function (f) { return f.originalName; });
+      assert.ok(names.indexOf("quarterly-report.pdf") !== -1,
+        "search should find the file by filename fragment");
+      assert.ok(names.indexOf("vacation-photo.jpg") === -1,
+        "search should exclude non-matching files");
+    });
+
+    it("matches an uploaderEmail fragment", async function () {
+      await loginAs("apiadmin@test.com", "password123");
+      var res = await client.get("/admin/files/api?q=bob@example");
+      assert.strictEqual(res.status, 200);
+      var names = res.json.files.map(function (f) { return f.originalName; });
+      assert.ok(names.indexOf("vacation-photo.jpg") !== -1,
+        "search should find the file by uploaderEmail fragment");
+      assert.ok(names.indexOf("quarterly-report.pdf") === -1,
+        "search should exclude files with a different uploader");
+    });
+
+    it("returns no rows for a term that matches nothing", async function () {
+      await loginAs("apiadmin@test.com", "password123");
+      var res = await client.get("/admin/files/api?q=no-such-file-xyzzy");
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.json.files.length, 0, "unmatched search returns empty set");
+    });
+  });
+
+  describe("purge database — module-level blamejs alias not shadowed", function () {
+    it("purges all tables and returns success (no TypeError from loop-counter shadow)", async function () {
+      // Regression: a `for (var b = 0; ...)` loop counter in this handler
+      // hoisted over the module-level blamejs `b`, so `b.parsers.json(req)`
+      // threw TypeError on every call and the endpoint always 500'd.
+      await loginAs("apiadmin@test.com", "password123");
+
+      var { bundles, files } = require(path.join(testServer.projectRoot, "lib", "db"));
+      bundles.insert({
+        shareId: "purge-fixture-bundle",
+        status: "complete",
+        createdAt: new Date().toISOString(),
+      });
+      files.insert({
+        shareId: "purge-fixture-file",
+        originalName: "purge-me.bin",
+        status: "complete",
+        createdAt: new Date().toISOString(),
+      });
+
+      var res = await client.post("/admin/purge/database", {
+        json: { confirm: "PURGE" },
+      });
+      assert.strictEqual(res.status, 200, "purge should not 500");
+      assert.strictEqual(res.json.success, true, "purge should report success");
+
+      // The current admin row is retained; the seeded bundles/files are gone.
+      assert.strictEqual(bundles.find({}).length, 0, "all bundles purged");
+      assert.strictEqual(files.find({}).length, 0, "all files purged");
+    });
+  });
 });
