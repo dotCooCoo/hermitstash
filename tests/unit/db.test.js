@@ -57,6 +57,19 @@ describe("db.Collection", function () {
       assert.strictEqual(found.email, "ref@test.com", "mutation should not affect DB");
       db.users.remove({ _id: doc._id });
     });
+
+    it("round-trips a column that is BOTH sealed AND a JSON array (totpBackupCodes)", function () {
+      // Regression for the _merge ordering: totpBackupCodes is sealed AND a
+      // JSON_COLUMN, so the JSON parse must run AFTER unseal — otherwise the parse
+      // hits ciphertext, dead-no-ops, and the value reads back as a STRING instead
+      // of the contracted array.
+      var codes = ["aaaa-1111", "bbbb-2222", "cccc-3333"];
+      var doc = db.users.insert({ email: "totp@test.com", totpBackupCodes: JSON.stringify(codes) });
+      var found = db.users.findOne({ _id: doc._id });
+      assert.ok(Array.isArray(found.totpBackupCodes), "sealed JSON column must read back as an array, not a string");
+      assert.deepStrictEqual(found.totpBackupCodes, codes);
+      db.users.remove({ _id: doc._id });
+    });
   });
 
   describe("findOne", function () {

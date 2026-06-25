@@ -894,7 +894,7 @@ module.exports = function (app) {
 
     var fwd = req.headers["x-forwarded-for"]; // allow:raw-xff — diagnostic: surfaces raw proxy headers in /admin/proxy/detect, not actor-IP derivation
     var realIp = req.headers["x-real-ip"];
-    var proto = req.headers["x-forwarded-proto"];
+    var proto = req.headers["x-forwarded-proto"]; // allow:raw-xfp — diagnostic echo only (admin-gated, JSON-encoded); never a scheme/authority decision
     var via = req.headers["via"];
 
     if (fwd || realIp || proto || via) {
@@ -967,7 +967,11 @@ module.exports = function (app) {
       } catch (_e) { /* LOGO_DIR may not exist on first upload */ }
 
       var filename = "logo" + ext;
-      nodeFs.writeFileSync(nodePath.join(LOGO_DIR, filename), data);
+      // Atomic, symlink-refusing write (temp + fsync + rename, O_EXCL|O_NOFOLLOW):
+      // the destination is a predictable path under a world-traversable web root,
+      // so a plain writeFileSync could follow a planted symlink or serve a torn
+      // logo to a concurrent reader.
+      b.atomicFile.writeSync(nodePath.join(LOGO_DIR, filename), data, { fileMode: 0o600 });
 
       var logoPath = "/img/custom/" + filename;
       config.updateSettings({ customLogo: logoPath });
@@ -1105,13 +1109,16 @@ module.exports = function (app) {
           logger.info("[mTLS] CA regenerate dry-run — not committing, not exiting", { summary: summary, note: note });
           return;
         }
-        // Write a flag file so startup-checks can show a post-restart banner
+        // Write a flag file so startup-checks can show a post-restart banner.
+        // Atomic, symlink-refusing write to a predictable DATA_DIR path (a planted
+        // symlink would otherwise redirect the write; a torn file could break the
+        // startup read).
         try {
-          nodeFs.writeFileSync(nodePath.join(PATHS.DATA_DIR, "ca-regen-flag.json"), JSON.stringify({
+          b.atomicFile.writeSync(nodePath.join(PATHS.DATA_DIR, "ca-regen-flag.json"), Buffer.from(JSON.stringify({
             at: new Date().toISOString(),
             summary: summary,
             byUser: req.session && req.session.userId ? req.session.userId : null,
-          }));
+          })), { fileMode: 0o600 });
         } catch (_e) { /* regen flag file is best-effort — startup banner only */ }
         // Commit CA files atomically
         mtlsCa.commit({ caCertPem: fresh.caCertPem, caKeyPem: fresh.caKeyPem });
@@ -1444,13 +1451,23 @@ module.exports = function (app) {
       throw new ConflictError("Migration already in progress.");
     }
 
-    var body = (await b.parsers.json(req)) || {};
-    var direction = body.direction;
-    if (direction !== "local-to-s3" && direction !== "s3-to-local") {
-      throw new ValidationError("direction must be 'local-to-s3' or 's3-to-local'");
+    // Claim the slot SYNCHRONOUSLY, before the first await — otherwise two
+    // concurrent requests both pass the guard above during the json-parse await
+    // and each launch a migration over the same files. Released below on any
+    // pre-launch failure (malformed body or bad direction).
+    _migrationRunning = true;
+    var direction;
+    try {
+      var body = (await b.parsers.json(req)) || {};
+      direction = body.direction;
+      if (direction !== "local-to-s3" && direction !== "s3-to-local") {
+        throw new ValidationError("direction must be 'local-to-s3' or 's3-to-local'");
+      }
+    } catch (e) {
+      _migrationRunning = false;
+      throw e;
     }
 
-    _migrationRunning = true;
     _migrationResult = { status: "running", direction: direction, migrated: 0, skipped: 0, failed: 0, total: 0, errors: [] };
 
     audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Storage migration started: " + direction, req: req });

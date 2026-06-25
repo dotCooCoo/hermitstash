@@ -203,6 +203,12 @@ ENTRY
     rm _pki-entry.mjs
     sed -i "1s|^|// Peculiar PKI — vendored @peculiar/x509 v${X509_VER} + pkijs v${PKIJS_VER}\n// License: MIT. Bundled with esbuild.\n// Exports: { pkijs, x509, crypto (node:webcrypto bound) }\n// Includes: reflect-metadata, pvutils, pvtsutils, asn1js, @peculiar/asn1-*\n// Used by lib/mtls-engine-default.js for pure-JS CA + PKCS#12 operations.\n|" lib/vendor/pki.cjs
     INSTALLED_VER="${X509_VER}+pkijs-${PKIJS_VER}"
+    # Structured SBOM component versions, derived from the ACTUALLY-INSTALLED
+    # package versions captured above — written into MANIFEST components[] below
+    # so the sub-object the CVE scanners key on can never drift from the bundle
+    # (issue #366). A scanner-facing fact must come from the install, not a hand
+    # edit.
+    COMPONENT_VERSIONS_JSON="{\"@peculiar/x509\":\"${X509_VER}\",\"pkijs\":\"${PKIJS_VER}\"}"
     ;;
 
   *)
@@ -213,14 +219,35 @@ ENTRY
     ;;
 esac
 
-# Update MANIFEST.json
-node -e "
+# Update MANIFEST.json. COMPONENT_VERSIONS_JSON (set only for meta-bundles that
+# carry a structured components[] sub-object, e.g. peculiar-pki) is passed via
+# the environment so its JSON braces/quotes don't fight the bash interpolation
+# into the inline node script.
+COMPONENT_VERSIONS_JSON="${COMPONENT_VERSIONS_JSON:-}" node -e "
 var fs = require('fs');
 var m = JSON.parse(fs.readFileSync('$MANIFEST', 'utf8'));
 var pkg = '$PKG';
 if (m.packages[pkg]) {
   m.packages[pkg].version = '$INSTALLED_VER';
   m.packages[pkg].bundledAt = '$DATE';
+  // Derive structured SBOM component versions from the ACTUALLY-INSTALLED
+  // packages (issue #366) so components[].version — the field CycloneDX / Trivy
+  // / Grype key on — can never drift from the bundled version string.
+  var compJson = process.env.COMPONENT_VERSIONS_JSON || '';
+  if (compJson && m.packages[pkg].components) {
+    var comps = JSON.parse(compJson);
+    Object.keys(comps).forEach(function (c) {
+      if (m.packages[pkg].components[c]) { m.packages[pkg].components[c].version = comps[c]; }
+    });
+  }
+  // Keep the cpe version in sync with the install too — same SBOM-drift class
+  // as components[] (#366): the cpe string encodes the version in field 5
+  // (cpe:2.3:a:vendor:product:VERSION:...) and CVE scanners match against it.
+  if (typeof m.packages[pkg].cpe === 'string') {
+    var sv = (String('$INSTALLED_VER').match(/\d+\.\d+\.\d+/) || [null])[0];
+    var parts = m.packages[pkg].cpe.split(':');
+    if (sv && parts.length > 5) { parts[5] = sv; m.packages[pkg].cpe = parts.join(':'); }
+  }
   fs.writeFileSync('$MANIFEST', JSON.stringify(m, null, 2) + '\n');
   console.log('Updated MANIFEST.json: ' + pkg + ' -> ' + '$INSTALLED_VER');
 } else {

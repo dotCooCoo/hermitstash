@@ -3,8 +3,8 @@
   "_about": "As of v1.9.12 HermitStash vendors a single framework — blamejs — which itself bundles every server-side crypto/identity dependency. The transitive packages blamejs ships are listed below for SBOM transparency (Trivy / Grype rely on the nested-package data to flag CVEs against any of them). Argon2id derivation runs through Node 24+'s built-in `crypto.argon2` via blamejs's `lib/argon2-builtin.js` wrapper — the @ranisalt/argon2 native binding (and its 8-platform prebuilds) are no longer vendored.",
   "packages": {
     "blamejs": {
-      "version": "0.15.15",
-      "tag": "v0.15.15",
+      "version": "0.15.23",
+      "tag": "v0.15.23",
       "license": "Apache-2.0",
       "author": "blamejs contributors",
       "source": "https://github.com/blamejs/blamejs",
@@ -13,13 +13,14 @@
         "server": "lib/vendor/blamejs/"
       },
       "bundler": "shallow git clone of release tag from github.com/blamejs/blamejs",
-      "bundledAt": "2026-06-21",
+      "bundledAt": "2026-06-25",
       "components": {
         "@noble/ciphers": {
           "version": "2.2.0",
           "license": "MIT",
           "author": "Paul Miller",
           "source": "https://github.com/paulmillr/noble-ciphers",
+          "cpe": "cpe:2.3:a:paulmillr:noble-ciphers:2.2.0:*:*:*:*:node.js:*:*",
           "exports": [
             "xchacha20poly1305"
           ],
@@ -30,11 +31,12 @@
           "license": "MIT",
           "author": "Paul Miller",
           "source": "https://github.com/paulmillr/noble-curves",
+          "cpe": "cpe:2.3:a:paulmillr:noble-curves:2.2.0:*:*:*:*:node.js:*:*",
           "exports": [
+            "ristretto255_oprf",
             "p256_oprf",
             "p384_oprf",
-            "p521_oprf",
-            "ristretto255_oprf"
+            "p521_oprf"
           ],
           "file": "lib/vendor/blamejs/lib/vendor/noble-curves.cjs"
         },
@@ -43,19 +45,29 @@
           "license": "MIT",
           "author": "Paul Miller",
           "source": "https://github.com/paulmillr/noble-post-quantum",
+          "cpe": "cpe:2.3:a:paulmillr:noble-post-quantum:0.6.1:*:*:*:*:node.js:*:*",
           "exports": [
+            "ml_kem512",
+            "ml_kem768",
             "ml_kem1024",
+            "ml_dsa44",
+            "ml_dsa65",
             "ml_dsa87",
-            "slh_dsa_shake_256f",
-            "slh_dsa_sha2_256f"
+            "slh_dsa_sha2_128f",
+            "slh_dsa_sha2_192f",
+            "slh_dsa_sha2_256f",
+            "slh_dsa_shake_128f",
+            "slh_dsa_shake_192f",
+            "slh_dsa_shake_256f"
           ],
           "file": "lib/vendor/blamejs/lib/vendor/noble-post-quantum.cjs"
         },
         "@simplewebauthn/server": {
-          "version": "13.3.1",
+          "version": "13.3.2",
           "license": "MIT",
           "author": "Matthew Miller",
           "source": "https://github.com/MasterKale/SimpleWebAuthn",
+          "cpe": "cpe:2.3:a:simplewebauthn:server:13.3.2:*:*:*:*:node.js:*:*",
           "exports": [
             "generateRegistrationOptions",
             "verifyRegistrationResponse",
@@ -65,8 +77,32 @@
           ],
           "file": "lib/vendor/blamejs/lib/vendor/simplewebauthn-server.cjs"
         },
+        "SecLists-common-passwords-top-10000": {
+          "version": "10k-most-common (master)",
+          "license": "CC-BY-3.0",
+          "author": "Daniel Miessler / SecLists contributors",
+          "source": "https://github.com/danielmiessler/SecLists",
+          "file": "lib/vendor/blamejs/lib/vendor/common-passwords-top-10000.txt"
+        },
+        "bimi-trust-anchors": {
+          "version": "operator-managed",
+          "license": "BIMI Group / per-issuer",
+          "author": "BIMI Group / DigiCert / Entrust",
+          "source": "https://bimigroup.org/",
+          "exports": [
+            "bimi-vmc-trust-anchors"
+          ],
+          "file": "lib/vendor/blamejs/lib/vendor/bimi-trust-anchors.pem"
+        },
+        "publicsuffix-list": {
+          "version": "master",
+          "license": "MPL-2.0",
+          "author": "Mozilla Foundation",
+          "source": "https://publicsuffix.org/list/public_suffix_list.dat",
+          "file": "lib/vendor/blamejs/lib/vendor/public-suffix-list.dat"
+        },
         "peculiar-pki": {
-          "version": "@peculiar/x509@2.0.0 + pkijs@3.4.0",
+          "version": "2.0.0+pkijs-3.4.0",
           "license": "MIT",
           "author": "Peculiar Ventures",
           "source": "https://github.com/PeculiarVentures",
@@ -75,26 +111,17 @@
             "pkijs",
             "crypto"
           ],
-          "file": "lib/vendor/blamejs/lib/vendor/pki.cjs",
-          "includes": [
-            "reflect-metadata",
-            "pvutils",
-            "pvtsutils",
-            "asn1js",
-            "@peculiar/asn1-schema",
-            "@peculiar/asn1-x509",
-            "@peculiar/asn1-ecc",
-            "@peculiar/asn1-rsa",
-            "@peculiar/asn1-cms",
-            "@peculiar/asn1-pkcs9"
-          ]
-        },
-        "SecLists-common-passwords-top-10000": {
-          "version": "10k-most-common (master)",
-          "license": "CC-BY-3.0",
-          "author": "Daniel Miessler / SecLists contributors",
-          "source": "https://github.com/danielmiessler/SecLists",
-          "file": "lib/vendor/blamejs/lib/vendor/common-passwords-top-10000.txt"
+          "components": {
+            "@peculiar/x509": {
+              "url": "https://github.com/PeculiarVentures/x509",
+              "version": "2.0.0"
+            },
+            "pkijs": {
+              "url": "https://github.com/PeculiarVentures/PKI.js",
+              "version": "3.4.0"
+            }
+          },
+          "file": "lib/vendor/blamejs/lib/vendor/pki.cjs"
         }
       }
     }

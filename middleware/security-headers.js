@@ -82,21 +82,29 @@ function googleConnectDomains() {
 
 function buildCsp() {
   var analytics = resolveAnalyticsDomains();
-  var analyticsExtra = analytics.length > 0 ? " " + analytics.join(" ") : "";
   var googleImg = googleImgDomains();
-  var googleImgExtra = googleImg.length > 0 ? " " + googleImg.join(" ") : "";
   var googleConnect = googleConnectDomains();
-  var googleConnectExtra = googleConnect.length > 0 ? " " + googleConnect.join(" ") : "";
 
-  return "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline'" + analyticsExtra + "; " +
-    "style-src 'self' 'unsafe-inline'; " +
-    "font-src 'self'; " +
-    "img-src 'self' data:" + analyticsExtra + googleImgExtra + "; " +
-    "connect-src 'self'" + analyticsExtra + googleConnectExtra + "; " +
-    "object-src 'none'; " +
-    "base-uri 'none'; " +
-    "frame-ancestors 'none'";
+  // Build through b.csp.build instead of string concatenation: it validates every
+  // source (rejecting an injection-bearing host the hand-concat would have spliced
+  // in verbatim) and renders a well-formed directive set. Output is directive-
+  // equivalent to the previous hand-built CSP (verified).
+  //   - acknowledgeUnsafe: 'unsafe-inline' is retained for now (HS views carry
+  //     inline handlers/styles); dropping it is the DOM-sink / nonce migration.
+  //   - requireTrustedTypes:false: HS views use innerHTML, which Trusted Types
+  //     would break — opt out until that migration lands.
+  //   - allowDataImages:true: data: image URLs (inline SVG/icon data) are used.
+  return b.csp.build({
+    "default-src":     ["'self'"],
+    "script-src":      ["'self'", "'unsafe-inline'"].concat(analytics),
+    "style-src":       ["'self'", "'unsafe-inline'"],
+    "font-src":        ["'self'"],
+    "img-src":         ["'self'", "data:"].concat(analytics, googleImg),
+    "connect-src":     ["'self'"].concat(analytics, googleConnect),
+    "object-src":      ["'none'"],
+    "base-uri":        ["'none'"],
+    "frame-ancestors": ["'none'"],
+  }, { acknowledgeUnsafe: true, requireTrustedTypes: false, allowDataImages: true });
 }
 
 // Stable framework middleware — created once at module load. Two
@@ -152,9 +160,17 @@ module.exports = function securityHeaders(req, res, next) {
   // before flush, after any middleware that might want to set its own
   // Cache-Control (e.g. /admin/backup/db's Content-Disposition).
   var origWriteHead = res.writeHead.bind(res);
-  res.writeHead = function () {
+  res.writeHead = function (statusCode, statusMessageOrHeaders, maybeHeaders) {
     var isStatic = req.pathname && /\.(css|js|png|jpg|jpeg|gif|svg|ico|woff2?|webp)$/.test(req.pathname);
-    if (!isStatic && !res.getHeader("Cache-Control")) {
+    // A route may set its own Cache-Control either via res.setHeader (visible to
+    // res.getHeader) OR inline in the writeHead headers argument (NOT yet on res).
+    // Check both — otherwise the no-store block stacks a contradictory directive on
+    // top of a route's cacheable Cache-Control passed through writeHead.
+    var inlineHeaders = (statusMessageOrHeaders && typeof statusMessageOrHeaders === "object")
+      ? statusMessageOrHeaders : maybeHeaders;
+    var hasInlineCacheControl = inlineHeaders && typeof inlineHeaders === "object" &&
+      Object.keys(inlineHeaders).some(function (k) { return k.toLowerCase() === "cache-control"; });
+    if (!isStatic && !res.getHeader("Cache-Control") && !hasInlineCacheControl) {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");

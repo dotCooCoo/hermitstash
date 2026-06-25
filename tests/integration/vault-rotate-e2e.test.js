@@ -161,11 +161,15 @@ async function unwrapVaultKey(dataDir, passphrase) {
 // is XChaCha20-Poly1305 AEAD-bound to its dataDir (db.js _dbEncAad); the
 // untouched data.old/ backup was written by the fixture without that AAD.
 // Mirror db.js's own read path: try the dataDir AAD first, fall back to no AAD.
+// Exercise the PRODUCTION db.enc read codec (lib/db-enc-codec, the exact module
+// lib/db.js's boot path uses) rather than a private copy of the AAD-first-then-
+// fallback logic — so a regression in production's decrypt fails this test instead
+// of passing against a stale local helper. The codec is side-effect-free, so
+// importing it here doesn't trigger lib/db.js's heavy module init.
+var dbEncCodec = require(path.join(REPO_ROOT, "lib", "db-enc-codec"));
 function decryptDbBytes(dataDir, dbKey) {
   var packed = fs.readFileSync(path.join(dataDir, "hermitstash.db.enc"));
-  var aad = b.db._dbEncAad(dataDir);
-  try { return b.crypto.decryptPacked(packed, dbKey, aad); }
-  catch (_e) { return b.crypto.decryptPacked(packed, dbKey); }
+  return dbEncCodec.decryptDbEnc(packed, dbKey, dataDir);
 }
 
 function readDbKey(dataDir, keys) {

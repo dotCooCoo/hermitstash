@@ -28,18 +28,9 @@ function absoluteUrl(pathname) {
   return origin + (pathname || "");
 }
 
-/**
- * Validate that a redirect target is safe (relative path or canonical origin).
- */
-function isSafeRedirect(url) {
-  if (!url || typeof url !== "string") return false;
-  // Relative paths starting with / (not //)
-  if (url.startsWith("/") && !url.startsWith("//")) return true;
-  // Same-origin absolute URLs
-  var origin = getOrigin();
-  if (origin && url.startsWith(origin + "/")) return true;
-  if (origin && url === origin) return true;
-  return false;
-}
+// (isSafeRedirect was removed — it had no callers and its check missed
+// backslash / control-char tricks, so keeping it was a latent open-redirect
+// foot-gun. A redirect validator, if ever needed, should be reintroduced with
+// full URL canonicalization and rejected on any non-"/" or control-char input.)
 
-module.exports = { getOrigin, absoluteUrl, isSafeRedirect };
+module.exports = { getOrigin, absoluteUrl };

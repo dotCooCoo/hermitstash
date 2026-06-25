@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.15.19",
+  "date": "2026-06-22",
+  "headline": "Restores the wiki container build by keeping its base image on the continuously-patched rolling tag",
+  "summary": "A follow-up to 0.15.18. The framework code is unchanged from 0.15.18 — this patch reverts one part of that release's supply-chain pass: the example wiki container's Chainguard base images had been pinned to specific digests, but Chainguard rebuilds those images continuously to ship CVE fixes, so the frozen digest fell behind an upstream fix within hours and the container's Trivy CRITICAL/HIGH release gate rejected the build (a fixed npm/undici denial-of-service the rolling tag already carried). For a deployed, Trivy-gated image, tracking the rolling, always-patched tag is the correct posture; the wiki Dockerfile is back on it. The ClusterFuzzLite fuzz base (not deployed, not release-gated) stays digest-pinned with Dependabot keeping it current.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Wiki container builds again on a continuously-patched base",
+          "body": "0.15.18 digest-pinned the example wiki container's Chainguard base images (runtime + builder). Because Chainguard rebuilds those images continuously to ship CVE fixes, the pinned digest went stale within hours and the container's Trivy CRITICAL/HIGH release gate rejected the build over an already-fixed npm/undici DoS (CVE-2026-12151) the rolling tag carried. The wiki Dockerfile tracks the rolling tag again, so the deployed image is always CVE-current and the build passes the release gate. To keep the Trivy-scanned image identical to the multi-arch image that is published (they are built separately), the release workflow resolves the rolling tag to a digest once at build time and feeds it to both builds via build-args — scan-equals-publish without a committed pin that goes stale. (This trades the OSSF Scorecard PinnedDependencies signal for CVE currency on a deployed, gate-scanned image — the right call here; the non-deployed ClusterFuzzLite fuzz base remains digest-pinned with Dependabot bumping it.) The framework package itself is identical to 0.15.18."
+        }
+      ]
+    }
+  ]
+}

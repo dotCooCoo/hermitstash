@@ -379,6 +379,18 @@ function vendorGate() {
   var manifest = JSON.parse(fs.readFileSync(MANIFEST, "utf8"));
   var bj = manifest.packages && manifest.packages.blamejs;
   if (!bj) { console.log(red("  ✗ no blamejs entry in MANIFEST.json")); return 1; }
+
+  // The top-level SBOM (packages.blamejs.components) must mirror the vendored
+  // tree's own dependency manifest — that is what Trivy / Grype scan. It can be
+  // stale even when the blamejs version is current (a release that bumps a
+  // nested dep or adds a bundled package), so this runs unconditionally.
+  var sbomRc = cp.spawnSync(process.execPath,
+    [path.join(REPO, "scripts", "refresh-blamejs-sbom.js"), "--check"],
+    { cwd: REPO, stdio: "inherit" }).status === 0 ? 0 : 1;
+  if (sbomRc !== 0) {
+    console.log(red("  ✗ blamejs SBOM components are stale — run: node scripts/refresh-blamejs-sbom.js"));
+  }
+
   if (!ghAvailable()) {
     console.log(red("  ✗ `gh` CLI unavailable — cannot verify blamejs currency"));
     return 1;
@@ -388,16 +400,16 @@ function vendorGate() {
   if (!latestTag) { console.log(red("  ✗ could not resolve the latest blamejs release")); return 1; }
   console.log(dim("  blamejs vendored " + vendoredTag + ", latest " + latestTag));
   var cmp = semverCmp(vendoredTag, latestTag);
-  if (cmp === 0) { console.log(green("  OK — vendored blamejs is at the latest release")); return 0; }
+  if (cmp === 0) { console.log(green("  OK — vendored blamejs is at the latest release")); return sbomRc; }
   if (cmp > 0) {
     console.log(yellow("  ⚠ vendored " + vendoredTag + " is AHEAD of the latest published release " + latestTag + " — not failing"));
-    return 0;
+    return sbomRc;
   }
   console.log(red("\n  ✗ blamejs is stale: vendored " + vendoredTag + " → latest " + latestTag));
   console.log(yellow("    paste-ready pin:"));
   console.log("      " + green("blamejs/blamejs@" + latestTag) + dim("   (refresh: bash scripts/vendor-update.sh blamejs)"));
   console.log(dim("    pinned at: lib/vendor/MANIFEST.json  (packages.blamejs.tag / .version)"));
-  console.log(dim("    note: blamejs.components (noble, peculiar, simplewebauthn, SecLists) refresh transitively with the bump"));
+  console.log(dim("    note: blamejs.components mirror the vendored tree's manifest — vendor-update.sh refreshes them via scripts/refresh-blamejs-sbom.js"));
   return 1;
 }
 

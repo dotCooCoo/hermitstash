@@ -1,0 +1,52 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.15.17",
+  "date": "2026-06-22",
+  "headline": "The job queue runs on a Postgres or MySQL cluster backend, and a set of correctness and confidentiality fixes land for encrypted-API rejections, flow-job ordering, the self-update signature verifier, and bounded file reads",
+  "summary": "The local job queue's lease path is now dialect-aware, so the queue works when its store is a Postgres or MySQL cluster backend rather than only single-node SQLite. The previous lease was a single SQLite-only statement: it double-quoted identifiers (which MySQL reads as string literals), updated a table named in its own subquery (MySQL error 1093), and used RETURNING (which MySQL rejects), so the first enqueue or lease against a cluster backend failed outright. The lease now resolves the active backend dialect and composes per-dialect SQL — a transactional SELECT ... FOR UPDATE SKIP LOCKED claim over the head of the queue followed by a guarded UPDATE against a literal id list, returning the claimed rows via RETURNING on Postgres and a re-select on MySQL — with backtick (MySQL) or double-quote (Postgres) identifier quoting, mirroring the framework's outbox claim. enqueue, lease, complete, fail, sweep, and dead-letter all run against the cluster backend, verified end-to-end against live MySQL and Postgres. Alongside the queue work: a request rejected on an established encrypted-API session is now returned inside the session envelope instead of leaking the rejection reason in cleartext; a flow child that declares dependencies can no longer be leased before those dependencies run during the brief window of the two-pass flow enqueue; the standalone self-update verifier classifies an ECDSA signature's encoding by its ASN.1 structure rather than its byte length and fails closed on an indeterminate shape; the self-update poller surfaces each asset's content digest; and the bounded synchronous file reader routes every failure branch through its typed error mapper.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "The job queue's lease runs dialect-correct SQL on a Postgres or MySQL cluster backend",
+          "body": "When the queue's store is a cluster backend, the lease previously failed at the first enqueue or claim: it was composed as one SQLite-only statement that double-quoted column identifiers (a syntax error on MySQL, which treats double quotes as string literals), updated the jobs table from a subquery that named the same table (MySQL error 1093), and relied on RETURNING (which MySQL does not support). The lease now resolves the active backend dialect and builds per-dialect SQL — a transactional SELECT ... FOR UPDATE SKIP LOCKED over the head of the queue, then a guarded UPDATE ... WHERE status = 'pending' AND id IN (...) with a literal id list (no self-referencing subquery), reading the claimed rows back via RETURNING on Postgres and a re-select by id on MySQL — and quotes identifiers with backticks on MySQL and double quotes on Postgres. enqueue, lease, complete, fail, sweep, and the dead-letter operations now work against a cluster backend, with sealed-at-rest job payloads round-tripping correctly; single-node SQLite continues to use the original single-statement claim. The behavior is verified end-to-end against live MySQL and Postgres."
+        },
+        {
+          "title": "Encrypted-API rejections that would disclose session state ride the session envelope",
+          "body": "On a per-session encrypted API channel, a rejection that reveals session state — an expired or rotated session, or a request admitted past the replay gate whose ciphertext then failed authentication — returned its reason as cleartext JSON, disclosing which check failed to a network observer of an otherwise-encrypted channel. Those rejections are now encrypted inside the session envelope under the response counter the server persists for them. The generic 'rejected' refusals that carry no session-lifecycle detail (a stale or duplicate request counter) stay plaintext: they reveal nothing a 400 status does not, and encrypting them would consume a response counter the server does not persist on those paths — desyncing the session's monotonic counter and bricking it for the next genuine request. Pre-session handshake failures (a malformed bootstrap, a stale timestamp, an unknown session) also remain plaintext, since no key exists yet to encrypt under."
+        },
+        {
+          "title": "A flow child with dependencies can no longer be leased before its dependencies",
+          "body": "b.queue.enqueueFlow inserts a flow's children in two passes (the second resolves dependency names to the sibling job ids assigned in the first). The first pass previously enqueued every child as immediately leaseable and relied on the second pass to park the dependency-bearing children, leaving a window in which a consumer polling between the two passes could lease a child before the jobs it depends on had run. A dependency-bearing child is now parked at enqueue time on the first pass, so it is never leaseable in that window; the second pass only rewrites its dependency names to the resolved job ids. Children with no dependencies remain immediately leaseable."
+        },
+        {
+          "title": "The self-update poller carries each asset's content digest",
+          "body": "b.selfUpdate.poll() now includes the content digest for each asset and its detached signature in the result it returns, so a caller can verify a downloaded asset against the digest advertised by the release feed."
+        },
+        {
+          "title": "Bounded file reads always return the typed error shape",
+          "body": "The bounded synchronous file reader could surface an unmapped error on a few failure branches — a refused symlink whose target had since been removed, a short read, an integrity mismatch — rather than the typed error its callers expect. Every failure branch now passes through the reader's error mapper, so a caller always receives the documented error kind."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Bundled Public Suffix List refreshed to current upstream",
+          "body": "The vendored Mozilla Public Suffix List — which b.publicSuffix uses to derive organizational domains for DMARC (psd= / np=), BIMI, cookie-scope checks, and same-site policy — is refreshed to the latest upstream revision. Domain classification reflects recent additions and removals to the list."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "The standalone self-update verifier detects ECDSA signature encoding by structure",
+          "body": "The standalone update-signature verifier inferred whether an ECDSA signature was DER- or IEEE-P1363-encoded from its byte length — a heuristic two distinct encodings can collide on, which could lead a valid-but-misclassified signature to be parsed under the wrong scheme. It now parses the signature's ASN.1 structure to classify the encoding and fails closed on an indeterminate shape rather than guessing."
+        }
+      ]
+    }
+  ]
+}

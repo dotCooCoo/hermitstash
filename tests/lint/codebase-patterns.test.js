@@ -1176,6 +1176,43 @@ function testNoRawXffRead() {
     matches);
 }
 
+// ---- Pattern 20b: peer-gating bypass — raw X-Forwarded-Proto/-Host read ----
+
+function testNoRawXfpRead() {
+  // class: raw-xfp (mirrors blamejs 0.15.18 Pattern 20b — the XFP/XFH sibling of
+  // raw-xff). X-Forwarded-Proto / X-Forwarded-Host are forgeable; reading them
+  // directly for a scheme/authority decision (a Secure cookie, HSTS, same-origin,
+  // an absolute-URL / redirect / cryptographically-bound htu) bypasses the
+  // peer-gating boundary — a direct caller can spoof the header. Route through
+  // requestHelpers.trustedProtocol / trustedHost so the value is honored only when
+  // the immediate peer is a declared trusted proxy. The /admin/proxy/detect route
+  // echoes the raw headers for operator diagnostics (display-only via res.json,
+  // not a trust sink) and carries an allow:raw-xfp marker.
+  var matches = _scan(/req\.headers\s*\[\s*["']x-forwarded-(?:proto|host)["']\s*\]/i, { skipComments: true, appScope: true });
+  matches = _filterMarkers(matches, "raw-xfp");
+  _report("req.headers['x-forwarded-proto'|'x-forwarded-host'] routes through requestHelpers.trustedProtocol/trustedHost",
+    matches);
+}
+
+// ---- Pattern 20c: fail-open timestamp validity gate ----
+
+function testNoFailOpenTimestampGate() {
+  // class: fail-open-timestamp
+  // `new Date(stored) < new Date()` and `new Date(stored).getTime() <op> Date.now()`
+  // FAIL OPEN on a present-but-unparseable value: new Date(bad) is an Invalid Date
+  // and every comparison with it (or with NaN from .getTime()) is false, so an
+  // expired cert / token / lockout is silently treated as still-valid. Parse with
+  // Date.parse(...) + Number.isFinite(...) and fail CLOSED instead — the same
+  // validity-window hardening blamejs 0.15.16 applied across its credential
+  // verifiers. (Boundary math like `new Date(Date.UTC(...))` is not flagged: the
+  // argument is a call, not a bare stored value.)
+  var matches = _scan(/new Date\([a-zA-Z_$][\w$.]*\)\s*[<>]\s*new Date\(\)/, { skipComments: true, appScope: true })
+    .concat(_scan(/new Date\([a-zA-Z_$][\w$.]*\)\.getTime\(\)\s*[<>]\s*Date\.now\(\)/, { skipComments: true, appScope: true }));
+  matches = _filterMarkers(matches, "fail-open-timestamp");
+  _report("timestamp validity gates parse with Date.parse + Number.isFinite (fail closed), not new Date(stored) < new Date()",
+    matches);
+}
+
 // ---- Pattern 21: req.socket.remoteAddress raw read for actor IP ----
 
 function testNoRawRemoteAddress() {
@@ -4751,6 +4788,8 @@ async function run() {
   testNoSilentCatchSwallow();
   testNoDynamicRegexFromOperatorInput();
   testNoRawXffRead();
+  testNoRawXfpRead();
+  testNoFailOpenTimestampGate();
   testNoRawRemoteAddress();
   testNoRawProcessEnv();
   testNoRawTimingSafeEqual();

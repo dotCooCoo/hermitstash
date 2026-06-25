@@ -20,12 +20,16 @@ var VALID_SCOPES = ["admin", "upload", "read", "webhook", "sync"];
  */
 function parseScopes(permissions) {
   if (!permissions) return new Set();
-  if (permissions === "*" || permissions === "admin") return new Set(VALID_SCOPES);
+  if (permissions === "*") return new Set(VALID_SCOPES);
   var scopes = new Set();
   String(permissions).split(",").forEach(function (s) {
     var trimmed = s.trim().toLowerCase();
     if (VALID_SCOPES.indexOf(trimmed) !== -1) scopes.add(trimmed);
   });
+  // 'admin' implies every scope wherever it appears, not only as the exact string
+  // "admin": a combined grant like "admin,upload" previously kept just
+  // {admin, upload} and silently dropped read/webhook/sync access.
+  if (scopes.has("admin")) return new Set(VALID_SCOPES);
   return scopes;
 }
 

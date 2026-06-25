@@ -1,0 +1,27 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.15.20",
+  "date": "2026-06-24",
+  "headline": "Vendored SBOM version fields are derived from the bundle so they cannot drift, and the Public Suffix List + @simplewebauthn/server bundles are refreshed",
+  "summary": "The vendor manifest recorded each bundled package's version in two scanner-facing places that were hand-maintained and could drift from the code actually shipped — the structured components[].version (the CycloneDX component versions) and the cpe string. Two had drifted: peculiar-pki's @peculiar/x509 component read 1.13.0 while the bundle shipped 2.0.0, and @noble/curves' cpe read 0.0.0 while the bundle shipped 2.2.0. A CVE scanner (Trivy / Grype / a CycloneDX export, or a consumer mirroring the manifest into its own SBOM) keys on those structured fields, so an advisory was matched against the wrong version — a false negative on a real fix or a false positive on a patched one. Both fields are corrected, the vendor-bundle script now derives them from the actually-installed package versions at bundle time so they cannot drift again, and a manifest gate fails the build if they ever disagree. Separately, the vendored Mozilla Public Suffix List is refreshed to the current upstream revision and @simplewebauthn/server is refreshed to 13.3.2.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Vendored SBOM version metadata is bundle-derived, not hand-maintained",
+          "body": "lib/vendor/MANIFEST.json recorded each package's version in two places a CVE/SBOM scanner reads — the structured components[].version sub-object and the cpe string — both hand-maintained alongside the human version string, so they could (and did) drift from the bundled code. @peculiar/x509's component version read 1.13.0 while the bundle shipped 2.0.0; @noble/curves' cpe read 0.0.0 while the bundle shipped 2.2.0. Either drift makes a scanner match advisories against the wrong version. Both are corrected to the shipped versions, and the durable fix is structural: scripts/vendor-update.sh now writes both the structured component versions and the cpe version from the ACTUALLY-INSTALLED package versions captured at bundle time, so a maintainer can no longer update one field and forget the other. A smoke-time manifest gate additionally fails the build if any component or cpe version disagrees with the package version, catching a manual drift before it ships."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Vendored Public Suffix List and @simplewebauthn/server refreshed",
+          "body": "The vendored Mozilla Public Suffix List is refreshed to the current upstream revision (used by b.publicSuffix for DMARC / BIMI / cookie-scope / same-site domain classification). @simplewebauthn/server is refreshed from 13.3.1 to 13.3.2, which improves WebAuthn attestation certificate-path validation; the published-tarball diff was reviewed (no install scripts, no network/eval, a self-contained code change) before re-vendoring."
+        }
+      ]
+    }
+  ]
+}

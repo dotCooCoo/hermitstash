@@ -156,7 +156,10 @@ module.exports = function (app) {
     if (existing.ownerId && (!req.user || existing.ownerId !== req.user._id)) throw new ForbiddenError("Forbidden.");
 
     var body = req.body || (await b.parsers.json(req)) || {};
-    var token = String(body.finalizeToken || req.query.finalizeToken || "");
+    // Body only — never accept the finalize secret from the query string (it would
+    // leak to access logs / proxies / Referer, CWE-598). Every client (web uploader
+    // + sync) sends it in the POST body.
+    var token = String(body.finalizeToken || "");
     var result = handleFinalize({
       bundleId: req.params.bundleId, token: token, sendUploaderEmail: true, req: req,
     });

@@ -6,8 +6,11 @@ var b = require("../../lib/vendor/blamejs");
 var hashPassword   = function (p) { return b.auth.password.hash(String(p)); };
 var verifyPassword = function (p, h) { return b.auth.password.verify(h, String(p)); };
 const {
-  sha3Hash, hashEmail, generateEncryptionKeyPair, encrypt, decrypt,
+  sha3Hash, hashEmail, generateEncryptionKeyPair, decrypt,
 } = require("../../lib/crypto");
+// encrypt() was retired from lib/crypto (the 0xE1 producer); the legacy blob is
+// built from the test-only constructor to verify decrypt still reads it.
+const { encryptLegacy0xE1: encrypt } = require("../helpers/legacy-envelope");
 
 describe("crypto module", function () {
   describe("SHA3-512 hashing", function () {

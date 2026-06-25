@@ -88,10 +88,17 @@ module.exports = function (app) {
       var input = validateLoginInput(body);
       if (input.error) throw new ValidationError(input.error);
 
-      // Account lockout check (pre-service, needs DB lookup for timing)
+      // Account lockout check (pre-service, needs DB lookup for timing).
+      // Parse once and fail CLOSED on a present-but-unparseable lockedUntil:
+      // `new Date(bad).getTime() > Date.now()` is `NaN > now` = false, which would
+      // silently lift an active lockout. A corrupt value keeps the account locked
+      // (the safe direction); the duration falls back to the standard 30-minute
+      // window since the real remaining time can't be computed.
       var existing = usersRepo.findByEmail(input.email);
-      if (existing && existing.lockedUntil && new Date(existing.lockedUntil).getTime() > Date.now()) {
-        var lockMinutes = Math.ceil((new Date(existing.lockedUntil).getTime() - Date.now()) / C.TIME.minutes(1));
+      var lockedUntilMs = existing && existing.lockedUntil ? Date.parse(existing.lockedUntil) : 0;
+      if (existing && existing.lockedUntil && (!Number.isFinite(lockedUntilMs) || lockedUntilMs > Date.now())) {
+        var remainingMs = Number.isFinite(lockedUntilMs) ? lockedUntilMs - Date.now() : C.TIME.minutes(30);
+        var lockMinutes = Math.ceil(remainingMs / C.TIME.minutes(1));
         audit.log(audit.ACTIONS.LOGIN_FAILED_BAD_PASSWORD, { targetId: existing._id, targetEmail: input.email, details: "Account locked (" + lockMinutes + " min remaining)", req: req });
         throw new ForbiddenError("Account temporarily locked. Try again in " + lockMinutes + " minutes.");
       }
@@ -101,8 +108,11 @@ module.exports = function (app) {
         user = await authService.authenticateLocal(input.email, input.password);
       } catch (err) {
         if (err.isAppError) {
-          // Track failed attempts for lockout (only if user exists)
-          if (err.statusCode === 401 && existing) {
+          // Track failed attempts for lockout (only if the user exists AND has a
+          // local password — a passwordless OAuth/passkey account can't be
+          // brute-forced here, so counting attempts only lets an attacker lock /
+          // pollute its state).
+          if (err.statusCode === 401 && existing && !err.noPassword) {
             // Atomic increment — a read-modify-write would let concurrent failed
             // attempts each read the same pre-write counter and slip past the
             // lockout threshold (TOCTOU bypass).

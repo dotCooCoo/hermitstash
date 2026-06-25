@@ -1089,12 +1089,14 @@ server.on("upgrade", function (req, socket, head) {
       if (certUtils.isPeerCertRevoked(peerCert)) {
         return rejectUpgrade(socket, 403, "Forbidden");
       }
-      // Check certificate expiry
-      if (peerCert.valid_to) {
-        var certExpiry = new Date(peerCert.valid_to);
-        if (certExpiry < new Date()) {
-          return rejectUpgrade(socket, 403, "Certificate expired");
-        }
+      // Check certificate expiry — fail CLOSED on a missing or unparseable
+      // valid_to. `new Date(bad) < new Date()` is false (Invalid Date compares
+      // false), which would silently admit an expired-or-malformed cert; a valid
+      // X.509 peer cert always carries a parseable notAfter, so treat anything
+      // else as expired.
+      var certExpiry = peerCert.valid_to ? Date.parse(peerCert.valid_to) : NaN;
+      if (!Number.isFinite(certExpiry) || certExpiry < Date.now()) {
+        return rejectUpgrade(socket, 403, "Certificate expired");
       }
     }
   }

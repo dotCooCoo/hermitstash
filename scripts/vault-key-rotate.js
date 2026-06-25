@@ -357,8 +357,14 @@ function runSchemaDriftCheck(oldKeys) {
   );
   var packed = fs.readFileSync(dbEnc);
   var plain = b.crypto.decryptPacked(packed, dbKey);
-  var tmpPath = path.join(path.dirname(DATA_DIR), ".schema-check-" + Date.now() + ".db");
-  fs.writeFileSync(tmpPath, plain);
+  // The schema-drift probe needs the FULLY DECRYPTED database on disk briefly.
+  // Write it owner-only and symlink-refusing (b.atomicFile.writeSync → O_EXCL |
+  // O_NOFOLLOW, 0o600) under DATA_DIR (HermitStash-controlled) with an
+  // unpredictable name — the old code wrote plaintext to a predictable
+  // .schema-check-<Date.now()>.db in the world-traversable PARENT of DATA_DIR
+  // with the umask default mode, exposing the entire plaintext DB.
+  var tmpPath = path.join(DATA_DIR, ".schema-check-" + b.crypto.generateToken(16) + ".db");
+  b.atomicFile.writeSync(tmpPath, plain, { fileMode: 0o600 });
   var db = new DatabaseSync(tmpPath);
   var result;
   try {
@@ -559,8 +565,12 @@ function printSuccess(dataOldDir, result) {
     clearMarker();
     printSuccess(dataOldDir, result);
   } catch (e) {
+    // Do NOT log e.stack here: the old/new vault keypairs and the decrypted DB key
+    // are live in this function's scope during rotation, and a thrown crypto error
+    // can carry a window of those bytes in its stack/detail (CWE-532). e.message is
+    // sanitized; surface only it plus the error code/name for diagnosis.
     console.error("FATAL: " + (e && e.message || String(e)));
-    if (e && e.stack) console.error(e.stack);
+    if (e && (e.code || e.name)) console.error("  (" + (e.code || e.name) + ")");
     // Attempt cleanup if staging exists
     if (fs.existsSync(ROTATING_DIR)) {
       console.error("[rotate] Cleaning up partial " + ROTATING_DIR);

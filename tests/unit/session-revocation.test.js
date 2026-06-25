@@ -1,69 +1,69 @@
 const { describe, it, before, after } = require("node:test");
 const assert = require("node:assert");
+const path = require("path");
+const fs = require("fs");
+const nodeCrypto = require("crypto");
+
+// Isolated test DB so the vault + session store load cleanly. Set before any
+// HermitStash module is required so lib/session wires its store against it.
+var testDbPath = path.join(__dirname, "..", "..", "data", "test-session-revoke-" + nodeCrypto.randomBytes(4).toString("hex") + ".db");
+process.env.HERMITSTASH_DB_PATH = testDbPath;
 
 var b = require("../../lib/vendor/blamejs");
+var vault = require("../../lib/vault");
 var session = require("../../lib/session");
 
-// clearSessionsForUser must absorb ONLY the post-DELETE stateless valid-from
-// bump failure — HS uses a pluggable session store (b.session.useStore) and
-// never calls b.db.init(), so destroyAllForUser deletes the store rows (the
-// only sessions HS has) and THEN throws while trying to raise the framework's
-// stateless valid-from boundary. That post-revocation throw is safe to swallow;
-// any error meaning the revocation itself failed MUST propagate.
-//
-// blamejs 0.15.x re-wraps that bump failure: the raw "db/not-initialized" is
-// caught and re-thrown as a SessionError("MISCONFIGURED", "...stateless
-// valid-from boundary...the store-backed rows were already deleted..."). The
-// swallow matches that re-wrap by its distinctive message — but NOT the OTHER
-// "MISCONFIGURED" throw (userIdHash derived-hash schema not registered), which
-// is a genuine misconfiguration and must surface.
-describe("session.clearSessionsForUser — revocation-failure swallow (blamejs#340 / 0.15.x re-wrap)", function () {
-  var orig;
-  before(function () { orig = b.session.destroyAllForUser; });
-  after(function () { b.session.destroyAllForUser = orig; });
+// clearSessionsForUser revokes every session for a user: b.session.destroyAllForUser
+// DELETEs the store-backed rows and raises the stateless valid-from boundary. As of
+// blamejs 0.15.16 that boundary write falls back to the configured session store
+// when no framework DB is initialized (HS's model — own DB lifecycle, store-verified
+// sessions, no b.db.init), so it resolves cleanly. The old post-delete swallow that
+// absorbed db/not-initialized / its MISCONFIGURED re-wrap is removed: a failure now
+// means the revocation itself failed and MUST propagate (fail closed).
+describe("session.clearSessionsForUser — real destroyAllForUser path (0.15.16+ store fallback)", function () {
+  before(async function () {
+    await vault.init();
+    require("../../lib/db");
+  });
 
-  function stub(fn) { b.session.destroyAllForUser = fn; }
+  after(function () {
+    ["", "-shm", "-wal", ".enc"].forEach(function (s) { try { fs.unlinkSync(testDbPath + s); } catch (_e) { /* best effort */ } });
+  });
 
   it("returns 0 for a falsy userId without calling the framework", async function () {
+    var orig = b.session.destroyAllForUser;
     var called = false;
-    stub(async function () { called = true; return 5; });
-    assert.strictEqual(await session.clearSessionsForUser(null), 0);
-    assert.strictEqual(called, false);
+    b.session.destroyAllForUser = async function () { called = true; return 5; };
+    try {
+      assert.strictEqual(await session.clearSessionsForUser(null), 0);
+      assert.strictEqual(called, false);
+    } finally { b.session.destroyAllForUser = orig; }
+  });
+
+  it("resolves cleanly against the real store-backed path (no swallow required)", async function () {
+    // The genuine 0.15.16+ path: a store-backed consumer with no b.db.init(). A user
+    // with no live sessions revokes to 0 without throwing the old db/not-initialized
+    // / MISCONFIGURED re-wrap the removed swallow used to absorb.
+    var n = await session.clearSessionsForUser("revoke-user-" + nodeCrypto.randomBytes(4).toString("hex"));
+    assert.strictEqual(typeof n, "number");
+    assert.ok(n >= 0);
   });
 
   it("passes through the revoked count on success", async function () {
-    stub(async function () { return 3; });
-    assert.strictEqual(await session.clearSessionsForUser("u1"), 3);
+    var orig = b.session.destroyAllForUser;
+    b.session.destroyAllForUser = async function () { return 3; };
+    try {
+      assert.strictEqual(await session.clearSessionsForUser("u1"), 3);
+    } finally { b.session.destroyAllForUser = orig; }
   });
 
-  it("absorbs the raw db/not-initialized post-delete bump (returns 0)", async function () {
-    stub(async function () { var e = new Error("db not initialized"); e.code = "db/not-initialized"; throw e; });
-    assert.strictEqual(await session.clearSessionsForUser("u1"), 0);
-  });
-
-  it("absorbs the 0.15.x MISCONFIGURED re-wrap of the post-delete bump (returns 0)", async function () {
-    stub(async function () {
-      var e = new Error(
-        "session.destroyAllForUser raises the stateless valid-from boundary (so a " +
-        "logout-everywhere also revokes sealed-cookie / JWT sessions), which requires " +
-        "b.db.init(). The store-backed rows were already deleted; rerun after b.db.init().");
-      e.code = "MISCONFIGURED"; e.isSessionError = true; throw e;
-    });
-    assert.strictEqual(await session.clearSessionsForUser("u1"), 0);
-  });
-
-  it("PROPAGATES the MISCONFIGURED userIdHash-schema-not-registered error (genuine misconfig)", async function () {
-    stub(async function () {
-      var e = new Error(
-        "session.destroyAllForUser: the session table's userIdHash derived-hash schema is " +
-        "not registered. It is registered during b.db.init().");
-      e.code = "MISCONFIGURED"; e.isSessionError = true; throw e;
-    });
-    await assert.rejects(function () { return session.clearSessionsForUser("u1"); }, /userIdHash derived-hash schema/);
-  });
-
-  it("PROPAGATES an unrelated error (the revocation itself failed)", async function () {
-    stub(async function () { var e = new Error("disk full"); e.code = "EIO"; throw e; });
-    await assert.rejects(function () { return session.clearSessionsForUser("u1"); }, /disk full/);
+  it("PROPAGATES a revocation failure (fail closed — never reports a failed revoke as 0)", async function () {
+    var orig = b.session.destroyAllForUser;
+    b.session.destroyAllForUser = async function () {
+      var e = new Error("store DELETE failed"); e.code = "store/io-error"; throw e;
+    };
+    try {
+      await assert.rejects(function () { return session.clearSessionsForUser("u1"); }, /store DELETE failed/);
+    } finally { b.session.destroyAllForUser = orig; }
   });
 });

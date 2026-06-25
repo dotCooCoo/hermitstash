@@ -11,7 +11,7 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
 
 ---
 
-## blamejs v0.15.14
+## blamejs v0.15.23
 
 - **License:** Apache-2.0
 - **Copyright:** blamejs contributors
@@ -58,7 +58,7 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
   SLH-DSA-SHAKE-256f / SLH-DSA-SHA2-256f (FIPS 205). Browser —
   ML-KEM-512/768/1024 (FIPS 203) key encapsulation only.
 
-## @simplewebauthn/server v13.3.1
+## @simplewebauthn/server v13.3.2
 
 - **License:** MIT
 - **Copyright:** (c) Matthew Miller
@@ -89,6 +89,22 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
 - **Source:** https://github.com/danielmiessler/SecLists
 - **Files:** `lib/vendor/blamejs/lib/vendor/common-passwords-top-10000.txt`
 - **Used for:** Breached/common-password rejection during password validation
+
+## publicsuffix-list
+
+- **License:** MPL-2.0
+- **Copyright:** Mozilla Foundation
+- **Source:** https://publicsuffix.org/list/public_suffix_list.dat
+- **Files:** `lib/vendor/blamejs/lib/vendor/public-suffix-list.dat`
+- **Used for:** Effective-TLD / organizational-domain derivation (DMARC, BIMI, cookie-scope, same-site) inside blamejs
+
+## bimi-trust-anchors
+
+- **License:** BIMI Group / per-issuer
+- **Copyright:** BIMI Group / DigiCert / Entrust
+- **Source:** https://bimigroup.org/
+- **Files:** `lib/vendor/blamejs/lib/vendor/bimi-trust-anchors.pem`
+- **Used for:** RFC 9091 BIMI VMC/CMC trust-anchor bundle (operator-managed; ships empty by default) inside blamejs
 
 Argon2id password hashing uses Node 24+'s built-in `crypto.argon2` (via
 blamejs's `lib/argon2-builtin.js` wrapper) — a platform primitive, not a

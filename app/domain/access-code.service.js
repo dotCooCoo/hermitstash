@@ -2,7 +2,6 @@
  * Shared email access-code request / verify logic for bundles and stash pages.
  */
 var b = require("../../lib/vendor/blamejs");
-var nodeCrypto = require("node:crypto");
 var { HASH_PREFIX, TIME } = require("../../lib/constants");
 var fieldCrypto = require("../../lib/field-crypto");
 var accessCodesRepo = require("../data/repositories/bundleAccessCodes.repo");
@@ -34,7 +33,7 @@ async function requestCode(opts) {
 
   accessCodesRepo.invalidatePending(shareId, emailHash);
 
-  var codeNum = nodeCrypto.randomInt(0, 1000000);
+  var codeNum = b.crypto.randomInt(0, 1000000);
   var code = String(codeNum).padStart(6, "0");
 
   accessCodesRepo.create({
@@ -76,7 +75,13 @@ function verifyCode(opts) {
   // unkeyed digest here would never match the stored keyed digest, silently
   // killing the whole email-access-code gate (the v1.12.0 keyed-index drift).
   var emailHash = fieldCrypto.derivedKeyed(HASH_PREFIX.EMAIL, email, true);
+  // Compute the submitted-code hash unconditionally so the no-pending-code path
+  // and the wrong-code path pay the same derive cost (no timing oracle for which
+  // emails have a code outstanding).
+  var submittedHash = fieldCrypto.derivedKeyed(HASH_PREFIX.ACCESS_CODE, code, false);
   var codeRecord = accessCodesRepo.findPendingCode(shareId, emailHash);
+  // Identical message + status for "no pending code" and "wrong code": a distinct
+  // message/shape would let an attacker probe which emails have a code in flight.
   if (!codeRecord) {
     return { success: false, error: "Invalid or expired code.", status: 401 };
   }
@@ -85,10 +90,9 @@ function verifyCode(opts) {
     return { success: false, error: "Too many attempts. Request a new code.", status: 429 };
   }
 
-  var submittedHash = fieldCrypto.derivedKeyed(HASH_PREFIX.ACCESS_CODE, code, false);
   if (!b.crypto.timingSafeEqual(submittedHash, codeRecord.codeHash)) {
     accessCodesRepo.update(codeRecord._id, { $set: { attempts: codeRecord.attempts + 1 } });
-    return { success: false, error: "Incorrect code.", status: 401, attempts: codeRecord.attempts + 1 };
+    return { success: false, error: "Invalid or expired code.", status: 401 };
   }
 
   accessCodesRepo.update(codeRecord._id, { $set: { status: "used" } });

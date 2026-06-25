@@ -10,6 +10,14 @@ function create(doc) { return customerStash.insert(doc); }
 function update(id, ops) { return customerStash.update({ _id: id }, ops); }
 function remove(id) { return customerStash.remove({ _id: id }); }
 
+function incrementBundleStats(stashId, totalSize) {
+  // Atomic increment (single UPDATE) so concurrent finalizes for the same stash
+  // can't lose an increment via a read-modify-write (findById then update) race.
+  // bundleCount/totalBytes are raw INTEGER columns (not vault-sealed), so raw SQL
+  // is safe.
+  rawExec("UPDATE customer_stash SET bundleCount = COALESCE(bundleCount, 0) + 1, totalBytes = COALESCE(totalBytes, 0) + ? WHERE _id = ?", totalSize || 0, stashId);
+}
+
 function decrementBundleStats(stashId, totalSize) {
   // Atomic decrement (single UPDATE) so concurrent bundle deletes for the same
   // stash can't lose a decrement via read-modify-write. bundleCount/totalBytes
@@ -21,4 +29,4 @@ function decrementBytes(stashId, bytes) {
   rawExec("UPDATE customer_stash SET totalBytes = MAX(0, COALESCE(totalBytes, 0) - ?) WHERE _id = ?", bytes || 0, stashId);
 }
 
-module.exports = { findById, findBySlug, findAll, create, update, remove, decrementBundleStats, decrementBytes };
+module.exports = { findById, findBySlug, findAll, create, update, remove, incrementBundleStats, decrementBundleStats, decrementBytes };

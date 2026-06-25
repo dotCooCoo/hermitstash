@@ -1,6 +1,5 @@
-const { describe, it, mock } = require("node:test");
+const { describe, it } = require("node:test");
 const assert = require("node:assert");
-const dns = require("node:dns");
 const b = require("../../lib/vendor/blamejs");
 
 var { isPrivateIp, isPrivateHost, validateOutboundUrl } = require("../../app/security/ssrf-policy");
@@ -100,7 +99,7 @@ describe("ssrf-policy — isPrivateHost", function () {
   });
 
   it("does not block a literal public IP", async function () {
-    assert.deepStrictEqual(await isPrivateHost("8.8.8.8"), { blocked: false });
+    assert.deepStrictEqual(await isPrivateHost("8.8.8.8"), { blocked: false, address: "8.8.8.8", family: 4 });
   });
 
   it("blocks the metadata.google.internal name (pre-DNS denylist)", async function () {
@@ -132,65 +131,43 @@ describe("ssrf-policy — isPrivateHost", function () {
     assert.strictEqual(result.blocked, true);
   });
 
+  // isPrivateHost delegates resolution + classification to b.ssrfGuard.checkUrl;
+  // tests inject a fixture resolver via the dnsLookup option (dns.lookup-shaped).
   it("blocks if ANY resolved address is private (DNS-rebinding defence)", async function () {
-    mock.method(dns, "lookup", function (host, opts, cb) {
-      // One public + one private — the presence of a single internal
-      // address must refuse the whole host.
-      cb(null, [{ address: "93.184.216.34", family: 4 }, { address: "10.1.2.3", family: 4 }]);
-    });
-    try {
-      assert.deepStrictEqual(await isPrivateHost("rebind.example"), { blocked: true });
-    } finally {
-      mock.restoreAll();
-    }
+    // checkUrl's dnsLookup override is a single-arg resolver returning a Promise
+    // of [{ address, family }] (the b.network.dns shape), not a node:dns callback.
+    var lookup = function () {
+      // One public + one private — the presence of a single internal address
+      // must refuse the whole host.
+      return Promise.resolve([{ address: "93.184.216.34", family: 4 }, { address: "10.1.2.3", family: 4 }]);
+    };
+    assert.deepStrictEqual(await isPrivateHost("rebind.example", { dnsLookup: lookup }), { blocked: true });
   });
 
   it("returns the pinned address + family on a clean public resolve (TOCTOU contract)", async function () {
-    mock.method(dns, "lookup", function (host, opts, cb) {
-      cb(null, [{ address: "93.184.216.34", family: 4 }]);
-    });
-    try {
-      assert.deepStrictEqual(
-        await isPrivateHost("public.example"),
-        { blocked: false, address: "93.184.216.34", family: 4 }
-      );
-    } finally {
-      mock.restoreAll();
-    }
+    var lookup = function () { return Promise.resolve([{ address: "93.184.216.34", family: 4 }]); };
+    assert.deepStrictEqual(
+      await isPrivateHost("public.example", { dnsLookup: lookup }),
+      { blocked: false, address: "93.184.216.34", family: 4 }
+    );
   });
 
   it("carries family:6 through on a clean public IPv6 resolve (pin contract)", async function () {
-    mock.method(dns, "lookup", function (host, opts, cb) {
-      cb(null, [{ address: "2606:4700:4700::1111", family: 6 }]);
-    });
-    try {
-      assert.deepStrictEqual(
-        await isPrivateHost("public6.example"),
-        { blocked: false, address: "2606:4700:4700::1111", family: 6 }
-      );
-    } finally {
-      mock.restoreAll();
-    }
+    var lookup = function () { return Promise.resolve([{ address: "2606:4700:4700::1111", family: 6 }]); };
+    assert.deepStrictEqual(
+      await isPrivateHost("public6.example", { dnsLookup: lookup }),
+      { blocked: false, address: "2606:4700:4700::1111", family: 6 }
+    );
   });
 
   it("blocks a hostname that resolves to the ECS metadata IP (169.254.170.2 — not in the name denylist)", async function () {
-    mock.method(dns, "lookup", function (host, opts, cb) {
-      cb(null, [{ address: "169.254.170.2", family: 4 }]);
-    });
-    try {
-      assert.deepStrictEqual(await isPrivateHost("ecs-rebind.example"), { blocked: true });
-    } finally {
-      mock.restoreAll();
-    }
+    var lookup = function () { return Promise.resolve([{ address: "169.254.170.2", family: 4 }]); };
+    assert.deepStrictEqual(await isPrivateHost("ecs-rebind.example", { dnsLookup: lookup }), { blocked: true });
   });
 
   it("blocks when DNS resolution fails (fail closed)", async function () {
-    mock.method(dns, "lookup", function (host, opts, cb) { cb(new Error("ENOTFOUND")); });
-    try {
-      assert.deepStrictEqual(await isPrivateHost("nxdomain.example"), { blocked: true });
-    } finally {
-      mock.restoreAll();
-    }
+    var lookup = function () { return Promise.reject(new Error("ENOTFOUND")); };
+    assert.deepStrictEqual(await isPrivateHost("nxdomain.example", { dnsLookup: lookup }), { blocked: true });
   });
 });
 

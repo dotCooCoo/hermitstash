@@ -2,7 +2,7 @@ const { describe, it } = require("node:test");
 const assert = require("node:assert");
 var { encryptPayload, decryptPayload, generateApiKey } = require("../../lib/api-crypto");
 
-describe("api-crypto (AES-256-GCM payload encryption)", function () {
+describe("api-crypto (XChaCha20-Poly1305 payload encryption)", function () {
   it("generateApiKey returns 32-byte base64url key", function () {
     var key = generateApiKey();
     assert.ok(key.length > 30, "key should be substantial");
@@ -32,7 +32,7 @@ describe("api-crypto (AES-256-GCM payload encryption)", function () {
     var data = { same: true };
     var e1 = encryptPayload(data, key);
     var e2 = encryptPayload(data, key);
-    assert.notStrictEqual(e1, e2, "random IV should produce different output");
+    assert.notStrictEqual(e1, e2, "random nonce should produce different output");
   });
 
   it("wrong key fails decryption", function () {

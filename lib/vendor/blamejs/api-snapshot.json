@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.15.15",
-  "createdAt": "2026-06-22T00:16:09.227Z",
+  "frameworkVersion": "0.15.23",
+  "createdAt": "2026-06-25T09:00:42.816Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -2346,6 +2346,10 @@
           "type": "function",
           "arity": 3
         },
+        "openAppendNoFollowSync": {
+          "type": "function",
+          "arity": 2
+        },
         "openNoFollowSync": {
           "type": "function",
           "arity": 2
@@ -2557,6 +2561,10 @@
         "anchor": {
           "type": "function",
           "arity": 2
+        },
+        "fingerprintOf": {
+          "type": "function",
+          "arity": 1
         },
         "getAlgorithm": {
           "type": "function",
@@ -4725,6 +4733,10 @@
               "type": "instance",
               "ctorName": "Array"
             },
+            "VERIFY_ONLY_ALGORITHMS": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
             "compute": {
               "type": "function",
               "arity": 3
@@ -4997,6 +5009,10 @@
           "type": "function",
           "arity": 1
         },
+        "signBytes": {
+          "type": "function",
+          "arity": 1
+        },
         "signingPayload": {
           "type": "function",
           "arity": 1
@@ -5004,6 +5020,10 @@
         "validate": {
           "type": "function",
           "arity": 1
+        },
+        "verifyBytes": {
+          "type": "function",
+          "arity": 3
         },
         "verifySignature": {
           "type": "function",
@@ -6769,6 +6789,180 @@
         "parseSignedData": {
           "type": "function",
           "arity": 2
+        }
+      }
+    },
+    "codepointClass": {
+      "type": "object",
+      "members": {
+        "BIDI_RANGES": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "BIDI_RE": {
+          "type": "instance",
+          "ctorName": "RegExp"
+        },
+        "BIDI_RE_G": {
+          "type": "instance",
+          "ctorName": "RegExp"
+        },
+        "BOM_CHAR": {
+          "type": "primitive",
+          "valueType": "string"
+        },
+        "C0_CTRL_RANGES": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "C0_CTRL_RE": {
+          "type": "instance",
+          "ctorName": "RegExp"
+        },
+        "C0_CTRL_RE_G": {
+          "type": "instance",
+          "ctorName": "RegExp"
+        },
+        "HEX_PAIR_RE": {
+          "type": "instance",
+          "ctorName": "RegExp"
+        },
+        "NULL_BYTE": {
+          "type": "primitive",
+          "valueType": "string"
+        },
+        "NULL_RE_G": {
+          "type": "instance",
+          "ctorName": "RegExp"
+        },
+        "SCRIPT_RANGES": {
+          "type": "object",
+          "members": {
+            "arabic": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "armenian": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "cherokee": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "cyrillic": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "greek": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "han": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "hangul": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "hebrew": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "hiragana": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "katakana": {
+              "type": "instance",
+              "ctorName": "Array"
+            },
+            "latin": {
+              "type": "instance",
+              "ctorName": "Array"
+            }
+          }
+        },
+        "TAG_RANGES": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "TAG_RE": {
+          "type": "instance",
+          "ctorName": "RegExp"
+        },
+        "TAG_RE_G": {
+          "type": "instance",
+          "ctorName": "RegExp"
+        },
+        "ZERO_WIDTH_RANGES": {
+          "type": "instance",
+          "ctorName": "Array"
+        },
+        "ZERO_WIDTH_RE": {
+          "type": "instance",
+          "ctorName": "RegExp"
+        },
+        "ZW_RE_G": {
+          "type": "instance",
+          "ctorName": "RegExp"
+        },
+        "applyCharStripPolicies": {
+          "type": "function",
+          "arity": 2
+        },
+        "assertNoCharThreats": {
+          "type": "function",
+          "arity": 4
+        },
+        "charClass": {
+          "type": "function",
+          "arity": 1
+        },
+        "decodeNumericEntities": {
+          "type": "function",
+          "arity": 1
+        },
+        "detectCharThreats": {
+          "type": "function",
+          "arity": 4
+        },
+        "detectMixedScripts": {
+          "type": "function",
+          "arity": 2
+        },
+        "escapeRegExp": {
+          "type": "function",
+          "arity": 1
+        },
+        "firstControlCharOffset": {
+          "type": "function",
+          "arity": 2
+        },
+        "fromCp": {
+          "type": "function",
+          "arity": 1
+        },
+        "hex4": {
+          "type": "function",
+          "arity": 1
+        },
+        "isAsciiAlnum": {
+          "type": "function",
+          "arity": 1
+        },
+        "isForbiddenControlChar": {
+          "type": "function",
+          "arity": 2
+        },
+        "isUnreserved": {
+          "type": "function",
+          "arity": 1
+        },
+        "scriptFor": {
+          "type": "function",
+          "arity": 1
         }
       }
     },
@@ -16059,6 +16253,10 @@
         "shutdown": {
           "type": "function",
           "arity": 0
+        },
+        "supportsTransactions": {
+          "type": "function",
+          "arity": 1
         },
         "transaction": {
           "type": "function",
@@ -40399,6 +40597,10 @@
           "type": "function",
           "arity": 1
         },
+        "enterRequestId": {
+          "type": "function",
+          "arity": 1
+        },
         "getRequestId": {
           "type": "function",
           "arity": 0
@@ -49211,9 +49413,13 @@
           "type": "function",
           "arity": 1
         },
+        "ipKey": {
+          "type": "function",
+          "arity": 2
+        },
         "ipPrefix": {
           "type": "function",
-          "arity": 1
+          "arity": 2
         },
         "makeResourceAuditEmitter": {
           "type": "function",
@@ -49228,6 +49434,10 @@
           "arity": 2
         },
         "parseQualityList": {
+          "type": "function",
+          "arity": 2
+        },
+        "requestHost": {
           "type": "function",
           "arity": 2
         },
@@ -49248,6 +49458,10 @@
           "arity": 1
         },
         "trustedClientIp": {
+          "type": "function",
+          "arity": 1
+        },
+        "trustedHost": {
           "type": "function",
           "arity": 1
         },
@@ -52338,6 +52552,10 @@
           "type": "function",
           "arity": 3
         },
+        "casWon": {
+          "type": "function",
+          "arity": 1
+        },
         "cast": {
           "type": "function",
           "arity": 2
@@ -52410,6 +52628,10 @@
         "fn": {
           "type": "function",
           "arity": 1
+        },
+        "guardedUpdate": {
+          "type": "function",
+          "arity": 2
         },
         "insert": {
           "type": "function",

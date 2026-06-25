@@ -292,10 +292,15 @@ module.exports = function (app) {
     var doc = filesRepo.findCompleteByShareId(req.params.fileShareId);
     if (!doc || doc.bundleShareId !== req.params.shareId) { res.writeHead(404); return res.end("Not found"); }
     if (doc.expiresAt && doc.expiresAt < new Date().toISOString()) { res.writeHead(410); return res.end("File expired"); }
-    // Enforce bundle expiry + access protection on single file downloads
+    // Enforce bundle expiry + access protection on single file downloads. A file
+    // row can outlive its bundle (orphaned after a bundle delete); without the
+    // parent its access protection (password / expiry / lock) can't be evaluated,
+    // and `parentBundle && isBundleLocked(...)` would short-circuit to false and
+    // serve the file unprotected — so refuse when the parent is gone.
     var parentBundle = bundlesRepo.findByShareId(req.params.shareId);
+    if (!parentBundle) { res.writeHead(404); return res.end("Not found"); }
     if (isBundleExpired(parentBundle)) { res.writeHead(410); return res.end("Bundle expired"); }
-    if (parentBundle && isBundleLocked(parentBundle, req.session)) {
+    if (isBundleLocked(parentBundle, req.session)) {
       res.writeHead(401); return res.end("Access restricted");
     }
     filesRepo.incrementDownloads(doc._id);

@@ -1,6 +1,7 @@
 var nodeFs = require("node:fs");
 var fsp = require("fs/promises");
 var nodePath = require("node:path");
+var b = require("../../../lib/vendor/blamejs");
 var config = require("../../../lib/config");
 var S3Client = require("../../../lib/s3-client");
 var storage = require("../../../lib/storage");
@@ -70,10 +71,11 @@ async function migrateStorage(direction, progressCb) {
         if (!nodeFs.existsSync(localPath)) {
           throw new Error("Local file not found: " + sp);
         }
-        // Async I/O so the event loop stays responsive during large migrations.
-        // Previously used readFileSync which blocked per file — admin UI and
-        // concurrent requests stalled on corpora with many files.
-        var data = await fsp.readFile(localPath);
+        // Async + symlink-refusing read. b.atomicFile.read opens O_NOFOLLOW (so a
+        // symlink planted at the predictable upload path can't redirect the read
+        // to an arbitrary file that would then be uploaded to S3) and stays async
+        // so the event loop is responsive during large migrations.
+        var data = await b.atomicFile.read(localPath);
 
         // Derive the S3 key from the relative path
         var s3Key = sp;
@@ -115,11 +117,19 @@ async function migrateStorage(direction, progressCb) {
         // Download raw ciphertext from S3
         var data = await s3.getBuffer(s3Key);
 
-        // Write to local disk (async — see note above on responsiveness)
-        var localPath = nodePath.join(uploadDir, s3Key);
+        // Resolve + validate the local destination. s3Key derives from the DB
+        // storagePath; resolveLocalPath refuses any value that escapes uploadDir
+        // (a `../`-laden key would otherwise let an S3→local migration write
+        // outside the upload root).
+        var destResolved = storage.resolveLocalPath(s3Key);
+        if (!destResolved.ok) throw new Error(destResolved.reason);
+        var localPath = destResolved.absPath;
         var dir = nodePath.dirname(localPath);
         if (!nodeFs.existsSync(dir)) await fsp.mkdir(dir, { recursive: true });
-        await fsp.writeFile(localPath, data);
+        // Atomic, symlink-refusing write (temp + fsync + rename, O_EXCL|O_NOFOLLOW)
+        // so a planted symlink at the destination can't redirect the write and a
+        // crash/concurrent read never observes a torn file.
+        await b.atomicFile.write(localPath, data);
 
         // Update DB record with local path
         filesRepo.update(file._id, { $set: { storagePath: s3Key } });

@@ -18,7 +18,7 @@
       "hashes": {
         "server": "sha256:5d539dfc9ef47121d4c09bd7256d76448a1f5ac47ee09ac44c78ff6a062af9ab"
       },
-      "refreshedAt": "2026-06-20T04:17:15.833Z"
+      "refreshedAt": "2026-06-25T02:57:00.483Z"
     },
     "@noble/curves": {
       "version": "2.2.0",
@@ -36,11 +36,11 @@
       },
       "bundler": "esbuild --format=cjs --minify --platform=node",
       "bundledAt": "2026-05-26T00:00:00Z",
-      "cpe": "cpe:2.3:a:paulmillr:noble-curves:0.0.0:*:*:*:*:node.js:*:*",
+      "cpe": "cpe:2.3:a:paulmillr:noble-curves:2.2.0:*:*:*:*:node.js:*:*",
       "hashes": {
         "server": "sha256:ebf254d5eb56aef8705a1c4af9603f47987b4870a9bb5e657e06907b701e2731"
       },
-      "refreshedAt": "2026-06-20T04:17:15.833Z"
+      "refreshedAt": "2026-06-25T02:57:00.483Z"
     },
     "@noble/post-quantum": {
       "version": "0.6.1",
@@ -71,10 +71,10 @@
       "hashes": {
         "server": "sha256:f9190309daadca4c2e2cc2b76beaa6b96e463429cc3c390bd9f0ceaf7b588c68"
       },
-      "refreshedAt": "2026-06-20T04:17:15.833Z"
+      "refreshedAt": "2026-06-25T02:57:00.483Z"
     },
     "@simplewebauthn/server": {
-      "version": "13.3.1",
+      "version": "13.3.2",
       "license": "MIT",
       "author": "Matthew Miller",
       "source": "https://github.com/MasterKale/SimpleWebAuthn",
@@ -89,12 +89,12 @@
         "server": "lib/vendor/simplewebauthn-server.cjs"
       },
       "bundler": "esbuild --format=cjs --minify --platform=node --external:crypto --external:node:crypto",
-      "bundledAt": "2026-05-27T00:00:00Z",
-      "cpe": "cpe:2.3:a:simplewebauthn:server:13.3.1:*:*:*:*:node.js:*:*",
+      "bundledAt": "2026-06-24T00:00:00Z",
+      "cpe": "cpe:2.3:a:simplewebauthn:server:13.3.2:*:*:*:*:node.js:*:*",
       "hashes": {
-        "server": "sha256:f359a782ac57e3ff56ac71083d17f5c082f88ab49d645fc2bede398b47adebdb"
+        "server": "sha256:49411d893f5e9b0e2fcaa564b4ec7921f73a9a06229b5e53d49c1453ea1a365c"
       },
-      "refreshedAt": "2026-06-20T04:17:15.833Z"
+      "refreshedAt": "2026-06-25T02:57:00.483Z"
     },
     "SecLists-common-passwords-top-10000": {
       "version": "10k-most-common (master)",
@@ -114,7 +114,7 @@
       },
       "runtime_artifact": "lib/vendor/common-passwords-top-10000.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-06-20T04:17:15.833Z"
+      "refreshedAt": "2026-06-25T02:57:00.483Z"
     },
     "bimi-trust-anchors": {
       "version": "operator-managed",
@@ -139,7 +139,7 @@
       },
       "runtime_artifact": "lib/vendor/bimi-trust-anchors.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-06-20T04:17:15.833Z"
+      "refreshedAt": "2026-06-25T02:57:00.483Z"
     },
     "publicsuffix-list": {
       "version": "master",
@@ -152,14 +152,14 @@
         "data_js": "lib/vendor/public-suffix-list.data.js"
       },
       "bundler": "curl https://publicsuffix.org/list/public_suffix_list.dat",
-      "bundledAt": "2026-05-13T00:00:00Z",
+      "bundledAt": "2026-06-24T00:00:00Z",
       "hashes": {
-        "server": "sha256:927884952ea8857ba3608eefe617f3c8acd63ad94be7b0bfb7586632cfc59560",
-        "data_js": "sha256:c2f67f5e7f7306eb5ec26548ea275673c652cfdd830b909fd63ed2b39e4838f6"
+        "server": "sha256:42c4f3544726fa2feb4f304c889c5e391feb5d28080c9b6356ff82e267a93706",
+        "data_js": "sha256:c840d9ae5c6bf4a07967340a5c649df2c6a66a287db41e408461c46cc32348e6"
       },
       "runtime_artifact": "lib/vendor/public-suffix-list.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-06-20T04:17:15.833Z"
+      "refreshedAt": "2026-06-25T02:57:00.483Z"
     },
     "peculiar-pki": {
       "version": "2.0.0+pkijs-3.4.0",
@@ -170,7 +170,7 @@
       "components": {
         "@peculiar/x509": {
           "url": "https://github.com/PeculiarVentures/x509",
-          "version": "1.13.0"
+          "version": "2.0.0"
         },
         "pkijs": {
           "url": "https://github.com/PeculiarVentures/PKI.js",
@@ -190,7 +190,7 @@
       "hashes": {
         "server": "sha256:9bbc191afaaa2b1e5757f00480457c08134cdc2c55d541df18d9155bba9cbf77"
       },
-      "refreshedAt": "2026-06-20T04:17:15.833Z"
+      "refreshedAt": "2026-06-25T02:57:00.483Z"
     }
   }
 }

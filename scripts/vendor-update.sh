@@ -287,7 +287,11 @@ ENTRY
     DEST="lib/vendor/blamejs"
     # Cross-platform wipe via Node — tolerant of Windows-mangled paths
     # like "C\357\200\272" (U+F03A) that have escaped from upstream tests.
-    node -e "var fs=require('fs');fs.rmSync('$DEST',{recursive:true,force:true});fs.mkdirSync('$DEST',{recursive:true});"
+    # maxRetries/retryDelay ride out the transient EBUSY/EPERM a file-syncing
+    # agent (Dropbox/OneDrive) plants on the tree mid-wipe — the same retry the
+    # temp-clone cleanup below relies on, so a locked tree retries instead of
+    # aborting the run with MANIFEST un-updated.
+    node -e "var fs=require('fs');fs.rmSync('$DEST',{recursive:true,force:true,maxRetries:10,retryDelay:200});fs.mkdirSync('$DEST',{recursive:true});"
 
     # Shallow clone of the tag, then snapshot the working tree into
     # $DEST while filtering paths we never want vendored:
@@ -355,6 +359,15 @@ if (m.packages[pkg]) {
   console.log('Warning: ' + pkg + ' not in MANIFEST.json — add it manually');
 }
 "
+
+# Project the vendored blamejs tree's own dependency manifest into the
+# top-level SBOM (packages.blamejs.components) so Trivy / Grype scan an
+# accurate, complete inventory. blamejs bumps that bundle a nested version or
+# add a bundled package; this keeps the top-level mirror in lock-step with what
+# is actually on disk instead of relying on a hand-edit that silently drifts.
+if [ "$PKG" = "blamejs" ]; then
+  node scripts/refresh-blamejs-sbom.js
+fi
 
 # Remove npm package
 npm uninstall "$PKG" --no-save 2>/dev/null || true

@@ -19,7 +19,6 @@
  * the validated IP (TOCTOU defence against a rebind between check and
  * connect).
  */
-var dns = require("node:dns");
 var net = require("node:net");
 var b = require("../../lib/vendor/blamejs");
 
@@ -54,26 +53,37 @@ function isPrivateIp(ip) {
  * { blocked, address?, family? }; on a clean result, address/family pin
  * the validated IP for the caller's connect (TOCTOU defence).
  */
-function isPrivateHost(hostname) {
-  if (!hostname) return Promise.resolve({ blocked: true });
-  var h = String(hostname).toLowerCase().replace(/\.+$/, "");
+async function isPrivateHost(hostname, opts) {
+  if (!hostname) return { blocked: true };
+  // Strip IPv6 brackets (b.safeUrl.parse returns IPv6 hostnames bracketed) and a
+  // trailing dot before the name comparison.
+  var h = String(hostname).toLowerCase().replace(/^\[|\]$/g, "").replace(/\.+$/, "");
 
   for (var i = 0; i < DENIED_HOSTNAMES.length; i++) {
-    if (h === DENIED_HOSTNAMES[i]) return Promise.resolve({ blocked: true });
+    if (h === DENIED_HOSTNAMES[i]) return { blocked: true };
   }
 
-  // Literal IP — check directly, no DNS required.
-  if (net.isIP(h)) return Promise.resolve({ blocked: isPrivateIp(h) });
-
-  return new Promise(function (resolve) {
-    dns.lookup(h, { all: true }, function (err, addresses) {
-      if (err || !addresses || addresses.length === 0) return resolve({ blocked: true });
-      for (var j = 0; j < addresses.length; j++) {
-        if (isPrivateIp(addresses[j].address)) return resolve({ blocked: true });
-      }
-      resolve({ blocked: false, address: addresses[0].address, family: addresses[0].family });
+  // Delegate resolution + classification to the framework gate. b.ssrfGuard.checkUrl
+  // resolves through b.network.dns (DoH-aware, with a 10s wall-clock deadline that
+  // tears the socket down — the SAME resolver b.httpClient dials, so this pre-check
+  // and the eventual connect agree on the address set), canonicalizes the host
+  // (folds every IPv6 spelling, strips brackets), classifies every resolved address,
+  // and throws on the first non-public / cloud-metadata class. The hand-rolled
+  // node:dns.lookup it replaces had no deadline (DoS-hang), used the system resolver
+  // (could disagree with the DoH connect), and didn't strip IPv6 brackets.
+  var hostForUrl = net.isIP(h) === 6 ? "[" + h + "]" : h;
+  try {
+    // opts.dnsLookup overrides the resolver (tests inject a fixture); production
+    // passes nothing so checkUrl uses b.network.dns / native lookup.
+    var res = await b.ssrfGuard.checkUrl("https://" + hostForUrl, {
+      allowInternal: false,
+      dnsLookup: opts && opts.dnsLookup,
     });
-  });
+    var ip = res.ips && res.ips[0];
+    return { blocked: false, address: ip && ip.address, family: ip && ip.family };
+  } catch (_e) {
+    return { blocked: true };
+  }
 }
 
 /**

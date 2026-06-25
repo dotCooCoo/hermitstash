@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.15.22",
+  "date": "2026-06-24",
+  "headline": "Internal test-harness reliability only — the published library is byte-for-byte identical to 0.15.21",
+  "summary": "This release changes only the repository's own test harness and test files; nothing under the shipped tarball (index.js, bin/, lib/) is touched, so the API, behavior, and published files are identical to 0.15.21 and operators have nothing to do. The smoke worker now attributes a fire-and-forget failure — an unawaited promise or an unreleased handle (a retry timer, a shutdown wait, a watcher/reload restart) that throws AFTER a test's assertions already passed — to the exact test that caused it and retries it once, instead of the prior unattributable, intermittent failure that only surfaced on a resource-starved CI runner. Five test files that invoked their run() at module scope (re-running and, in some cases, exiting the worker before it could report a result) are corrected to run only under require.main === module, and a test-discipline check keeps the pattern from returning. An opt-in handle-leak audit (SMOKE_AUDIT_HANDLES) surfaces tests that hold a timer / socket / server / worker past completion, for a follow-up cleanup pass.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Smoke test harness attributes late-async-error failures and fixes module-level test self-execution",
+          "body": "The forked smoke worker installs unhandledRejection / uncaughtException handlers and a settle tick so a failure that fires after a test's assertions pass — a leaked handle's callback or an unawaited promise from retry / shutdown / reload logic — is reported against the test that caused it and retried once (a transient passes, a persistent one fails again and names the bug), replacing the prior intermittent, unattributable 'fork failed' that only appeared on a starved CI runner. Five test files (two integration, three layer-0, plus two wiki-suite harnesses) that called run() at module scope are corrected to execute only under require.main === module so they no longer double-run or exit the worker prematurely when required, and a codebase-patterns test-discipline detector prevents the unguarded-module-level-run shape from recurring. A SMOKE_AUDIT_HANDLES opt-in reports per-file handle leaks for a tracked cleanup. None of this is in the published package."
+        }
+      ]
+    }
+  ]
+}

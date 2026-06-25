@@ -165,6 +165,23 @@ jobs:
             } >> "$GITHUB_OUTPUT"
           fi
 
+      # Resolve the rolling Chainguard base tags to concrete digests ONCE,
+      # here, and feed them to BOTH the local Trivy build and the multi-arch
+      # push below via build-args. This makes the scanned image identical to
+      # the published one (no window for Chainguard to move :latest between the
+      # two separate builds, and the arm64 variant comes from the same base
+      # index Trivy scanned) WITHOUT committing a digest pin that goes stale and
+      # trips the release gate. The digest is fresh (current CVE patches).
+      - name: Resolve base image digests (scan == publish)
+        id: bases
+        run: |
+          set -euo pipefail
+          deps=$(docker buildx imagetools inspect cgr.dev/chainguard/node:latest-dev --format '{{.Manifest.Digest}}')
+          runtime=$(docker buildx imagetools inspect cgr.dev/chainguard/node:latest --format '{{.Manifest.Digest}}')
+          echo "deps=cgr.dev/chainguard/node:latest-dev@${deps}" >> "$GITHUB_OUTPUT"
+          echo "runtime=cgr.dev/chainguard/node:latest@${runtime}" >> "$GITHUB_OUTPUT"
+          echo "Resolved deps=${deps}, runtime=${runtime}"
+
       # Build the image into the local Docker daemon (load: true) so
       # Trivy can scan it. We push only after both Trivy steps pass.
       # Note: load: true forces single-arch (amd64). The multi-arch
@@ -174,6 +191,9 @@ jobs:
         with:
           context: .
           file: examples/wiki/Dockerfile
+          build-args: |
+            BASE_DEPS=${{ steps.bases.outputs.deps }}
+            BASE_RUNTIME=${{ steps.bases.outputs.runtime }}
           load: true
           push: false
           tags: |
@@ -222,6 +242,9 @@ jobs:
         with:
           context: .
           file: examples/wiki/Dockerfile
+          build-args: |
+            BASE_DEPS=${{ steps.bases.outputs.deps }}
+            BASE_RUNTIME=${{ steps.bases.outputs.runtime }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |

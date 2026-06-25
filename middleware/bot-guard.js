@@ -29,6 +29,7 @@ var b = require("../lib/vendor/blamejs");
 module.exports = b.middleware.botGuard({
   mode: "block",
   onlyForHtml: true,
+  problemDetails: true, // emit the 403 as RFC 9457 application/problem+json, not a text/plain "Forbidden"
   skipPaths: [
     "/health",          // health probes
     "/sitemap.xml",     // crawlers

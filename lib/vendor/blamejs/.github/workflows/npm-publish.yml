@@ -144,7 +144,9 @@ jobs:
           severity: error
 
       - name: Install devDependencies (esbuild + postject for bundler-output smoke gate)
-        run: npm install --no-audit --no-fund --no-save esbuild postject
+        # Exact-version pinned (matching ci.yml) — the publish path builds the
+        # bundle with deterministic tool versions rather than floating latest.
+        run: npm install --no-audit --no-fund --no-save esbuild@0.28.1 postject@1.0.0-alpha.6
 
       - name: Show Node + npm version
         run: |

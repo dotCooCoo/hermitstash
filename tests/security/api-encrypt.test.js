@@ -88,16 +88,16 @@ describe("API payload encryption", function () {
 
   it("expired timestamp rejected (anti-replay)", async function () {
     await client.initApiKey();
-    // Craft a payload with an old timestamp INSIDE the GCM ciphertext
-    // (the middleware checks the authenticated timestamp within the encrypted envelope)
-    var ac = require("../../lib/api-crypto");
+    // Craft the payload with the PRODUCTION cipher (XChaCha20-Poly1305 via
+    // encryptPacked — the exact envelope encryptPayload emits) and a stale `_t`
+    // INSIDE the authenticated envelope. The previous AES-256-GCM blob was rejected
+    // by decryptPacked on its format byte ("unsupported version"), so the 400 came
+    // from the wrong branch and the stale-`_t` replay-window check was never
+    // exercised.
+    var b = require("../../lib/vendor/blamejs");
     var key = Buffer.from(client._apiKey, "base64url");
-    var iv = require("crypto").randomBytes(12);
-    var plaintext = JSON.stringify({ _d: { email: "admin@test.com", password: "admin" }, _t: Date.now() - 60000 });
-    var cipher = require("crypto").createCipheriv("aes-256-gcm", key, iv);
-    var enc = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
-    var tag = cipher.getAuthTag();
-    var sealed = Buffer.concat([iv, enc, tag]).toString("base64url");
+    var plaintext = Buffer.from(JSON.stringify({ _d: { email: "admin@test.com", password: "admin" }, _t: Date.now() - 60000 }));
+    var sealed = b.crypto.encryptPacked(plaintext, key).toString("base64url");
     var body = JSON.stringify({ _e: sealed, _t: Date.now() });
     var res = await client.post("/auth/login", { body: body, contentType: "application/json" });
     assert.strictEqual(res.status, 400, "expired timestamp should return 400");

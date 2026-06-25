@@ -44,7 +44,14 @@ function errorHandler(err, req, res) {
     } else if (err.isSafeJsonError) {
       status = 400; code = err.code || "BAD_REQUEST"; message = err.message || message;
     } else if ((err.isStorageError || err.isQueueError || err.isExternalDbError) && err.permanent) {
-      status = 400; code = err.code || "ERROR"; message = err.message || message;
+      // A non-retryable infrastructure failure. Its message can carry internal
+      // detail (an S3 bucket/endpoint, a backend host:port, an access-key error),
+      // so log the real message for diagnosis but return a generic client detail —
+      // never echo backend internals to the caller.
+      status = 400; code = err.code || "ERROR"; message = "The request could not be processed.";
+      logger.error("Infrastructure error (storage/queue/external-db)", {
+        code: code, detail: err.message, path: req.pathname || req.url, method: req.method,
+      });
     } else if (Number.isInteger(err.statusCode) && err.statusCode >= 100 && err.statusCode <= 599) {
       status = err.statusCode; code = err.code || code; message = err.message || message;
     }

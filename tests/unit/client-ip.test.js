@@ -117,7 +117,7 @@ describe("rate-limit shim surface", function () {
   });
 
   it("guard() returns a middleware that preserves the limiter's reset()", function () {
-    var mw = rateLimit.guard({ scope: "test-guard", max: 5, windowMs: 60000, algorithm: "fixed-window" });
+    var mw = rateLimit.guard({ max: 5, windowMs: 60000, algorithm: "fixed-window" });
     assert.strictEqual(typeof mw, "function", "guard returns a middleware function");
     // routes/auth.js calls loginLimiter.reset(ip) after a successful login —
     // guard must pass the framework limiter's reset() through unchanged.

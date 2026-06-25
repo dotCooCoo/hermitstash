@@ -35,3 +35,15 @@ updates:
     labels:
       - "deps"
       - "docker"
+
+  # Keeps the digest-pinned oss-fuzz base-builder in .clusterfuzzlite/Dockerfile
+  # current (the oss-fuzz/projects/ submission copy is intentionally unpinned —
+  # it tracks upstream, see that file's header).
+  - package-ecosystem: "docker"
+    directory: "/.clusterfuzzlite"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    labels:
+      - "deps"
+      - "docker"

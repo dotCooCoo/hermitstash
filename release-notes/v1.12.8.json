@@ -1,0 +1,48 @@
+{
+  "version": "1.12.8",
+  "date": "2026-06-25",
+  "headline": "Rotation-safe database encryption, fail-closed credential and token checks, and the latest vendored framework security release",
+  "summary": "Vault-key rotation now re-encrypts the database file through the same directory-bound authenticated-encryption codec used for every normal read and write, so a rotation can no longer re-wrap the database without re-applying its binding and leave it undecryptable afterward. A broad set of credential, certificate, and one-time-token checks fail closed on a present-but-unparseable value instead of silently passing; unknown and passwordless logins run a constant-cost verification so a registered address can no longer be distinguished by timing; privileged file operations are atomic and refuse symlinks; and the vendored framework is updated to its latest security release, which fails more verifiers closed, bounds outbound network reads, restores OCSP freshness enforcement, peer-gates forwarded scheme and host headers, and rides encrypted-API rejections on the session envelope.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        { "title": "Outbound and host-policy lookups go through the framework network guard", "body": "Server-side request-forgery host checks, client-IP canonicalization, and the object-storage client's request deadline now use the vendored framework's hardened network guard and a bounded default timeout rather than hand-rolled equivalents, so an outbound lookup cannot hang indefinitely and a host-policy decision is made on a canonical address." },
+        { "title": "Rate-limit and audit keys resolve the client IP through the trusted-proxy configuration", "body": "The address a rate-limit counter and an audit row key on is now the real client resolved behind the configured trusted proxies, not the proxy socket, so per-client limits and audit attribution stay correct in reverse-proxy and container deployments." },
+        { "title": "Daily email quota windows are computed in UTC", "body": "The per-account daily send-quota boundary no longer shifts with the host timezone, and multi-recipient messages are addressed across all recipients." },
+        { "title": "Bot-guard denials return problem-details", "body": "A request rejected by the public-route bot guard now responds with application/problem+json like the rest of the API surface instead of a plain body." }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        { "title": "Vault-key rotation preserves the database file's authenticated-encryption binding", "body": "Rotation re-encrypts the encrypted database through the same directory-bound codec used for normal reads and writes, so the additional-authenticated-data tag is re-applied on the new key. A rotation path that re-wrapped the database without the binding could leave it undecryptable once the rotation completed." },
+        { "title": "Admin role implies every scope", "body": "An administrator is no longer denied a scoped action because the action's specific scope was absent from the key; the admin scope now satisfies any scope check." },
+        { "title": "Single-file bundle downloads return 404 for an orphaned record", "body": "A bundle file row whose backing object no longer exists returns a not-found response instead of streaming an empty or partial body." },
+        { "title": "File previews stop streaming when the client disconnects", "body": "Preview streams are destroyed on connection close, releasing the underlying file handle promptly rather than draining to completion after the client has gone." },
+        { "title": "Bundled-dependency inventory reports the correct versions to scanners", "body": "The vendored dependency manifest that the container image's software bill of materials mirrors had two transitive packages recorded at a version that disagreed with the shipped code; both are corrected and are now derived mechanically from the installed packages, so a vulnerability scanner matches advisories against the version actually present." }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        { "title": "Credential, certificate, and token expiry checks fail closed on an unparseable timestamp", "body": "The mutual-TLS client-certificate validity window, the failed-login lockout counter, and the email-verification and password-reset token expiry all reject a present-but-unparseable value instead of treating it as valid — closing the case where a malformed timestamp silently skipped the check." },
+        { "title": "Constant-cost credential verification on unknown and passwordless accounts", "body": "A login against an unregistered address or a passwordless account now runs the same constant-cost password verification as a real account, removing the timing side-channel that distinguished which addresses are registered." },
+        { "title": "Encrypted API requests require a finite replay timestamp", "body": "When a replay window is configured, a request whose timestamp is missing or non-numeric is rejected rather than admitted, so a stripped or malformed timestamp can no longer bypass replay protection." },
+        { "title": "One-time tokens are consumed atomically and length-checked", "body": "Email-verification and password-reset tokens are claimed in a single atomic step and bounded in length before comparison, closing a window where a token could be accepted twice under concurrent use." },
+        { "title": "Bundle access-code verification closes a message and timing oracle", "body": "A wrong bundle access code returns a single indistinguishable result and is compared in constant time, so neither the response wording nor its latency reveals whether a code prefix was correct." },
+        { "title": "Privileged file operations are atomic and refuse symlinks", "body": "Storage-migration moves, branding-logo and CA-flag writes, the vault-key rotation token, and the append-only session log all write through exclusive, no-follow, atomic temporary-file-and-rename primitives, and the storage-migration claim is taken race-safely — a pre-planted symlink or a concurrent trigger can no longer redirect or double-run the operation." },
+        { "title": "Upload intake is size-capped before buffering", "body": "A chunked upload is bounded against the maximum file size in aggregate before its scratch buffer is allocated, closing a memory-exhaustion path on the intake step." },
+        { "title": "Failure responses no longer echo internal detail", "body": "Storage, job-queue, and external-database errors that reach the response boundary return a generic message and log the detail server-side, so internal failure text is not disclosed to the caller." },
+        { "title": "CSRF token comparison and Origin canonicalization go through the framework primitive", "body": "Form CSRF verification uses the framework's constant-time token check, and a trailing-slash Origin is canonicalized before the allowlist match so an equivalent origin is neither over- nor under-matched." },
+        { "title": "Vendored framework security update", "body": "The vendored framework is updated to its latest release: certificate and credential verifiers fail closed on an unparseable validity timestamp; outbound network clients enforce an overall wall-clock timeout and bound their read buffers; DNS lookups gain a wall-clock deadline and tear their sockets down; append-only log sinks refuse a symlinked path; OCSP response-freshness enforcement is restored; DPoP request-URI reconstruction peer-gates forwarded scheme and host headers; encrypted-API rejections that would disclose session state now ride the session envelope; logout-everywhere works for pluggable session stores; and the device fingerprint masks the client IP canonically." }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "FIPS 203 (ML-KEM)", "url": "https://csrc.nist.gov/pubs/fips/203/final" },
+    { "label": "RFC 6960 (OCSP)", "url": "https://www.rfc-editor.org/rfc/rfc6960" },
+    { "label": "RFC 9449 (DPoP)", "url": "https://www.rfc-editor.org/rfc/rfc9449" },
+    { "label": "RFC 9457 (Problem Details)", "url": "https://www.rfc-editor.org/rfc/rfc9457" }
+  ]
+}

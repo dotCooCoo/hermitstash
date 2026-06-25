@@ -172,6 +172,65 @@ describe("regression", function () {
       assert.ok(/^v\d+\.\d+\.\d+/.test(entry.tag), "tag must look like a semver release tag");
       assert.strictEqual(entry.tag.replace(/^v/, ""), entry.version, "tag and version must agree");
     });
+
+    it("blamejs SBOM components mirror the vendored tree's own manifest", function () {
+      // packages.blamejs.components is what Trivy / Grype scan. It is a
+      // mechanical projection of the vendored tree's dependency manifest
+      // (scripts/refresh-blamejs-sbom.js, run automatically by vendor-update.sh).
+      // A drift here means a blamejs bump landed without the SBOM refresh, so a
+      // nested package/version on disk is invisible to the CVE scanners.
+      var sbom = require(path.join(projectRoot, "scripts/refresh-blamejs-sbom.js"));
+      var nested = JSON.parse(fs.readFileSync(sbom.NESTED_MANIFEST, "utf8"));
+      var parent = JSON.parse(fs.readFileSync(sbom.PARENT_MANIFEST, "utf8"));
+      var projected = sbom.projectComponents(nested);
+      var current = parent.packages.blamejs.components || {};
+      assert.deepStrictEqual(
+        current, projected,
+        "blamejs SBOM components are stale — run: node scripts/refresh-blamejs-sbom.js"
+      );
+    });
+
+    it("README + THIRD_PARTY_LICENSES blamejs version/packages are in sync with the MANIFEST", function () {
+      // The operator docs hard-code the blamejs version + package list; they are
+      // synced from the MANIFEST by the same refresh script (vendor-update.sh runs
+      // it). Fail here if they drift, so a vendor bump that forgot the doc refresh
+      // is caught in CI rather than only at the release gate.
+      var sbom = require(path.join(projectRoot, "scripts/refresh-blamejs-sbom.js"));
+      var parent = JSON.parse(fs.readFileSync(sbom.PARENT_MANIFEST, "utf8"));
+      var bj = parent.packages.blamejs;
+      var result = sbom.checkDocs(bj.version, bj.components || {});
+      assert.strictEqual(
+        result.stale, false,
+        "operator docs are stale — run: node scripts/refresh-blamejs-sbom.js\n" + result.messages.join("\n")
+      );
+    });
+
+    it("sectionContaining scopes a version-token check to one package's own section", function () {
+      // A compound-version package (e.g. peculiar-pki "a+pkijs-b") is staleness-
+      // checked token-by-token. The check must be scoped to the package's OWN
+      // `## ` section — a document-wide search would false-negative when the
+      // stale token coincidentally appears in another package's section.
+      var sbom = require(path.join(projectRoot, "scripts/refresh-blamejs-sbom.js"));
+      var doc = [
+        "## @noble/ciphers v2.2.0",
+        "- Source: https://example.com/ciphers",
+        "",
+        "## @peculiar/x509 v2.0.0 + pkijs v3.4.0 (peculiar-pki bundle)",
+        "- Source: https://github.com/PeculiarVentures",
+        "",
+        "## tail v1.0.0",
+        "- Source: https://example.com/tail",
+        "",
+      ].join("\n");
+      var section = sbom.sectionContaining(doc, "https://github.com/PeculiarVentures");
+      // Scoped to the peculiar section only — the colliding "2.2.0" in the
+      // noble-ciphers header is NOT in scope, so a stale x509 header is caught.
+      assert.ok(section.indexOf("@peculiar/x509 v2.0.0") !== -1, "returns the peculiar section");
+      assert.strictEqual(section.indexOf("2.2.0"), -1, "does not leak the colliding token from another section");
+      assert.strictEqual(section.indexOf("tail v1.0.0"), -1, "stops at the next ## header");
+      // Absent needle falls back to the whole document (never throws).
+      assert.strictEqual(sbom.sectionContaining(doc, "https://nope.example"), doc);
+    });
   });
 
   // ---- ShareID entropy (was 32-bit, now 128-bit) ----
@@ -195,10 +254,14 @@ describe("regression", function () {
   // ---- Cross-version encrypt/decrypt backward compat ----
 
   describe("envelope backward compatibility", function () {
-    it("decrypt handles current envelope format", function () {
-      var { encrypt, decrypt, generateEncryptionKeyPair } = require(path.join(projectRoot, "lib/crypto"));
+    it("decrypt still reads a legacy 0xE1 envelope", function () {
+      // The 0xE1 producer was retired from lib/crypto (no code mints 0xE1 anymore),
+      // so the legacy blob is built from the test-only constructor. decrypt() must
+      // keep reading it for the migration window.
+      var { decrypt, generateEncryptionKeyPair } = require(path.join(projectRoot, "lib/crypto"));
+      var { encryptLegacy0xE1 } = require(path.join(projectRoot, "tests/helpers/legacy-envelope"));
       var kp = generateEncryptionKeyPair();
-      var sealed = encrypt("hello envelope", kp);
+      var sealed = encryptLegacy0xE1("hello envelope", kp);
       var packed = Buffer.from(sealed, "base64");
       assert.strictEqual(packed[0], 0xE1, "should start with envelope magic byte");
       assert.strictEqual(decrypt(sealed, kp), "hello envelope");

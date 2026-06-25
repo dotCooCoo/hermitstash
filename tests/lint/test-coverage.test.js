@@ -52,6 +52,14 @@ var helpers = require("../helpers");
 var check = helpers.check;
 var b = helpers.b;
 
+// Escape every regex metacharacter so a qualified primitive name is matched
+// literally (the canonical escape-string-regexp shape, not a dots-only escape).
+// Names are `b.X.Y` identifiers today, so this is defensive, but a complete
+// escape is the correct way to build a literal matcher from an interpolated string.
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 var REPO_ROOT = path.join(__dirname, "..", "..");
 var TEST_ROOT = path.join(REPO_ROOT, "tests");
 
@@ -552,7 +560,7 @@ function _isReferenced(blob, qualifiedName, fileBasenames) {
   //      counts as coverage for `b.guardDomain` even when the test
   //      uses dynamic loading (e.g. the adaptive integration harness
   //      iterating `b.guardAll.allGuards()`).
-  var escaped = qualifiedName.replace(/[.]/g, "\\.");
+  var escaped = escapeRegExp(qualifiedName);
   var direct = new RegExp("\\bb\\." + escaped + "(?![A-Za-z0-9_])");
   if (direct.test(blob)) return true;
 
@@ -619,7 +627,7 @@ function _readHsSource() {
 function _hsConsumes(sourceBlob, qualifiedName) {
   // Same shape as the test-blob match — verbatim `b.X.Y` followed by
   // a non-identifier char so `b.guard` doesn't match `b.guardCsv`.
-  var escaped = qualifiedName.replace(/[.]/g, "\\.");
+  var escaped = escapeRegExp(qualifiedName);
   var re = new RegExp("\\bb\\." + escaped + "(?![A-Za-z0-9_])");
   return re.test(sourceBlob);
 }

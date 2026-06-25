@@ -8,6 +8,16 @@ var filesRepo = require("../../data/repositories/files.repo");
 var { validateEmail, validatePassword, validateDisplayName } = require("../../shared/validate");
 var { ValidationError, AuthenticationError, ForbiddenError, ConflictError } = require("../../shared/errors");
 
+// Lazily-cached dummy Argon2id hash (default params, so its verify cost matches a
+// real one). Verifying against it on the non-existent / passwordless login paths
+// keeps the response time constant, denying an attacker a timing oracle for which
+// emails have an active local password.
+var _dummyHashPromise = null;
+function dummyPasswordHash() {
+  if (!_dummyHashPromise) _dummyHashPromise = b.auth.password.hash(b.crypto.generateToken(16));
+  return _dummyHashPromise;
+}
+
 /**
  * Register a new local user.
  * Returns the created user record.
@@ -55,8 +65,22 @@ async function authenticateLocal(email, password) {
   if (!email || !password) throw new ValidationError("Email and password required.");
 
   var user = usersRepo.findByEmail(email);
-  if (!user) throw new AuthenticationError("Invalid email or password.");
-  if (!user.passwordHash) throw new AuthenticationError("Invalid email or password.");
+  if (!user) {
+    // Constant-cost verify so a non-existent account costs the same as a wrong
+    // password on a real one — no account-existence timing oracle.
+    await b.auth.password.verify(await dummyPasswordHash(), password);
+    throw new AuthenticationError("Invalid email or password.");
+  }
+  if (!user.passwordHash) {
+    // Passwordless account (Google-OAuth / passkey-only): equalize timing, and
+    // mark the error so the caller skips failed-attempt lockout — locking a
+    // password that does not exist is a pure DoS / state-pollution vector, not a
+    // brute-force defense.
+    await b.auth.password.verify(await dummyPasswordHash(), password);
+    var noPwErr = new AuthenticationError("Invalid email or password.");
+    noPwErr.noPassword = true;
+    throw noPwErr;
+  }
   if (user.status === "pending") {
     var err = new ForbiddenError("Please verify your email before signing in.");
     err.pending = true;
@@ -83,19 +107,12 @@ function resolveGoogleUser(profile, allowedDomains) {
     throw new ForbiddenError("Domain not allowed: " + domain);
   }
 
-  // Look up by email first
+  // Email is the authoritative lookup key. (A prior googleId fallback here was
+  // unreachable: it only ran when the email lookup found nothing, yet required a
+  // row whose email equalled profile.email — which the email lookup would already
+  // have matched — while also doing a full-table scan. Re-linking a changed email
+  // to a stable googleId, if ever wanted, must be an explicit googleId-only lookup.)
   var user = usersRepo.findByEmail(profile.email);
-
-  // Fallback: googleId match (requires email match too)
-  if (!user) {
-    var allUsers = usersRepo.findAll({});
-    for (var i = 0; i < allUsers.length; i++) {
-      if (allUsers[i].googleId === profile.googleId && allUsers[i].email === profile.email) {
-        user = allUsers[i];
-        break;
-      }
-    }
-  }
 
   // Enforce allowedDomains on returning users too
   if (user && allowedDomains && allowedDomains.length > 0) {

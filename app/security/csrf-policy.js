@@ -72,9 +72,10 @@ function validateToken(session, req, body) {
   var token = (req.headers && req.headers["x-csrf-token"])
            || (body && body._csrf)
            || (req.query && req.query._csrf);
-  if (!token || typeof token !== "string") return false;
-  if (token.length !== expected.length) return false;
-  return b.crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected));
+  // b.forms.verifyCsrfToken performs the constant-time compare plus the
+  // non-string / mismatched-length / empty-token guards (via timingSafeEqual) —
+  // the exact checks this used to hand-roll, now in the canonical primitive.
+  return b.forms.verifyCsrfToken(token, expected);
 }
 
 // `b.middleware.csrfProtect` instance — created once at module load
@@ -125,7 +126,13 @@ function csrfMiddleware(req, res, next) {
   // admin mutations, which pass cleanly.
   if (contentType.includes("application/json") || contentType.includes("multipart/")) {
     var origin = (req.headers && req.headers.origin) || "";
-    if (origin && origin !== originPolicy.getOrigin()) {
+    // Compare canonicalized origins. A browser Origin is bare scheme://host[:port]
+    // with no trailing slash; an operator's configured rpOrigin may carry one, which
+    // would make a legitimate same-origin POST fail the check. Strip trailing
+    // slashes from both before comparing — this only loosens the SAME-origin match,
+    // never the cross-site rejection.
+    var configuredOrigin = (originPolicy.getOrigin() || "").replace(/\/+$/, "");
+    if (origin && origin.replace(/\/+$/, "") !== configuredOrigin) {
       // emitError routes problem+json through the encrypting res.json on an
       // api-encrypt cookie session — a direct b.problemDetails.send would ship
       // this 403 in CLEARTEXT on a session the client negotiated as encrypted

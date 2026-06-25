@@ -71,6 +71,7 @@ module.exports = function (app) {
             "Content-Disposition": safeContentDisposition(doc.originalName, "attachment"),
             "Content-Type": "application/octet-stream",
           });
+          req.on("close", function () { if (dlResult.stream && dlResult.stream.destroy) dlResult.stream.destroy(); });
           dlResult.stream.pipe(res);
           return;
         }
@@ -83,6 +84,7 @@ module.exports = function (app) {
       if (preview.mode === "inline") {
         var inlineResult = await fileService.getInlinePreviewStream(doc);
         res.writeHead(200, inlineResult.headers);
+        req.on("close", function () { if (inlineResult.stream && inlineResult.stream.destroy) inlineResult.stream.destroy(); });
         inlineResult.stream.pipe(res);
         return;
       }
@@ -93,6 +95,7 @@ module.exports = function (app) {
         "Content-Disposition": safeContentDisposition(doc.originalName, "attachment"),
         "Content-Type": "application/octet-stream",
       });
+      req.on("close", function () { if (forceResult.stream && forceResult.stream.destroy) forceResult.stream.destroy(); });
       forceResult.stream.pipe(res);
     } catch (err) {
       // Storage backend (local fs or S3) or stream decrypt failed. Log so

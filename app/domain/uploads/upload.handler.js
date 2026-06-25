@@ -254,6 +254,27 @@ async function handleChunkUpload(ctx) {
     return { error: "Chunk too large." };
   }
 
+  // Aggregate scratch cap. The per-chunk cap above bounds ONE chunk, but the
+  // reassembly-time quota check only runs once ALL chunks arrive — so an attacker
+  // could upload many chunks (and never send the last) to fill the scratch disk.
+  // Sum the already-saved chunks for this file plus this one and refuse before the
+  // write if it would exceed the file-size limit; discard the partial on a breach
+  // so the scratch can't accumulate past one file's worth.
+  if (limits.maxFileSize) {
+    var existingChunks = storage.countChunks(bundle.shareId, fileId);
+    var accumulated = chunk.data.length;
+    var counted = 0;
+    for (var ai = 0; ai < totalChunks && counted < existingChunks; ai++) {
+      if (ai === chunkIndex) continue;
+      var st = storage.statChunk(bundle.shareId, fileId, ai);
+      if (st) { accumulated += st.size; counted++; }
+    }
+    if (accumulated > limits.maxFileSize) {
+      storage.removeChunkAssembly(bundle.shareId, fileId);
+      return { error: "Assembled file exceeds the maximum allowed size." };
+    }
+  }
+
   // Store chunk in the scratch directory (always local, never S3).
   try {
     storage.saveChunk(bundle.shareId, fileId, chunkIndex, chunk.data);

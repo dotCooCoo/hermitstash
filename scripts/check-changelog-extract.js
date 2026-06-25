@@ -34,6 +34,15 @@ function readPackageVersion() {
   return pkg.version;
 }
 
+// Escape every regex metacharacter so an interpolated string is matched
+// literally — the canonical escape-string-regexp shape. `version` is already
+// constrained to MAJOR.MINOR.PATCH before it reaches the matcher, so this is
+// belt-and-suspenders, but a complete escape (not a dots-only one) is the
+// correct sanitizer regardless of how the value is constrained upstream.
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function extractSection(text, version) {
   var lines = text.split(/\r?\n/);
   var out = [];
@@ -85,7 +94,7 @@ function main() {
 
   var firstLine = section[0];
   var canonical = new RegExp(
-    "^- v" + version.replace(/\./g, "\\.") +
+    "^- v" + escapeRegExp(version) +
     " \\(\\d{4}-\\d{2}-\\d{2}\\) — \\S.+$"
   );
   if (!canonical.test(firstLine)) {

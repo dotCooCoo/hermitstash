@@ -95,7 +95,10 @@ module.exports = function (app) {
       return send(res, "error", { user: null, title: "Invalid Link", message: "This password reset link is invalid or has already been used." }, 400);
     }
 
-    if (new Date(record.expiresAt) < new Date()) {
+    // Fail CLOSED on a missing/unparseable expiresAt — `new Date(bad) < new Date()`
+    // is false, which would accept an expired or malformed token.
+    var exp = Date.parse(record.expiresAt);
+    if (!Number.isFinite(exp) || exp < Date.now()) {
       verificationTokensRepo.remove(record._id);
       audit.log(audit.ACTIONS.PASSWORD_RESET_FAILED, { details: "Expired token", targetId: record.userId, req: req });
       return send(res, "error", { user: null, title: "Link Expired", message: "This password reset link has expired. Please request a new one." }, 400);
@@ -134,7 +137,10 @@ module.exports = function (app) {
         throw new ValidationError("Invalid or expired reset link. Please request a new one.");
       }
 
-      if (new Date(record.expiresAt) < new Date()) {
+      // Fail CLOSED on a missing/unparseable expiresAt — `new Date(bad) < new Date()`
+    // is false, which would accept an expired or malformed token.
+    var exp = Date.parse(record.expiresAt);
+    if (!Number.isFinite(exp) || exp < Date.now()) {
         verificationTokensRepo.remove(record._id);
         audit.log(audit.ACTIONS.PASSWORD_RESET_FAILED, { details: "Expired token on submit", targetId: record.userId, req: req });
         throw new ValidationError("Reset link has expired. Please request a new one.");
@@ -146,6 +152,14 @@ module.exports = function (app) {
         throw new ValidationError("Account not found.");
       }
 
+      // Atomically CONSUME the token BEFORE mutating the account. remove() returns
+      // the number of rows it deleted, so if a concurrent request already claimed
+      // this token we get 0 and bail — the previous read-then-act-then-delete let
+      // two simultaneous submits both reset the password.
+      if (verificationTokensRepo.remove(record._id) === 0) {
+        throw new ValidationError("Reset link has expired. Please request a new one.");
+      }
+
       // Hash new password and update user
       var newHash = await b.auth.password.hash(password);
       usersRepo.update(user._id, { $set: {
@@ -154,7 +168,7 @@ module.exports = function (app) {
         lockedUntil: null,
       } });
 
-      // Delete the used token and any other reset tokens for this user
+      // Clear any OTHER reset tokens for this user (the used one is already gone)
       verificationTokensRepo.remove({ userId: user._id, type: "password_reset" });
 
       // Clear all sessions for this user (force re-login everywhere)

@@ -23,6 +23,15 @@ function list() {
 async function create(url, events, createdBy) {
   if (!url) throw new ValidationError("URL required.");
   if (String(url).length > 2048) throw new ValidationError("URL too long.");
+  // events must be a string ("*" or a comma-separated event list). A non-string
+  // (array/object) would later throw in fire()'s hook.events.split(",") or be
+  // silently String()-coerced when written to the sealed events column.
+  if (events != null && typeof events !== "string") {
+    throw new ValidationError("events must be a string ('*' or a comma-separated event list).");
+  }
+  if (typeof events === "string" && events.length > 1024) {
+    throw new ValidationError("events list too long.");
+  }
 
   var check = validateOutboundUrl(url);
   if (!check.valid) throw new ValidationError(check.reason);
@@ -101,59 +110,51 @@ function dispatchSingle(hookId, eventName, payload, attempt) {
     return Promise.resolve();
   }
 
-  return isPrivateHost(check.url.hostname).then(function (result) {
-    if (result && result.blocked) {
-      webhookDeliveries.insert({
-        webhookId: hookId, event: eventName, status: "failed",
-        statusCode: 0, error: "Private/internal host blocked",
-        attempts: attempt || 1, createdAt: new Date().toISOString(),
-      });
-      return;
-    }
+  var body = JSON.stringify({ event: eventName, data: payload, timestamp: new Date().toISOString() });
+  var signature = hook.secret ? b.crypto.hmacSha3(hook.secret, body) : "";
 
-    var body = JSON.stringify({ event: eventName, data: payload, timestamp: new Date().toISOString() });
-    var signature = hook.secret ? b.crypto.hmacSha3(hook.secret, body) : "";
-
-    // Deliver through the framework HTTP client: it runs its own SSRF gate and
-    // pins the TCP connect to the validated address (closing the DNS-rebinding
-    // TOCTOU window the manual lookup pin used to cover), enforces HTTPS-only,
-    // and caps both wall-clock and idle time. maxRedirects is pinned to 0 — a
-    // receiver must not be able to 302 the signed body + X-Webhook-Signature to
-    // another origin, and the client does not strip that custom header on a
-    // cross-origin redirect. responseMode "always-resolve" keeps a non-2xx as a
-    // resolved response so the delivery log records the real status code rather
-    // than collapsing it to 0; network/SSRF/timeout failures still reject.
-    return b.httpClient.request({
-      method: "POST",
-      url: hook.url,
-      headers: {
-        "Content-Type": "application/json",
-        "X-Webhook-Signature": signature,
-      },
-      body: body,
-      timeoutMs: 5000,
-      idleTimeoutMs: 5000,
-      maxRedirects: 0,
-      responseMode: "always-resolve",
-      allowInternal: false,
-    }).then(function (res) {
-      var ok = res.statusCode >= 200 && res.statusCode < 300;
-      webhooksRepo.update(hook._id, { $set: { lastTriggered: new Date().toISOString() } });
-      webhookDeliveries.insert({
-        webhookId: hookId, event: eventName,
-        status: ok ? "success" : "failed",
-        statusCode: res.statusCode, error: ok ? null : "HTTP " + res.statusCode,
-        attempts: attempt || 1, createdAt: new Date().toISOString(),
-      });
-      return ok ? undefined : { error: "HTTP " + res.statusCode };
-    }, function (err) {
-      webhookDeliveries.insert({
-        webhookId: hookId, event: eventName, status: "failed",
-        statusCode: 0, error: (err && (err.message || String(err))) || "request failed",
-        attempts: attempt || 1, createdAt: new Date().toISOString(),
-      });
-      return { error: err && err.message };
+  // Deliver through the framework HTTP client. It runs its OWN SSRF gate
+  // (allowInternal:false), so a separate isPrivateHost() pre-resolution here would
+  // be a redundant second DNS lookup with a rebind window of its own — a private /
+  // internal / cloud-metadata target rejects inside request() and is recorded by
+  // the failure handler below. The client also pins the TCP connect to the validated
+  // address (closing the DNS-rebinding TOCTOU window), enforces HTTPS-only, and caps
+  // both wall-clock and idle time. maxRedirects is pinned to 0 — a receiver must not
+  // be able to 302 the signed body + X-Webhook-Signature to another origin, and the
+  // client does not strip that custom header on a cross-origin redirect. responseMode
+  // "always-resolve" keeps a non-2xx as a resolved response so the delivery log
+  // records the real status code rather than collapsing it to 0; network / SSRF /
+  // timeout failures still reject.
+  return b.httpClient.request({
+    method: "POST",
+    url: hook.url,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Webhook-Signature": signature,
+    },
+    body: body,
+    timeoutMs: 5000,
+    idleTimeoutMs: 5000,
+    maxRedirects: 0,
+    responseMode: "always-resolve",
+    allowInternal: false,
+  }).then(function (res) {
+    var ok = res.statusCode >= 200 && res.statusCode < 300;
+    webhooksRepo.update(hook._id, { $set: { lastTriggered: new Date().toISOString() } });
+    webhookDeliveries.insert({
+      webhookId: hookId, event: eventName,
+      status: ok ? "success" : "failed",
+      statusCode: res.statusCode, error: ok ? null : "HTTP " + res.statusCode,
+      attempts: attempt || 1, createdAt: new Date().toISOString(),
     });
+    return ok ? undefined : { error: "HTTP " + res.statusCode };
+  }, function (err) {
+    webhookDeliveries.insert({
+      webhookId: hookId, event: eventName, status: "failed",
+      statusCode: 0, error: (err && (err.message || String(err))) || "request failed",
+      attempts: attempt || 1, createdAt: new Date().toISOString(),
+    });
+    return { error: err && err.message };
   });
 }
 

@@ -352,7 +352,10 @@ module.exports = function (app) {
     if (existingBundle.stashId !== stash._id) throw new ForbiddenError("Bundle does not belong to this stash.");
 
     var body = (await b.parsers.json(req)) || {};
-    var token = String(body.finalizeToken || req.query.finalizeToken || "");
+    // Body only — never accept the finalize secret from the query string (it would
+    // leak to access logs / proxies / Referer, CWE-598). Every client (web uploader
+    // + sync) sends it in the POST body.
+    var token = String(body.finalizeToken || "");
     var result = handleFinalize({
       bundleId: req.params.bundleId, token: token,
       uploaderName: stash.name || "Anonymous", sendUploaderEmail: false,
@@ -361,12 +364,14 @@ module.exports = function (app) {
     });
     if (result.error) throw new AppError(result.error, result.status || 400);
 
-    // Update stash stats
-    var freshStash = stashRepo.findById(stash._id);
-    stashRepo.update(stash._id, { $set: {
-      bundleCount: (parseInt(freshStash.bundleCount, 10) || 0) + 1,
-      totalBytes: (parseInt(freshStash.totalBytes, 10) || 0) + (result.refreshed ? result.refreshed.totalSize || 0 : 0),
-    }});
+    // Update stash stats only on a GENUINE finalize. An idempotent re-finalize of
+    // an already-complete bundle returns no `refreshed`, so it must not bump the
+    // count (the old unconditional +1 inflated bundleCount on every re-POST of a
+    // finalize). Atomic single-UPDATE increment so two concurrent finalizes can't
+    // lose one to a findById-then-update read-modify-write race.
+    if (result.refreshed) {
+      stashRepo.incrementBundleStats(stash._id, result.refreshed.totalSize || 0);
+    }
 
     res.json({ success: true, shareId: result.shareId, shareUrl: result.shareUrl, emailSent: result.emailSent });
   });

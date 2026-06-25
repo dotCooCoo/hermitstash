@@ -37,6 +37,14 @@ function createVerificationToken(userId) {
 // log if invalid or expired, and return the record (or null if unusable).
 // Callers just check for `null` and bail — they don't need to re-send a response.
 function findAndValidateToken(rawToken, req, res) {
+  // Validate the token shape before hashing/lookup (parity with password-reset):
+  // a verification token is a 64-hex generateToken() value, so reject anything else
+  // up front rather than hashing arbitrary-length input.
+  if (!rawToken || rawToken.length !== 64) {
+    audit.log(audit.ACTIONS.EMAIL_VERIFICATION_FAILED, { details: "Invalid token", req: req });
+    send(res, "error", { user: null, title: "Invalid Link", message: "This verification link is invalid or has already been used." }, 400);
+    return null;
+  }
   var tokenHash = b.crypto.sha3Hash(rawToken);
   var record = verificationTokensRepo.findOne({ token: tokenHash, type: "email" });
 
@@ -46,7 +54,11 @@ function findAndValidateToken(rawToken, req, res) {
     return null;
   }
 
-  if (new Date(record.expiresAt) < new Date()) {
+  // Fail CLOSED on a missing/unparseable expiresAt: `new Date(bad) < new Date()`
+  // is false (Invalid Date compares false), which would accept an expired or
+  // malformed token. Treat anything that doesn't parse to a finite time as expired.
+  var exp = Date.parse(record.expiresAt);
+  if (!Number.isFinite(exp) || exp < Date.now()) {
     verificationTokensRepo.remove(record._id);
     audit.log(audit.ACTIONS.EMAIL_VERIFICATION_FAILED, { details: "Expired token", targetId: record.userId, req: req });
     send(res, "error", { user: null, title: "Link Expired", message: "This verification link has expired. Please request a new one." }, 400);
@@ -93,9 +105,15 @@ module.exports = function (app) {
         return send(res, "error", { user: null, title: "Error", message: "Account not found." }, 404);
       }
 
+      // Atomically CONSUME the token before activating + auto-login. remove() returns
+      // the rows deleted, so a concurrent submit that already claimed it sees 0 and
+      // bails instead of activating + logging in a second time.
+      if (verificationTokensRepo.remove(record._id) === 0) {
+        return send(res, "error", { user: null, title: "Invalid Link", message: "This verification link is invalid or has already been used." }, 400);
+      }
+
       // Activate the user
       usersRepo.update(user._id, { $set: { status: "active" } });
-      verificationTokensRepo.remove(record._id);
 
       audit.log(audit.ACTIONS.EMAIL_VERIFIED, { targetId: user._id, targetEmail: user.email, req: req });
 

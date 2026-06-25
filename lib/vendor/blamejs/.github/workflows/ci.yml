@@ -42,11 +42,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     # Backstop against a hung child no watchdog reaped (and against the
     # watchdog logic itself regressing): without this a stuck job rides
-    # GitHub's 6-hour default. The per-file watchdog allows the heavy
-    # pattern-catalog file up to 10 minutes on a contended runner, so
-    # the job budget is sized to the suite (~20-30 min on the slow
-    # runners) plus that allowance.
-    timeout-minutes: 40
+    # GitHub's 6-hour default. The job budget is sized to the suite plus
+    # the per-file watchdog allowance below; the 3-core macOS runner is
+    # the long pole (codebase-patterns alone scans the whole lib/ corpus),
+    # so the ceiling sits above the per-file watchdog with reporting slack.
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
@@ -119,13 +119,17 @@ jobs:
           UV_THREADPOOL_SIZE: "16"
           # Per-file watchdog budget. codebase-patterns scans the whole
           # lib/ corpus across eight shingle sizes; on the 3-core
-          # macos-latest runner that legitimately takes 13-18 min (vs
-          # ~2.5 min on ubuntu), so the budget must clear the macOS
-          # worst case with headroom while still failing a genuinely
-          # stuck file. 25 min sits above the observed macOS high-water
-          # and below the 40-min job ceiling. (600s guillotined a
-          # slow-but-passing macOS run.)
-          SMOKE_FILE_TIMEOUT_MS: "1500000"
+          # macos-latest runner that legitimately takes ~20-30 min under
+          # the parallel forks (vs ~2.5 min on ubuntu), and that runtime
+          # tracks the lib/ corpus, which keeps growing. The budget must
+          # clear the macOS worst case with headroom while still failing
+          # a genuinely stuck file. 25 min sat right at the grown macOS
+          # high-water and began flaking (the heaviest file is starved by
+          # the parallel forks, not hung); 35 min restores headroom and
+          # stays below the 50-min job ceiling. (Earlier: 600s guillotined
+          # a slow-but-passing macOS run; 25 min then held until the
+          # corpus outgrew it.)
+          SMOKE_FILE_TIMEOUT_MS: "2100000"
         run: node test/smoke.js
 
   wiki-e2e:
