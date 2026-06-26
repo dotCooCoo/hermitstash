@@ -1,0 +1,1086 @@
+{
+  "minor": "1.12",
+  "releases": [
+    {
+      "version": "1.12.15",
+      "date": "2026-06-26",
+      "headline": "Uploader-supplied names are escaped inside HTML email templates",
+      "summary": "When HTML email templates are enabled and a template includes the uploader-name placeholder, the substituted value is now HTML-escaped before it is placed into the email, while the administrator's own template markup still renders. This closes a markup-injection path through the name an anonymous uploader can supply.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Template variables are escaped in HTML email mode",
+              "body": "With HTML email templates enabled, a value substituted into a template placeholder — such as the uploader's name in the header or footer — was inserted without escaping, so a name supplied through the public upload form could place markup into the notification email. Substituted values are now HTML-escaped in HTML mode (the administrator's own template markup is still rendered), matching the escaping already applied everywhere else the name appears. Text email mode was unaffected. The email transport already guards subject and header construction, so only the HTML body was exposed."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "OWASP — Cross Site Scripting (XSS)",
+          "url": "https://owasp.org/www-community/attacks/xss/"
+        }
+      ]
+    },
+    {
+      "version": "1.12.14",
+      "date": "2026-06-26",
+      "headline": "Skipped-upload file paths are encrypted at rest",
+      "summary": "The list of files an uploader skipped — recorded on a bundle as a path plus a reason — was stored in clear text in the database while every other content field on the bundle was sealed. Those relative paths can reveal directory structure or sensitive filenames, so they are now encrypted at rest alongside the bundle's other sealed fields. New and updated bundles seal the field automatically; nothing changes for clients.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Skipped-upload file paths are sealed in the database",
+              "body": "A bundle's record of skipped uploads (each a relative file path and a reason) is now encrypted at rest with the same AAD-bound sealing as the bundle's other content fields, instead of being stored as clear-text JSON. This closes a local at-rest exposure — a stolen database file or forensic disk image no longer reveals the names and paths of files that were skipped during an upload. The field is sealed on every new or updated bundle, and reads transparently handle entries written before this release, so no migration step is required."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "OWASP — Sensitive Data Exposure",
+          "url": "https://owasp.org/www-project-top-ten/"
+        }
+      ]
+    },
+    {
+      "version": "1.12.13",
+      "date": "2026-06-26",
+      "headline": "Second factor enforced on every sign-in path, safer key rotation and recovery, and tighter sync access control",
+      "summary": "This release closes a set of authentication, concurrency, and key-handling weaknesses. Two-factor verification is now required on Google and passkey sign-in, not only password login, and browser sign-in has a working code-entry page to complete it. Vault key rotation, the database-key load path, and 2FA backup codes are hardened against races and mismatched-key data loss, and sync access control now disconnects revoked credentials, screens WebSocket connections against the IP blocklist and rate limits, and enforces the scope a key was issued with.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Two-factor code-entry page for browser sign-in",
+              "body": "Signing in with two-factor authentication enabled now presents a page to enter your authenticator code (or a backup code) and finish logging in. Previously the browser sign-in flow did not prompt for the code, so accounts with two-factor enabled could not complete a browser login."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Scheduled backups honor the configured time of day",
+              "body": "The daily backup now runs at the configured wall-clock time and time zone and keeps that anchor across restarts, instead of firing relative to process start and drifting after each restart."
+            },
+            {
+              "title": "Automatic certificate renewal no longer locks out an offline sync client",
+              "body": "When the server pre-stages a renewal for a client certificate nearing expiry, it leaves the current certificate valid until the client redeems the new one, and redeeming a renewal through enrollment now realigns the key's certificate binding. An offline or slow-to-renew client keeps working and can recover through its own renewal flow rather than being refused on every sync request until an operator intervenes."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Large sync catch-up requests are paged",
+              "body": "A sync client requesting its full change history no longer forces the server to load and decrypt an entire bundle at once; the change feed is read in indexed pages, bounding the work a single request can demand."
+            },
+            {
+              "title": "Corrupted stored data fails with a clear error",
+              "body": "A truncated or corrupted legacy encrypted blob now surfaces a typed decryption error instead of an uncaught range error, so a damaged file or partial restore fails cleanly."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Two-factor authentication is enforced on Google and passkey sign-in",
+              "body": "An account with TOTP enabled could complete a Google sign-in — and a passkey sign-in, which is verified without user verification and therefore proves possession only — without entering its second factor. Every sign-in path now passes through one enforcement point, so the second factor is required on Google, passkey, and password logins alike."
+            },
+            {
+              "title": "Vault key rotation can no longer strand files under the discarded key",
+              "body": "Rotating a vault's passkey could leave a concurrently uploaded file — or a file from an overlapping second rotation — encrypted under the old key while the account was switched to the new one, making that file permanently undecryptable. Vault rotation, upload, and delete are now serialized per account, rotation re-checks the file set and refuses to switch keys if anything is unaccounted for, and an overlapping rotation is rejected."
+            },
+            {
+              "title": "A mismatched vault key no longer overwrites the database key",
+              "body": "If the vault key was lost or replaced with a non-matching one while the encrypted database was intact, the server would regenerate and re-seal the database key before confirming it could read the database — destroying the only recoverable copy. The server now refuses to start in that situation and leaves the sealed database key untouched, so restoring the correct vault key recovers the data."
+            },
+            {
+              "title": "A passkey assertion can be used for only one sign-in",
+              "body": "A captured passkey assertion could be replayed in two simultaneous requests to mint two sessions, because the one-time challenge was only cleared in memory and not claimed atomically. The challenge is now claimed as a single-use token before verification, so a given assertion authenticates exactly once."
+            },
+            {
+              "title": "Revoking a sync API key disconnects its live connection",
+              "body": "Revoking a key closed it to new connections but left any already-open sync stream running, so a leaked key kept receiving the change feed after revocation. Revoking a key now closes its live sync connections, and the connection periodically re-checks that its key and account are still active."
+            },
+            {
+              "title": "The sync WebSocket endpoint enforces the IP blocklist and rate limits",
+              "body": "WebSocket sync connections bypassed the IP blocklist and per-IP rate limiting that the rest of the request pipeline applies, letting a blocked address still connect and leaving the credential lookup unthrottled. Both checks now run before any work on the connection."
+            },
+            {
+              "title": "API-key scopes are enforced",
+              "body": "Keys carried a labelled scope (such as upload or read) that mutating and read routes never checked, so a key issued for a narrow purpose acted with the full authority of the administrator who created it. Mutating routes now require the appropriate scope, an unused scope label was removed, and a key only carries an administrator's ownership override when the key itself was issued with admin scope."
+            },
+            {
+              "title": "Session-key exchange requires a verified client certificate",
+              "body": "The first-response key wrap for mTLS clients used the presented client certificate without confirming the certificate chain was verified, so a client offering an untrusted certificate could have the session key wrapped to a key it controls. The wrap now runs only for an authorized peer, matching the certificate checks used elsewhere."
+            },
+            {
+              "title": "Uploaded files that cannot be content-checked are rejected",
+              "body": "If the file-content and polyglot validation step raised an internal error, the upload was logged and then accepted anyway. That step now fails closed: an upload that cannot be validated is rejected and audited, and its reserved quota is released."
+            },
+            {
+              "title": "Two-factor backup codes are reliably single-use",
+              "body": "Submitting two different valid backup codes at the same time could restore one just-spent code to the live set. A backup code is now removed in a single row-level operation, so a consumed code cannot reappear."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "CWE-367: Time-of-check Time-of-use (TOCTOU) Race Condition",
+          "url": "https://cwe.mitre.org/data/definitions/367.html"
+        },
+        {
+          "label": "NIST SP 800-63B — Authentication and Lifecycle Management",
+          "url": "https://pages.nist.gov/800-63-3/sp800-63b.html"
+        }
+      ]
+    },
+    {
+      "version": "1.12.12",
+      "date": "2026-06-26",
+      "headline": "Email changes are verified before they take effect, keeping your current address authoritative until then",
+      "summary": "When email verification is enabled, changing your account email now stages the new address behind a confirmation round-trip: a verification link is sent to the new address, and your current address stays your login identity until you follow it. A mistyped or unconfirmed change can no longer take effect or lock you out, and an unverified address never becomes the account email. The vendored framework is refreshed to its latest release.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "An email change requires verifying the new address first",
+              "body": "With email verification enabled, an email change is now staged rather than applied immediately. The new address is held pending while a confirmation link is mailed to it; the account's current, already-verified address remains the login identity and the session stays active until the link is followed, at which point the change is committed. Previously the new address was written and the account dropped to a pending state straight away, so a mistyped address — which can't receive the confirmation — left no way back in. The new address never becomes the account email until its owner proves control of it."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Vendored framework refreshed",
+              "body": "The vendored framework is updated to its latest release, which releases a sandbox worker's message port before resolving (a resource-cleanup fix that does not affect this application's surface)."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "OWASP — Identity and Access Management",
+          "url": "https://owasp.org/www-project-top-ten/"
+        }
+      ]
+    },
+    {
+      "version": "1.12.11",
+      "date": "2026-06-25",
+      "headline": "Cross-account file-takeover closure, an unauthenticated ZIP-download DoS fix, and admin-API responses that no longer leak per-file keys or bundle secrets",
+      "summary": "An attacker can no longer acquire another account's anonymously-uploaded files by pointing their own email at the victim's address — an email change now requires proof of control of the new address, and anonymous uploads are reassigned to an account only once that account's email is verified. The unauthenticated bundle ZIP-download endpoints are rate-limited and memory-bounded, the admin file and bundle list APIs no longer return per-file encryption keys, storage paths, bundle password hashes, finalize tokens, or recipient addresses, and a set of access-control, lockout, quota, and webhook issues are fixed.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Cross-account anonymous-upload takeover is closed",
+              "body": "A signed-in user could acquire another person's anonymously-uploaded files by changing their own account email to the victim's address: the dashboard reassigned every anonymous upload whose recorded uploader address equalled the account's email, with no proof the account controlled that address. Email equality is no longer treated as proof of ownership — anonymous uploads are reassigned to an account only when that account's email is verified, and a fresh or unverified address never triggers a claim. An email change to an address that holds pending anonymous uploads is refused outright."
+            },
+            {
+              "title": "Email changes require proof of control of the new address",
+              "body": "Changing an account's email now requires verifying the new address before it grants any privilege, mirroring registration: the change is staged behind a verification round-trip rather than taking effect immediately on the password-confirmed request alone. This closes the path that let an unverified address be used to attribute mail, audit entries, or ownership."
+            },
+            {
+              "title": "Unauthenticated bundle ZIP downloads are rate-limited and memory-bounded",
+              "body": "The public full-bundle and folder ZIP-download endpoints buffered every file into memory with no throttle, so an anonymous caller could exhaust server memory by requesting large archives in a loop. Both endpoints are now rate-limited per client and cap the bytes a single archive build holds at once."
+            },
+            {
+              "title": "Admin file and bundle APIs no longer leak secrets",
+              "body": "The admin file-list response is now projected to an explicit allowlist of interface fields, so it no longer ships per-file encryption keys, storage paths, or checksums to the browser. The admin bundle-list response likewise no longer exposes bundle password hashes, finalize-token hashes, or the email-gate recipient list. The allowlist is positive, so a future sealed column cannot silently re-leak."
+            },
+            {
+              "title": "Stash-password unlock gains the persistent subnet-keyed lockout",
+              "body": "The public stash-password unlock route now shares the same restart-surviving, subnet-keyed exponential-backoff lockout the bundle-password unlock already enforced, lifted into one module so the two routes can't drift. An attacker rotating addresses within a subnet can no longer reset the escalating backoff."
+            },
+            {
+              "title": "Stash unlock state is keyed by a stable identifier",
+              "body": "A stash's unlocked session state is now keyed by the stash's stable internal identifier instead of its human-chosen, reusable slug, so a freed-and-reused slug can no longer carry a previous stash's unlock onto a new protected stash."
+            },
+            {
+              "title": "Email-gated access is re-checked against the current allow-list",
+              "body": "An email-gated bundle or stash now re-validates the session's verified address against the resource's current allow-list on every request, so removing an address from the gate revokes its access immediately rather than leaving an established session in place."
+            },
+            {
+              "title": "Login no longer reveals account existence or lockout state",
+              "body": "A login against a locked account now returns the same uniform response as a non-existent address or a wrong password, removing an oracle that distinguished registered, locked, and unknown accounts. The lockout is still fully enforced."
+            },
+            {
+              "title": "A toggled-off webhook stops delivering immediately",
+              "body": "An in-flight or retrying webhook delivery is now suppressed once the operator toggles the hook off, instead of completing to the just-disabled endpoint; the active state is re-checked at delivery time."
+            },
+            {
+              "title": "Upload quotas are enforced on the post-write total",
+              "body": "The per-IP byte quota is now reserved the instant its check passes, so concurrent in-flight uploads see each other's debits and can't all clear a stale pre-write total and overshoot the cap; a failed upload releases its reservation."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Sync enrollment uses an indexed, constant-time code lookup",
+              "body": "Validating a sync enrollment code now uses the indexed derived-hash lookup and a constant-time comparison instead of loading every pending code and matching with plain equality."
+            },
+            {
+              "title": "Stash counters are decremented on last-file auto-cleanup",
+              "body": "When a bundle is auto-removed because its last file was deleted, the owning stash's bundle and byte counters are now decremented, matching the other bundle-removal paths."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "OWASP — Broken Access Control",
+          "url": "https://owasp.org/Top10/A01_2021-Broken_Access_Control/"
+        },
+        {
+          "label": "RFC 4291 (IPv6 addressing)",
+          "url": "https://www.rfc-editor.org/rfc/rfc4291"
+        }
+      ]
+    },
+    {
+      "version": "1.12.10",
+      "date": "2026-06-25",
+      "headline": "Admin-list stored-XSS closure, checksum-verified restores, a durable mTLS lockout escape hatch, and a permanent backup/restore lock fix",
+      "summary": "A self-registered user (or an invited address) can no longer plant script that runs in an administrator's session through the admin user and invite lists. Restores now verify every upload file against its recorded checksum and refuse a corrupt or tampered blob, the backup/restore operation lock can no longer latch permanently and block all future runs, and the mutual-TLS lockout escape hatch stays in effect across settings reloads instead of silently reverting. Backup blob storage, partial-restore handling, certificate rollback, webhook delivery, and several smaller correctness issues are also fixed.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Stored cross-site-scripting closed in the admin user and invite lists",
+              "body": "The admin user list and pending-invite list built their row action buttons by interpolating an account email directly into an inline event-handler's JavaScript string. The HTML escaper used there is correct for text and attribute context but not for a JavaScript string, so an email containing a quote — a value an anonymous self-registration or an invite can supply — broke out and executed in the administrator's authenticated session when a row action was clicked. The handlers now key off the server-generated record identifier and read the email from an escaped data attribute, so account-controlled text can never reach a script context."
+            },
+            {
+              "title": "Restored upload files are checksum-verified",
+              "body": "The restore path verifies each upload file against the SHA3-512 checksum recorded in the integrity-protected backup manifest before writing it, the same check the database and vault files already received. A corrupt, truncated, or tampered backup blob is now rejected instead of being written verbatim into live storage, and the failure is surfaced rather than counted as a successful restore."
+            },
+            {
+              "title": "The mTLS lockout escape hatch survives settings reloads",
+              "body": "Setting ENFORCE_MTLS_STRICT=false to recover access now disables app-layer mutual-TLS enforcement durably — it is re-asserted on every configuration reload, not only at boot. Previously the first settings save re-read the persisted database value and silently re-locked an operator who had used the escape hatch to regain access."
+            },
+            {
+              "title": "Backup upload blobs are content-addressed",
+              "body": "Backup upload blobs are stored under a content-addressed key rather than a single shared per-path key. A vault-password rotation rewrites a file's ciphertext in place; under the old shared key a later backup overwrote the blob an older backup still referenced, so restoring that older point-in-time produced undecryptable data. Content-addressing keeps each generation's blobs immutable while preserving cross-generation de-duplication."
+            },
+            {
+              "title": "The API-encryption replay nonce covers the full freshness window",
+              "body": "The single-use replay nonce now lives at least as long as the maximum message-freshness lifetime, closing a brief window in which a future-dated request timestamp let a captured ciphertext be replayed after the nonce expired but before the freshness check did. The two bounds are tied to one shared constant so they cannot drift apart."
+            },
+            {
+              "title": "Freshness enforcement applies to every encrypted payload shape",
+              "body": "The API-encryption timestamp freshness check is now enforced for every decryptable payload, not only those carrying the inner discriminator field. A request that omits it is treated as malformed and rejected when a replay window is configured."
+            },
+            {
+              "title": "A toggled-off webhook stops delivering immediately",
+              "body": "A webhook delivery that is in flight or awaiting a retry is now suppressed once an operator toggles the hook off, instead of completing to the endpoint the operator just disabled. The active state is re-checked at delivery time."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Backup and restore no longer wedge permanently",
+              "body": "A failure that occurred before the backup or restore worker started — a vault re-initialization in progress, a transiently unreadable database snapshot — left the operation lock held forever, so every subsequent backup and restore was refused as already in progress until the process was restarted. The lock is now released unconditionally on every exit path."
+            },
+            {
+              "title": "A partial upload-restore failure is treated as a failure",
+              "body": "When some upload files fail to restore, the restore is now rolled back and reported as a failure with the count surfaced to the operator and the audit log, rather than committing the restored database and posting success while a soft warning was silently dropped — which left the live database pointing at files that were never written."
+            },
+            {
+              "title": "A failed restore reverts certificate material too",
+              "body": "The restore rollback now snapshots and reverts the TLS and mutual-TLS certificate-authority files alongside the database and vault, so a restore that fails after the certificate step can no longer leave the trust chain at the backup's version while the database is reverted."
+            },
+            {
+              "title": "Webhook event subscriptions from the admin UI deliver again",
+              "body": "The admin webhook form offered event names the server never emits, so every webhook subscribed to a specific event was silently dead and only the all-events subscription worked. The form now lists the events the server actually fires, and an unknown event name is rejected when the webhook is created."
+            },
+            {
+              "title": "Webhook delivery history is bounded",
+              "body": "Webhook delivery records are now swept on a retention window instead of accumulating without limit, and the admin delivery view reads only the recent window through its timestamp index rather than loading a hook's entire history into memory to sort it."
+            },
+            {
+              "title": "Out-of-range environment values report accurately",
+              "body": "An out-of-range configuration value supplied through the environment no longer warns that a default will be used while the load path actually uses the invalid value as-is; the load path now applies the schema default so the diagnostic matches the server's behavior."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "OWASP — Cross-Site Scripting",
+          "url": "https://owasp.org/www-community/attacks/xss/"
+        },
+        {
+          "label": "FIPS 202 (SHA-3 / SHAKE)",
+          "url": "https://csrc.nist.gov/pubs/fips/202/final"
+        }
+      ]
+    },
+    {
+      "version": "1.12.9",
+      "date": "2026-06-25",
+      "headline": "Per-end-site IPv6 rate-limit and quota keying, idle-session and lockout fixes, a restored admin reset endpoint, and a TLS-aware offline-tool safety guard",
+      "summary": "Per-IP throttles and the anonymous-upload quota now key IPv6 clients on their routing prefix, so a client rotating the low bits of its address can no longer mint unlimited buckets to slip past login, vault-unlock, two-factor, bundle/stash, password-reset, and upload limits. The idle-session timeout fires again, an engaged login lockout no longer re-locks an account indefinitely, the offline vault tools correctly detect a running server on a TLS deployment before mutating the data directory, and a set of audit, quota, search, download, and admin-endpoint defects are fixed. Security comparisons and randomness move onto the vendored framework's hardened primitives.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Per-IP throttles and the upload quota key IPv6 clients on their routing prefix",
+              "body": "Every per-IP rate limiter (login, vault-unlock, two-factor, bundle and stash unlock, verify-code, password-reset, passkey login, registration, invite-accept) and the anonymous-upload byte quota now collapse an IPv6 client to its routing-significant /64 instead of its full 128-bit address. An end-site is allocated a whole /64 and can freely rotate the low 64 bits; keying on the full address let one site present a fresh bucket per request and evade the throttle entirely. IPv4 clients remain keyed per host, the lockout-reset path uses the same key derivation so it can't clear the wrong bucket, and the audit trail still records the precise client address."
+            },
+            {
+              "title": "An engaged login lockout no longer re-locks an account indefinitely",
+              "body": "When the failed-login lockout engages, the attempt counter is reset in the same write. Previously the saturated counter persisted, so once the lockout window lapsed a single further wrong password re-crossed the threshold and re-locked the account for another full window — repeating forever. A clean login or password reset was the only escape."
+            },
+            {
+              "title": "The idle-session timeout fires again",
+              "body": "The authenticated-page liveness heartbeat no longer advances the session's last-activity and expiry on every poll, so the idle timeout actually elapses for an abandoned session. The heartbeat is now a side-effect-free liveness probe; the idle clock advances on real user requests."
+            },
+            {
+              "title": "Offline vault tools detect a running server on a TLS deployment",
+              "body": "The key-rotation and passphrase tools probed for a running server with a plain-HTTP request that never completes against a TLS or post-quantum-gated port, so the guard always concluded no server was running and proceeded. The probe is now protocol-agnostic — a bare connection test against both the gate and internal ports — so the tools refuse to mutate the data directory under a live server, the failure mode the guard exists to prevent."
+            },
+            {
+              "title": "Security comparisons and randomness use the framework's hardened primitives",
+              "body": "Constant-time comparison now rejects a non-string, non-buffer input rather than coercing it through a stringification an attacker-influenced object could redirect, and token and key-material generation route through the framework's uniformity-guarded generator. Duplicated local copies of these primitives are retired in favor of the single vendored implementation; the legacy storage-envelope reader and the application's address-hash remain application-specific."
+            },
+            {
+              "title": "Repeated wrong bundle access codes are audited",
+              "body": "A wrong bundle or stash access code now records the brute-force audit event that was previously dropped because the attempt count never reached the audit gate. The unknown-code response stays indistinguishable to avoid an enumeration oracle."
+            },
+            {
+              "title": "Email-gate allow-lists are validated through the shared validator",
+              "body": "A bundle's email-gate allow-list is now cleaned through the same address validator used for the uploader address, so a malformed entry can't be stored verbatim and silently lock the intended recipient out of an email-gated bundle."
+            },
+            {
+              "title": "The Resend send quota is enforced in combined backends",
+              "body": "The daily and monthly Resend send caps are now enforced when Resend is used as part of a combined SMTP-and-Resend backend, not only when Resend is the sole backend. The quota previously short-circuited to allowed for any combined mode."
+            },
+            {
+              "title": "Deleted bundle files are excluded from downloads",
+              "body": "A file deleted from a sync bundle is now excluded from the full-bundle and folder ZIP downloads and from single-file download, matching the browse view. Deleted file names no longer appear in the archive's missing-files manifest, and a deleted file returns a clean not-found instead of a server error."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "The admin database-reset endpoint works again",
+              "body": "The admin factory-reset endpoint failed on every call because a loop variable shadowed the framework binding it used to parse the request body. The endpoint now runs as intended."
+            },
+            {
+              "title": "Admin file search matches filenames and uploader addresses",
+              "body": "Admin file search queried an indexed digest column with a substring match that no human-typed term could ever satisfy, so it always returned nothing. It now searches a bounded, decrypted window in memory like the user search, matching on filename, path, and uploader address."
+            },
+            {
+              "title": "A site administrator can delete a team they already belong to",
+              "body": "A site administrator who already holds a membership row in a team can now force-delete it without a misleading \"already a member\" rejection; the privileged delete no longer depends on inserting a fresh admin membership."
+            },
+            {
+              "title": "A failed download no longer inflates statistics or the audit trail",
+              "body": "The per-file download counter and the download audit entry are now written only after the file stream opens successfully, so a download that fails before any bytes are sent no longer records a phantom success."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 4291 (IPv6 addressing)",
+          "url": "https://www.rfc-editor.org/rfc/rfc4291"
+        },
+        {
+          "label": "RFC 6177 (IPv6 end-site allocation)",
+          "url": "https://www.rfc-editor.org/rfc/rfc6177"
+        },
+        {
+          "label": "FIPS 205 (SLH-DSA)",
+          "url": "https://csrc.nist.gov/pubs/fips/205/final"
+        }
+      ]
+    },
+    {
+      "version": "1.12.8",
+      "date": "2026-06-25",
+      "headline": "Rotation-safe database encryption, fail-closed credential and token checks, and the latest vendored framework security release",
+      "summary": "Vault-key rotation now re-encrypts the database file through the same directory-bound authenticated-encryption codec used for every normal read and write, so a rotation can no longer re-wrap the database without re-applying its binding and leave it undecryptable afterward. A broad set of credential, certificate, and one-time-token checks fail closed on a present-but-unparseable value instead of silently passing; unknown and passwordless logins run a constant-cost verification so a registered address can no longer be distinguished by timing; privileged file operations are atomic and refuse symlinks; and the vendored framework is updated to its latest security release, which fails more verifiers closed, bounds outbound network reads, restores OCSP freshness enforcement, peer-gates forwarded scheme and host headers, and rides encrypted-API rejections on the session envelope.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Outbound and host-policy lookups go through the framework network guard",
+              "body": "Server-side request-forgery host checks, client-IP canonicalization, and the object-storage client's request deadline now use the vendored framework's hardened network guard and a bounded default timeout rather than hand-rolled equivalents, so an outbound lookup cannot hang indefinitely and a host-policy decision is made on a canonical address."
+            },
+            {
+              "title": "Rate-limit and audit keys resolve the client IP through the trusted-proxy configuration",
+              "body": "The address a rate-limit counter and an audit row key on is now the real client resolved behind the configured trusted proxies, not the proxy socket, so per-client limits and audit attribution stay correct in reverse-proxy and container deployments."
+            },
+            {
+              "title": "Daily email quota windows are computed in UTC",
+              "body": "The per-account daily send-quota boundary no longer shifts with the host timezone, and multi-recipient messages are addressed across all recipients."
+            },
+            {
+              "title": "Bot-guard denials return problem-details",
+              "body": "A request rejected by the public-route bot guard now responds with application/problem+json like the rest of the API surface instead of a plain body."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Vault-key rotation preserves the database file's authenticated-encryption binding",
+              "body": "Rotation re-encrypts the encrypted database through the same directory-bound codec used for normal reads and writes, so the additional-authenticated-data tag is re-applied on the new key. A rotation path that re-wrapped the database without the binding could leave it undecryptable once the rotation completed."
+            },
+            {
+              "title": "Admin role implies every scope",
+              "body": "An administrator is no longer denied a scoped action because the action's specific scope was absent from the key; the admin scope now satisfies any scope check."
+            },
+            {
+              "title": "Single-file bundle downloads return 404 for an orphaned record",
+              "body": "A bundle file row whose backing object no longer exists returns a not-found response instead of streaming an empty or partial body."
+            },
+            {
+              "title": "File previews stop streaming when the client disconnects",
+              "body": "Preview streams are destroyed on connection close, releasing the underlying file handle promptly rather than draining to completion after the client has gone."
+            },
+            {
+              "title": "Bundled-dependency inventory reports the correct versions to scanners",
+              "body": "The vendored dependency manifest that the container image's software bill of materials mirrors had two transitive packages recorded at a version that disagreed with the shipped code; both are corrected and are now derived mechanically from the installed packages, so a vulnerability scanner matches advisories against the version actually present."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Credential, certificate, and token expiry checks fail closed on an unparseable timestamp",
+              "body": "The mutual-TLS client-certificate validity window, the failed-login lockout counter, and the email-verification and password-reset token expiry all reject a present-but-unparseable value instead of treating it as valid — closing the case where a malformed timestamp silently skipped the check."
+            },
+            {
+              "title": "Constant-cost credential verification on unknown and passwordless accounts",
+              "body": "A login against an unregistered address or a passwordless account now runs the same constant-cost password verification as a real account, removing the timing side-channel that distinguished which addresses are registered."
+            },
+            {
+              "title": "Encrypted API requests require a finite replay timestamp",
+              "body": "When a replay window is configured, a request whose timestamp is missing or non-numeric is rejected rather than admitted, so a stripped or malformed timestamp can no longer bypass replay protection."
+            },
+            {
+              "title": "One-time tokens are consumed atomically and length-checked",
+              "body": "Email-verification and password-reset tokens are claimed in a single atomic step and bounded in length before comparison, closing a window where a token could be accepted twice under concurrent use."
+            },
+            {
+              "title": "Bundle access-code verification closes a message and timing oracle",
+              "body": "A wrong bundle access code returns a single indistinguishable result and is compared in constant time, so neither the response wording nor its latency reveals whether a code prefix was correct."
+            },
+            {
+              "title": "Privileged file operations are atomic and refuse symlinks",
+              "body": "Storage-migration moves, branding-logo and CA-flag writes, the vault-key rotation token, and the append-only session log all write through exclusive, no-follow, atomic temporary-file-and-rename primitives, and the storage-migration claim is taken race-safely — a pre-planted symlink or a concurrent trigger can no longer redirect or double-run the operation."
+            },
+            {
+              "title": "Upload intake is size-capped before buffering",
+              "body": "A chunked upload is bounded against the maximum file size in aggregate before its scratch buffer is allocated, closing a memory-exhaustion path on the intake step."
+            },
+            {
+              "title": "Failure responses no longer echo internal detail",
+              "body": "Storage, job-queue, and external-database errors that reach the response boundary return a generic message and log the detail server-side, so internal failure text is not disclosed to the caller."
+            },
+            {
+              "title": "CSRF token comparison and Origin canonicalization go through the framework primitive",
+              "body": "Form CSRF verification uses the framework's constant-time token check, and a trailing-slash Origin is canonicalized before the allowlist match so an equivalent origin is neither over- nor under-matched."
+            },
+            {
+              "title": "Vendored framework security update",
+              "body": "The vendored framework is updated to its latest release: certificate and credential verifiers fail closed on an unparseable validity timestamp; outbound network clients enforce an overall wall-clock timeout and bound their read buffers; DNS lookups gain a wall-clock deadline and tear their sockets down; append-only log sinks refuse a symlinked path; OCSP response-freshness enforcement is restored; DPoP request-URI reconstruction peer-gates forwarded scheme and host headers; encrypted-API rejections that would disclose session state now ride the session envelope; logout-everywhere works for pluggable session stores; and the device fingerprint masks the client IP canonically."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "FIPS 203 (ML-KEM)",
+          "url": "https://csrc.nist.gov/pubs/fips/203/final"
+        },
+        {
+          "label": "RFC 6960 (OCSP)",
+          "url": "https://www.rfc-editor.org/rfc/rfc6960"
+        },
+        {
+          "label": "RFC 9449 (DPoP)",
+          "url": "https://www.rfc-editor.org/rfc/rfc9449"
+        },
+        {
+          "label": "RFC 9457 (Problem Details)",
+          "url": "https://www.rfc-editor.org/rfc/rfc9457"
+        }
+      ]
+    },
+    {
+      "version": "1.12.7",
+      "date": "2026-06-22",
+      "headline": "Always-encrypted object storage, constant-time credential checks, atomic login lockout, and proxy-aware session binding",
+      "summary": "Every stored object is now encrypted by the application before it leaves the process — the direct-download mode that could serve a file under a classical S3-managed cipher is removed. Backup-code, passkey, and backup-checksum comparisons run in constant time; the failed-login lockout counter increments atomically so concurrent attempts can no longer slip past the threshold; the Google OAuth state is time-bound and constant-time compared; and the session device fingerprint resolves the real client IP behind a trusted proxy so it stays stable (and meaningful) in reverse-proxy and container deployments. Trusted-proxy configuration accepts CIDR ranges, the bundle-password lockout is keyed on the subnet, chunked uploads are size-capped before reassembly, and the vendored framework is updated to its latest security release.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Trusted-proxy configuration accepts CIDR ranges",
+              "body": "TRUST_PROXY now resolves the client IP through a peer-gated, right-to-left walk over CIDR ranges (a bare IP is treated as a /32 or /128). X-Forwarded-For is honored only for hops inside the trusted set, so a direct caller cannot forge an upstream address to walk an IP allowlist or evade a rate-limit key. A malformed range fails safe to loopback-only rather than throwing or widening trust."
+            },
+            {
+              "title": "Stash logo files are written atomically and refuse symlinks",
+              "body": "Branding-logo writes go through an exclusive, no-follow temporary-file-and-rename, so a pre-planted symlink at the logo path can no longer redirect the write."
+            },
+            {
+              "title": "Bundle file downloads serve only finalized files",
+              "body": "A single-file download from a bundle now returns the file only once its upload has completed, so an in-flight upload can never be streamed as a partial or unkeyed object."
+            }
+          ]
+        },
+        {
+          "heading": "Removed",
+          "items": [
+            {
+              "title": "S3 direct-download mode",
+              "body": "The mode that stored objects under S3 server-side AES encryption and served them through pre-signed URLs — bypassing the application's post-quantum XChaCha20-Poly1305 layer — is removed, along with the S3_DIRECT_DOWNLOADS and S3_PRESIGN_EXPIRY settings. All objects on every backend are now encrypted by the application before storage and decrypted on the way out. See Migration."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Admin stash-edit control escapes embedded data robustly",
+              "body": "The per-row edit control in the admin stash list escapes its embedded JSON for the surrounding attribute context, closing a fragile hand-rolled escape."
+            },
+            {
+              "title": "Vendor refresh writes the dependency manifest in one step",
+              "body": "The vendoring script records version, tag, and date in a single manifest write and always cleans its temporary clone (retrying through a transient filesystem lock), so an interrupted refresh can no longer leave the manifest half-updated or a stale clone behind."
+            },
+            {
+              "title": "Release version comparison fails loud on an unresolved tag",
+              "body": "The release currency check now errors on a null or unresolved upstream tag instead of coercing it to a value that reads as current, so a failed lookup can't let a stale pin pass the gate."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Constant-time credential and checksum comparisons",
+              "body": "Two-factor backup-code lookup, passkey credential-ID matching, and backup/restore checksum verification now use a constant-time comparison, removing timing side-channels that could leak which value matched or whether a credential exists."
+            },
+            {
+              "title": "Atomic failed-login lockout",
+              "body": "The failed-login counter is incremented with an atomic database update, so concurrent failed attempts can no longer each read the same pre-write value and stay under the lockout threshold."
+            },
+            {
+              "title": "Time-bound OAuth state",
+              "body": "The Google OAuth state carries a creation timestamp, is rejected after five minutes, and is compared in constant time — a captured state can no longer be replayed across a long-lived session window."
+            },
+            {
+              "title": "Proxy-aware session device binding",
+              "body": "The session device fingerprint resolves the real client IP through the trusted-proxy configuration, so behind nginx or a container network it binds to the client's subnet rather than an ephemeral proxy socket — keeping the binding both stable and effective."
+            },
+            {
+              "title": "Subnet-keyed bundle-password lockout",
+              "body": "The exponential backoff on bundle-password attempts is keyed on the /24 (IPv4) or /64 (IPv6) subnet, so rotating addresses within a subnet can no longer reset the counter on each try."
+            },
+            {
+              "title": "Audit detail no longer logged on insert failure",
+              "body": "When an audit row fails to insert, the process log records the action and error but no longer echoes the audit detail, which can contain sensitive freeform text."
+            },
+            {
+              "title": "Audit-chain verification scopes correctly without an explicit ordering",
+              "body": "The chain-member filter is applied to audit-log reads whether or not the query carries an ORDER BY or LIMIT, so pre-chain rows can no longer leak into the verification walk and break the anchor."
+            },
+            {
+              "title": "Orphan cleanup refuses symlinks",
+              "body": "The upload-tree orphan sweep stats links rather than their targets and skips any symlink, so it can neither follow nor delete through a path outside the upload directory."
+            },
+            {
+              "title": "Chunked uploads are size-capped before reassembly",
+              "body": "A chunked upload is rejected if a chunk is missing and is capped against the maximum file size before the reassembly buffer is allocated, closing a memory-exhaustion path on the assembly step."
+            },
+            {
+              "title": "Vendored framework security update",
+              "body": "The vendored framework is updated to its latest release, which fails more authentication and signature verifiers closed, bounds a fragmented WebSocket message before completion, refuses a directive-injecting Content-Security-Policy source, and settles a middleware pipeline that a write-and-halt handler previously left pending."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Remove S3_DIRECT_DOWNLOADS and S3_PRESIGN_EXPIRY",
+              "body": "These settings are removed and ignored. Objects on every backend are always encrypted by the application, so no action is required beyond deleting the settings from your configuration; downloads stream through the application's decryption as they already do for non-direct objects."
+            },
+            {
+              "title": "TRUST_PROXY accepts CIDR ranges",
+              "body": "An existing exact-IP TRUST_PROXY value keeps working (it is treated as a /32 or /128). To trust a proxy range, set the CIDR directly, e.g. TRUST_PROXY=10.0.0.0/8."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "FIPS 203 (ML-KEM)",
+          "url": "https://csrc.nist.gov/pubs/fips/203/final"
+        },
+        {
+          "label": "RFC 9457 (Problem Details)",
+          "url": "https://www.rfc-editor.org/rfc/rfc9457"
+        }
+      ]
+    },
+    {
+      "version": "1.12.6",
+      "date": "2026-06-22",
+      "headline": "Escape admin-controlled branding in script, attribute, and CSS contexts, and reject CSP-source injection",
+      "summary": "Closes a set of cross-site-scripting and header-injection paths where admin-configured branding reached a page without context-correct escaping. The highest-impact fix neutralizes a stored DOM-XSS on the public upload page; the others harden attribute, inline-script, CSS, and Content-Security-Policy sinks. A reusable script-context JSON helper is added so server data embedded in an inline script is escaped correctly.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Neutralize a stored DOM-XSS on the public upload page",
+              "body": "The configured allowed-extensions list was serialized into an inline <script> on the public upload page with a plain JSON.stringify, which does not escape script-context characters. A value containing </script> or a JS line separator could break out and run in every visitor's browser. The value is now emitted through a script-safe serializer that escapes <, >, & and U+2028 / U+2029, so it can never close the script."
+            },
+            {
+              "title": "Reject Content-Security-Policy source injection",
+              "body": "Admin-configured analytics domains were concatenated into the CSP header without per-source validation. A value containing a directive separator or whitespace could splice an attacker-chosen directive into the policy. Each source is now validated as a single host token and dropped if it contains anything that could break out, while valid hosts (including wildcard subdomains, ports, and paths) are preserved."
+            },
+            {
+              "title": "Escape branding in attribute and CSS contexts",
+              "body": "A custom logo path, the RP origin, and the theme/stash accent and background colors are now context-correctly handled: logo and origin values are HTML-escaped in their attributes, and theme colors are validated against a color shape before they reach an inline <style> block, so neither an attribute breakout nor a CSS-rule injection is possible from admin settings."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Script-context JSON template helper",
+              "body": "Templates gain a first-class helper for embedding server data in an inline <script> with script-safe escaping, so future inline-script data has a correct, non-raw path."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.12.5",
+      "date": "2026-06-21",
+      "headline": "Symlink-refusing atomic file writes and TOCTOU-safe reads across the vault-key, storage, and backup paths",
+      "summary": "Every on-disk write and read HermitStash performs for sealed secrets, stored objects, and backup restore now routes through the framework's atomic-write and fd-bound read primitives. A symlink pre-planted at a destination or temp path is refused rather than followed, each read is bound to the inode it opened, and a crash can no longer leave a torn file.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Refuse symlinks and torn writes on every internal file write",
+              "body": "The sealed-key ceremonies (the wrapped vault key, and the CA/TLS PEM keys), the stored-object and chunk writes, and the backup restore now stage each write to an exclusive, no-follow temporary file and commit it with an atomic rename, re-reading and verifying the sealed bytes before committing. A symlink planted at a destination or temp path is removed or refused instead of being written through, and an interrupted write cannot leave a partially-written secret."
+            },
+            {
+              "title": "Bind file reads and downloads to the opened descriptor",
+              "body": "Stored-file downloads, file previews, the logo handler, the database-backup download, and the boot-time vault-key and recovery-marker reads open their target with O_NOFOLLOW and read from the bound descriptor. A symlink, or a swap between the existence check and the read, surfaces as not-found rather than serving or trusting a file outside the managed data directory — and the not-found shape is identical to a genuinely missing file, so symlink refusal cannot be used to probe for paths."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.12.4",
+      "date": "2026-06-21",
+      "headline": "Vendored framework security update, accurate error statuses, and fail-closed passkey counters",
+      "summary": "Updates the vendored framework to its latest security-hardening release and tightens two server-side paths: API and sync clients now receive the correct HTTP status for framework-level errors instead of a generic 500, and a passkey whose stored signature counter is missing now fails closed rather than bypassing cloned-authenticator detection.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Update the vendored blamejs framework to 0.15.14",
+              "body": "Picks up the upstream security-hardening release. Account suspension, deletion, and password reset continue to revoke a user's sessions cleanly under the updated session API."
+            },
+            {
+              "title": "Return the correct HTTP status for framework-level errors",
+              "body": "API and sync clients now receive the accurate 4xx status — validation 400, authentication 401, not-found 404, and others — for errors raised inside the framework layer, instead of a generic 500. The body stays RFC 9457 problem-details and 5xx detail remains suppressed."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Refuse a passkey assertion with a missing signature counter",
+              "body": "Passkey login and vault unlock now pass the stored WebAuthn signature counter through unchanged. A credential whose counter is absent fails closed — the assertion is refused — instead of being treated as zero, which preserves cloned-authenticator detection."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.12.3",
+      "date": "2026-06-20",
+      "headline": "Escape stored branding text against XSS and reject revoked client certificates on the web UI",
+      "summary": "A security release. Operator-set branding strings (site name, hero and drop titles, setup fields) were rendered without HTML-escaping on pages served to every visitor, including unauthenticated ones, so a malicious or untrusted branding value could inject script. They are now escaped on output. Separately, a revoked browser/mTLS client certificate still reached the web UI because the web-layer guard trusted the TLS handshake alone, which has no revocation awareness; revoked certificates are now refused on that path as they already were on the sync paths.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Escape operator-set branding strings on output (stored XSS)",
+              "body": "The site name, landing hero title and subtitle, public-upload drop title and subtitle, the setup-wizard site-name and RP-name fields, theme colors, and the file-extension badge were emitted through the no-escape template tag and reached pages served to every visitor — including the public landing and upload pages. Settings sanitization only strips control characters, not HTML, so an admin-set (or imported/untrusted) value containing markup could execute in every session. All of these now render through the escaping tag."
+            },
+            {
+              "title": "Reject revoked client certificates on the web-UI mTLS path",
+              "body": "Revoking a browser/mTLS client certificate removed its row and recorded the revocation, but the web-layer guard admitted any connection the TLS handshake authorized — and the TLS layer has no CRL/OCSP, so a revoked-but-unexpired certificate stayed authorized and kept full web-UI access. The guard now consults the revocation list on every authorized peer certificate, before the soft-enforcement gate, so a revoked certificate is refused in both soft and strict mTLS modes — matching the sync and WebSocket paths, which already checked it."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "CWE-79 (cross-site scripting)",
+          "url": "https://cwe.mitre.org/data/definitions/79.html"
+        },
+        {
+          "label": "CWE-299 (improper check for certificate revocation)",
+          "url": "https://cwe.mitre.org/data/definitions/299.html"
+        }
+      ]
+    },
+    {
+      "version": "1.12.2",
+      "date": "2026-06-20",
+      "headline": "Vault key-material log-leak fixes, hardened admin access control, and repaired keyed-index migration and session revocation",
+      "summary": "A security and correctness release. It stops corrupted vault key files from echoing private-key bytes into server logs, closes a CSRF gap and an X-Forwarded-For spoof on the admin surface, confines stash-scoped sync tokens to their stash, and tightens Google sign-in verification. It also repairs the keyed-MAC blind-index migration (which never completed) and the per-user session-revocation path used by account suspend and delete, restores oversized encrypted vault uploads and admin upload-notification email, and makes sealed key reads TOCTOU-safe.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Stop logging vault private-key bytes on a corrupted key file",
+              "body": "When the vault key file (or an unsealed keypair) failed to parse, the JSON parser error — which can quote a window of the offending input — was written to the log, and that file is dominated by the ML-KEM-1024 and P-384 private keys. Vault load, key rotation and verification, and the seal/unseal/migration scripts now suppress the parser detail and exit with a content-free message; an operator who needs to distinguish a filesystem fault still gets the fs error code, never key material."
+            },
+            {
+              "title": "Enforce the cross-site Origin check on admin multipart routes",
+              "body": "The CSRF middleware skipped every multipart/form-data body, leaving the admin logo upload reachable by a cross-site form auto-submit under an authenticated admin's cookie. Non-exempt multipart POSTs now go through the same cross-site Origin check that already protects JSON requests; the public upload portals (which carry their own per-upload tokens) remain exempt and same-origin admin uploads are unaffected."
+            },
+            {
+              "title": "Make the admin network fence resolve the client IP through the peer-gated reader",
+              "body": "The opt-in /admin CIDR fence trusted X-Forwarded-For without verifying the connecting peer was a configured proxy, so an X-Forwarded-For header could spoof an in-range source when /admin was reachable off-proxy. It now resolves the client IP the same way every other IP consumer does — honoring X-Forwarded-For only when the socket peer is a trusted proxy — and canonicalizes IPv4-mapped IPv6 so a dual-stack listener no longer false-denies an in-range operator."
+            },
+            {
+              "title": "Confine stash-scoped sync tokens to their stash on the HTTP sync paths",
+              "body": "A stash-bound sync token could reach bundles outside its stash that happened to be owned by the admin who issued it — covering rename, download, and delete. The HTTP ownership check now confines a stash-scoped token strictly to its stash, matching the stricter WebSocket upgrade gate. User-scoped (non-stash) keys are unchanged."
+            },
+            {
+              "title": "Require positive email verification for Google sign-in",
+              "body": "Google sign-in rejected only an explicit email_verified:false. A missing or unset value now also fails, so a non-conformant userinfo response cannot complete sign-in against an unverified address."
+            },
+            {
+              "title": "Make sealed PEM, CA, and TLS key reads TOCTOU-safe",
+              "body": "Reads of operator-writable plaintext and sealed key paths now refuse a symlinked source and any inode swap between the open and the read (CWE-367 / CWE-59), matching the framework's own sealed-PEM reader."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Complete the keyed-MAC blind-index migration",
+              "body": "The one-shot boot pass that re-keys legacy blind-index digests referenced an unimported symbol and threw every boot, so it never wrote its completion marker and re-scanned every indexed table on every startup. It now completes and short-circuits on subsequent boots."
+            },
+            {
+              "title": "Stop account suspend and delete from returning 500",
+              "body": "Revoking all sessions for a user failed after the vendored framework began raising a per-subject stateless boundary in a framework database HermitStash does not initialize. The store-backed sessions — the only sessions HermitStash keeps — are revoked correctly, and the now-irrelevant boundary update is tolerated. Reported upstream as blamejs/blamejs#340."
+            },
+            {
+              "title": "Restore oversized encrypted vault uploads",
+              "body": "An encrypted vault upload larger than about 16 MiB failed with a misleading \"Decryption failed\" because the inner decrypt parse kept a fixed 16 MiB ceiling while the surrounding limits were raised to the upload size. The inner parse budget now follows the same limit as the rest of the request path."
+            },
+            {
+              "title": "Deliver admin upload-notification email again",
+              "body": "Admin upload notifications were dropped silently because the recipient list (always an array) was rejected by a single-address guard before reaching the mail backend, which validates and normalizes a list natively."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Update the vendored framework to blamejs 0.15.13",
+              "body": "Picks up consolidated, hardened primitives — a TOCTOU-safe file reader, single-pass structured-field decoding, constant-time content-digest matching, and an audit event whenever outbound TLS certificate validation is disabled. Bundled @simplewebauthn/server moves to 13.3.1 and @noble/curves is now recorded in the dependency inventory."
+            },
+            {
+              "title": "Pin actions/checkout to v7.0.0",
+              "body": "Updates the workflow checkout action to its current release."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "CWE-532 (information exposure through log files)",
+          "url": "https://cwe.mitre.org/data/definitions/532.html"
+        },
+        {
+          "label": "CWE-367 (TOCTOU race condition)",
+          "url": "https://cwe.mitre.org/data/definitions/367.html"
+        },
+        {
+          "label": "blamejs/blamejs#340",
+          "url": "https://github.com/blamejs/blamejs/issues/340"
+        }
+      ]
+    },
+    {
+      "version": "1.12.1",
+      "date": "2026-06-14",
+      "headline": "Audit-log tamper-evidence, an opt-in admin network fence, and hardened uploads and logout",
+      "summary": "Two new opt-in defenses land, both off by default so an existing deployment is unchanged until enabled: a hash-chained audit log that makes tampering detectable (with an on-demand verification endpoint), and a network-layer CIDR allowlist that fences the admin surface on top of admin authentication. Alongside them, image uploads gain polyglot rejection, logout clears client-side browser state, and the sealed-key and migration writes move to a torn-write-safe atomic path.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Hash-chain the audit log for tamper-evidence",
+              "body": "Set AUDIT_CHAIN=true to link every audit-log row into a SHA3-512 hash chain, so a row cannot be altered or removed without breaking the chain. Verify on demand at GET /admin/audit/verify (admin only), which returns whether the chain holds and how many rows were checked. A detected break is logged at error severity and the server stays up so you can inspect it; AUDIT_CHAIN_STRICT=true makes it refuse to boot instead. Retention pruning writes a purge anchor so trimming old rows is not mistaken for tampering. Off by default — the existing audit path is unchanged until enabled."
+            },
+            {
+              "title": "Fence the admin surface with a network CIDR allowlist",
+              "body": "Set ADMIN_ALLOWED_CIDRS (or the Admin Settings field) to a comma-separated CIDR list to restrict the /admin surface to those source ranges at the network layer, in addition to admin authentication. A request from outside the listed ranges is refused before it reaches auth. Empty by default — no fence — so an existing deployment is unchanged. Behind a reverse proxy the source IP follows the same TRUST_PROXY hop policy as the rate limiter; a change to the list takes effect on restart."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Update the vendored framework to blamejs 0.15.11",
+              "body": "The vendored framework picks up linear-time replacements for a family of quadratic (ReDoS-class) text-handling regexes, a build-time scan of the vendored crypto against the OSV vulnerability database, and a stricter data-at-rest read: an AAD-bound sealed column now refuses a plain, unbound cell instead of returning it, defeating a cross-row envelope copy. HermitStash keeps reading legacy pre-AAD cells through the upgrade — they are migrated up to bound ciphertext by the existing dual-read and the boot backfill."
+            },
+            {
+              "title": "Return problem-details for unknown routes to API clients",
+              "body": "A request to an unknown path now content-negotiates: browsers still get the HTML 404 page, while API and Bearer clients receive an RFC 9457 application/problem+json 404 instead of the HTML page."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Reject polyglot and format-mismatched image uploads",
+              "body": "Image validation previously stopped at the first matching magic-byte signature, so a polyglot buffer carrying two valid image signatures could be mislabeled and accepted when the claimed extension agreed. Raster image uploads are now additionally checked for multiple format signatures and format integrity, and a polyglot is rejected. SVG continues through its dedicated sanitizer and is unaffected."
+            },
+            {
+              "title": "Clear client-side state on logout",
+              "body": "Logging out now emits a Clear-Site-Data response header (cookies, storage, cache, and execution contexts) and an expired session cookie alongside the server-side session revocation, so a stale tab cannot replay the now-revoked session. The session middleware no longer re-issues a live cookie on the logout response."
+            },
+            {
+              "title": "Write sealed-key and migration files atomically",
+              "body": "The vault keypair, the API-payload keypair, and the envelope-migration writes now go through an atomic temp-write, fsync, and rename-with-retry path. A crash, a torn write, or a transient file lock (common on Windows and synced folders) can no longer leave a half-written sealed key in place, which previously risked an unreadable key being regenerated and the data becoming undecryptable."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "RFC 9457 (Problem Details)",
+          "url": "https://www.rfc-editor.org/rfc/rfc9457"
+        },
+        {
+          "label": "Clear-Site-Data (MDN)",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Clear-Site-Data"
+        }
+      ]
+    },
+    {
+      "version": "1.12.0",
+      "date": "2026-06-13",
+      "headline": "Critical access-control and data-integrity fixes, keyed blind-index lookups, and team file-sharing",
+      "summary": "This release closes a set of critical security failures: revoked mutual-TLS certificates were still accepted, a sync bundle's upload endpoints could be written by anyone who learned the bundle ID, email-gated bundles and stashes could be unlocked without verifying an email code, and a forgeable forwarded-for header let a client spoof its source IP past the rate limiter and IP blocklist. A torn write during the periodic encrypted-database flush could also leave existing data unrecoverable. Alongside these, sealed-column lookups (email, share IDs, slugs) move to a per-deployment keyed blind index, teams gain a shared file space, and a broader batch of access-control and replay defenses lands. The runtime floor moves to Node.js 24.16.0.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Share files with a team through a team-scoped stash",
+              "body": "A stash page can now be assigned to a team. Every upload to that stash is tagged with the team and appears in the team's file list at GET /teams/:teamId/files, visible to all members. Assign or clear the team from the stash editor in the admin panel; clearing it, or deleting the team, unassigns existing files rather than removing them."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Raise the Node.js floor to 24.16.0",
+              "body": "HermitStash now requires Node.js 24.16.0 or newer, picking up the cumulative 24.x security patches over the previous 24.14.1 floor. The post-quantum stack continues to rely on OpenSSL 3.5 (ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87) and the built-in crypto.argon2; the runtime guard, container image, and installer all enforce the new minimum."
+            },
+            {
+              "title": "Update the vendored framework to blamejs 0.15.10",
+              "body": "The host/URL canonicalizer folds an IPv4-mapped IPv6 address to its embedded IPv4 and strips trailing dots, so a dual-stack peer can no longer slip past a dotted-IPv4 outbound allow/deny entry. OIDC ID-token verification enforces the authorized-party (azp) check, rejecting a multi-audience token minted for a different client. The vendored SQLite handles construct with parse-time statement-size caps and deny ATTACH DATABASE; the object store gains versioned delete and version enumeration so a right-to-erasure workflow can reach a record protected by S3 Object Lock instead of leaving it behind a delete-marker; and the build toolchain's native bundler binary is verified against a reviewed hash. Additional supply-chain and telemetry-egress hardening is carried throughout."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Write the encrypted database and key files atomically",
+              "body": "The periodic encrypted-database flush and the database-key seal wrote their files in place. A crash or torn write during the flush could truncate the encrypted database; on the next read the key material was treated as corrupt and regenerated, leaving the existing data permanently undecryptable. These writes now go through a temporary file, fsync, and atomic rename with retry on transient file locks."
+            },
+            {
+              "title": "Restore browser certificate issuance",
+              "body": "Generating a browser client certificate (the PKCS#12 download under Admin) failed with a server error because the handler required a fingerprint field the certificate packager does not return. The fingerprint is now derived from the issued certificate, so the download works."
+            },
+            {
+              "title": "Deliver admin notifications to every configured admin",
+              "body": "With more than one admin address configured, security-notification email was passed to the mailer as a single comma-joined string and silently failed to send. The recipient list is now passed as a list, so all admins receive the notice."
+            },
+            {
+              "title": "Reject duplicate accounts for the same email under concurrency",
+              "body": "The account-email index was not unique, so two registrations for the same address arriving at once could both create an account. The index is now unique; any pre-existing duplicates are collapsed to the oldest account on upgrade."
+            },
+            {
+              "title": "Count concurrent bundle uploads without losing increments",
+              "body": "Per-bundle file and size counters are now updated with an atomic database operation. The previous read-modify-write could drop increments when files in the same bundle uploaded concurrently, leaving the bundle's reported file count and total size below the truth."
+            },
+            {
+              "title": "Record the real attempt number on webhook deliveries",
+              "body": "A webhook delivery row now records the actual retry attempt that produced it, threaded from the job queue, instead of always reporting the first attempt."
+            },
+            {
+              "title": "Make the legacy storage-envelope re-seal idempotent",
+              "body": "The one-time envelope migration now detects an already-migrated blob by its header byte and skips it, so re-running the migration is a no-op rather than a double-wrap."
+            },
+            {
+              "title": "Remove a dead folder-download route variant",
+              "body": "A bundle folder route declared with a wildcard segment that the router never matched is replaced by the single working parameterized form."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Reject revoked mutual-TLS client certificates",
+              "body": "Certificate revocation was a no-op: the revocation list stored a certificate under one fingerprint form while the handshake checked a different one, so a revoked certificate was never matched and continued to authenticate. Both sides now use a single canonical fingerprint, and a revoked certificate is rejected at the connection."
+            },
+            {
+              "title": "Restrict sync-bundle uploads to the bundle owner",
+              "body": "The direct upload endpoints for a sync bundle (file and chunk) did not verify the caller owned the bundle. Anyone who learned a bundle's ID — returned by its public share page — could overwrite another user's synced files and push the change to their connected clients. These endpoints now require the authenticated owner, or an API key bound to that owner."
+            },
+            {
+              "title": "Require email verification on email-gated bundles and stashes",
+              "body": "A bundle or stash configured for email-code access could be unlocked through the no-password code path, which granted access without ever verifying an email code. The unlock path now honors the configured access mode and refuses to release content until the email step is completed."
+            },
+            {
+              "title": "Trust only the configured number of proxy hops for the client IP",
+              "body": "The client address was taken from the leftmost X-Forwarded-For entry, which the client itself can set. A caller could rotate that header to forge a new source IP on every request, defeating the rate limiter and IP blocklist and poisoning the audit log. The address is now read from the rightmost untrusted hop, governed by a proxy-hop count (default 1, matching the bundled single-proxy deployment)."
+            },
+            {
+              "title": "Resolve sealed-column lookups through a keyed blind index",
+              "body": "Indexed lookups on sealed fields (email, share IDs, slugs, access codes) previously stored an unkeyed hash of the plaintext, so anyone who could read the database could recompute the index to confirm a guessed value — an email address, a share link — without breaking the encryption. Those indexes are now a keyed MAC under a per-deployment secret, which an attacker holding only the database cannot reproduce. Existing rows keep resolving during the rollover (reads match both the keyed and legacy index) and are rewritten by a one-time pass on first boot."
+            },
+            {
+              "title": "Make the IP blocklist actually block",
+              "body": "The blocklist lookup never translated the incoming address to the hashed form stored at rest, so a blocked IP matched nothing and was admitted. The lookup now hashes the address the same way it is stored, and an IPv4-mapped IPv6 peer is folded to its dotted-quad so it can't evade a block on the plain IPv4."
+            },
+            {
+              "title": "Key rate limits per client instead of per proxy",
+              "body": "Guarded routes keyed their rate-limit bucket off the raw proxy socket address, collapsing every client behind a reverse proxy into one shared bucket — one caller could exhaust the limit for all of them. Limits now key off the resolved client IP."
+            },
+            {
+              "title": "Scope the field-decryption failure cap per row",
+              "body": "A burst of decryption failures recorded against an empty actor could trip a shared cooldown that then blocked decryption reads of every user's data in that column — a cross-tenant denial of data. The failure cap is now keyed per row, so a problem on one record cannot stall reads of another."
+            },
+            {
+              "title": "Reject future-dated timestamps on encrypted browser requests",
+              "body": "The replay window on encrypted browser API requests accepted a timestamp set in the future as readily as one in the past. Because the request timestamp is attacker-chosen plaintext inside the sealed envelope, a future date could slide the staleness window past the single-use marker's expiry and open a brief replay gap. The check is now one-sided: a timestamp meaningfully ahead of the server clock is rejected."
+            },
+            {
+              "title": "Enforce single use of 2FA codes under concurrency",
+              "body": "A TOTP code and a backup code are now claimed through a single-use store before login completes, closing a window where two simultaneous requests carrying the same code could both authenticate before the stored replay marker was written."
+            },
+            {
+              "title": "Bind and single-use API-payload session keys",
+              "body": "The encrypted API-payload key exchange binds its envelope metadata into the AEAD and claims the wrapped session key exactly once within a short window, so a captured handshake cannot be replayed."
+            },
+            {
+              "title": "Make sync-enrollment redemption single-use",
+              "body": "Two concurrent redemptions of the same sync-enrollment code could each receive a full credential set (API key and client certificate). Redemption now claims the code atomically and refuses a second attempt."
+            },
+            {
+              "title": "Scope idempotent admin requests to the caller",
+              "body": "A cached idempotent response — which for endpoints like API-key creation carries a one-time secret — is now scoped to the authenticating principal. A different caller replaying the same Idempotency-Key and body is treated as a key-reuse mismatch instead of receiving another principal's cached secret, which mattered because the cache lookup runs ahead of the in-handler admin check."
+            },
+            {
+              "title": "Check request origin on JSON endpoints",
+              "body": "A JSON request is now rejected unless its Origin matches the server's, in addition to the existing session-encryption requirement, hardening the cross-origin path that session encryption alone covered."
+            },
+            {
+              "title": "Enforce bundle expiry on every content route",
+              "body": "An expired bundle's download, single-file, and folder routes now return the expiry response instead of serving content; the expiry gate previously applied unevenly across them."
+            },
+            {
+              "title": "Lock out brute force on bundle email access codes",
+              "body": "Repeated failed email access-code attempts are now locked out per recipient and per source IP, instead of only counting attempts on the code record."
+            },
+            {
+              "title": "Escape the download filename in pre-signed S3 URLs",
+              "body": "When direct S3 downloads are enabled, a stored filename containing a backslash followed by a quote could break out of the quoted Content-Disposition value. The filename is now fully escaped (backslashes before quotes) and control characters are stripped before the header is built."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Upgrade to Node.js 24.16.0",
+              "body": "Install Node.js 24.16.0 or newer before upgrading. The bundled container image and deploy/install.sh handle this automatically; a manual or systemd deployment must update Node first or the server exits at startup with a version error."
+            },
+            {
+              "title": "Sealed-column indexes upgrade transparently",
+              "body": "The keyed blind-index migration needs no operator action and no downtime. New writes use the keyed index, reads match both the keyed and legacy index, and a one-time background pass on first boot rewrites existing rows to the keyed form."
+            },
+            {
+              "title": "Re-issue any certificates revoked before this release",
+              "body": "Because certificate revocation previously never matched, a certificate marked revoked on an earlier version was still being accepted. After upgrading, confirm that any certificate intended to be revoked is in the revocation list so the now-working check rejects it."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "OIDC Core 3.1.3.7 (azp)",
+          "url": "https://openid.net/specs/openid-connect-core-1_0.html#IDTokenValidation"
+        },
+        {
+          "label": "RFC 6266 (Content-Disposition)",
+          "url": "https://www.rfc-editor.org/rfc/rfc6266"
+        }
+      ]
+    }
+  ]
+}

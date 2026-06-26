@@ -140,6 +140,29 @@ async function checkAllQuotas(fileSize, bundle, req) {
   return { allowed: true, ipReserved: ipReserved };
 }
 
+// Authoritative post-write recheck of the GLOBAL + PER-USER storage caps on the
+// COMMITTED totals. The pre-write checks in checkAllQuotas read a stale snapshot
+// (the file row isn't persisted until after the awaited storage write), so N
+// concurrent uploads each pass before any commits and overshoot the cap by the
+// in-flight concurrency — the same TOCTOU the per-bundle cap already closes
+// below. The file row is committed by the time this runs, so SUM(size) and the
+// per-owner sum reflect this write; return a rejection reason to roll back if
+// THIS write pushed a cap over. Each cap is gated on its config being > 0, so a
+// deployment that leaves a cap unset (the default) pays nothing.
+function _postWriteQuotaReason(bundle) {
+  if (config.storageQuotaBytes > 0) {
+    try { bundleService.checkStorageQuota(0, config.storageQuotaBytes); }
+    catch (_e) { return "Storage quota exceeded."; }
+  }
+  if (config.perUserQuotaBytes > 0 && bundle.ownerId) {
+    var userFiles = filesRepo.findAll({ uploadedBy: bundle.ownerId });
+    var userTotal = 0;
+    for (var i = 0; i < userFiles.length; i++) { userTotal += Number(userFiles[i].size) || 0; }
+    if (userTotal > config.perUserQuotaBytes) return "Personal storage quota exceeded.";
+  }
+  return null;
+}
+
 /**
  * Handle single file upload.
  * @param {object} ctx - { bundle, file, fields, limits, uploadedBy, uploaderEmail, expiresAt, auditSuffix, req }
@@ -271,8 +294,12 @@ async function handleFileUpload(ctx) {
   // size delta is bounded by the per-file cap, but it can still grow totalSize,
   // so the size cap is re-checked on both paths.
   if (counters) {
+    // Per-bundle caps re-checked on the atomic committed value; the global +
+    // per-user caps are re-checked on the committed SUM(size) the same way, so a
+    // concurrent burst can't overshoot any storage cap (not just the per-bundle one).
     var postCheck = uploadValidator.validateBundleLimits(counters.receivedFiles, limits.maxFiles, counters.totalSize, limits.maxBundleSize);
-    if (!postCheck.valid) {
+    var postReason = postCheck.valid ? _postWriteQuotaReason(bundle) : postCheck.reason;
+    if (postReason) {
       // Roll back the exact increment this writer committed.
       bundlesRepo.incrementCounters(bundle._id, -fileCountChange, -sizeChange);
       // Remove the blob + DB record this writer created. On the replace path the
@@ -285,8 +312,8 @@ async function handleFileUpload(ctx) {
       }
       // Release the per-IP byte reservation — this upload didn't land.
       _refundIpQuota(ctx.req, quota.ipReserved);
-      audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + postCheck.reason + " (post-write)" + suffix, req: ctx.req });
-      return { error: postCheck.reason };
+      audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + postReason + " (post-write)" + suffix, req: ctx.req });
+      return { error: postReason };
     }
   }
 
@@ -460,14 +487,15 @@ async function handleChunkUpload(ctx) {
   // receivedFiles/totalSize and roll this write back if it breached a cap.
   if (chunkCounters) {
     var chunkPostCheck = uploadValidator.validateBundleLimits(chunkCounters.receivedFiles, limits.maxFiles, chunkCounters.totalSize, limits.maxBundleSize);
-    if (!chunkPostCheck.valid) {
+    var chunkReason = chunkPostCheck.valid ? _postWriteQuotaReason(bundle) : chunkPostCheck.reason;
+    if (chunkReason) {
       bundlesRepo.incrementCounters(bundle._id, -1, -fullData.length);
       try { if (chunkResult.saved && chunkResult.saved.path) { await storage.deleteFile(chunkResult.saved.path); } } catch (_e) { /* cleanup — blob may already be gone on S3 */ }
       try { if (chunkResult.doc && chunkResult.doc._id) { filesRepo.remove(chunkResult.doc._id); } } catch (_e) { /* cleanup — record removal best-effort */ }
       // Release the per-IP byte reservation (reconciled above to fullData.length).
       _refundIpQuota(ctx.req, fullData.length);
-      audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + chunkPostCheck.reason + " (chunked, post-write)" + suffix, req: ctx.req });
-      return { error: chunkPostCheck.reason };
+      audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + chunkReason + " (chunked, post-write)" + suffix, req: ctx.req });
+      return { error: chunkReason };
     }
   }
 

@@ -1,0 +1,17 @@
+{
+  "version": "1.13.0",
+  "date": "2026-06-26",
+  "headline": "Storage quotas hold under concurrent uploads",
+  "summary": "The global, per-account, and per-vault storage caps are now enforced on the committed total rather than a snapshot taken before the upload is written, so a burst of simultaneous uploads can no longer slip past a cap by each reading the same pre-write usage. The per-bundle file-count and size caps already worked this way; the global and per-account caps now get the same authoritative post-write check, and an upload that pushes a cap over is rolled back and rejected.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        { "title": "Global and per-account storage caps are enforced against concurrent overruns", "body": "Storage-quota checks read the current usage, then wrote the file a moment later — so several uploads arriving at once each saw the same pre-write total, all passed, and together exceeded the configured cap by the size of the in-flight batch. The global storage quota and the per-account quota are now re-checked on the committed total after each file lands (the same way the per-bundle file-count and size limits already were); a file that pushes a cap over is removed and the upload rejected. The single-file, chunked, and vault upload paths all enforce this, so an operator's disk and fair-use ceilings hold under concurrency. Caps left unset stay disabled and add no overhead." }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "CWE-362: Concurrent Execution using Shared Resource (Race Condition)", "url": "https://cwe.mitre.org/data/definitions/362.html" }
+  ]
+}

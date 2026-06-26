@@ -89,6 +89,37 @@ describe("drop integration", function () {
     assert.ok((res.json.detail || res.json.error || "").includes("not allowed"));
   });
 
+  it("bounds the global storage quota under concurrent over-cap uploads", async function () {
+    var config = require(path.join(testServer.projectRoot, "lib", "config"));
+    var dbmod = require(path.join(testServer.projectRoot, "lib", "db"));
+    var orig = config.storageQuotaBytes;
+    await client.initApiKey();
+    var initRes = await client.post("/drop/init", {
+      json: { uploaderName: "Q", uploaderEmail: "q@test.com", fileCount: 2, skippedCount: 0, skippedFiles: [] },
+    });
+    var qBundle = initRes.json.bundleId;
+    var payload = "x".repeat(1000);
+    // Cap allows ONE more ~1000-byte file on top of what's already stored, never two.
+    config.storageQuotaBytes = dbmod.getTotalStorageUsed() + 1500;
+    try {
+      // Fire both concurrently: if the harness lets them race, both pass the
+      // pre-write check and the post-write recheck must roll one back; if it
+      // serializes, the second is rejected pre-write. Either way the committed
+      // total must never exceed the cap.
+      var results = await Promise.all([
+        client.uploadFile("/drop/file/" + qBundle, "file", "a.txt", payload, { relativePath: "a.txt" }),
+        client.uploadFile("/drop/file/" + qBundle, "file", "b.txt", payload, { relativePath: "b.txt" }),
+      ]);
+      var after = dbmod.getTotalStorageUsed();
+      assert.ok(after <= config.storageQuotaBytes,
+        "committed total (" + after + ") must not exceed the global cap (" + config.storageQuotaBytes + ")");
+      var succeeded = results.filter(function (r) { return r.status === 200 && r.json && r.json.success; }).length;
+      assert.ok(succeeded <= 1, "at most one of two over-cap uploads may land");
+    } finally {
+      config.storageQuotaBytes = orig;
+    }
+  });
+
   it("POST /drop/finalize completes the bundle", async function () {
     var res = await client.post("/drop/finalize/" + bundleId, { json: { finalizeToken: bundleFinalizeToken } });
     assert.strictEqual(res.status, 200);

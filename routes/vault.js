@@ -16,6 +16,7 @@ var logger = require("../app/shared/logger");
 var usersRepo = require("../app/data/repositories/users.repo");
 var { canEditOwned } = require("../app/shared/authz");
 var filesRepo = require("../app/data/repositories/files.repo");
+var db = require("../lib/db");
 var credentialsRepo = require("../app/data/repositories/credentials.repo");
 var { sanitizeFilename, sanitizeRename } = require("../app/shared/sanitize-filename");
 var config = require("../lib/config");
@@ -253,9 +254,11 @@ module.exports = function (app) {
           throw new ValidationError("Vault not enabled.");
         }
 
-        // Enforce storage quota (atomic SQL query to avoid TOCTOU race)
+        // Enforce storage quota. The pre-write check is best-effort (the SUM is a
+        // stale snapshot until this file commits); the authoritative recheck on the
+        // committed total runs after filesRepo.create below.
         if (config.storageQuotaBytes > 0) {
-          var totalUsed = require("../lib/db").getTotalStorageUsed();
+          var totalUsed = db.getTotalStorageUsed();
           var newSize = Buffer.from(body.ciphertext, "base64").length;
           if (totalUsed + newSize > config.storageQuotaBytes) {
             throw new ValidationError("Storage quota exceeded.");
@@ -280,7 +283,7 @@ module.exports = function (app) {
         var savedPath = await storage.saveRaw(ciphertext, storagePath);
         storagePath = savedPath;
 
-        filesRepo.create({
+        var createdVaultFile = filesRepo.create({
           shareId: shareId,
           originalName: sanitizeFilename(body.filename),
           relativePath: sanitizeFilename(body.relativePath || body.filename, 500),
@@ -297,6 +300,18 @@ module.exports = function (app) {
           vaultBatchId: body.batchId || null,
           createdAt: new Date().toISOString(),
         });
+
+        // Authoritative post-write recheck of the global cap on the committed
+        // total. The per-user lock serializes THIS user's vault writes, but the
+        // global cap sums ALL files, so a concurrent upload from another user
+        // (vault or drop) can commit between the pre-write check above and this
+        // create. Re-check the committed SUM and roll this file back if it pushed
+        // the cap over, rather than letting concurrency overshoot it.
+        if (config.storageQuotaBytes > 0 && db.getTotalStorageUsed() > config.storageQuotaBytes) {
+          try { if (createdVaultFile && createdVaultFile._id) filesRepo.remove(createdVaultFile._id); } catch (_e) { /* cleanup — record removal best-effort */ }
+          try { await storage.deleteFile(storagePath); } catch (_e) { /* cleanup — blob may already be gone on S3 */ }
+          throw new ValidationError("Storage quota exceeded.");
+        }
 
         audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: req.user._id, details: "vault file: " + body.filename + ", size: " + ciphertext.length, req: req, vaultOp: true });
         return shareId;
