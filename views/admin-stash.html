@@ -74,6 +74,15 @@
         </div>
         <div><label class="input-label">Allowed Extensions <span style="color:var(--muted);font-weight:400">(blank = use global)</span></label><input type="text" class="text-input" id="seAllowedExtensions"></div>
         <div><label class="input-label">Team <span style="color:var(--muted);font-weight:400">(uploads become visible to the team's members)</span></label><select class="text-input" id="seTeam"><option value="">No team</option></select></div>
+        <div id="seMembersSection" style="display:none">
+          <label class="input-label">Users with access <span style="color:var(--muted);font-weight:400">(individual accounts — no team needed; they see this stash's uploads under "Shared with me")</span></label>
+          <div style="display:flex;gap:8px;margin-bottom:8px">
+            <input type="email" class="text-input" id="seMemberEmail" placeholder="user@example.com" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();addStashMember()}">
+            <button type="button" class="butn butn-bord-thin butn-sm radius-30" onclick="addStashMember()"><span>Add</span></button>
+          </div>
+          <div id="seMembersList" style="display:flex;flex-direction:column;gap:6px"></div>
+          <div id="seMembersMsg" style="font-size:.75rem;color:var(--muted);margin-top:4px"></div>
+        </div>
         <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
           <label class="toggle" style="flex-shrink:0"><input type="checkbox" id="seSyncEnabled"><span class="toggle-slider"></span></label>
           <label class="input-label" style="margin:0">Enable Sync <span style="color:var(--muted);font-weight:400">(persistent mutable bundle for desktop sync client)</span></label>
@@ -159,6 +168,9 @@ function openStashModal(p){
   document.getElementById('seExpiry').value=String((p&&p.defaultExpiry)||0);
   document.getElementById('seAllowedExtensions').value=(p&&p.allowedExtensions)||'';
   var teamSel=document.getElementById('seTeam');if(teamSel)teamSel.value=(p&&p.teamId)||'';
+  var membersSec=document.getElementById('seMembersSection');document.getElementById('seMembersMsg').textContent='';document.getElementById('seMemberEmail').value='';
+  if(_stashEditId){membersSec.style.display='block';loadStashMembers(_stashEditId)}
+  else{membersSec.style.display='none';document.getElementById('seMembersList').innerHTML='<div style="font-size:.78rem;color:var(--muted)">Save the stash first, then reopen it to add users.</div>'}
   document.getElementById('seLogoUrl').value=(p&&p.logoUrl)||'';
   if(p&&p.logoUrl){document.getElementById('seLogoPreviewImg').src=p.logoUrl;document.getElementById('seLogoPreview').style.display='block';document.getElementById('seLogoUploadArea').style.display='none'}
   else{document.getElementById('seLogoPreview').style.display='none';document.getElementById('seLogoUploadArea').style.display='block'}
@@ -190,6 +202,37 @@ function saveStashEdit(){
       }else{msg.className='settings-msg settings-msg-ok';msg.textContent=isEdit?'Saved':'Created';msg.style.display='block';setTimeout(function(){closeStashEdit();loadStash()},600)}
     }else{msg.className='settings-msg settings-msg-err';msg.textContent=d.detail||d.error||'Failed';msg.style.display='block'}
   }).catch(function(){btn.disabled=false;btn.querySelector('span').textContent=isEdit?'Save Changes':'Create Stash Page';msg.className='settings-msg settings-msg-err';msg.textContent='Network error';msg.style.display='block'});
+}
+function loadStashMembers(stashId){
+  fetch('/admin/stash/'+stashId+'/members').then(function(r){return r.json()}).then(function(d){renderStashMembers(d.members||[])}).catch(function(){renderStashMembers([])});
+}
+function renderStashMembers(members){
+  var el=document.getElementById('seMembersList');
+  if(!members.length){el.innerHTML='<div style="font-size:.78rem;color:var(--muted)">No users added yet.</div>';return}
+  var html='';
+  members.forEach(function(m){
+    var label=m.missing?'<span style="color:var(--danger)">(deleted account)</span>':((m.displayName?esc(m.displayName)+' · ':'')+'<span style="font-family:monospace;font-size:.78rem">'+esc(m.email||m.userId)+'</span>');
+    html+='<div class="admin-user-row" style="min-height:auto;padding:6px 10px">';
+    html+='<div style="flex:1;min-width:0;font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+label+'</div>';
+    html+='<button type="button" class="user-action-btn user-action-delete" style="padding:3px 8px;font-size:.7rem" onclick="removeStashMember(\''+esc(m.userId)+'\')"><span>Remove</span></button>';
+    html+='</div>';
+  });
+  el.innerHTML=html;
+}
+function addStashMember(){
+  if(!_stashEditId)return;
+  var email=document.getElementById('seMemberEmail').value.trim();
+  var msg=document.getElementById('seMembersMsg');
+  if(!email)return;
+  msg.style.color='var(--muted)';msg.textContent='Adding…';
+  fetch('/admin/stash/'+_stashEditId+'/members/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})}).then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d}})}).then(function(o){
+    if(o.ok&&o.d.success){document.getElementById('seMemberEmail').value='';msg.textContent='';loadStashMembers(_stashEditId)}
+    else{msg.style.color='var(--danger)';msg.textContent=(o.d&&(o.d.detail||o.d.error))||'Failed to add user'}
+  }).catch(function(){msg.style.color='var(--danger)';msg.textContent='Network error'});
+}
+function removeStashMember(userId){
+  if(!_stashEditId)return;
+  fetch('/admin/stash/'+_stashEditId+'/members/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:userId})}).then(function(r){return r.json()}).then(function(){loadStashMembers(_stashEditId)}).catch(function(){});
 }
 function previewLogo(input){
   var file=input.files[0];if(!file)return;

@@ -13,6 +13,7 @@ var stashRepo = require("../app/data/repositories/stash.repo");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
 var filesRepo = require("../app/data/repositories/files.repo");
 var teamsRepo = require("../app/data/repositories/teams.repo");
+var usersRepo = require("../app/data/repositories/users.repo");
 var { parseMultipart } = require("../lib/multipart");
 var storage = require("../lib/storage");
 var { send } = require("../middleware/send");
@@ -526,6 +527,54 @@ module.exports = function (app) {
     }
   });
 
+  // ---- Stash members (individual users granted read access to a stash's uploads) ----
+
+  // List the individual users assigned to a stash
+  app.get("/admin/stash/:id/members", function (req, res) {
+    if (!requireAdmin(req, res)) return;
+    var stash = stashRepo.findById(req.params.id);
+    if (!stash) throw new NotFoundError("Stash page not found.");
+    var members = stashRepo.findMembers(stash._id).map(function (m) {
+      var u = usersRepo.findById(m.userId);
+      return {
+        userId: m.userId,
+        email: u ? u.email : null,
+        displayName: u ? u.displayName : null,
+        addedAt: m.addedAt,
+        missing: !u, // the user account was deleted after being added
+      };
+    });
+    res.json({ members: members, total: members.length });
+  });
+
+  // Add an individual user (by email of an existing account) to a stash
+  app.post("/admin/stash/:id/members/add", async function (req, res) {
+    if (!requireAdmin(req, res)) return;
+    var stash = stashRepo.findById(req.params.id);
+    if (!stash) throw new NotFoundError("Stash page not found.");
+    var body = (await b.parsers.json(req)) || {};
+    var email = String(body.email || "").trim().toLowerCase();
+    if (!validateEmail(email).valid) throw new ValidationError("A valid email is required.");
+    var user = usersRepo.findByEmail(email);
+    if (!user) throw new NotFoundError("No account with that email — the user must register first.");
+    stashRepo.addMember(stash._id, user._id);
+    audit.log(audit.ACTIONS.STASH_MEMBER_ADDED, { targetId: stash._id, details: "stash: " + stash.slug + ", userId: " + user._id, req: req });
+    res.json({ success: true, userId: user._id, email: user.email, displayName: user.displayName || null });
+  });
+
+  // Remove an individual user from a stash
+  app.post("/admin/stash/:id/members/remove", async function (req, res) {
+    if (!requireAdmin(req, res)) return;
+    var stash = stashRepo.findById(req.params.id);
+    if (!stash) throw new NotFoundError("Stash page not found.");
+    var body = (await b.parsers.json(req)) || {};
+    var userId = String(body.userId || "");
+    if (!userId) throw new ValidationError("userId is required.");
+    stashRepo.removeMember(stash._id, userId);
+    audit.log(audit.ACTIONS.STASH_MEMBER_REMOVED, { targetId: stash._id, details: "stash: " + stash.slug + ", userId: " + userId, req: req });
+    res.json({ success: true });
+  });
+
   // Create stash page
   app.post("/admin/stash/create", async function (req, res) {
     if (!requireAdmin(req, res)) return;
@@ -731,7 +780,7 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     try {
       var all = stashRepo.findAll();
-      for (var i = 0; i < all.length; i++) { stashRepo.remove(all[i]._id); }
+      for (var i = 0; i < all.length; i++) { stashRepo.removeAllMembers(all[i]._id); stashRepo.remove(all[i]._id); }
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Purged all stash pages (" + all.length + ")", req: req });
       res.json({ success: true, deleted: all.length });
     } catch (e) {
@@ -795,6 +844,7 @@ module.exports = function (app) {
     try {
       var stash = stashRepo.findById(req.params.id);
       if (!stash) throw new NotFoundError("Stash page not found.");
+      stashRepo.removeAllMembers(stash._id);
       stashRepo.remove(stash._id);
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "Stash page deleted: " + stash.slug, req: req });
       res.json({ success: true });

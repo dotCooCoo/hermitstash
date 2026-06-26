@@ -1,0 +1,18 @@
+{
+  "version": "1.13.1",
+  "date": "2026-06-26",
+  "headline": "Share a customer stash with individual users, no team required",
+  "summary": "A customer stash can now grant read access to its uploads to individual user accounts directly, without first creating a team. An administrator adds users to a stash by email, and each assigned user sees that customer's uploads on their dashboard under a new \"Shared with me\" section. The existing team assignment still works, and a stash can be shared with a team and individual users at the same time.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        { "title": "Assign individual users to a customer stash", "body": "The stash editor now has a \"Users with access\" control: an administrator adds user accounts by email and removes them at any time. Assigned users get read access to that stash's uploads. This is independent of teams — a stash no longer needs a team just to share its files with a specific person, and it can be shared with a team and individual users simultaneously. Member changes are audited, and a user's access is fully revoked the moment they are removed." },
+        { "title": "Dashboard \"Shared with me\" section", "body": "A user who has been added to one or more customer stashes sees a \"Shared with me\" section on their dashboard listing those stashes and the uploads in each, with open and ZIP-download actions. The list only ever shows stashes the user was explicitly added to." }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "OWASP — Access Control", "url": "https://owasp.org/www-project-top-ten/" }
+  ]
+}

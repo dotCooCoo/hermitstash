@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.15.32",
+  "date": "2026-06-26",
+  "headline": "Internal test-suite hardening only — the published library's runtime behavior and public API are unchanged (source-comment marker text aside)",
+  "summary": "Three more suppression classes in the codebase-patterns guard suite were re-verified from scratch and renamed to descriptive tokens, with their old names recorded as retired so the prior approval cannot be silently resurrected and their in-source marker comments updated to match. No runtime code, public API, or wire format changed.",
+  "sections": [
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "Three more suppression-marker classes re-verified and their tokens retired",
+          "body": "Continuing the re-verification pass: each marked site for the process-exit, hand-rolled buffer-collect, and raw-outbound-http guard classes was re-read and confirmed (operator-opt-in exits; bounded protocol-framing / TLV assembly; framework-routed outbound calls), then the class was renamed to a descriptive token and its old name added to the retired-token set. This is test-suite tooling; no shipped framework behavior changed."
+        }
+      ]
+    }
+  ]
+}

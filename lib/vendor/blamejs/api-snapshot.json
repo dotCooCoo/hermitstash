@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.15.28",
-  "createdAt": "2026-06-26T05:54:16.583Z",
+  "frameworkVersion": "0.15.33",
+  "createdAt": "2026-06-26T20:59:47.809Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -50883,6 +50883,10 @@
         "parseOrDefault": {
           "type": "function",
           "arity": 3
+        },
+        "parseStringOrObject": {
+          "type": "function",
+          "arity": 2
         },
         "registerFormat": {
           "type": "function",

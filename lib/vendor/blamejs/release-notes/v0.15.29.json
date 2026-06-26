@@ -1,0 +1,27 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.15.29",
+  "date": "2026-06-25",
+  "headline": "JSON parsing of operator and untrusted input is routed through `b.safeJson` everywhere, so a `\"__proto__\"` member is stripped and the parse is size-bounded — `b.openapi.parse`, `b.asyncapi.parse`, and `b.sandbox.run` were using a raw `JSON.parse`",
+  "summary": "b.openapi.parse and b.asyncapi.parse parsed an operator-supplied document string with a raw JSON.parse, which re-creates a \"__proto__\" member as an own key and imposes no size bound; b.sandbox.run parsed the untrusted sandboxed code's serialized result the same way (proto member kept, depth unbounded). All three now route through b.safeJson, which strips the prototype-pollution keys and applies the depth / key / size caps. A new b.safeJson.parseStringOrObject primitive captures the recurring \"accept a document as a JSON string OR a pre-built object\" shape (a string is parsed safely, an object passes through) that openapi and asyncapi had each hand-rolled, with each consumer's typed error class and a generous document size cap passed as data. Valid input parses identically to before; a malicious or oversized document is now defused rather than accepted.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Operator and untrusted JSON parses strip __proto__ and bound size (no raw JSON.parse)",
+          "body": "A raw JSON.parse keeps a \"__proto__\" object member as an own key (a prototype-pollution gadget for any downstream merge) and parses unbounded input. b.openapi.parse and b.asyncapi.parse used it on operator document strings, and b.sandbox.run used it on the untrusted sandboxed code's JSON-serialized result. All now route through b.safeJson — the prototype-pollution keys are stripped and the depth / key / size caps apply (a 16 MiB document cap for openapi/asyncapi, the existing result-bytes cap for the sandbox). Internal JSON parses (the sealed DSR store payloads, the VEX canonical re-format) route through the same primitive too, so the guarantee cannot be bypassed one call site at a time. Valid input is unaffected; a \"__proto__\"-laden or oversized payload is defused."
+        }
+      ]
+    },
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "b.safeJson.parseStringOrObject(input, opts?)",
+          "body": "Accepts either a JSON string — parsed through b.safeJson.parse, so the prototype-pollution-key strip and depth / key / size caps apply — or an already-decoded plain object (returned unchanged). For the recurring \"operator hands me a document as a JSON string or a pre-built object\" surface (b.openapi / b.asyncapi). The consumer's typed error class, error codes, label, and size cap are passed as options, so a raw JSON.parse on operator input cannot be hand-rolled per consumer."
+        }
+      ]
+    }
+  ]
+}

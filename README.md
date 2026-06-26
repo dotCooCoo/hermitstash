@@ -288,11 +288,13 @@ Built on Node.js 24.16.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - Upload stats tracked per stash page (bundle count, total bytes)
 - Custom logo upload per stash page with magic-byte validation
 - Dedicated admin page with bundle drill-down -- view bundles, browse files, inline rename, delete, purge all
+- Grant individual user accounts read access to a stash's uploads -- assign users by email (no team required); they see the customer's uploads on their dashboard under "Shared with me"
 - Admin management -- create, edit, toggle, copy link, delete stash pages
 
 **Teams**
 - Create teams, add/remove members with role-based access
 - Assign a stash to a team -- uploads to it appear in the team's member-only file list (`/teams/:id/files`)
+- A stash can be shared with a team and/or individual users at the same time
 - Team admin and member roles
 
 **Profile**
@@ -1347,7 +1349,7 @@ Managed via `scripts/vendor-update.sh`:
 
 | Vendored | Version | Author | Purpose |
 |----------|---------|--------|---------|
-| [`blamejs`](https://github.com/blamejs/blamejs) | 0.15.28 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, etc. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
+| [`blamejs`](https://github.com/blamejs/blamejs) | 0.15.33 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, etc. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
 | [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) (browser only) | 2.2.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | XChaCha20-Poly1305 in the browser vault + outbox flows |
 | [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (browser only) | 2.2.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | SHAKE256 KDF in the browser |
 | [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) (browser only) | 0.6.1 | [Paul Miller](https://github.com/paulmillr) (MIT) | ML-KEM-1024 in the browser vault flow |

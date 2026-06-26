@@ -287,13 +287,16 @@ ENTRY
     echo "Resolved tag: $TAG (v$INSTALLED_VER)"
 
     DEST="lib/vendor/blamejs"
-    # Cross-platform wipe via Node — tolerant of Windows-mangled paths
-    # like "C\357\200\272" (U+F03A) that have escaped from upstream tests.
-    # maxRetries/retryDelay ride out the transient EBUSY/EPERM a file-syncing
-    # agent (Dropbox/OneDrive) plants on the tree mid-wipe — the same retry the
-    # temp-clone cleanup below relies on, so a locked tree retries instead of
-    # aborting the run with MANIFEST un-updated.
-    node -e "var fs=require('fs');fs.rmSync('$DEST',{recursive:true,force:true,maxRetries:10,retryDelay:200});fs.mkdirSync('$DEST',{recursive:true});"
+    # Empty $DEST's CONTENTS rather than removing $DEST itself. On Windows+Dropbox
+    # the sync client holds the directory handle open, so the recursive rmSync's
+    # final rmdir of $DEST fails with EPERM even after every child is gone —
+    # aborting the run with the tree half-gutted (a git restore is then needed).
+    # Deleting each child (with retries to ride out the transient EBUSY/EPERM a
+    # file-syncing agent plants) and LEAVING the directory in place sidesteps that
+    # rmdir: the tar extract below writes the new tree straight into the kept dir.
+    # Cross-platform + tolerant of Windows-mangled paths like "C\357\200\272"
+    # (U+F03A); a no-op-safe wipe on a clean checkout (empty dir → nothing to do).
+    node -e "var fs=require('fs'),p=require('path');fs.mkdirSync('$DEST',{recursive:true});for(var e of fs.readdirSync('$DEST')){fs.rmSync(p.join('$DEST',e),{recursive:true,force:true,maxRetries:60,retryDelay:300});}"
 
     # Shallow clone of the tag, then snapshot the working tree into
     # $DEST while filtering paths we never want vendored:

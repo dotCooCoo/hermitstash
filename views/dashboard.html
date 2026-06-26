@@ -1,7 +1,7 @@
 {{> head}}
 <main class="main" id="main-content">
 <div class="page-header"><div><span class="sub-title">Dashboard</span><h1>My <span style="font-weight:200">Stash</span></h1></div><a href="/drop" class="butn butn-bg butn-sm radius-30"><span>+ Drop Files</span></a></div>
-{% if (files.length === 0 && bundles.length === 0) { %}
+{% if (files.length === 0 && bundles.length === 0 && (typeof sharedStashes === 'undefined' || sharedStashes.length === 0)) { %}
   <div class="empty-state"><div class="empty-icon"><img src="{{brand.logo}}" alt="" style="width:64px;height:auto;opacity:.4"></div><p>Your stash is empty.</p><a href="/drop" class="btn btn-primary">Upload your first file</a></div>
 {% } %}
 
@@ -71,6 +71,44 @@
             <button class="user-action-btn" onclick="Helpers.copyText('{{host}}/s/{{f.shareId}}');this.querySelector('span').textContent='Copied!';var _b=this;setTimeout(function(){_b.querySelector('span').textContent='Copy'},1500)" style="padding:4px 10px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span>Copy</span></button>
             <button class="user-action-btn user-action-delete" onclick="del('{{f.shareId}}')" style="padding:4px 10px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg><span>Delete</span></button>
           </div>
+        </div>
+      {% } %}
+    </div>
+  </div>
+{% } %}
+
+{% if (typeof sharedStashes !== 'undefined' && sharedStashes.length > 0) { %}
+  <div class="admin-panel" style="margin-bottom:24px">
+    <div class="admin-panel-head"><h2>Shared with me</h2><span class="admin-panel-count">{{{sharedStashes.length}}}</span></div>
+    <div class="admin-panel-body">
+      {% for (const s of sharedStashes) { %}
+        <div class="admin-user-row" style="background:rgba(255,255,255,.02)">
+          <div class="admin-user-info" style="flex:1">
+            <div class="admin-user-avatar"><span class="admin-user-initial">{{(s.name || '?').charAt(0).toUpperCase()}}</span></div>
+            <div>
+              <div class="admin-user-name">{{s.name}}</div>
+              <div class="admin-user-email">{{{s.bundleCount}}} upload{{s.bundleCount !== 1 ? 's' : ''}} · <span style="font-family:monospace">/stash/{{s.slug}}</span></div>
+            </div>
+          </div>
+          {% if (s.bundles.length > 0) { %}
+          <div class="admin-user-actions">
+            <button class="user-action-btn" onclick="toggleShared('{{s.slug}}',this)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>View</span></button>
+          </div>
+          {% } %}
+        </div>
+        <div id="shared-{{s.slug}}" style="display:none">
+          {% for (const bn of s.bundles) { %}
+            <div class="admin-user-row" style="padding-left:52px;background:rgba(255,255,255,.01);min-height:auto">
+              <div style="flex:1;min-width:0">
+                <div style="font-size:.82rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{bn.bundleName}}</div>
+                <div style="font-size:.7rem;color:var(--muted)">{{{__formatSize(bn.totalSize)}}} · {{{bn.fileCount}}} file{{bn.fileCount !== 1 ? 's' : ''}} · {{{bn.downloads||0}}} DL · {{{new Date(bn.createdAt).toLocaleDateString()}}}</div>
+              </div>
+              <div class="admin-user-actions">
+                <a href="/b/{{bn.shareId}}" target="_blank" class="user-action-btn" style="text-decoration:none;padding:4px 10px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg><span>Open</span></a>
+                <a href="/b/{{bn.shareId}}/download" class="user-action-btn user-action-role" style="text-decoration:none;padding:4px 10px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>ZIP</span></a>
+              </div>
+            </div>
+          {% } %}
         </div>
       {% } %}
     </div>
@@ -148,6 +186,7 @@ function showRenameError(input,msg){if(window.Helpers)return Helpers.showRenameE
 async function del(id){if(!confirm('Delete?'))return;const r=await fetch('/files/'+id+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});if(r.ok){document.getElementById('file-'+id).remove();if(!document.querySelector('.admin-user-row'))location.reload()}}
 async function delBundle(shareId,count){if(!confirm('Delete this bundle and all '+count+' file'+(count!==1?'s':'')+'?'))return;var r=await fetch('/bundles/'+shareId+'/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});var d=await r.json();if(d.success){var el=document.getElementById('bundle-'+shareId);var fl=document.getElementById('bfiles-'+shareId);if(el)el.remove();if(fl)fl.remove();if(!document.querySelector('.admin-user-row'))location.reload()}else{alert(d.detail||d.error||'Delete failed')}}
 function toggleDashFiles(shareId,btn){var el=document.getElementById('bfiles-'+shareId);if(el.style.display!=='none'){el.style.display='none';btn.querySelector('span').textContent='Files'}else{el.style.display='block';btn.querySelector('span').textContent='Hide'}}
+function toggleShared(slug,btn){var el=document.getElementById('shared-'+slug);if(el.style.display!=='none'){el.style.display='none';btn.querySelector('span').textContent='View'}else{el.style.display='block';btn.querySelector('span').textContent='Hide'}}
 function renameBundle(shareId,el){
   var current=el.textContent;
   var input=document.createElement('input');input.type='text';input.value=current.startsWith('Bundle')?'':current;

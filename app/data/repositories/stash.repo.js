@@ -1,7 +1,7 @@
 /**
  * Customer Stash Repository — persistence logic for branded upload portals.
  */
-var { customerStash, rawExec } = require("../../../lib/db");
+var { customerStash, stashMembers, rawExec } = require("../../../lib/db");
 
 function findById(id) { return customerStash.findOne({ _id: id }); }
 function findBySlug(slug) { return customerStash.findOne({ slug: slug }); }
@@ -29,4 +29,24 @@ function decrementBytes(stashId, bytes) {
   rawExec("UPDATE customer_stash SET totalBytes = MAX(0, COALESCE(totalBytes, 0) - ?) WHERE _id = ?", bytes || 0, stashId);
 }
 
-module.exports = { findById, findBySlug, findAll, create, update, remove, incrementBundleStats, decrementBundleStats, decrementBytes };
+// ---- Stash members (individual users granted read access to a stash's uploads) ----
+
+// Idempotent: a (stashId, userId) pair maps to at most one membership row.
+function addMember(stashId, userId) {
+  var existing = stashMembers.findOne({ stashId: stashId, userId: userId });
+  if (existing) return existing;
+  return stashMembers.insert({ stashId: stashId, userId: userId, addedAt: new Date().toISOString() });
+}
+function removeMember(stashId, userId) { return stashMembers.remove({ stashId: stashId, userId: userId }); }
+function findMembers(stashId) { return stashMembers.find({ stashId: stashId }); }
+function findStashesForUser(userId) { return stashMembers.find({ userId: userId }); }
+function isMember(stashId, userId) { return !!stashMembers.findOne({ stashId: stashId, userId: userId }); }
+function removeAllMembers(stashId) {
+  var rows = stashMembers.find({ stashId: stashId });
+  for (var i = 0; i < rows.length; i++) stashMembers.remove({ _id: rows[i]._id });
+}
+
+module.exports = {
+  findById, findBySlug, findAll, create, update, remove, incrementBundleStats, decrementBundleStats, decrementBytes,
+  addMember, removeMember, findMembers, findStashesForUser, isMember, removeAllMembers,
+};

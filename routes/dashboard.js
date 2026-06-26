@@ -1,6 +1,7 @@
 var config = require("../lib/config");
 var filesRepo = require("../app/data/repositories/files.repo");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
+var stashRepo = require("../app/data/repositories/stash.repo");
 var requireAuth = require("../middleware/require-auth");
 var { send, host } = require("../middleware/send");
 var { emailIsVerified } = require("../app/domain/auth/auth.service");
@@ -66,7 +67,39 @@ module.exports = function (app) {
       });
     }
 
-    send(res, "dashboard", { user: req.user, files: standaloneFiles, bundles: bundlesWithFiles, host: host(req) });
+    // Customer stashes this user has been granted access to. Read-only view of
+    // the stash's uploads — the bundles are openly downloadable by shareId (stash
+    // bundles carry no password), so membership gates only this listing.
+    var sharedStashes = [];
+    var memberships = stashRepo.findStashesForUser(req.user._id);
+    if (memberships.length > 0) {
+      // One pass over completed bundles, filtered per stash in JS — mirrors the
+      // admin stash-bundles listing (the stashId column isn't indexed for a direct
+      // query). Only runs when the user actually belongs to a stash.
+      var completeBundles = bundlesRepo.findAll({}).filter(function (bn) { return bn.status === "complete" && bn.stashId; });
+      for (var s = 0; s < memberships.length; s++) {
+        var stash = stashRepo.findById(memberships[s].stashId);
+        if (!stash || stash.enabled !== "true") continue;
+        var stashBundles = completeBundles
+        .filter(function (bn) { return bn.stashId === stash._id; })
+        .sort(function (a, c) { return (c.createdAt || "").localeCompare(a.createdAt || ""); })
+        .map(function (bn) {
+          return {
+            shareId: bn.shareId,
+            bundleName: bn.bundleName || bn.uploaderName || "Upload",
+            uploaderName: bn.uploaderName || null,
+            totalSize: bn.totalSize || 0,
+            downloads: bn.downloads || 0,
+            fileCount: bn.receivedFiles || 0,
+            createdAt: bn.createdAt,
+          };
+        });
+        sharedStashes.push({ name: stash.name || stash.slug, slug: stash.slug, bundleCount: stashBundles.length, bundles: stashBundles });
+      }
+    }
+    sharedStashes.sort(function (a, c) { return (a.name || "").localeCompare(c.name || ""); });
+
+    send(res, "dashboard", { user: req.user, files: standaloneFiles, bundles: bundlesWithFiles, sharedStashes: sharedStashes, host: host(req) });
   });
 
   // Legal pages — configurable via admin settings, sensible defaults
