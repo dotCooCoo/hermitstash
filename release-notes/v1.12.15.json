@@ -1,0 +1,17 @@
+{
+  "version": "1.12.15",
+  "date": "2026-06-26",
+  "headline": "Uploader-supplied names are escaped inside HTML email templates",
+  "summary": "When HTML email templates are enabled and a template includes the uploader-name placeholder, the substituted value is now HTML-escaped before it is placed into the email, while the administrator's own template markup still renders. This closes a markup-injection path through the name an anonymous uploader can supply.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        { "title": "Template variables are escaped in HTML email mode", "body": "With HTML email templates enabled, a value substituted into a template placeholder — such as the uploader's name in the header or footer — was inserted without escaping, so a name supplied through the public upload form could place markup into the notification email. Substituted values are now HTML-escaped in HTML mode (the administrator's own template markup is still rendered), matching the escaping already applied everywhere else the name appears. Text email mode was unaffected. The email transport already guards subject and header construction, so only the HTML body was exposed." }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "OWASP — Cross Site Scripting (XSS)", "url": "https://owasp.org/www-community/attacks/xss/" }
+  ]
+}

@@ -38,6 +38,35 @@ after(function () {
 });
 
 describe("email", function () {
+  describe("renderTpl() — template-variable escaping", function () {
+    var origMode = config.emailTemplateMode;
+    after(function () { config.emailTemplateMode = origMode; });
+
+    it("escapes substituted values in html mode while keeping the admin template HTML", function () {
+      config.emailTemplateMode = "html";
+      // Admin-authored template carries literal HTML (trusted) AND interpolates an
+      // attacker-controlled value via {uploaderName} (an anonymous public upload).
+      var out = email._renderTpl("<b>Hi {uploaderName}</b>", { uploaderName: "<script>alert(1)</script>\"x" });
+      assert.ok(out.indexOf("<b>Hi ") === 0, "admin's literal <b> HTML is preserved");
+      assert.strictEqual(out.indexOf("<script>"), -1, "the injected <script> must be escaped, not emitted");
+      assert.ok(out.indexOf("&lt;script&gt;") !== -1, "value angle brackets are HTML-escaped");
+      assert.ok(out.indexOf("&quot;") !== -1, "value quotes are HTML-escaped");
+    });
+
+    it("escapes the whole rendered result in text mode", function () {
+      config.emailTemplateMode = "text";
+      var out = email._renderTpl("Hi {uploaderName}", { uploaderName: "<script>alert(1)</script>" });
+      assert.strictEqual(out.indexOf("<script>"), -1, "text mode escapes the rendered output");
+      assert.ok(out.indexOf("&lt;script&gt;") !== -1);
+    });
+
+    it("passes non-string values through unchanged in html mode", function () {
+      config.emailTemplateMode = "html";
+      var out = email._renderTpl("{fileCount} files", { fileCount: 7 });
+      assert.strictEqual(out, "7 files");
+    });
+  });
+
   describe("sendEmail()", function () {
     it("returns false when SMTP not configured and backend is smtp", async function () {
       config.email.backend = "smtp";
