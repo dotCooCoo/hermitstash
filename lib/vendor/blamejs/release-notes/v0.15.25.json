@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.15.25",
+  "date": "2026-06-25",
+  "headline": "`b.sandbox.run` no longer leaks the worker thread's MessagePort — it now waits for the worker to terminate before resolving",
+  "summary": "b.sandbox.run spawned a worker thread to execute untrusted code and called worker.terminate() on both the result and timeout paths, but it settled the caller's promise BEFORE the asynchronous terminate() completed — leaving the worker's MessagePort alive past the resolve. In a long-lived process that runs sandboxed code repeatedly, each call leaked a MessagePort handle, keeping the event loop populated and slowing graceful shutdown. The call now awaits worker.terminate() before settling, so the handle is released when the promise resolves. Behaviour and return values are unchanged.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "b.sandbox.run releases the worker MessagePort before resolving",
+          "body": "b.sandbox.run resolved (or rejected) the caller's promise as soon as the worker reported a result or the timeout fired, while worker.terminate() — which is asynchronous — was still in flight, so the worker thread's MessagePort outlived the call and lingered as an open handle. Repeated sandbox runs in a long-lived process accumulated leaked MessagePorts that kept the event loop alive and delayed shutdown. The result and timeout paths now defer settling until worker.terminate() resolves; the error and exit paths already imply the worker is gone. The return value, audit events, and timeout semantics are unchanged."
+        }
+      ]
+    }
+  ]
+}

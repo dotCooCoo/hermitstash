@@ -143,9 +143,11 @@ describe("admin API integration", function () {
       var res = await client.post("/admin/webhooks/create", {
         json: { url: "https://hooks.example.com/test", events: "bundle_finalized" },
       });
-      // Note: isPrivateHost returns a Promise (truthy) without await in routes/webhooks.js,
-      // so all URLs currently get blocked by the SSRF check. If this is fixed, change the assertion.
-      // For now, the SSRF guard blocks all URLs (Promise is truthy).
+      // The SSRF guard (webhook.service.create awaits isPrivateHost and checks
+      // .blocked; delivery additionally runs the framework's allowInternal:false
+      // gate) blocks the example host here because it doesn't resolve to a public
+      // address in the offline test environment, so the create returns 400. This
+      // test handles both that block and a successful create.
       if (res.status === 400) {
         assert.ok((res.json.detail || res.json.error).includes("private") || (res.json.detail || res.json.error).includes("internal"),
           "should be blocked by SSRF check");

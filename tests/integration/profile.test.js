@@ -200,6 +200,52 @@ describe("profile integration", function () {
       assert.strictEqual(res.status, 400);
       assert.ok((res.json.detail || res.json.error || "").includes("already"));
     });
+
+    it("stages an email change behind verification, keeping the old email authoritative until confirmed", async function () {
+      var config = require(path.join(testServer.projectRoot, "lib", "config"));
+      var dbmod = require(path.join(testServer.projectRoot, "lib", "db"));
+      var verification = require(path.join(testServer.projectRoot, "routes", "verification"));
+      var rl = require(path.join(testServer.projectRoot, "lib", "rate-limit"));
+      var orig = config.emailVerification;
+
+      // Dedicated active account (registered while verification is still off).
+      client.clearCookies(); await client.initApiKey(); rl.resetAllInstances();
+      await client.post("/auth/register", { json: { displayName: "Stager", email: "stage-old@profile.test", password: "password123" } });
+      var idRow = dbmod.users.findOne({ email: "stage-old@profile.test" });
+      assert.ok(idRow, "dedicated account registered");
+
+      config.emailVerification = true;
+      try {
+        await loginAs("stage-old@profile.test", "password123");
+        var res = await client.post("/profile/email", { json: { newEmail: "stage-new@profile.test", password: "password123" } });
+        assert.strictEqual(res.json.success, true);
+        assert.ok(res.json.pending, "the change is staged pending verification of the new address");
+
+        // The OLD address is still the authoritative login identity.
+        client.clearCookies(); await client.initApiKey(); rl.resetAllInstances();
+        var oldLogin = await client.post("/auth/login", { json: { email: "stage-old@profile.test", password: "password123" } });
+        assert.strictEqual(oldLogin.json.success, true, "old email still logs in while the change is pending (no lockout)");
+
+        // The NEW address is NOT the identity until the change is confirmed.
+        client.clearCookies(); await client.initApiKey(); rl.resetAllInstances();
+        var newEarly = await client.post("/auth/login", { json: { email: "stage-new@profile.test", password: "password123" } });
+        assert.notStrictEqual(newEarly.status, 200, "new email must not log in before confirmation");
+
+        // Prove control of the new address — commits pendingEmail -> email.
+        var token = verification.createVerificationToken(idRow._id);
+        await client.post("/auth/verify/" + token, { json: {} });
+
+        // After commit: the NEW address is the identity; the OLD one is not.
+        client.clearCookies(); await client.initApiKey(); rl.resetAllInstances();
+        var newLogin = await client.post("/auth/login", { json: { email: "stage-new@profile.test", password: "password123" } });
+        assert.strictEqual(newLogin.json.success, true, "new email logs in after confirmation");
+        client.clearCookies(); await client.initApiKey(); rl.resetAllInstances();
+        var oldAfter = await client.post("/auth/login", { json: { email: "stage-old@profile.test", password: "password123" } });
+        assert.notStrictEqual(oldAfter.status, 200, "old email no longer logs in after the change is committed");
+      } finally {
+        config.emailVerification = orig;
+      }
+    });
   });
 
   describe("POST /profile/delete", function () {

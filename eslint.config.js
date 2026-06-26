@@ -20,6 +20,7 @@ module.exports = [
       "tests/**",
       "public/js/**",
       "lib/vendor/**",
+      ".vendor-blamejs.tmp/**",
       "template/**",
       "scripts/**",
       "deploy/**",

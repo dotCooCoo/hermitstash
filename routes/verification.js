@@ -112,10 +112,22 @@ module.exports = function (app) {
         return send(res, "error", { user: null, title: "Invalid Link", message: "This verification link is invalid or has already been used." }, 400);
       }
 
-      // Activate the user
-      usersRepo.update(user._id, { $set: { status: "active" } });
+      // Activate the user. If a verified email CHANGE is staged (pendingEmail
+      // set), commit it now — the holder proved control of the new address by
+      // following this link — and clear the staging field. The derived emailHash
+      // index recomputes on the email $set, so login-by-new-email works after
+      // commit. A plain registration verification has no pendingEmail and only
+      // flips status to active.
+      var activate = { status: "active" };
+      var verifiedEmail = user.email;
+      if (user.pendingEmail) {
+        activate.email = user.pendingEmail;
+        activate.pendingEmail = null;
+        verifiedEmail = user.pendingEmail;
+      }
+      usersRepo.update(user._id, { $set: activate });
 
-      audit.log(audit.ACTIONS.EMAIL_VERIFIED, { targetId: user._id, targetEmail: user.email, req: req });
+      audit.log(audit.ACTIONS.EMAIL_VERIFIED, { targetId: user._id, targetEmail: verifiedEmail, req: req });
 
       // Auto-login after verification
       await sessionService.loginUser(req, user._id);

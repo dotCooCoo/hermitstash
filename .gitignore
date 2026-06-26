@@ -9,3 +9,7 @@ tests/.scratch/
 # Repo-root scratch: the codebase-patterns lint log + local probe scripts /
 # throwaway DBs land here; never committed.
 /.test-output/
+# Transient blamejs vendor-update clone — dropped after each refresh, but a
+# Dropbox file lock can outlast the cleanup retries and strand it; ignore it so
+# a lingering clone never breaks the eslint gate or gets committed.
+/.vendor-blamejs.tmp/

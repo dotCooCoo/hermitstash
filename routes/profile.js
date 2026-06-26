@@ -104,14 +104,17 @@ module.exports = function (app) {
         throw new ValidationError("That address has pending anonymous uploads and can't be claimed by changing your email.");
       }
 
-      // Proof-of-control: when email verification is operative, the new address must
-      // be proven before it grants any privilege. Apply the address, drop the account
-      // to "pending" (so it carries no verified-email signal — no auto-claim, no
-      // sign-in — until the round-trip completes), revoke existing sessions, and mail
-      // a verification link to the NEW address. The account is reactivated only when
-      // that link is followed (/auth/verify/:token sets status back to "active").
+      // Proof-of-control: when email verification is operative, STAGE the new
+      // address in pendingEmail and require a verification round-trip before it
+      // takes effect. The account's live email (and login identity) stays the OLD,
+      // already-verified address until the holder proves control of the new one by
+      // following the link mailed to it — so a mistyped change can never lock the
+      // holder out, and an unverified address never becomes the account email (so it
+      // can never arm an ownership claim, see routes/dashboard.js). Confirming the
+      // token (/auth/verify/:token) commits pendingEmail -> email. The session and
+      // old email remain valid throughout; no demotion, no forced logout.
       if (config.emailVerification) {
-        usersRepo.update(req.user._id, { $set: { email: newEmail, status: "pending" } });
+        usersRepo.update(req.user._id, { $set: { pendingEmail: newEmail } });
 
         var rawToken = verificationRoutes.createVerificationToken(req.user._id);
         var verifyUrl = host(req) + "/auth/verify/" + rawToken;
@@ -121,12 +124,9 @@ module.exports = function (app) {
           logger.error("Email change verification send failed", { error: emailErr.message || String(emailErr) });
         }
 
-        await sessionService.revokeUser(req.user._id);
-        await sessionService.logoutUser(req);
-
-        audit.log(audit.ACTIONS.EMAIL_CHANGED, { targetId: req.user._id, targetEmail: newEmail, details: "old: " + oldEmail + ", pending verification", req: req });
+        audit.log(audit.ACTIONS.EMAIL_CHANGED, { targetId: req.user._id, targetEmail: newEmail, details: "old: " + oldEmail + ", staged pending verification of the new address", req: req });
         audit.log(audit.ACTIONS.EMAIL_VERIFICATION_SENT, { targetId: req.user._id, targetEmail: newEmail, req: req });
-        return res.json({ success: true, pending: true, redirect: "/auth/pending?email=" + encodeURIComponent(newEmail) });
+        return res.json({ success: true, pending: true, message: "A confirmation link was sent to " + newEmail + ". Your email changes once you confirm it; your current address stays in effect until then." });
       }
 
       // Verification disabled: parity with registration's active path — a direct
