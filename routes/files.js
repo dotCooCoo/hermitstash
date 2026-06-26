@@ -5,6 +5,7 @@ var requireAuth = require("../middleware/require-auth");
 var { send, host } = require("../middleware/send");
 var audit = require("../lib/audit");
 var { canEditOwned } = require("../app/shared/authz");
+var { requireScope } = require("../app/security/scope-policy");
 var fileService = require("../app/domain/uploads/file.service");
 var filesRepo = require("../app/data/repositories/files.repo");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
@@ -110,11 +111,14 @@ module.exports = function (app) {
   });
 
   // Rename file (owner or admin)
-  app.post("/files/:shareId/rename", async (req, res) => {
+  // requireScope("upload") fails closed for API-key principals: a key minted
+  // without a mutate scope (e.g. "read") gets 403 at the boundary. Session
+  // callers (no req.apiKey) pass through to the role/ownership check below.
+  app.post("/files/:shareId/rename", requireScope("upload"), async (req, res) => {
     if (!requireAuth(req, res)) return;
     var doc = filesRepo.findAll({ shareId: req.params.shareId, status: "complete" })[0];
     if (!doc) throw new NotFoundError("Not found.");
-    if (!canEditOwned(doc, req.user, "uploadedBy")) {
+    if (!canEditOwned(doc, req.user, "uploadedBy", req)) {
       throw new ForbiddenError("Not authorized.");
     }
     var body = (await b.parsers.json(req)) || {};
@@ -125,7 +129,9 @@ module.exports = function (app) {
   });
 
   // Delete file (owner or admin)
-  app.post("/files/:shareId/delete", async (req, res) => {
+  // requireScope("upload") fails closed for API-key principals — a read-only
+  // key can't delete. Session callers pass through to assertCanDelete below.
+  app.post("/files/:shareId/delete", requireScope("upload"), async (req, res) => {
     if (!requireAuth(req, res)) return;
     var doc;
     try {
@@ -134,7 +140,7 @@ module.exports = function (app) {
       throw new NotFoundError("Not found.");
     }
     try {
-      fileService.assertCanDelete(doc, req.user);
+      fileService.assertCanDelete(doc, req.user, req);
     } catch (authErr) {
       throw new ForbiddenError(authErr.message);
     }

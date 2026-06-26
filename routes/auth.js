@@ -61,7 +61,15 @@ module.exports = function (app) {
         audit.log(audit.ACTIONS.USER_REGISTERED, { targetId: user._id, targetEmail: user.email, details: "authType: google, role: " + user.role, req: req });
       }
 
-      await sessionService.loginUser(req, user._id);
+      // Route through the shared login chokepoint so the 2FA gate is
+      // enforced here exactly as on the local-password path — a totpEnabled
+      // account reachable via SSO must complete TOTP, not receive a full
+      // session. The callback is a browser navigation, so a pending-2FA
+      // outcome is a redirect (not a JSON body).
+      var outcome = await sessionService.completeLogin(req, user._id);
+      if (outcome.requires2fa) {
+        return res.redirect("/2fa");
+      }
       audit.log(audit.ACTIONS.LOGIN_SUCCESS, { targetId: user._id, targetEmail: user.email, details: "authType: google", req: req });
       res.redirect("/dashboard");
     } catch (err) {
@@ -171,14 +179,13 @@ module.exports = function (app) {
       // would clear the wrong bucket and leave an IPv6 client's counter intact.
       loginLimiter.reset(clientIp.rateKey(req));
 
-      // Check if 2FA is required
-      if (authService.requires2fa(user._id)) {
-        await sessionService.start2faPending(req, user._id);
+      // Route through the shared login chokepoint — the same one the Google
+      // callback uses — so the 2FA gate lives in exactly one place and a new
+      // login entry can't establish a full session past an enabled TOTP.
+      var outcome = await sessionService.completeLogin(req, user._id);
+      if (outcome.requires2fa) {
         return res.json({ requires2fa: true });
       }
-
-      authService.touchLogin(user._id);
-      await sessionService.loginUser(req, user._id);
       audit.log(audit.ACTIONS.LOGIN_SUCCESS, { targetId: user._id, targetEmail: user.email, details: "authType: local", req: req });
       var redirect = (!config.setupComplete && user.role === "admin") ? "/admin/setup" : "/dashboard";
       res.json({ success: true, redirect: redirect });

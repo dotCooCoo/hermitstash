@@ -24,7 +24,8 @@ var audit = require("../lib/audit");
 var requireAuth = require("../middleware/require-auth");
 var { send, host } = require("../middleware/send");
 var rateLimit = require("../lib/rate-limit");
-var { AppError, ValidationError, AuthenticationError, NotFoundError } = require("../app/shared/errors");
+var vaultLock = require("../lib/vault-mutation-lock");
+var { AppError, ValidationError, AuthenticationError, NotFoundError, ConflictError } = require("../app/shared/errors");
 
 module.exports = function (app) {
 
@@ -239,57 +240,68 @@ module.exports = function (app) {
       body.filename = body.filename.replace(/[\x00-\x1f\x7f]/g, "");
       if (!body.filename) body.filename = "unnamed";
 
-      var user = usersRepo.findById(req.user._id);
-      if (user.vaultEnabled !== "true") {
-        throw new ValidationError("Vault not enabled.");
-      }
-
-      // Enforce storage quota (atomic SQL query to avoid TOCTOU race)
-      if (config.storageQuotaBytes > 0) {
-        var totalUsed = require("../lib/db").getTotalStorageUsed();
-        var newSize = Buffer.from(body.ciphertext, "base64").length;
-        if (totalUsed + newSize > config.storageQuotaBytes) {
-          throw new ValidationError("Storage quota exceeded.");
+      // Serialize against vault rotation for this user. An upload that
+      // committed a row under the OLD key after rotation snapshotted the file
+      // set but before it swapped the user key would be left encrypted under
+      // the discarded seed — undecryptable. Holding the per-user lock across
+      // the enabled check + write + create keeps the upload outside any
+      // in-flight rotation window. The enabled check runs UNDER the lock so it
+      // also reflects a rotation that just disabled the prior mode.
+      var fileShareId = await vaultLock.withUserLock(req.user._id, async function () {
+        var user = usersRepo.findById(req.user._id);
+        if (user.vaultEnabled !== "true") {
+          throw new ValidationError("Vault not enabled.");
         }
-      }
 
-      // Decode from base64
-      var ciphertext = Buffer.from(body.ciphertext, "base64");
-      var encapsulatedKey = body.encapsulatedKey; // keep as base64 string for DB
-      var iv = body.iv; // keep as base64 string for DB
+        // Enforce storage quota (atomic SQL query to avoid TOCTOU race)
+        if (config.storageQuotaBytes > 0) {
+          var totalUsed = require("../lib/db").getTotalStorageUsed();
+          var newSize = Buffer.from(body.ciphertext, "base64").length;
+          if (totalUsed + newSize > config.storageQuotaBytes) {
+            throw new ValidationError("Storage quota exceeded.");
+          }
+        }
 
-      // Store the encrypted blob using regular storage (no additional server encryption)
-      var fileShareId = b.crypto.generateToken(32);
-      // Extension is incorporated into the storage path; restrict to a safe
-      // charset (alnum, 1–10 chars) so a filename like "a.<odd>" can't create
-      // surprising on-disk names for operators browsing the upload dir.
-      var ext = nodePath.extname(body.filename).toLowerCase() || "";
-      if (!/^\.[a-z0-9]{1,10}$/.test(ext)) ext = "";
-      var storagePath = "vault/" + req.user._id + "/" + Date.now() + "-" + fileShareId + ext;
+        // Decode from base64
+        var ciphertext = Buffer.from(body.ciphertext, "base64");
+        var encapsulatedKey = body.encapsulatedKey; // keep as base64 string for DB
+        var iv = body.iv; // keep as base64 string for DB
 
-      // Write raw ciphertext to storage — no server-side encryption layer
-      var savedPath = await storage.saveRaw(ciphertext, storagePath);
-      storagePath = savedPath;
+        // Store the encrypted blob using regular storage (no additional server encryption)
+        var shareId = b.crypto.generateToken(32);
+        // Extension is incorporated into the storage path; restrict to a safe
+        // charset (alnum, 1–10 chars) so a filename like "a.<odd>" can't create
+        // surprising on-disk names for operators browsing the upload dir.
+        var ext = nodePath.extname(body.filename).toLowerCase() || "";
+        if (!/^\.[a-z0-9]{1,10}$/.test(ext)) ext = "";
+        var storagePath = "vault/" + req.user._id + "/" + Date.now() + "-" + shareId + ext;
 
-      filesRepo.create({
-        shareId: fileShareId,
-        originalName: sanitizeFilename(body.filename),
-        relativePath: sanitizeFilename(body.relativePath || body.filename, 500),
-        storagePath: storagePath,
-        mimeType: body.mimeType || "application/octet-stream",
-        size: ciphertext.length,
-        uploadedBy: req.user._id,
-        uploaderEmail: req.user.email,
-        downloads: 0,
-        status: "complete",
-        vaultEncrypted: "true",
-        vaultEncapsulatedKey: encapsulatedKey,
-        vaultIv: iv,
-        vaultBatchId: body.batchId || null,
-        createdAt: new Date().toISOString(),
+        // Write raw ciphertext to storage — no server-side encryption layer
+        var savedPath = await storage.saveRaw(ciphertext, storagePath);
+        storagePath = savedPath;
+
+        filesRepo.create({
+          shareId: shareId,
+          originalName: sanitizeFilename(body.filename),
+          relativePath: sanitizeFilename(body.relativePath || body.filename, 500),
+          storagePath: storagePath,
+          mimeType: body.mimeType || "application/octet-stream",
+          size: ciphertext.length,
+          uploadedBy: req.user._id,
+          uploaderEmail: req.user.email,
+          downloads: 0,
+          status: "complete",
+          vaultEncrypted: "true",
+          vaultEncapsulatedKey: encapsulatedKey,
+          vaultIv: iv,
+          vaultBatchId: body.batchId || null,
+          createdAt: new Date().toISOString(),
+        });
+
+        audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: req.user._id, details: "vault file: " + body.filename + ", size: " + ciphertext.length, req: req, vaultOp: true });
+        return shareId;
       });
 
-      audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: req.user._id, details: "vault file: " + body.filename + ", size: " + ciphertext.length, req: req, vaultOp: true });
       res.json({ success: true, shareId: fileShareId });
     } catch (e) {
       if (e.isAppError) throw e;
@@ -394,47 +406,67 @@ module.exports = function (app) {
       var reencryptedFiles = body.files;
       if (!Array.isArray(reencryptedFiles)) throw new ValidationError("Re-encrypted files array required.");
 
-      // Get all current vault files
-      var vaultFiles = filesRepo.findAll({ uploadedBy: req.user._id, vaultEncrypted: "true", status: "complete" });
+      // Acquire-or-reject the per-user vault lock, held across the snapshot ->
+      // re-encrypt loop -> key swap. A double-clicked rotation queued behind
+      // the first would re-encrypt under a key the first already discarded and
+      // its on-disk bytes would win the saveRaw race — orphaning files. The
+      // acquire-or-reject is atomic (no await between the held-check and the
+      // acquire), so the second rotation is refused with 409 rather than
+      // running after the first, instead of silently corrupting files.
+      var outcome = await vaultLock.tryWithUserLock(req.user._id, async function () {
+        // Snapshot UNDER the lock — a concurrent upload cannot commit after
+        // this read because it contends for the same lock.
+        var vaultFiles = filesRepo.findAll({ uploadedBy: req.user._id, vaultEncrypted: "true", status: "complete" });
 
-      // Verify we have re-encrypted data for every vault file
-      var reencMap = {};
-      for (var i = 0; i < reencryptedFiles.length; i++) {
-        reencMap[reencryptedFiles[i].shareId] = reencryptedFiles[i];
-      }
-      for (var j = 0; j < vaultFiles.length; j++) {
-        if (!reencMap[vaultFiles[j].shareId]) {
-          throw new ValidationError("Missing re-encrypted data for file: " + vaultFiles[j].originalName);
+        // Verify we have re-encrypted data for every vault file (fail closed:
+        // a single missing file aborts the rotation before the key swap, so we
+        // never discard the old seed while a file is still encrypted under it).
+        var reencMap = {};
+        for (var i = 0; i < reencryptedFiles.length; i++) {
+          reencMap[reencryptedFiles[i].shareId] = reencryptedFiles[i];
         }
+        for (var j = 0; j < vaultFiles.length; j++) {
+          var rec = reencMap[vaultFiles[j].shareId];
+          if (!rec || !rec.ciphertext || !rec.encapsulatedKey || !rec.iv) {
+            throw new ValidationError("Missing re-encrypted data for file: " + vaultFiles[j].originalName);
+          }
+        }
+
+        // Update each file with re-encrypted data
+        var count = 0;
+        for (var k = 0; k < vaultFiles.length; k++) {
+          var doc = vaultFiles[k];
+          var reenc = reencMap[doc.shareId];
+
+          // Write new ciphertext to storage
+          var ciphertext = Buffer.from(reenc.ciphertext, "base64");
+          await storage.saveRaw(ciphertext, doc.storagePath);
+
+          // Update DB with new encapsulated key and IV. Do NOT take size from
+          // the client — rotation re-encrypts the same plaintext, so the
+          // original size is unchanged and preserving doc.size avoids a quota
+          // bypass where an attacker rotates their own file with originalSize=0.
+          filesRepo.update(doc._id, { $set: {
+            vaultEncapsulatedKey: reenc.encapsulatedKey,
+            vaultIv: reenc.iv,
+          }});
+          count++;
+        }
+
+        // Update user's vault public key and seed only after every file has
+        // been re-encrypted under the new key.
+        var vaultUpdate = { vaultPublicKey: newPublicKey, vaultMode: newMode };
+        if (newSeed) vaultUpdate.vaultSeed = newSeed;
+        else vaultUpdate.vaultSeed = null;
+        usersRepo.update(req.user._id, { $set: vaultUpdate });
+
+        return count;
+      });
+
+      if (!outcome.acquired) {
+        throw new ConflictError("A vault mutation is already in progress. Retry shortly.");
       }
-
-      // Update each file with re-encrypted data
-      var updated = 0;
-      for (var k = 0; k < vaultFiles.length; k++) {
-        var doc = vaultFiles[k];
-        var reenc = reencMap[doc.shareId];
-        if (!reenc.ciphertext || !reenc.encapsulatedKey || !reenc.iv) continue;
-
-        // Write new ciphertext to storage
-        var ciphertext = Buffer.from(reenc.ciphertext, "base64");
-        await storage.saveRaw(ciphertext, doc.storagePath);
-
-        // Update DB with new encapsulated key and IV. Do NOT take size from
-        // the client — rotation re-encrypts the same plaintext, so the
-        // original size is unchanged and preserving doc.size avoids a quota
-        // bypass where an attacker rotates their own file with originalSize=0.
-        filesRepo.update(doc._id, { $set: {
-          vaultEncapsulatedKey: reenc.encapsulatedKey,
-          vaultIv: reenc.iv,
-        }});
-        updated++;
-      }
-
-      // Update user's vault public key and seed
-      var vaultUpdate = { vaultPublicKey: newPublicKey, vaultMode: newMode };
-      if (newSeed) vaultUpdate.vaultSeed = newSeed;
-      else vaultUpdate.vaultSeed = null;
-      usersRepo.update(req.user._id, { $set: vaultUpdate });
+      var updated = outcome.value;
 
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { targetId: req.user._id, details: "Vault passkey rotated, mode: " + newMode + ", files re-encrypted: " + updated, req: req });
       res.json({ success: true, filesUpdated: updated });
@@ -452,11 +484,15 @@ module.exports = function (app) {
     if (!doc || doc.vaultEncrypted !== "true" || !canEditOwned(doc, req.user, "uploadedBy")) {
       throw new NotFoundError("Not found.");
     }
-    // Delete the encrypted blob
-    try {
-      await storage.deleteFile(doc.storagePath);
-    } catch (_e) { /* cleanup — storage file may already be gone */ }
-    filesRepo.remove(doc._id);
+    // Serialize against rotation — a delete that removed a file from the set
+    // mid-rotation would race the re-encrypt loop's saveRaw on the same path.
+    await vaultLock.withUserLock(req.user._id, async function () {
+      // Delete the encrypted blob
+      try {
+        await storage.deleteFile(doc.storagePath);
+      } catch (_e) { /* cleanup — storage file may already be gone */ }
+      filesRepo.remove(doc._id);
+    });
     audit.log(audit.ACTIONS.FILE_DELETED, { targetId: doc._id, details: "vault file: " + doc.originalName, req: req, vaultOp: true });
     res.json({ success: true });
   });
@@ -494,16 +530,20 @@ module.exports = function (app) {
     try {
       var body = (await b.parsers.json(req)) || {};
       if (!body.batchId) throw new ValidationError("Batch ID required.");
-      var vaultFiles = filesRepo.findAll({ uploadedBy: req.user._id, vaultEncrypted: "true" }).filter(function (f) { return f.vaultBatchId === body.batchId; });
-      if (vaultFiles.length === 0) throw new NotFoundError("No files in batch.");
-      for (var i = 0; i < vaultFiles.length; i++) {
-        try {
-          await storage.deleteFile(vaultFiles[i].storagePath);
-        } catch (_e) { /* cleanup — storage file may already be gone */ }
-        filesRepo.remove(vaultFiles[i]._id);
-      }
-      audit.log(audit.ACTIONS.FILE_DELETED, { targetId: req.user._id, details: "vault batch delete: " + body.batchId + ", files: " + vaultFiles.length, req: req, vaultOp: true });
-      res.json({ success: true, filesDeleted: vaultFiles.length });
+      // Serialize against rotation — see /vault/delete/:shareId.
+      var filesDeleted = await vaultLock.withUserLock(req.user._id, async function () {
+        var vaultFiles = filesRepo.findAll({ uploadedBy: req.user._id, vaultEncrypted: "true" }).filter(function (f) { return f.vaultBatchId === body.batchId; });
+        if (vaultFiles.length === 0) throw new NotFoundError("No files in batch.");
+        for (var i = 0; i < vaultFiles.length; i++) {
+          try {
+            await storage.deleteFile(vaultFiles[i].storagePath);
+          } catch (_e) { /* cleanup — storage file may already be gone */ }
+          filesRepo.remove(vaultFiles[i]._id);
+        }
+        return vaultFiles.length;
+      });
+      audit.log(audit.ACTIONS.FILE_DELETED, { targetId: req.user._id, details: "vault batch delete: " + body.batchId + ", files: " + filesDeleted, req: req, vaultOp: true });
+      res.json({ success: true, filesDeleted: filesDeleted });
     } catch (e) {
       if (e.isAppError) throw e;
       logger.error("Vault batch delete error", { error: e.message || String(e) });

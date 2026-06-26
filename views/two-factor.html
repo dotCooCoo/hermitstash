@@ -1,0 +1,45 @@
+{{> head}}
+<main class="main" id="main-content">
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-logo"><img src="{{brand.logo}}" alt="" class="auth-logo-img"></div>
+    <h2 class="auth-title">Two-factor <span style="font-weight:200">authentication.</span></h2>
+    <p class="auth-desc">Enter the code from your authenticator app to finish signing in. You can use one of your backup codes instead.</p>
+
+    <div id="totpError" class="auth-error" style="display:none"></div>
+
+    <form class="auth-form" onsubmit="return submitCode(event)">
+      <div class="auth-field">
+        <label class="input-label">Authentication code</label>
+        <input type="text" id="totpCode" class="text-input" autocomplete="one-time-code" autofocus maxlength="20" placeholder="123456" required>
+      </div>
+      <button type="submit" class="butn butn-bg butn-full radius-30" id="verifyBtn"><span>Verify</span></button>
+    </form>
+
+    <div class="auth-alt" style="margin-top:16px">
+      <form method="POST" action="/auth/logout" style="display:inline"><input type="hidden" name="_csrf" value="{{csrfToken}}"><button type="submit" class="auth-link-btn">Sign out instead</button></form>
+    </div>
+  </div>
+</div>
+
+<script>
+function showError(msg){var el=document.getElementById('totpError');el.textContent=msg;el.style.display='block'}
+function clearError(){document.getElementById('totpError').style.display='none'}
+
+function submitCode(ev){
+  ev.preventDefault();clearError();
+  var btn=document.getElementById('verifyBtn');
+  var input=document.getElementById('totpCode');
+  var code=input.value.trim();
+  btn.disabled=true;btn.querySelector('span').textContent='Verifying...';
+  fetch('/2fa/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code})}).then(function(r){return r.json().then(function(d){return{status:r.status,body:d}})}).then(function(o){
+    if(o.status===200&&o.body.success){window.location.href=o.body.redirect||'/dashboard';return}
+    showError(o.body.detail||o.body.error||'Verification failed.');
+    btn.disabled=false;btn.querySelector('span').textContent='Verify';
+    input.value='';input.focus();
+  }).catch(function(){showError('Network error.');btn.disabled=false;btn.querySelector('span').textContent='Verify'});
+  return false;
+}
+</script>
+</main>
+{{> foot}}

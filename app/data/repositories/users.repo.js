@@ -4,6 +4,7 @@
  */
 var { users, credentials } = require("../../../lib/db");
 var { transaction } = require("../db/transaction");
+var b = require("../../../lib/vendor/blamejs");
 
 function findById(id) { return users.findOne({ _id: id }); }
 function findByEmail(email) { return users.findOne({ email: String(email).toLowerCase() }); }
@@ -26,6 +27,34 @@ function incrementFailedAttempts(id) {
   db.rawExec("UPDATE users SET failedLoginAttempts = COALESCE(failedLoginAttempts, 0) + 1 WHERE _id = ?", id);
   var row = db.rawGet("SELECT failedLoginAttempts FROM users WHERE _id = ?", id);
   return row ? row.failedLoginAttempts : null;
+}
+
+// Atomically consume a single-use TOTP backup code. A snapshot read in the
+// route handler followed by a splice + full-column overwrite is last-writer-
+// wins across the await that completes the login: two concurrent requests
+// presenting DISTINCT valid codes each write back their own snapshot-minus-
+// one, so one consumed code reappears in the survivor set and stays reusable.
+// totpBackupCodes is a sealed column, so a raw SQL string-replace can't touch
+// the ciphertext — instead re-read the freshest sealed row, unseal, remove only
+// the matching element, and write back, all inside one IMMEDIATE transaction so
+// concurrent consumes serialize at the row level. Returns true if the code was
+// present (and is now removed), false if it was already gone.
+function consumeBackupCode(id, codeHash) {
+  return transaction(function () {
+    var user = users.findOne({ _id: id });
+    if (!user) return false;
+    var codes = Array.isArray(user.totpBackupCodes)
+      ? user.totpBackupCodes
+      : b.safeJson.parseOrDefault(user.totpBackupCodes || "[]", []);
+    var idx = -1;
+    for (var i = 0; i < codes.length; i++) {
+      if (b.crypto.timingSafeEqual(String(codes[i]), codeHash)) { idx = i; break; }
+    }
+    if (idx === -1) return false;
+    codes.splice(idx, 1);
+    users.update({ _id: id }, { $set: { totpBackupCodes: JSON.stringify(codes) } });
+    return true;
+  });
 }
 
 /**
@@ -59,4 +88,4 @@ function deleteUser(userId, reassignTo) {
 
 function remove(id) { return users.remove({ _id: id }); }
 
-module.exports = { findById, findByEmail, findAll, count, findPaginated, create, update, remove, deleteUser, incrementFailedAttempts };
+module.exports = { findById, findByEmail, findAll, count, findPaginated, create, update, remove, deleteUser, incrementFailedAttempts, consumeBackupCode };

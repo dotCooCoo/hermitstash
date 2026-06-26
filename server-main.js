@@ -320,6 +320,29 @@ app.post("/sync/enroll", rateLimit.guard({ max: SYNC_ENROLL_MAX, windowMs: C.TIM
       });
     }
 
+    // Reissue (cert-renewal) redemption realigns the per-key cert binding. The
+    // cert-expiry job pre-stages a reissue code WITHOUT rebinding the API key's
+    // certFingerprint, so the client's CURRENT cert keeps working while it's
+    // offline / hasn't renewed (rebinding server-side would 403 the old cert on
+    // every /sync/* surface, including /sync/renew-cert and this redemption,
+    // hard-locking the client out of its own recovery). The realignment is owed
+    // HERE, the moment the client actually redeems the new cert: bind to the
+    // cert this code provisions so the client's new cert authenticates
+    // immediately. certIssuedAt/certExpiresAt advance to the new cert's lifetime
+    // in the same write so the next cert-expiry sweep measures the live cert.
+    // Without this, repair was an INCOMPLETE realignment — the binding kept
+    // pointing at the previous cert. Best-effort: a failure leaves /sync/renew-
+    // cert as the client's fallback.
+    if (record.reissue && record.originalKeyId && record.clientCert) {
+      try {
+        apiKeysRepo.update(record.originalKeyId, { $set: {
+          certFingerprint: certUtils.certFingerprintSha3(record.clientCert),
+          certIssuedAt: new Date().toISOString(),
+          certExpiresAt: record.certExpiresAt || null,
+        }});
+      } catch (_e) { /* realignment best-effort — client can fall back to /sync/renew-cert */ }
+    }
+
     // Stash-bound enrollments (the default flow from routes/stash.js's
     // sync-token issuer) record stashId but leave bundleId null because
     // the bundle binding lives on the stash row. Resolve it here so the
@@ -835,9 +858,19 @@ scheduler.register("shm_usage_monitor", C.TIME.minutes(5), function () { // ever
   } catch (_e) {} // statfsSync not available on all platforms
 });
 if (config.backup && config.backup.enabled) {
-  scheduler.register("backup", config.backup.schedule || C.TIME.days(1), function () {
-    return backupJob.run();
-  }, { skipInitial: true, baseline: config.backup.timeOfDay, timezone: config.backup.timezone });
+  // register(name, intervalMs, fn) declares only 3 params — a 4th options arg
+  // was silently discarded, so the operator's wall-clock anchor never applied
+  // and the daily backup fired at process-start+24h, re-anchoring on every
+  // restart. schedule() is the documented anchored-interval surface: baseline
+  // ("HH:MM") + timezone hold the fire to the configured time-of-day across
+  // restarts (lib/scheduler.js → b.scheduler).
+  scheduler.schedule({
+    name: "backup",
+    every: config.backup.schedule || C.TIME.days(1),
+    baseline: config.backup.timeOfDay,
+    timezone: config.backup.timezone,
+    run: function () { return backupJob.run(); },
+  });
 }
 
 // Audit tamper-evidence chain (opt-in). Verify once at boot, then daily.
@@ -1056,6 +1089,51 @@ var SYNC_MAX_CONNECTIONS_PER_KEY = 5;
 var SYNC_HEARTBEAT_INTERVAL = C.TIME.seconds(30);
 var SYNC_MAX_MESSAGES_PER_MIN = 60;
 var SYNC_MAX_MESSAGE_SIZE = C.BYTES.kib(64);
+// catch_up / connect-time catch-up page size. The change-feed is paged so a
+// since=0 (whole-bundle) request can't force the server to materialize +
+// field-crypto-decrypt every file in one shot; the client advances `since` to
+// the last seq it received to pull the next page.
+var SYNC_CATCH_UP_PAGE = 200;
+// Per-IP ceiling on /sync/ws handshake attempts per minute — bounds how many
+// times one source IP can reach the apiKeys DB lookup. This is a coarse
+// flood-dampener, not a per-client cap: the lookup is a cheap indexed findOne,
+// a valid bearer key is still required after it, and SYNC_MAX_CONNECTIONS_PER_KEY
+// bounds connections per key. So the ceiling is set high enough to clear a
+// legitimate reconnect storm (a whole fleet of clients behind one NAT
+// re-establishing after a server restart) while still cutting a single IP's
+// unauthenticated handshake flood down to a handful per second. Operator-tunable.
+var SYNC_WS_UPGRADE_MAX = parseInt(process.env.SYNC_WS_UPGRADE_MAX, 10) || 600;
+
+// Per-IP throttle for the WS upgrade handshake. The upgrade path is a raw
+// server.on("upgrade") that never enters the HTTP middleware pipeline, so the
+// blocked-IP gate (middleware/ip-check) and the per-IP rate limit that protect
+// every HTTP route are structurally skipped — a banned IP with a valid key
+// still connects, and an unauthenticated attacker reaches the apiKeys lookup on
+// every attempt with no throttle. This limiter keys on clientIp.rateKey (the
+// SAME trustProxy-gated bucket + IPv6 /64 collapse the HTTP guards use, via
+// lib/rate-limit), so the WS handshake shares the HTTP routes' throttle shape.
+// onDeny only flags the verdict — there's no Express res on a raw socket; the
+// caller writes the 429 via rejectUpgrade.
+var wsUpgradeThrottle = b.middleware.rateLimit({
+  max: SYNC_WS_UPGRADE_MAX,
+  windowMs: C.TIME.minutes(1),
+  algorithm: "fixed-window",
+  keyFn: clientIp.rateKey,
+  clientIpResolver: function (req) { return clientIp.getIp(req); },
+  header: false,
+  onDeny: function (req) { req._wsUpgradeThrottled = true; },
+});
+
+// Drive the upgrade throttle with a no-op response surface (the deny path
+// flags req._wsUpgradeThrottled via onDeny; a no-op hook falls through to a
+// default write, which the stub swallows). Returns true when the attempt is
+// over the per-IP limit.
+function wsUpgradeOverLimit(req) {
+  req._wsUpgradeThrottled = false;
+  var stubRes = { setHeader: function () {}, writeHead: function () { return stubRes; }, end: function () {}, writableEnded: true, headersSent: true };
+  wsUpgradeThrottle(req, stubRes, function () {});
+  return req._wsUpgradeThrottled === true;
+}
 
 server.on("upgrade", function (req, socket, head) {
   // Parse the request-target. req.url is a relative path ("/sync/ws?..."),
@@ -1075,6 +1153,22 @@ server.on("upgrade", function (req, socket, head) {
     // Not a sync WebSocket — ignore (let other handlers take it, or close)
     socket.destroy();
     return;
+  }
+
+  // Blocked-IP + per-IP throttle FIRST — ahead of mTLS / cert / key-lookup
+  // work. server.on("upgrade") bypasses the HTTP middleware pipeline, so
+  // ipCheck (the blocklist gate) and the per-IP rate limit don't run here
+  // unless re-applied. Without this a banned IP with a valid key still
+  // connects, and an unauthenticated attacker hits the apiKeys DB lookup on
+  // every handshake with no throttle. Resolve the client IP through HS's
+  // trustProxy-gated reader so the blocklist + throttle key off the same
+  // value the HTTP routes do.
+  var clientAddr = clientIp.getIp(req);
+  if (clientAddr && db.blockedIps.findOne({ ip: clientAddr })) {
+    return rejectUpgrade(socket, 403, "Forbidden");
+  }
+  if (wsUpgradeOverLimit(req)) {
+    return rejectUpgrade(socket, 429, "Too Many Requests");
   }
 
   // mTLS check (if CA is configured) — client must present a valid cert.
@@ -1209,11 +1303,14 @@ server.on("upgrade", function (req, socket, head) {
   msgResetTimer.unref();
   var violations = 0;
 
-  // Catch-up: send events since the given seq
+  // Catch-up: send events since the given seq, ONE page at a time. `since` is
+  // attacker-controlled (since=0 forces the whole bundle), so the query filters
+  // + orders + limits in SQL on the raw bundleId/seq columns rather than
+  // materializing + field-crypto-decrypting every file to JS-filter — the flat
+  // 60/min message cap doesn't bound O(files) decrypt work. The client pages by
+  // reconnecting (or issuing catch_up) with `since` advanced to the last seq.
   if (since > 0) {
-    var catchupFiles = filesRepo.findAll({ bundleId: bundle._id })
-      .filter(function (f) { return (f.seq || 0) > since; })
-      .sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
+    var catchupFiles = filesRepo.findBundleChangesSince(bundle._id, since, SYNC_CATCH_UP_PAGE);
     for (var i = 0; i < catchupFiles.length; i++) {
       var f = catchupFiles[i];
       var evType = f.deletedAt ? "file_removed" : "file_added";
@@ -1239,6 +1336,19 @@ server.on("upgrade", function (req, socket, head) {
   // Heartbeat interval
   var heartbeatTimer = setInterval(function () {
     try {
+      // Re-validate the credential every heartbeat — defense-in-depth so a
+      // revoked key or deactivated user is torn down within one interval even
+      // if the immediate close on revoke/deactivate was missed (or the
+      // deactivate path doesn't reach the sync registry). TLS never re-validates
+      // an already-authenticated connection, so without this an already-open
+      // change-feed socket would outlive its credential. apiKey row gone (hard-
+      // deleted on revoke) or owning user no longer active → close 4401.
+      var freshKey = apiKeysRepo.findOne({ _id: keyId });
+      var freshUser = freshKey ? usersRepo.findById(freshKey.userId) : null;
+      if (!freshKey || !freshUser || freshUser.status !== "active") {
+        ws.close(4401, "credential revoked");
+        return;
+      }
       var freshBundle = bundlesRepo.findById(bundleId);
       safeSend(JSON.stringify({ type: "heartbeat", seq: freshBundle ? freshBundle.seq || 0 : 0, timestamp: new Date().toISOString() }));
       ws.ping();
@@ -1288,10 +1398,12 @@ server.on("upgrade", function (req, socket, head) {
         var ackCb = caRotationAckCallbacks.get(keyId);
         if (ackCb) { try { ackCb(); } catch (_e) {} }
       } else if (msg.type === "catch_up") {
+        // Paged: `since` is attacker-controlled (since=0 = whole bundle), so the
+        // query bounds the work to one SQL-limited page on the raw bundleId/seq
+        // columns instead of decrypting every file. The client advances `since`
+        // to the last seq it received to pull the next page.
         var catchSince = parseInt(msg.since, 10) || 0;
-        var files = filesRepo.findAll({ bundleId: bundle._id })
-          .filter(function (f) { return (f.seq || 0) > catchSince; })
-          .sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
+        var files = filesRepo.findBundleChangesSince(bundle._id, catchSince, SYNC_CATCH_UP_PAGE);
         for (var j = 0; j < files.length; j++) {
           var cf = files[j];
           var t = cf.deletedAt ? "file_removed" : "file_added";

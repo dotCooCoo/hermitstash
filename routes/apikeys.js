@@ -5,6 +5,7 @@ var idempotency = require("../middleware/idempotency");
 var audit = require("../lib/audit");
 var { VALID_SCOPES } = require("../app/security/scope-policy");
 var certUtils = require("../lib/cert-utils");
+var syncRegistry = require("../lib/sync-registry");
 var { ValidationError, NotFoundError } = require("../app/shared/errors");
 
 module.exports = function (app) {
@@ -71,7 +72,22 @@ module.exports = function (app) {
       }
     }
     apiKeysRepo.remove(key._id);
-    audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "API key revoked: " + key.name + (certRevoked ? " (cert revoked)" : ""), req: req });
+
+    // Tear down any live /sync/ws sockets this key holds open. Hard-deleting
+    // the row stops a FUTURE upgrade from authenticating, but an ALREADY-open
+    // change-feed socket survives — TLS doesn't re-validate an authenticated
+    // connection, so a revoked credential would keep receiving bundle events
+    // and could keep issuing catch_up. Close every socket bound to this keyId
+    // (mirrors the CA-rotation reach in routes/admin.js). The WS heartbeat's
+    // re-validation is the defense-in-depth backstop for the gap between
+    // revoke and the next interval; this closes the live sockets immediately.
+    var closedSockets = 0;
+    syncRegistry.listSyncConnections().forEach(function (conn) {
+      if (conn.apiKeyId !== key._id) return;
+      try { conn.ws.close(4401, "credential revoked"); closedSockets++; } catch (_e) { /* socket already closing — registry cleanup runs on its close event */ }
+    });
+
+    audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "API key revoked: " + key.name + (certRevoked ? " (cert revoked)" : "") + (closedSockets > 0 ? " (" + closedSockets + " sync socket(s) closed)" : ""), req: req });
     res.json({ success: true, certRevoked: certRevoked });
   });
 };

@@ -64,6 +64,7 @@ async function doLogin(e){
     var r=await fetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('loginEmail').value,password:document.getElementById('loginPassword').value})});
     var d=await r.json();
     if(d.success){window.location.href=d.redirect}
+    else if(d.requires2fa){window.location.href='/2fa'}
     else if(d.pending){window.location.href='/auth/pending?email='+encodeURIComponent(d.email||'')}
     else{errEl.textContent=d.detail||d.error||'Sign in failed.';errEl.style.display='block';btn.disabled=false;btn.querySelector('span').textContent='Sign In'}
   }catch(err){errEl.textContent='Something went wrong.';errEl.style.display='block';btn.disabled=false;btn.querySelector('span').textContent='Sign In'}
@@ -97,7 +98,8 @@ async function passkeyLogin(){
     // Verify with server
     var verRes=await fetch('/passkey/login/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(authResp)});
     var verData=await verRes.json();
-    if(verData.verified&&verData.redirect){window.location.href=verData.redirect}
+    if(verData.requires2fa){window.location.href='/2fa'}
+    else if(verData.verified&&verData.redirect){window.location.href=verData.redirect}
     else if(verData.pending){window.location.href='/auth/pending?email='+encodeURIComponent(verData.email||'')}
     else{errEl.textContent=verData.detail||verData.error||'Passkey verification failed.';errEl.style.display='block'}
   }catch(err){

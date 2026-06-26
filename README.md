@@ -306,7 +306,7 @@ Built on Node.js 24.16.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - User management -- create, suspend, delete, role toggle
 - Audit log -- searchable, filterable, date range
 - Settings panel -- 10 tabs (Branding, General, Auth, Uploads, Storage, Theme, Email, Security, Environment, Backup)
-- API keys with scoped permissions (upload, read, admin, webhook) validated against canonical enum
+- API keys with scoped permissions (upload, read, admin) validated against a canonical enum and enforced on read and mutating routes
 - Webhooks with HMAC-SHA3-512 signed payloads, per-hook delivery log, enable/disable toggle
 - IP blocklist
 - Database backup (serves encrypted-at-rest copy), CSV exports (with formula injection protection)
@@ -1347,7 +1347,7 @@ Managed via `scripts/vendor-update.sh`:
 
 | Vendored | Version | Author | Purpose |
 |----------|---------|--------|---------|
-| [`blamejs`](https://github.com/blamejs/blamejs) | 0.15.26 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, etc. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
+| [`blamejs`](https://github.com/blamejs/blamejs) | 0.15.27 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, etc. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
 | [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) (browser only) | 2.2.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | XChaCha20-Poly1305 in the browser vault + outbox flows |
 | [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (browser only) | 2.2.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | SHAKE256 KDF in the browser |
 | [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) (browser only) | 0.6.1 | [Paul Miller](https://github.com/paulmillr) (MIT) | ML-KEM-1024 in the browser vault flow |

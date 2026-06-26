@@ -177,14 +177,26 @@ module.exports = function (app) {
           audit.log(audit.ACTIONS.TOTP_FAILED, { targetId: user._id, details: "Backup code replay rejected (concurrent)", req: req });
           throw new AuthenticationError("Invalid 2FA code.");
         }
-        // Consume the backup code (single-use)
-        backupCodes.splice(idx, 1);
-        usersRepo.update(user._id, { $set: { totpBackupCodes: JSON.stringify(backupCodes) } });
+        // Consume the backup code (single-use). Row-atomic remove: claimOnce
+        // blocks sequential reuse of the SAME code, but two DISTINCT codes
+        // consumed concurrently would otherwise each overwrite the sealed column
+        // from their own pre-await snapshot, resurrecting one consumed code.
+        // consumeBackupCode re-reads the freshest row and removes only this hash
+        // under row-level serialization, so concurrent distinct consumes can't
+        // lose each other's removal.
+        if (!usersRepo.consumeBackupCode(user._id, codeHash)) {
+          audit.log(audit.ACTIONS.TOTP_FAILED, { targetId: user._id, details: "Backup code already consumed (concurrent)", req: req });
+          throw new AuthenticationError("Invalid 2FA code.");
+        }
 
         await sessionService.complete2fa(req);
         if (isLegacyAlgorithm(alg)) req.session.requiresTotpReEnroll = "true";
         usersRepo.update(user._id, { $set: { lastLogin: new Date().toISOString() } });
-        audit.log(audit.ACTIONS.LOGIN_SUCCESS, { targetId: user._id, details: "2FA verified via backup code (" + backupCodes.length + " remaining, alg=" + alg + ")", req: req });
+        var remaining = usersRepo.findById(user._id);
+        var remainingCount = Array.isArray(remaining && remaining.totpBackupCodes)
+          ? remaining.totpBackupCodes.length
+          : b.safeJson.parseOrDefault((remaining && remaining.totpBackupCodes) || "[]", []).length;
+        audit.log(audit.ACTIONS.LOGIN_SUCCESS, { targetId: user._id, details: "2FA verified via backup code (" + remainingCount + " remaining, alg=" + alg + ")", req: req });
         return res.json({ success: true, redirect: isLegacyAlgorithm(alg) ? "/2fa/re-enroll" : "/dashboard" });
       }
 
@@ -207,6 +219,22 @@ module.exports = function (app) {
       : b.safeJson.parseOrDefault(user.totpBackupCodes || "[]", []);
     backupCount = codes.length;
     res.json({ enabled: user.totpEnabled === "true", backupCodesRemaining: backupCount, algorithm: algorithmFor(user) });
+  });
+
+  // Render the TOTP-entry page for a login that is pending its second factor.
+  // No requireAuth — the user is NOT logged in yet; they hold an anonymous
+  // session carrying pendingTotpUserId (set by start2faPending on the local /
+  // OAuth / passkey paths). With no live pending 2FA, send them back to login
+  // rather than showing a code prompt that /2fa/verify would reject anyway.
+  app.get("/2fa", function (req, res) {
+    var userId = req.session && req.session.pendingTotpUserId;
+    var expires = (req.session && req.session.pendingTotpExpires) || 0;
+    if (!userId || Date.now() > expires) return res.redirect("/auth/login");
+    // user:null renders the logged-out chrome — the shared partials reference a
+    // bare `user` in `{% if (user) %}` guards, which ReferenceErrors under the
+    // template's with(__data) if the key is absent. The visitor is mid-login
+    // (pending 2FA), not authenticated, so there is no user yet.
+    send(res, "two-factor", { user: req.user || null });
   });
 
   // ---- Forced re-enrollment (legacy SHA-1 → SHA-512 migration) ----

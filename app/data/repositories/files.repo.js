@@ -1,7 +1,8 @@
 /**
  * Files Repository — persistence logic for uploaded files.
  */
-var { files } = require("../../../lib/db");
+var db = require("../../../lib/db");
+var { files } = db;
 
 function findById(id) { return files.findOne({ _id: id }); }
 function findByShareId(shareId) { return files.findOne({ shareId: shareId }); }
@@ -46,4 +47,27 @@ function findLiveByBundleShareId(shareId) {
 }
 function searchPaginated(fields, q, query, opts) { return files.searchPaginated(fields, q, query, opts); }
 
-module.exports = { findById, findByShareId, findCompleteByShareId, findByBundle, findByBundleShareId, findLiveByBundleShareId, findByUploader, findAll, findPaginated, searchPaginated, count, create, update, remove, incrementDownloads };
+// Sync change-feed page: the next `limit` files in a bundle whose seq is
+// strictly greater than `since`, ordered by seq ascending. bundleId + seq are
+// raw (unsealed) columns, so the SELECT filters/orders/limits in SQL — it never
+// materializes or field-crypto-decrypts the whole bundle to JS-filter on seq
+// (the catch-up handler used to, which an attacker forces O(files) with
+// since=0). Only the `_id`s of the page come back from the raw query; each is
+// re-read through files.findOne so the sealed columns (relativePath, checksum)
+// auto-unseal. The caller pages by advancing `since` to the last seq returned.
+function findBundleChangesSince(bundleId, since, limit) {
+  var sinceSeq = Number.isFinite(since) && since > 0 ? Math.floor(since) : 0;
+  var pageLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 1;
+  var rows = db.rawQuery(
+    "SELECT _id FROM files WHERE bundleId = ? AND seq > ? ORDER BY seq ASC LIMIT ?",
+    bundleId, sinceSeq, pageLimit
+  );
+  var out = [];
+  for (var i = 0; i < rows.length; i++) {
+    var f = files.findOne({ _id: rows[i]._id });
+    if (f) out.push(f);
+  }
+  return out;
+}
+
+module.exports = { findById, findByShareId, findCompleteByShareId, findByBundle, findByBundleShareId, findLiveByBundleShareId, findByUploader, findAll, findPaginated, searchPaginated, findBundleChangesSince, count, create, update, remove, incrementDownloads };

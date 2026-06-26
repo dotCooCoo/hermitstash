@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.15.27",
+  "date": "2026-06-25",
+  "headline": "Internal test-harness reliability only — the published library is byte-for-byte identical to 0.15.26",
+  "summary": "The legacy single-layer smoke files used fixed-duration setTimeout sleeps to wait for asynchronous conditions (a job processed, a lease TTL lapsing, an audit flush completing). On a contended CI runner a fixed sleep is both flake-prone (too short under load) and slow (it always burns the full budget). Those condition-waits are converted to the harness's polling helpers — waitUntil for observable predicates, passiveObserve for deliberate real-time elapses, withTestTimeout for hang guards — which exit early on fast platforms and give contended platforms the full budget. No shipped framework code changed; this release is byte-for-byte identical to 0.15.26 for operators.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Smoke layer files poll for conditions instead of fixed setTimeout sleeps",
+          "body": "The single-layer smoke files waited on asynchronous conditions with fixed-duration setTimeout sleeps, which flake under SMOKE_PARALLEL load and always burn their full budget. The condition-waits are converted to the polling helpers (waitUntil / passiveObserve / withTestTimeout) so they exit early on fast platforms and stay robust on contended ones; non-wait timers (abort triggers, child/socket watchdogs, simulated-latency mocks) are unchanged. This is test-harness reliability only — no shipped framework behavior changed."
+        }
+      ]
+    }
+  ]
+}

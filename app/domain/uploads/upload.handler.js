@@ -165,7 +165,14 @@ async function handleFileUpload(ctx) {
       audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + magicCheck.reason + suffix, req: ctx.req });
       return { error: magicCheck.reason };
     }
-  } catch (_e) { logger.error("Magic byte validation error", { file: file.filename, error: _e.message }); }
+  } catch (_e) {
+    // Fail closed: an internal error in the magic-byte gate must reject, not
+    // fall through to the save — a defense-in-depth check that silently accepts
+    // on exception is worse than no check at all.
+    logger.error("Magic byte validation error", { file: file.filename, error: _e.message });
+    audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: Could not validate file content." + suffix, req: ctx.req });
+    return { error: "Could not validate file content." };
+  }
 
   // Bundle limits
   var limitsCheck = uploadValidator.validateBundleLimits(bundle.receivedFiles + 1, limits.maxFiles, bundle.totalSize + file.size, limits.maxBundleSize);
@@ -414,7 +421,15 @@ async function handleChunkUpload(ctx) {
       audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + magicCheck.reason + " (chunked)" + suffix, req: ctx.req });
       return { error: magicCheck.reason };
     }
-  } catch (_e) { logger.error("Magic byte validation error (chunked)", { file: filename, error: _e.message }); }
+  } catch (_e) {
+    // Fail closed (chunked path): reject on an internal validation error and
+    // release the per-IP byte reservation made on estimatedSize above, mirroring
+    // the !magicCheck.valid branch — never fall through to the save.
+    logger.error("Magic byte validation error (chunked)", { file: filename, error: _e.message });
+    _refundIpQuota(ctx.req, quota.ipReserved);
+    audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: Could not validate file content. (chunked)" + suffix, req: ctx.req });
+    return { error: "Could not validate file content." };
+  }
 
   // Save file and create DB record
   var chunkResult = await fileService.saveAndCreateFileRecord(fullData, {

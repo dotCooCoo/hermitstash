@@ -8,6 +8,7 @@ var audit = require("../lib/audit");
 var requireAuth = require("../middleware/require-auth");
 var sessionService = require("../app/domain/auth/session.service");
 var rateLimit = require("../lib/rate-limit");
+var replayNonce = require("../lib/replay-nonce");
 var { AppError, ValidationError, AuthenticationError, ForbiddenError, NotFoundError } = require("../app/shared/errors");
 
 module.exports = function (app) {
@@ -137,6 +138,16 @@ module.exports = function (app) {
 
       if (!expectedChallenge) throw new ValidationError("No pending passkey challenge.");
 
+      // Atomically claim this challenge. The in-memory `delete` above is persisted
+      // only at res.end via the deferred session flush (last-writer-wins), so two
+      // concurrent requests both read the same challenge and both pass the check.
+      // The challenge is the natural single-use token; claiming it here closes the
+      // TOCTOU window the same way the 2FA path does for the TOTP step.
+      if (!(await replayNonce.claimOnce("passkey:chal:" + b.crypto.sha3Hash(expectedChallenge), C.TIME.minutes(2)))) {
+        audit.log(audit.ACTIONS.PASSKEY_LOGIN_FAILED, { details: "Passkey challenge replay rejected (concurrent)", req: req });
+        throw new AuthenticationError("Passkey challenge already used.");
+      }
+
       // Find the credential by trying all stored credentials
       var incomingCredId = body.id; // base64url encoded
       var allCreds = credentialsRepo.find({});
@@ -204,9 +215,17 @@ module.exports = function (app) {
       var newCounter = verification.authenticationInfo.newCounter;
       credentialsRepo.update(matchedCred._id, { $set: { counter: newCounter } });
 
-      // Login
-      usersRepo.update(user._id, { $set: { lastLogin: new Date().toISOString() } });
-      await sessionService.loginUser(req, user._id);
+      // Route through the shared login chokepoint so a totpEnabled account is
+      // held in the pending-2FA state rather than receiving a full session.
+      // Passkeys are verified with requireUserVerification:false, so the
+      // assertion proves possession only — the second factor the owner enabled
+      // must still be entered, exactly as on the local-password and Google
+      // paths. The browser redirects a requires2fa response to /2fa.
+      var outcome = await sessionService.completeLogin(req, user._id);
+      if (outcome.requires2fa) {
+        audit.log(audit.ACTIONS.PASSKEY_LOGIN_SUCCESS, { targetId: user._id, targetEmail: user.email, details: "authType: passkey, 2FA pending", req: req });
+        return res.json({ requires2fa: true });
+      }
       audit.log(audit.ACTIONS.PASSKEY_LOGIN_SUCCESS, { targetId: user._id, targetEmail: user.email, details: "authType: passkey", req: req });
       res.json({ verified: true, redirect: "/dashboard" });
     } catch (e) {

@@ -56,7 +56,7 @@ async function run() {
 
       try {
         var mtlsCa = require("../../lib/mtls-ca");
-        var { generateEnrollmentCode, certFingerprintSha3 } = require("../../lib/cert-utils");
+        var { generateEnrollmentCode } = require("../../lib/cert-utils");
 
         await mtlsCa.initCA();
         var newCert = await mtlsCa.generateClientCert({ cn: key.prefix });
@@ -79,16 +79,26 @@ async function run() {
           status: "pending",
           reissue: true,
           originalKeyId: key._id,
+          // The new cert's lifetime, carried on the code so that when the client
+          // redeems it (server-main.js /sync/enroll) the key's certExpiresAt
+          // advances to the live cert — otherwise the realigned key drops out of
+          // this sweep's `certExpiresAt &&` filter and is never monitored again.
+          certExpiresAt: newCert.expiresAt || null,
           expiresAt: new Date(Date.now() + TIME.days(7)).toISOString(), // 7-day code validity for renewals
           createdAt: new Date().toISOString(),
         });
 
-        // Update the API key with new cert dates
-        apiKeysRepo.update(key._id, { $set: {
-          certIssuedAt: newCert.issuedAt,
-          certExpiresAt: newCert.expiresAt,
-          certFingerprint: certFingerprintSha3(newCert.cert),
-        }});
+        // Do NOT rebind certFingerprint to the freshly-issued cert here. The
+        // client is still presenting its CURRENT cert and may be offline or fail
+        // to redeem the reissue code; rebinding server-side would make
+        // enforceCertBinding (middleware/sync-guards.js) 403 the old cert on
+        // EVERY /sync/* surface — including /sync/renew-cert and the enroll
+        // redemption itself — hard-locking the client out of its own self-service
+        // recovery. The binding is realigned only when the client actually
+        // redeems the reissue code (server-main.js /sync/enroll) or renews via
+        // /sync/renew-cert. The pre-staged code + cert_renewed alert below are the
+        // job's entire job; the certIssuedAt/certExpiresAt columns track the LIVE
+        // cert, so they're left on the current cert too.
 
         renewed++;
         logger.info("[cert-expiry] Auto-renewed certificate", { prefix: key.prefix, newExpiresAt: newCert.expiresAt });

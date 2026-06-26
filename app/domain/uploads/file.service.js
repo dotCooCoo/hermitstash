@@ -10,6 +10,7 @@ var C = require("../../../lib/constants");
 var { sanitizeSvg } = require("../../../lib/sanitize-svg");
 var { sanitizeFilename, safeContentDisposition } = require("../../shared/sanitize-filename");
 var { NotFoundError, ValidationError, ForbiddenError } = require("../../shared/errors");
+var { canEditOwned } = require("../../shared/authz");
 
 // MIME types safe for inline preview
 var SAFE_INLINE = new Set(["application/pdf", "image/gif", "image/jpeg", "image/png", "image/webp"]);
@@ -142,11 +143,18 @@ async function deleteFile(doc) {
 /**
  * Check if a user is authorized to delete a file.
  * Returns true if owner or admin. Throws ForbiddenError otherwise.
+ *
+ * Delegates the owner-or-admin decision to canEditOwned so the same
+ * principal-gated admin override applies here as on the bundle/file
+ * browser routes: an admin-minted API key labelled "upload"/"read"
+ * does NOT inherit the admin ownership bypass unless the key itself
+ * carries the "admin" scope. Pass `req` as the principal; an
+ * interactive admin session (no req.apiKey) keeps the unconditional
+ * override.
  */
-function assertCanDelete(doc, user) {
+function assertCanDelete(doc, user, principal) {
   if (!user) throw new ForbiddenError("Authentication required.");
-  if (doc.uploadedBy === user._id) return true;
-  if (user.role === "admin") return true;
+  if (canEditOwned(doc, user, "uploadedBy", principal)) return true;
   throw new ForbiddenError("Not authorized.");
 }
 

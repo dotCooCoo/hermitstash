@@ -202,6 +202,30 @@ describe("two-factor integration", function () {
       assert.strictEqual(res.json.success, undefined, "should not grant full access yet");
     });
 
+    it("GET /2fa renders the code-entry page while a 2FA login is pending", async function () {
+      testServer.resetAllRateLimits();
+      client.clearCookies();
+      await client.initApiKey();
+      var loginRes = await client.post("/auth/login", {
+        json: { email: "2fa@test.com", password: "password123" },
+      });
+      assert.strictEqual(loginRes.json.requires2fa, true);
+
+      // The pending-2FA session (anonymous sid carrying pendingTotpUserId) can
+      // reach the TOTP-entry page that the requires2fa response redirects to.
+      var pageRes = await client.get("/2fa");
+      assert.strictEqual(pageRes.status, 200);
+      assert.ok(/Two-factor|Authentication code|\/2fa\/verify/i.test(pageRes.text), "renders the 2FA entry page");
+    });
+
+    it("GET /2fa redirects to login when no 2FA is pending", async function () {
+      client.clearCookies();
+      await client.initApiKey();
+      var res = await client.get("/2fa");
+      assert.strictEqual(res.status, 302);
+      assert.ok((res.location || "").includes("/auth/login"));
+    });
+
     it("verify with correct TOTP code completes login", async function () {
       testServer.resetAllRateLimits();
       clearTotpLastStep("2fa@test.com");
@@ -339,6 +363,75 @@ describe("two-factor integration", function () {
       });
       assert.strictEqual(res.json.success, true);
       assert.strictEqual(res.json.requires2fa, undefined);
+    });
+  });
+
+  describe("backup code concurrent consume (lost-update)", function () {
+    // Two DISTINCT valid backup codes submitted concurrently must each be
+    // consumed exactly once. A snapshot-derived splice + full-column overwrite
+    // is last-writer-wins: A reads [A,B], B reads [A,B], A writes ["B"], B
+    // writes ["A"] — so a consumed code reappears in the survivor set and stays
+    // reusable. The row-atomic usersRepo.consumeBackupCode re-reads the freshest
+    // sealed row and removes only the one hash under row-level serialization, so
+    // the surviving array must contain NEITHER consumed code.
+    var concSecret;
+    var concCodes;
+
+    it("enrolls a fresh user with 2FA", async function () {
+      testServer.resetAllRateLimits();
+      await registerAndLogin("Concurrent 2FA", "conc2fa@test.com", "password123");
+      var setupRes = await client.post("/2fa/setup", { json: {} });
+      concSecret = setupRes.json.secret;
+      var code = getCurrentCode(concSecret);
+      var confirmRes = await client.post("/2fa/confirm", { json: { code: code } });
+      assert.strictEqual(confirmRes.json.success, true);
+      concCodes = confirmRes.json.backupCodes;
+      assert.strictEqual(concCodes.length, 10);
+    });
+
+    it("two distinct backup codes consumed concurrently each removed exactly once", async function () {
+      var rl = require(path.join(testServer.projectRoot, "lib", "rate-limit"));
+
+      // Stand up two independent sessions, each pending-2fa for the same user.
+      var c1 = new TestClient(testServer.baseUrl());
+      var c2 = new TestClient(testServer.baseUrl());
+
+      rl.resetAllInstances();
+      await c1.initApiKey();
+      var l1 = await c1.post("/auth/login", { json: { email: "conc2fa@test.com", password: "password123" } });
+      assert.strictEqual(l1.json.requires2fa, true);
+
+      rl.resetAllInstances();
+      await c2.initApiKey();
+      var l2 = await c2.post("/auth/login", { json: { email: "conc2fa@test.com", password: "password123" } });
+      assert.strictEqual(l2.json.requires2fa, true);
+
+      var codeA = concCodes[0];
+      var codeB = concCodes[1];
+
+      // Fire both verifications concurrently with two DISTINCT codes.
+      var results = await Promise.all([
+        c1.post("/2fa/verify", { json: { code: codeA } }),
+        c2.post("/2fa/verify", { json: { code: codeB } }),
+      ]);
+      assert.ok(results[0].json && results[0].json.success, "first distinct backup code should authenticate");
+      assert.ok(results[1].json && results[1].json.success, "second distinct backup code should authenticate");
+
+      // The stored array must reflect BOTH removals: 10 - 2 == 8, and neither
+      // consumed hash may survive. Read the sealed column through the repo so
+      // it is unsealed exactly as production reads it.
+      var usersRepo = require(path.join(testServer.projectRoot, "app", "data", "repositories", "users.repo"));
+      var b = require(path.join(testServer.projectRoot, "lib", "vendor", "blamejs"));
+      var fresh = usersRepo.findByEmail("conc2fa@test.com");
+      var stored = Array.isArray(fresh.totpBackupCodes)
+        ? fresh.totpBackupCodes
+        : b.safeJson.parseOrDefault(fresh.totpBackupCodes || "[]", []);
+      assert.strictEqual(stored.length, 8, "both codes must be consumed (initial 10 - 2)");
+
+      var hashA = b.crypto.sha3Hash(codeA);
+      var hashB = b.crypto.sha3Hash(codeB);
+      assert.ok(stored.indexOf(hashA) === -1, "first consumed code must not survive");
+      assert.ok(stored.indexOf(hashB) === -1, "second consumed code must not survive");
     });
   });
 });

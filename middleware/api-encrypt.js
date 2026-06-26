@@ -230,7 +230,15 @@ module.exports = function apiEncrypt(req, res, next) {
     // Hybrid ECIES key exchange on first response for mTLS clients with ML-KEM public key.
     // Both legs (ML-KEM-1024 + ECDH P-384) must succeed. The combined shared secret
     // derives a wrapping key that encrypts the session XChaCha20 key.
-    if (isNewSession && clientKemPubKey && req.socket && typeof req.socket.getPeerCertificate === "function") {
+    //
+    // The peer cert must be AUTHORIZED, not merely presented. Under
+    // requestCert:true/rejectUnauthorized:false, getPeerCertificate returns a
+    // cert even on an untrusted (self-signed / bad-CA / expired) handshake, so
+    // wrapping the session key to an unverified peer's P-384 key would hand it
+    // to a keypair an attacker controls. req.socket.authorized gates on a
+    // verified chain — the same precondition middleware/sync-guards.js and
+    // middleware/web-guard.js already require before trusting a peer cert.
+    if (isNewSession && clientKemPubKey && req.socket && req.socket.authorized && typeof req.socket.getPeerCertificate === "function") {
       var peerCert = req.socket.getPeerCertificate(true);
       if (peerCert && peerCert.raw && peerCert.raw.length > 0) {
         try {
@@ -246,12 +254,11 @@ module.exports = function apiEncrypt(req, res, next) {
           response._epk = result.epk;
           response._kem = result.kem;
         } catch (hybridErr) {
-          // For mTLS sync clients, ECIES failure means no key exchange — log and warn.
-          // Browser clients get the key via template embedding (res._apiKey) so this is non-fatal for them.
-          if (req.socket && req.socket.authorized) {
-            var logger = require("../app/shared/logger");
-            logger.error("[api-encrypt] Hybrid ECIES failed for mTLS client", { error: hybridErr.message });
-          }
+          // The peer is already an authorized mTLS client (gated above); an ECIES
+          // failure here means no key exchange this response. Browser clients get
+          // the key via template embedding (res._apiKey) so this is non-fatal.
+          var logger = require("../app/shared/logger");
+          logger.error("[api-encrypt] Hybrid ECIES failed for mTLS client", { error: hybridErr.message });
         }
       }
       isNewSession = false;

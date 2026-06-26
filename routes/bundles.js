@@ -12,6 +12,7 @@ var { send, host } = require("../middleware/send");
 var audit = require("../lib/audit");
 var requireAuth = require("../middleware/require-auth");
 var { canEditOwned } = require("../app/shared/authz");
+var { requireScope } = require("../app/security/scope-policy");
 var { AppError, ValidationError, AuthenticationError, ForbiddenError, NotFoundError, RateLimitError } = require("../app/shared/errors");
 
 var { isBundleLocked, prefersJson } = require("../middleware/require-access");
@@ -424,11 +425,15 @@ module.exports = function (app) {
 
   // Delete bundle + all its files (owner or admin)
   // Rename bundle
-  app.post("/bundles/:shareId/rename", async (req, res) => {
+  // requireScope("upload") fails closed for API-key principals: a key without a
+  // mutate scope (e.g. "read") is rejected at the boundary before the
+  // ownership check, so a least-privilege key can't rename any owner's bundle.
+  // Session callers (no req.apiKey) pass straight through.
+  app.post("/bundles/:shareId/rename", requireScope("upload"), async (req, res) => {
     if (!requireAuth(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle) throw new NotFoundError("Not found.");
-    if (!canEditOwned(bundle, req.user)) {
+    if (!canEditOwned(bundle, req.user, "ownerId", req)) {
       throw new ForbiddenError("Not authorized.");
     }
     // parseJson already imported at top
@@ -441,11 +446,11 @@ module.exports = function (app) {
   });
 
   // Rename/move a file within a sync bundle (metadata-only, no re-upload)
-  app.post("/bundles/:shareId/file/rename", rateLimit.guard({ max: 100, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/bundles/:shareId/file/rename", rateLimit.guard({ max: 100, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), requireScope("upload"), async (req, res) => {
     if (!requireAuth(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle) throw new NotFoundError("Not found.");
-    if (!canEditOwned(bundle, req.user)) {
+    if (!canEditOwned(bundle, req.user, "ownerId", req)) {
       throw new ForbiddenError("Not authorized.");
     }
     var body = (await b.parsers.json(req)) || {};
@@ -461,11 +466,11 @@ module.exports = function (app) {
   });
 
   // Delete a single file from a sync bundle (soft delete with tombstone)
-  app.post("/bundles/:shareId/file/:fileId/delete", rateLimit.guard({ max: 100, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
+  app.post("/bundles/:shareId/file/:fileId/delete", rateLimit.guard({ max: 100, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), requireScope("upload"), async (req, res) => {
     if (!requireAuth(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle) throw new NotFoundError("Not found.");
-    if (!canEditOwned(bundle, req.user)) {
+    if (!canEditOwned(bundle, req.user, "ownerId", req)) {
       throw new ForbiddenError("Not authorized.");
     }
     var { handleSyncFileDelete } = uploadHandler;
@@ -474,12 +479,14 @@ module.exports = function (app) {
     res.json(result);
   });
 
-  app.post("/bundles/:shareId/delete", async (req, res) => {
+  app.post("/bundles/:shareId/delete", requireScope("upload"), async (req, res) => {
     if (!requireAuth(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle) throw new NotFoundError("Not found.");
-    // Only owner or admin can delete
-    if (!canEditOwned(bundle, req.user)) {
+    // Only owner or admin can delete — and an admin-minted narrow API key
+    // (req.apiKey present without admin scope) does NOT inherit the admin
+    // ownership override; it must own the bundle. Interactive admin sessions do.
+    if (!canEditOwned(bundle, req.user, "ownerId", req)) {
       throw new ForbiddenError("Not authorized.");
     }
     var bundleFiles = filesRepo.findByBundleShareId(bundle.shareId);

@@ -6,14 +6,18 @@
  *   "admin"    — full admin access (settings, user management, exports)
  *   "upload"   — create bundles, upload files
  *   "read"     — list files, download files, view bundles
- *   "webhook"  — manage webhooks
  *   "sync"     — connect WebSocket, upload/replace/delete files in sync bundles
  *   "*"        — all scopes (alias for admin)
+ *
+ * Webhook management has no key-scoped path — every /admin/webhooks route is
+ * requireAdmin-gated, so a key would need the "admin" scope to reach them. A
+ * standalone "webhook" scope was never enforced anywhere; it is omitted here so
+ * operators can't mint a least-privilege key labelled with a dead scope.
  */
 
 var { ForbiddenError } = require("../shared/errors");
 
-var VALID_SCOPES = ["admin", "upload", "read", "webhook", "sync"];
+var VALID_SCOPES = ["admin", "upload", "read", "sync"];
 
 /**
  * Parse a permissions string into a set of scopes.
