@@ -70,6 +70,24 @@ describe("db.Collection", function () {
       assert.deepStrictEqual(found.totpBackupCodes, codes);
       db.users.remove({ _id: doc._id });
     });
+
+    it("seals bundles.skippedFiles at rest (Rule 3) yet round-trips it as a JSON array", function () {
+      // skippedFiles holds {path,reason} of skipped uploads — relative paths are
+      // content, not a raw/queryable field, so the column is sealed AND a
+      // JSON_COLUMN (same shape as totpBackupCodes / allowedEmails): unseal runs
+      // before the JSON parse. Regression for the Rule-3 plaintext-at-rest leak.
+      var skipped = [{ path: "private/payroll.xlsx", reason: "blocked" }, { path: "a/b.exe", reason: "ext" }];
+      var doc = db.bundles.insert({ shareId: "skseal1", skippedFiles: skipped });
+      var found = db.bundles.findOne({ _id: doc._id });
+      assert.ok(Array.isArray(found.skippedFiles), "sealed JSON column reads back as an array");
+      assert.deepStrictEqual(found.skippedFiles, skipped);
+      // At rest the raw column is an AAD-sealed envelope, never the cleartext paths.
+      var raw = db.bundles.raw().findOne({ _id: doc._id });
+      assert.strictEqual(typeof raw.skippedFiles, "string", "raw column is the sealed ciphertext string");
+      assert.ok(raw.skippedFiles.startsWith("vault.aad:"), "skippedFiles must be AAD-sealed at rest");
+      assert.strictEqual(raw.skippedFiles.indexOf("payroll"), -1, "cleartext path must not appear on disk");
+      db.bundles.remove({ _id: doc._id });
+    });
   });
 
   describe("findOne", function () {

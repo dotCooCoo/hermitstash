@@ -40,6 +40,7 @@ var webhooksRepo = require("../app/data/repositories/webhooks.repo");
 var teamsRepo = require("../app/data/repositories/teams.repo");
 var { parseMultipart } = require("../lib/multipart");
 var mtlsCa = require("../lib/mtls-ca");
+var pemSeal = require("../lib/pem-seal");
 var syncRegistry = require("../lib/sync-registry");
 var storage = require("../lib/storage");
 var requireAdmin = require("../middleware/require-admin");
@@ -485,9 +486,6 @@ module.exports = function (app) {
   app.get("/admin/security/status", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
-      var C = require("../lib/constants");
-      var mtlsCa = require("../lib/mtls-ca");
-
       var vaultMode = (process.env.VAULT_PASSPHRASE_MODE || "disabled").toLowerCase();
       var vaultSealedExists = nodeFs.existsSync(C.PATHS.VAULT_KEY_SEALED);
 
@@ -686,7 +684,6 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     return _withSecurityLock(res, async function () {
       try {
-        var pemSeal = require("../lib/pem-seal");
         var caPlain = PATHS.CA_KEY;
         var caSealed = PATHS.CA_KEY_SEALED;
         if (!nodeFs.existsSync(caPlain)) throw new ConflictError("data/ca.key does not exist — nothing to seal");
@@ -713,7 +710,6 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     return _withSecurityLock(res, async function () {
       try {
-        var pemSeal = require("../lib/pem-seal");
         var caPlain = PATHS.CA_KEY;
         var caSealed = PATHS.CA_KEY_SEALED;
         if (!nodeFs.existsSync(caSealed)) throw new ConflictError("data/ca.key.sealed does not exist — nothing to unseal");
@@ -739,7 +735,6 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     return _withSecurityLock(res, async function () {
       try {
-        var pemSeal = require("../lib/pem-seal");
         var tlsPlain = process.env.TLS_KEY || nodePath.join(PATHS.TLS_DIR, "privkey.pem");
         var tlsSealed = tlsPlain + ".sealed";
         if (!nodeFs.existsSync(tlsPlain)) throw new ConflictError(tlsPlain + " does not exist — nothing to seal");
@@ -770,7 +765,6 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     return _withSecurityLock(res, async function () {
       try {
-        var pemSeal = require("../lib/pem-seal");
         var tlsPlain = process.env.TLS_KEY || nodePath.join(PATHS.TLS_DIR, "privkey.pem");
         var tlsSealed = tlsPlain + ".sealed";
         if (!nodeFs.existsSync(tlsSealed)) throw new ConflictError(tlsSealed + " does not exist — nothing to unseal");

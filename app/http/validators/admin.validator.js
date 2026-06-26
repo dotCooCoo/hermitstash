@@ -4,6 +4,7 @@
  */
 var { validateEmail } = require("../../shared/validate");
 var C = require("../../../lib/constants");
+var settingsSchema = require("../../../lib/settings-schema");
 
 // Roles the admin can assign via invite or role toggle
 var VALID_ROLES = ["user", "admin"];
@@ -32,14 +33,13 @@ function validateSettingsInput(body) {
   }
 
   // Per-field sanitization and validation via settings-schema
-  var schema = require("../../../lib/settings-schema");
   var cleaned = {};
   var errors = [];
   for (var j = 0; j < keys.length; j++) {
     var key = keys[j];
     // Skip masked sensitive values (handled by config.updateSettings)
     if (/^\u2022+$/.test(body[key])) { cleaned[key] = body[key]; continue; }
-    var result = schema.sanitizeAndValidate(key, body[key]);
+    var result = settingsSchema.sanitizeAndValidate(key, body[key]);
     if (result.error) {
       errors.push(key + ": " + result.error);
     } else {

@@ -328,9 +328,11 @@ async function loadOldKeys(mode, oldPw) {
 
 function runSchemaDriftCheck(oldKeys) {
   // Open the live DB read-only to run validateSchemaMatch. We need to
-  // decrypt hermitstash.db.enc first — mirror lib/db.js's approach.
-  var dbKeyEnc = path.join(DATA_DIR, "db.key.enc");
-  var dbEnc = path.join(DATA_DIR, "hermitstash.db.enc");
+  // decrypt hermitstash.db.enc first — mirror lib/db.js's approach. Use the
+  // canonical PATHS handles (not a local DATA_DIR join) so a future relocation
+  // can't silently desync this guard and skip the pre-rotation drift probe.
+  var dbKeyEnc = C.PATHS.DB_KEY_ENC;
+  var dbEnc = C.PATHS.DB_ENC;
   if (!fs.existsSync(dbKeyEnc) || !fs.existsSync(dbEnc)) {
     console.log("[rotate] No encrypted DB present — skipping schema-drift check.");
     return;
