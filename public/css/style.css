@@ -944,6 +944,11 @@ select.text-input option{background:var(--bg,#0f0f0f);color:var(--text,#e8e8e8)}
 .text-input:disabled{opacity:.45;cursor:not-allowed}
 .se-section-title{font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);margin:20px 0 12px;padding-bottom:7px;border-bottom:1px solid var(--border-thin)}
 .se-section-title:first-of-type{margin-top:0}
+/* Scrollable modal body: reserve scrollbar space (scrollbar-gutter) so flush-right
+   controls aren't clipped by an overlay scrollbar (the Windows 11 / macOS default),
+   plus a small gutter between the content and the scrollbar. */
+.modal-scroll{overflow-y:auto;flex:1;scrollbar-gutter:stable;padding-right:10px}
+.modal-scroll>*{min-width:0}
 
 .settings-label{font-size:.88rem;font-weight:500;color:var(--text);display:flex;align-items:center;gap:8px;min-width:180px;flex-shrink:0}
 .settings-hint{font-size:.72rem;color:var(--text-muted);font-weight:400}

@@ -79,8 +79,9 @@
 </div>
 
 <div class="modal-overlay" id="limitsModal" style="display:none" onclick="if(event.target===this)hideLimitsModal()">
-  <div class="modal-card">
-    <h3 class="modal-title">Upload <span style="font-weight:200">Limits</span></h3>
+  <div class="modal-card" style="max-width:540px;max-height:88vh;display:flex;flex-direction:column">
+    <h3 class="modal-title" style="margin:0 0 16px">Upload <span style="font-weight:200">Limits</span></h3>
+    <div class="modal-scroll">
     <p style="font-size:.85rem;color:var(--muted);margin:0 0 16px;line-height:1.5">Per-user overrides for <span id="limUserName" style="color:var(--text)"></span>. Leave a field blank (or 0) to use the global default, or tick <b style="color:var(--text);font-weight:600">No limit</b> to lift the cap for this user entirely. These apply to the user's own uploads, not stash pages.</p>
     <div id="limitsMsg" class="settings-msg" style="display:none"></div>
     <input type="hidden" id="limUserId">
@@ -104,9 +105,10 @@
       <div class="lim-row"><label class="input-label">Allowed extensions <span style="color:var(--muted);font-weight:400">(comma-separated, blank = global)</span></label><label class="lim-nolimit"><input type="checkbox" id="limExtNoLimit" onchange="toggleLimNoLimit('limExtNoLimit','limAllowedExtensions')"> No limit</label></div>
       <input type="text" id="limAllowedExtensions" class="text-input" placeholder=".pdf, .png, .zip">
     </div>
-    <div style="display:flex;gap:8px;margin-top:20px">
-      <button class="butn butn-bg butn-sm radius-30" id="limSaveBtn" onclick="saveLimits()"><span>Save</span></button>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;padding-top:12px;border-top:1px solid var(--border-thin)">
       <button class="butn butn-bord-thin butn-sm radius-30" onclick="hideLimitsModal()"><span>Cancel</span></button>
+      <button class="butn butn-bg butn-sm radius-30" id="limSaveBtn" onclick="saveLimits()"><span>Save</span></button>
     </div>
   </div>
 </div>

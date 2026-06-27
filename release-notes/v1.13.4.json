@@ -1,0 +1,17 @@
+{
+  "version": "1.13.4",
+  "date": "2026-06-27",
+  "headline": "Admin dialogs no longer clip controls under the scrollbar",
+  "summary": "Scrollable admin dialogs now reserve space for the scrollbar so right-edge controls stay fully visible.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Right edge of admin dialogs clipped by the scrollbar",
+          "body": "The customer-stash editor and the per-user limits dialog reserved no space for their scrollbar, so on browsers that draw an overlay scrollbar (Windows 11, macOS) the right edge of controls — unit selectors, No-limit checkboxes — could sit under it. Both dialogs now reserve a scrollbar gutter, and the per-user limits dialog stays within the viewport on short screens instead of overflowing."
+        }
+      ]
+    }
+  ]
+}
