@@ -1,0 +1,17 @@
+{
+  "version": "1.13.2",
+  "date": "2026-06-26",
+  "headline": "Per-user upload limits and storage quotas, set from the admin user list",
+  "summary": "Administrators can now tailor upload limits and a storage quota to an individual user, overriding the instance-wide defaults only where needed.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "Per-user upload limits and storage quotas",
+          "body": "Set a storage quota, maximum file size, maximum bundle size, maximum file count, and an allowed-extension list on any user from the admin user list. Every field is blank by default and falls back to the global configuration when left unset, so the limits stay off until you set them. Overrides apply to that user's own uploads; uploads made through a customer stash keep the stash's own limits. Each change is recorded in the audit log."
+        }
+      ]
+    }
+  ]
+}

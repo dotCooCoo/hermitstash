@@ -89,7 +89,7 @@ module.exports = function (app) {
       if (bundle.ownerId && (!req.user || bundle.ownerId !== req.user._id) && !(req.apiKey && req.apiKey.userId === bundle.ownerId)) {
         throw new ForbiddenError("Forbidden.");
       }
-      var limits = resolveUploadConfig(null);
+      var limits = resolveUploadConfig(null, req.user);
       var { fields, files: uploaded } = await parseMultipart(req, limits.maxFileSize);
       var file = uploaded[0];
       if (!file) throw new ValidationError("No file.");
@@ -126,7 +126,7 @@ module.exports = function (app) {
       if (bundle.ownerId && (!req.user || bundle.ownerId !== req.user._id) && !(req.apiKey && req.apiKey.userId === bundle.ownerId)) {
         throw new ForbiddenError("Forbidden.");
       }
-      var limits = resolveUploadConfig(null);
+      var limits = resolveUploadConfig(null, req.user);
       var { fields, files: uploaded } = await parseMultipart(req, limits.maxFileSize);
       var chunk = uploaded[0];
       if (!chunk) throw new ValidationError("No chunk.");

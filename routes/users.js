@@ -368,6 +368,38 @@ module.exports = function (app) {
     res.json({ success: true, newRole: newRole });
   });
 
+  // Set per-user upload-limit overrides. Each value is in bytes (sizes) or a count;
+  // 0 / blank means "not set" → the user falls back to the global config. So clearing
+  // every field restores default (global) behavior for that user.
+  app.post("/admin/users/:id/limits", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    var target = usersRepo.findById(req.params.id);
+    if (!target) throw new NotFoundError("Not found.");
+    var body = req.body || (await b.parsers.json(req)) || {};
+
+    function nonNegInt(v) { var n = parseInt(v, 10); return (isFinite(n) && n > 0) ? n : 0; }
+    var quotaBytes = nonNegInt(body.quotaBytes);
+    var maxFileSize = nonNegInt(body.maxFileSize);
+    var maxFiles = nonNegInt(body.maxFiles);
+    var maxBundleSize = nonNegInt(body.maxBundleSize);
+    // Normalize the extension allowlist: lowercase, dot-prefixed, comma-joined; blank = unset.
+    var allowedExtensions = null;
+    if (body.allowedExtensions && String(body.allowedExtensions).trim()) {
+      var exts = String(body.allowedExtensions).split(",").map(function (e) {
+        e = e.trim().toLowerCase();
+        return e ? (e.charAt(0) === "." ? e : "." + e) : "";
+      }).filter(Boolean);
+      allowedExtensions = exts.length ? exts.join(",") : null;
+    }
+
+    usersRepo.update(target._id, { $set: {
+      quotaBytes: quotaBytes, maxFileSize: maxFileSize, maxFiles: maxFiles,
+      maxBundleSize: maxBundleSize, allowedExtensions: allowedExtensions,
+    } });
+    audit.log(audit.ACTIONS.USER_LIMITS_CHANGED, { targetId: target._id, targetEmail: target.email, details: "quota:" + quotaBytes + " maxFile:" + maxFileSize + " maxFiles:" + maxFiles + " maxBundle:" + maxBundleSize, req: req });
+    res.json({ success: true });
+  });
+
   // Suspend user
   app.post("/admin/users/:id/suspend", async (req, res) => {
     if (!requireAdmin(req, res)) return;

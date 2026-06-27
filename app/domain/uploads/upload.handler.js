@@ -10,6 +10,7 @@ var config = require("../../../lib/config");
 var C = require("../../../lib/constants");
 var filesRepo = require("../../data/repositories/files.repo");
 var bundlesRepo = require("../../data/repositories/bundles.repo");
+var usersRepo = require("../../data/repositories/users.repo");
 var storage = require("../../../lib/storage");
 var audit = require("../../../lib/audit");
 var logger = require("../../shared/logger");
@@ -59,21 +60,36 @@ function auditDetail(obj) {
  * Resolve stash config overrides, falling back to global config.
  * Pass null for stash to get global config.
  */
-function resolveUploadConfig(stash) {
-  if (!stash) {
+function resolveUploadConfig(stash, user) {
+  if (stash) {
+    // Stash uploads use the stash's own limits (falling back to global), regardless
+    // of who uploads — per-user overrides do NOT apply on a stash page.
     return {
-      maxFileSize: config.maxFileSize,
-      maxFiles: config.publicMaxFiles,
-      maxBundleSize: config.publicMaxBundleSize,
-      allowedExtensions: config.allowedExtensions,
+      maxFileSize: (stash.maxFileSize && stash.maxFileSize > 0) ? stash.maxFileSize : config.maxFileSize,
+      maxFiles: (stash.maxFiles && stash.maxFiles > 0) ? stash.maxFiles : config.publicMaxFiles,
+      maxBundleSize: (stash.maxBundleSize && stash.maxBundleSize > 0) ? stash.maxBundleSize : config.publicMaxBundleSize,
+      allowedExtensions: stash.allowedExtensions ? stash.allowedExtensions.split(",").map(function (e) { return e.trim(); }).filter(Boolean) : config.allowedExtensions,
     };
   }
+  // No stash. A logged-in user's own upload applies that user's per-user overrides
+  // when set (0 / null = not set → fall back to the global config); an anonymous
+  // upload (no user) uses the global config.
   return {
-    maxFileSize: (stash.maxFileSize && stash.maxFileSize > 0) ? stash.maxFileSize : config.maxFileSize,
-    maxFiles: (stash.maxFiles && stash.maxFiles > 0) ? stash.maxFiles : config.publicMaxFiles,
-    maxBundleSize: (stash.maxBundleSize && stash.maxBundleSize > 0) ? stash.maxBundleSize : config.publicMaxBundleSize,
-    allowedExtensions: stash.allowedExtensions ? stash.allowedExtensions.split(",").map(function (e) { return e.trim(); }).filter(Boolean) : config.allowedExtensions,
+    maxFileSize: (user && Number(user.maxFileSize) > 0) ? Number(user.maxFileSize) : config.maxFileSize,
+    maxFiles: (user && Number(user.maxFiles) > 0) ? Number(user.maxFiles) : config.publicMaxFiles,
+    maxBundleSize: (user && Number(user.maxBundleSize) > 0) ? Number(user.maxBundleSize) : config.publicMaxBundleSize,
+    allowedExtensions: (user && user.allowedExtensions) ? user.allowedExtensions.split(",").map(function (e) { return e.trim(); }).filter(Boolean) : config.allowedExtensions,
   };
+}
+
+// The effective per-user storage cap for a bundle owner: the owner's own
+// `quotaBytes` override when set, otherwise the global PER_USER_QUOTA. Returns 0
+// (no cap) when neither is set, so the quota is off by default.
+function _perUserQuotaCap(ownerId) {
+  if (!ownerId) return 0;
+  var owner = usersRepo.findById(ownerId);
+  if (owner && Number(owner.quotaBytes) > 0) return Number(owner.quotaBytes);
+  return config.perUserQuotaBytes > 0 ? config.perUserQuotaBytes : 0;
 }
 
 // Refund a previously-reserved per-IP byte debit when the upload it was
@@ -113,12 +129,13 @@ async function checkAllQuotas(fileSize, bundle, req) {
     return { allowed: false, error: _e.message, reason: "storage quota exceeded" };
   }
 
-  // Per-user quota
-  if (config.perUserQuotaBytes > 0 && bundle.ownerId) {
+  // Per-user quota — the owner's override when set, else the global PER_USER_QUOTA.
+  var perUserCap = _perUserQuotaCap(bundle.ownerId);
+  if (perUserCap > 0) {
     var userFiles = filesRepo.findAll({ uploadedBy: bundle.ownerId });
     var userTotal = 0;
     for (var i = 0; i < userFiles.length; i++) { userTotal += Number(userFiles[i].size) || 0; }
-    if (userTotal + fileSize > config.perUserQuotaBytes) {
+    if (userTotal + fileSize > perUserCap) {
       return { allowed: false, error: "Personal storage quota exceeded.", reason: "per-user quota exceeded" };
     }
   }
@@ -154,11 +171,12 @@ function _postWriteQuotaReason(bundle) {
     try { bundleService.checkStorageQuota(0, config.storageQuotaBytes); }
     catch (_e) { return "Storage quota exceeded."; }
   }
-  if (config.perUserQuotaBytes > 0 && bundle.ownerId) {
+  var perUserCap = _perUserQuotaCap(bundle.ownerId);
+  if (perUserCap > 0) {
     var userFiles = filesRepo.findAll({ uploadedBy: bundle.ownerId });
     var userTotal = 0;
     for (var i = 0; i < userFiles.length; i++) { userTotal += Number(userFiles[i].size) || 0; }
-    if (userTotal > config.perUserQuotaBytes) return "Personal storage quota exceeded.";
+    if (userTotal > perUserCap) return "Personal storage quota exceeded.";
   }
   return null;
 }

@@ -305,7 +305,7 @@ Built on Node.js 24.16.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - Stats with computed totals (size, downloads), activity feed
 - Row-based bundle lists with file drill-down (My Stash + Personal Vault)
 - Paginated file/bundle browser with search
-- User management -- create, suspend, delete, role toggle
+- User management -- create, suspend, delete, role toggle, and per-user upload-limit overrides (storage quota, max file size, max bundle size, max files, allowed extensions) set from the user list; each field falls back to the global default when left blank, so the overrides are off until set
 - Audit log -- searchable, filterable, date range
 - Settings panel -- 10 tabs (Branding, General, Auth, Uploads, Storage, Theme, Email, Security, Environment, Backup)
 - API keys with scoped permissions (upload, read, admin) validated against a canonical enum and enforced on read and mutating routes
