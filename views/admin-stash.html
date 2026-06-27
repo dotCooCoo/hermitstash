@@ -33,7 +33,7 @@
 
 <!-- Stash Create/Edit Modal -->
 <div class="modal-overlay" id="stashEditModal" style="display:none" onclick="if(event.target===this)closeStashEdit()">
-  <div class="modal-card" style="max-width:560px;max-height:85vh;display:flex;flex-direction:column">
+  <div class="modal-card" style="max-width:760px;max-height:88vh;display:flex;flex-direction:column">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <h3 class="modal-title" style="margin:0" id="seModalTitle">New <span style="font-weight:200">Stash Page</span></h3>
       <button onclick="closeStashEdit()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.4rem;padding:4px 8px;line-height:1">&times;</button>
@@ -41,6 +41,8 @@
     <div id="stashEditMsg" class="settings-msg" style="display:none"></div>
     <div style="overflow-y:auto;flex:1">
       <input type="hidden" id="seId">
+
+      <div class="se-section-title">Page</div>
       <div style="display:grid;gap:12px">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div><label class="input-label">Name</label><input type="text" class="text-input" id="seName"></div>
@@ -48,7 +50,7 @@
         </div>
         <div><label class="input-label">Page Title</label><input type="text" class="text-input" id="seTitle"></div>
         <div><label class="input-label">Instructions</label><textarea class="text-input" id="seSubtitle" rows="2" style="resize:vertical"></textarea></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start">
           <div><label class="input-label">Accent Color</label><div style="display:flex;align-items:center;gap:8px"><input type="color" id="seColor" style="width:42px;height:36px;padding:2px;border:1px solid var(--border-thin);border-radius:8px;background:none;cursor:pointer"><input type="text" class="text-input" id="seColorText" style="font-family:monospace;flex:1"></div></div>
           <div>
             <label class="input-label">Logo</label>
@@ -64,16 +66,16 @@
             </div>
             <input type="hidden" id="seLogoUrl" value="">
           </div>
-          <div><label class="input-label">Password <span style="color:var(--muted);font-weight:400">(blank = remove)</span></label><input type="password" class="text-input" id="sePassword" placeholder="********"></div>
-          <div style="grid-column:1/-1"><label class="input-label">Restrict to emails/domains <span style="color:var(--muted);font-weight:400">(blank = open, use @domain.com for entire domains)</span></label><input type="text" class="text-input" id="seAllowedEmails" placeholder="alice@example.com, @acme.com"></div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
-          <div><label class="input-label">Max File Size</label><div class="size-input-group"><input type="number" class="text-input" id="seMaxFileSize" min="0" step="1"><select class="text-input size-unit" id="seMaxFileSizeUnit"><option value="1048576">MB</option><option value="1073741824">GB</option></select></div></div>
-          <div><label class="input-label">Max Files</label><input type="number" class="text-input" id="seMaxFiles" min="0"></div>
-          <div><label class="input-label">Default Expiry</label><select class="text-input" id="seExpiry"><option value="0">Use global</option><option value="1">1 day</option><option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option><option value="-1">Never</option></select></div>
+      </div>
+
+      <div class="se-section-title">Access</div>
+      <div style="display:grid;gap:12px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div><label class="input-label">Password <span style="color:var(--muted);font-weight:400">(blank = none)</span></label><input type="password" class="text-input" id="sePassword" placeholder="********"></div>
+          <div><label class="input-label">Team <span style="color:var(--muted);font-weight:400">(uploads visible to its members)</span></label><select class="text-input" id="seTeam"><option value="">No team</option></select></div>
         </div>
-        <div><label class="input-label">Allowed Extensions <span style="color:var(--muted);font-weight:400">(blank = use global)</span></label><input type="text" class="text-input" id="seAllowedExtensions"></div>
-        <div><label class="input-label">Team <span style="color:var(--muted);font-weight:400">(uploads become visible to the team's members)</span></label><select class="text-input" id="seTeam"><option value="">No team</option></select></div>
+        <div><label class="input-label">Restrict to emails/domains <span style="color:var(--muted);font-weight:400">(blank = open, use @domain.com for whole domains)</span></label><input type="text" class="text-input" id="seAllowedEmails" placeholder="alice@example.com, @acme.com"></div>
         <div id="seMembersSection" style="display:none">
           <label class="input-label">Users with access <span style="color:var(--muted);font-weight:400">(individual accounts — no team needed; they see this stash's uploads under "Shared with me")</span></label>
           <div style="display:flex;gap:8px;margin-bottom:8px">
@@ -83,11 +85,43 @@
           <div id="seMembersList" style="display:flex;flex-direction:column;gap:6px"></div>
           <div id="seMembersMsg" style="font-size:.75rem;color:var(--muted);margin-top:4px"></div>
         </div>
-        <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
+      </div>
+
+      <div class="se-section-title">Upload limits <span style="text-transform:none;font-weight:400;letter-spacing:0;color:var(--muted)">— blank = global default, or tick No limit to lift the cap</span></div>
+      <div style="display:grid;gap:12px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <div class="lim-row"><label class="input-label">Max File Size</label><label class="lim-nolimit"><input type="checkbox" id="seMaxFileSizeNoLimit" onchange="seToggleNoLimit('seMaxFileSizeNoLimit','seMaxFileSize,seMaxFileSizeUnit')"> No limit</label></div>
+            <div class="size-input-group"><input type="number" class="text-input" id="seMaxFileSize" min="0" step="1" placeholder="global"><select class="text-input size-unit" id="seMaxFileSizeUnit"><option value="1048576">MB</option><option value="1073741824">GB</option></select></div>
+          </div>
+          <div>
+            <div class="lim-row"><label class="input-label">Max Bundle Size</label><label class="lim-nolimit"><input type="checkbox" id="seMaxBundleSizeNoLimit" onchange="seToggleNoLimit('seMaxBundleSizeNoLimit','seMaxBundleSize,seMaxBundleSizeUnit')"> No limit</label></div>
+            <div class="size-input-group"><input type="number" class="text-input" id="seMaxBundleSize" min="0" step="1" placeholder="global"><select class="text-input size-unit" id="seMaxBundleSizeUnit"><option value="1048576">MB</option><option value="1073741824">GB</option></select></div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <div class="lim-row"><label class="input-label">Max Files</label><label class="lim-nolimit"><input type="checkbox" id="seMaxFilesNoLimit" onchange="seToggleNoLimit('seMaxFilesNoLimit','seMaxFiles')"> No limit</label></div>
+            <input type="number" class="text-input" id="seMaxFiles" min="0" placeholder="global">
+          </div>
+          <div>
+            <label class="input-label">Default Expiry</label>
+            <select class="text-input" id="seExpiry"><option value="0">Use global</option><option value="1">1 day</option><option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option><option value="-1">Never</option></select>
+          </div>
+        </div>
+        <div>
+          <div class="lim-row"><label class="input-label">Allowed Extensions <span style="color:var(--muted);font-weight:400">(comma-separated, blank = global)</span></label><label class="lim-nolimit"><input type="checkbox" id="seExtNoLimit" onchange="seToggleNoLimit('seExtNoLimit','seAllowedExtensions')"> No limit</label></div>
+          <input type="text" class="text-input" id="seAllowedExtensions" placeholder=".pdf, .png, .zip">
+        </div>
+      </div>
+
+      <div class="se-section-title">Sync</div>
+      <div style="display:grid;gap:12px">
+        <div style="display:flex;align-items:center;gap:12px">
           <label class="toggle" style="flex-shrink:0"><input type="checkbox" id="seSyncEnabled"><span class="toggle-slider"></span></label>
           <label class="input-label" style="margin:0">Enable Sync <span style="color:var(--muted);font-weight:400">(persistent mutable bundle for desktop sync client)</span></label>
         </div>
-        <div id="seSyncTokenArea" style="display:none;margin-top:8px">
+        <div id="seSyncTokenArea" style="display:none">
           <button type="button" class="butn butn-bord-thin butn-sm radius-30" onclick="generateSyncToken()"><span>Generate Sync Token</span></button>
           <div id="seSyncTokenResult" style="display:none;margin-top:8px;padding:12px;background:rgba(139,92,246,.06);border-radius:8px;font-family:monospace;font-size:.8rem;word-break:break-all"></div>
           <div id="seSyncKeysTable" style="margin-top:16px;font-size:.82rem"></div>
@@ -139,6 +173,30 @@ function loadStash(){
   }).catch(function(){document.getElementById('stashList').textContent='';var e=document.createElement('div');e.style.cssText='text-align:center;padding:16px;color:var(--danger);font-size:.85rem';e.textContent='Failed to load stash pages.';document.getElementById('stashList').appendChild(e)});
 }
 
+// ---- Stash upload-limit "No limit" helpers ----
+function seToggleNoLimit(boxId,inputIds){
+  var on=document.getElementById(boxId).checked;
+  inputIds.split(',').forEach(function(id){var el=document.getElementById(id);if(!el)return;el.disabled=on;if(on)el.value='';});
+}
+function _seSetSize(inputId,unitId,bytes){
+  bytes=Number(bytes)||0;
+  var i=document.getElementById(inputId),u=document.getElementById(unitId);
+  if(bytes>0&&bytes%1073741824===0){i.value=bytes/1073741824;u.value='1073741824';}
+  else if(bytes>0){i.value=Math.round(bytes/1048576*100)/100;u.value='1048576';}
+  else{i.value='';u.value='1048576';}
+}
+function _seSetSizeLim(inputId,unitId,boxId,raw){
+  var noLimit=Number(raw)<0;
+  document.getElementById(boxId).checked=noLimit;
+  _seSetSize(inputId,unitId,noLimit?0:raw);
+  seToggleNoLimit(boxId,inputId+','+unitId);
+}
+function _seSizeBytes(inputId,unitId){
+  var v=parseFloat(document.getElementById(inputId).value)||0;
+  var u=parseInt(document.getElementById(unitId).value)||1048576;
+  return v>0?Math.round(v*u):0;
+}
+
 var _stashEditId=null;
 function openStashModal(p){
   _stashEditId=p?p._id:null;
@@ -161,12 +219,17 @@ function openStashModal(p){
   document.getElementById('seSyncTokenResult').style.display='none';
   if(p&&p.syncEnabled&&_stashEditId)loadSyncKeys(_stashEditId);
   document.getElementById('seSyncEnabled').onchange=function(){document.getElementById('seSyncTokenArea').style.display=this.checked?'block':'none'};
-  var mfs=(p&&p.maxFileSize)||0;
-  if(mfs>=1073741824){document.getElementById('seMaxFileSize').value=Math.round(mfs/1073741824);document.getElementById('seMaxFileSizeUnit').value='1073741824'}
-  else{document.getElementById('seMaxFileSize').value=Math.round(mfs/1048576);document.getElementById('seMaxFileSizeUnit').value='1048576'}
-  document.getElementById('seMaxFiles').value=(p&&p.maxFiles)||0;
+  _seSetSizeLim('seMaxFileSize','seMaxFileSizeUnit','seMaxFileSizeNoLimit',(p&&p.maxFileSize)||0);
+  _seSetSizeLim('seMaxBundleSize','seMaxBundleSizeUnit','seMaxBundleSizeNoLimit',(p&&p.maxBundleSize)||0);
+  var _mfNoLimit=Number(p&&p.maxFiles)<0;
+  document.getElementById('seMaxFilesNoLimit').checked=_mfNoLimit;
+  document.getElementById('seMaxFiles').value=Number(p&&p.maxFiles)>0?p.maxFiles:'';
+  seToggleNoLimit('seMaxFilesNoLimit','seMaxFiles');
   document.getElementById('seExpiry').value=String((p&&p.defaultExpiry)||0);
-  document.getElementById('seAllowedExtensions').value=(p&&p.allowedExtensions)||'';
+  var _extNoLimit=(p&&p.allowedExtensions)==='*';
+  document.getElementById('seExtNoLimit').checked=_extNoLimit;
+  document.getElementById('seAllowedExtensions').value=_extNoLimit?'':((p&&p.allowedExtensions)||'');
+  seToggleNoLimit('seExtNoLimit','seAllowedExtensions');
   var teamSel=document.getElementById('seTeam');if(teamSel)teamSel.value=(p&&p.teamId)||'';
   var membersSec=document.getElementById('seMembersSection');document.getElementById('seMembersMsg').textContent='';document.getElementById('seMemberEmail').value='';
   if(_stashEditId){membersSec.style.display='block';loadStashMembers(_stashEditId)}
@@ -187,9 +250,14 @@ function saveStashEdit(){
   var slug=document.getElementById('seSlug').value.trim().toLowerCase();
   if(!name){var m=document.getElementById('stashEditMsg');m.className='settings-msg settings-msg-err';m.textContent='Name required';m.style.display='block';return}
   if(!slug&&!isEdit)slug=name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,50);
-  var mfsVal=parseFloat(document.getElementById('seMaxFileSize').value)||0;
-  var mfsUnit=parseInt(document.getElementById('seMaxFileSizeUnit').value)||1048576;
-  var body={name:name,slug:slug,title:document.getElementById('seTitle').value.trim(),subtitle:document.getElementById('seSubtitle').value.trim(),accentColor:document.getElementById('seColorText').value.trim()||document.getElementById('seColor').value,password:document.getElementById('sePassword').value,allowedEmails:document.getElementById('seAllowedEmails').value.trim(),syncEnabled:document.getElementById('seSyncEnabled').checked,maxFileSize:Math.round(mfsVal*mfsUnit),maxFiles:parseInt(document.getElementById('seMaxFiles').value)||0,defaultExpiry:parseInt(document.getElementById('seExpiry').value)||0,allowedExtensions:document.getElementById('seAllowedExtensions').value.trim(),teamId:document.getElementById('seTeam').value};
+  function _seNl(boxId){return document.getElementById(boxId).checked;}
+  var body={name:name,slug:slug,title:document.getElementById('seTitle').value.trim(),subtitle:document.getElementById('seSubtitle').value.trim(),accentColor:document.getElementById('seColorText').value.trim()||document.getElementById('seColor').value,password:document.getElementById('sePassword').value,allowedEmails:document.getElementById('seAllowedEmails').value.trim(),syncEnabled:document.getElementById('seSyncEnabled').checked,
+    maxFileSize:_seNl('seMaxFileSizeNoLimit')?-1:_seSizeBytes('seMaxFileSize','seMaxFileSizeUnit'),
+    maxBundleSize:_seNl('seMaxBundleSizeNoLimit')?-1:_seSizeBytes('seMaxBundleSize','seMaxBundleSizeUnit'),
+    maxFiles:_seNl('seMaxFilesNoLimit')?-1:(parseInt(document.getElementById('seMaxFiles').value)||0),
+    defaultExpiry:parseInt(document.getElementById('seExpiry').value)||0,
+    allowedExtensions:_seNl('seExtNoLimit')?'*':document.getElementById('seAllowedExtensions').value.trim(),
+    teamId:document.getElementById('seTeam').value};
   var btn=document.getElementById('seSubmitBtn');var msg=document.getElementById('stashEditMsg');
   btn.disabled=true;btn.querySelector('span').textContent=isEdit?'Saving...':'Creating...';
   fetch(isEdit?'/admin/stash/'+_stashEditId+'/update':'/admin/stash/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json()}).then(function(d){

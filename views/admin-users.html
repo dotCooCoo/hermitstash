@@ -81,27 +81,27 @@
 <div class="modal-overlay" id="limitsModal" style="display:none" onclick="if(event.target===this)hideLimitsModal()">
   <div class="modal-card">
     <h3 class="modal-title">Upload <span style="font-weight:200">Limits</span></h3>
-    <p style="font-size:.85rem;color:var(--muted);margin:0 0 16px;line-height:1.5">Per-user overrides for <span id="limUserName" style="color:var(--text)"></span>. Leave a field blank (or 0) to use the global default. These apply to the user's own uploads, not stash pages.</p>
+    <p style="font-size:.85rem;color:var(--muted);margin:0 0 16px;line-height:1.5">Per-user overrides for <span id="limUserName" style="color:var(--text)"></span>. Leave a field blank (or 0) to use the global default, or tick <b style="color:var(--text);font-weight:600">No limit</b> to lift the cap for this user entirely. These apply to the user's own uploads, not stash pages.</p>
     <div id="limitsMsg" class="settings-msg" style="display:none"></div>
     <input type="hidden" id="limUserId">
     <div class="profile-field">
-      <label class="input-label">Storage quota</label>
+      <div class="lim-row"><label class="input-label">Storage quota</label><label class="lim-nolimit"><input type="checkbox" id="limQuotaNoLimit" onchange="toggleLimNoLimit('limQuotaNoLimit','limQuota,limQuotaUnit')"> No limit</label></div>
       <div class="size-input-group"><input type="number" id="limQuota" class="text-input" min="0" placeholder="0 = use global"><select class="text-input size-unit" id="limQuotaUnit"><option value="1048576">MB</option><option value="1073741824">GB</option></select></div>
     </div>
     <div class="profile-field">
-      <label class="input-label">Max file size</label>
+      <div class="lim-row"><label class="input-label">Max file size</label><label class="lim-nolimit"><input type="checkbox" id="limMaxFileSizeNoLimit" onchange="toggleLimNoLimit('limMaxFileSizeNoLimit','limMaxFileSize,limMaxFileSizeUnit')"> No limit</label></div>
       <div class="size-input-group"><input type="number" id="limMaxFileSize" class="text-input" min="0" placeholder="global"><select class="text-input size-unit" id="limMaxFileSizeUnit"><option value="1048576">MB</option><option value="1073741824">GB</option></select></div>
     </div>
     <div class="profile-field">
-      <label class="input-label">Max files per bundle</label>
+      <div class="lim-row"><label class="input-label">Max files per bundle</label><label class="lim-nolimit"><input type="checkbox" id="limMaxFilesNoLimit" onchange="toggleLimNoLimit('limMaxFilesNoLimit','limMaxFiles')"> No limit</label></div>
       <input type="number" id="limMaxFiles" class="text-input" min="0" placeholder="global">
     </div>
     <div class="profile-field">
-      <label class="input-label">Max bundle size</label>
+      <div class="lim-row"><label class="input-label">Max bundle size</label><label class="lim-nolimit"><input type="checkbox" id="limMaxBundleSizeNoLimit" onchange="toggleLimNoLimit('limMaxBundleSizeNoLimit','limMaxBundleSize,limMaxBundleSizeUnit')"> No limit</label></div>
       <div class="size-input-group"><input type="number" id="limMaxBundleSize" class="text-input" min="0" placeholder="global"><select class="text-input size-unit" id="limMaxBundleSizeUnit"><option value="1048576">MB</option><option value="1073741824">GB</option></select></div>
     </div>
     <div class="profile-field">
-      <label class="input-label">Allowed extensions <span style="color:var(--muted);font-weight:400">(comma-separated, blank = global)</span></label>
+      <div class="lim-row"><label class="input-label">Allowed extensions <span style="color:var(--muted);font-weight:400">(comma-separated, blank = global)</span></label><label class="lim-nolimit"><input type="checkbox" id="limExtNoLimit" onchange="toggleLimNoLimit('limExtNoLimit','limAllowedExtensions')"> No limit</label></div>
       <input type="text" id="limAllowedExtensions" class="text-input" placeholder=".pdf, .png, .zip">
     </div>
     <div style="display:flex;gap:8px;margin-top:20px">
@@ -312,27 +312,52 @@ function _sizeBytes(inputId,unitId){
   var unit=parseInt(document.getElementById(unitId).value,10)||1048576;
   return v>0?Math.round(v*unit):0;
 }
+// Toggle a "No limit" checkbox: disable + clear the field(s) it governs when ticked.
+function toggleLimNoLimit(boxId,inputIds){
+  var on=document.getElementById(boxId).checked;
+  inputIds.split(',').forEach(function(id){
+    var el=document.getElementById(id);if(!el)return;
+    el.disabled=on;if(on)el.value='';
+  });
+}
+// Populate a size field + its "No limit" box from a stored value (-1 = No limit).
+function _setSizeLim(inputId,unitId,boxId,raw){
+  var noLimit=Number(raw)<0;
+  document.getElementById(boxId).checked=noLimit;
+  if(noLimit){_setSizeField(inputId,unitId,0);}
+  else{_setSizeField(inputId,unitId,raw);}
+  toggleLimNoLimit(boxId,inputId+','+unitId);
+}
 function openLimitsModal(id){
   var u=_usersById[id];if(!u)return;
   document.getElementById('limUserId').value=id;
   document.getElementById('limUserName').textContent=u.displayName||u.email||'this user';
-  _setSizeField('limQuota','limQuotaUnit',u.quotaBytes);
-  _setSizeField('limMaxFileSize','limMaxFileSizeUnit',u.maxFileSize);
+  _setSizeLim('limQuota','limQuotaUnit','limQuotaNoLimit',u.quotaBytes);
+  _setSizeLim('limMaxFileSize','limMaxFileSizeUnit','limMaxFileSizeNoLimit',u.maxFileSize);
+  // Max files (count, no unit): -1 = No limit
+  var mfNoLimit=Number(u.maxFiles)<0;
+  document.getElementById('limMaxFilesNoLimit').checked=mfNoLimit;
   document.getElementById('limMaxFiles').value=Number(u.maxFiles)>0?u.maxFiles:'';
-  _setSizeField('limMaxBundleSize','limMaxBundleSizeUnit',u.maxBundleSize);
-  document.getElementById('limAllowedExtensions').value=u.allowedExtensions||'';
+  toggleLimNoLimit('limMaxFilesNoLimit','limMaxFiles');
+  _setSizeLim('limMaxBundleSize','limMaxBundleSizeUnit','limMaxBundleSizeNoLimit',u.maxBundleSize);
+  // Extensions: "*" = No limit (allow any)
+  var extNoLimit=u.allowedExtensions==='*';
+  document.getElementById('limExtNoLimit').checked=extNoLimit;
+  document.getElementById('limAllowedExtensions').value=extNoLimit?'':(u.allowedExtensions||'');
+  toggleLimNoLimit('limExtNoLimit','limAllowedExtensions');
   document.getElementById('limitsMsg').style.display='none';
   document.getElementById('limitsModal').style.display='flex';
 }
 function hideLimitsModal(){document.getElementById('limitsModal').style.display='none'}
 function saveLimits(){
   var id=document.getElementById('limUserId').value;
+  function nl(boxId){return document.getElementById(boxId).checked;}
   var body={
-    quotaBytes:_sizeBytes('limQuota','limQuotaUnit'),
-    maxFileSize:_sizeBytes('limMaxFileSize','limMaxFileSizeUnit'),
-    maxFiles:parseInt(document.getElementById('limMaxFiles').value,10)||0,
-    maxBundleSize:_sizeBytes('limMaxBundleSize','limMaxBundleSizeUnit'),
-    allowedExtensions:document.getElementById('limAllowedExtensions').value.trim()
+    quotaBytes:nl('limQuotaNoLimit')?-1:_sizeBytes('limQuota','limQuotaUnit'),
+    maxFileSize:nl('limMaxFileSizeNoLimit')?-1:_sizeBytes('limMaxFileSize','limMaxFileSizeUnit'),
+    maxFiles:nl('limMaxFilesNoLimit')?-1:(parseInt(document.getElementById('limMaxFiles').value,10)||0),
+    maxBundleSize:nl('limMaxBundleSizeNoLimit')?-1:_sizeBytes('limMaxBundleSize','limMaxBundleSizeUnit'),
+    allowedExtensions:nl('limExtNoLimit')?'*':document.getElementById('limAllowedExtensions').value.trim()
   };
   var btn=document.getElementById('limSaveBtn'),msg=document.getElementById('limitsMsg');
   btn.disabled=true;btn.querySelector('span').textContent='Saving...';

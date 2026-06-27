@@ -23,7 +23,7 @@ var bundleService = require("../app/domain/uploads/bundle.service");
 var uploadValidator = require("../app/http/validators/upload.validator");
 var requireAdmin = require("../middleware/require-admin");
 var { resolveUploadConfig, handleFileUpload, handleChunkUpload, handleFinalize } = require("../app/domain/uploads/upload.handler");
-var { TIME, PATHS, BYTES } = require("../lib/constants");
+var { TIME, PATHS, BYTES, UPLOAD } = require("../lib/constants");
 var { validateEmail } = require("../app/shared/validate");
 var nodeFs = require("node:fs");
 var { sanitizeSvg } = require("../lib/sanitize-svg");
@@ -328,7 +328,9 @@ module.exports = function (app) {
       if (bundle.stashId !== stash._id) throw new ForbiddenError("Bundle does not belong to this stash.");
 
       var limits = resolveUploadConfig(stash);
-      var parsed = await parseMultipart(req, limits.maxFileSize);
+      // 0 = the stash's file size is "No limit"; the parser needs a finite cap, so
+      // fall back to the per-request ceiling (the policy cap is already lifted).
+      var parsed = await parseMultipart(req, limits.maxFileSize || UPLOAD.NO_LIMIT_CEILING_BYTES);
       var file = parsed.files[0];
       if (!file) throw new ValidationError("No file.");
 
@@ -360,7 +362,7 @@ module.exports = function (app) {
       if (bundle.stashId !== stash._id) throw new ForbiddenError("Bundle does not belong to this stash.");
 
       var limits = resolveUploadConfig(stash);
-      var parsed = await parseMultipart(req, limits.maxFileSize);
+      var parsed = await parseMultipart(req, limits.maxFileSize || UPLOAD.NO_LIMIT_CEILING_BYTES);
       var chunk = parsed.files[0];
       if (!chunk) throw new ValidationError("No chunk.");
 

@@ -1,0 +1,34 @@
+{
+  "version": "1.13.3",
+  "date": "2026-06-27",
+  "headline": "No-limit option for per-user and per-stash upload caps",
+  "summary": "Upload-limit overrides can now lift a cap entirely instead of only retuning it, on both individual users and customer stash pages.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "Mark a per-user upload cap as No limit",
+          "body": "Each per-user override — storage quota, max file size, max bundle size, max file count, and allowed extensions — now has a No-limit toggle in the user-limits dialog. A blank field still falls back to the global default; No limit removes the cap for that user, letting an admin grant an individual user a higher ceiling than the instance-wide setting. A No-limit storage quota also overrides a configured global per-user quota, and marking allowed extensions No limit accepts any file type for that user."
+        },
+        {
+          "title": "No-limit upload caps on customer stash pages",
+          "body": "The stash editor gains the same No-limit toggle on max file size, max bundle size, max files, and allowed extensions. It now also exposes a Max Bundle Size field, which previously had no control."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Reorganized the stash editor",
+          "body": "The customer-stash editor is wider and grouped into Page, Access, Upload limits, and Sync sections for a clearer layout."
+        },
+        {
+          "title": "Updated vendored framework",
+          "body": "Refreshed the vendored blamejs dependency to its latest release."
+        }
+      ]
+    }
+  ]
+}

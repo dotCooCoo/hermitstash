@@ -90,7 +90,10 @@ module.exports = function (app) {
         throw new ForbiddenError("Forbidden.");
       }
       var limits = resolveUploadConfig(null, req.user);
-      var { fields, files: uploaded } = await parseMultipart(req, limits.maxFileSize);
+      // limits.maxFileSize is 0 when the owner has "No limit" file size; the parser
+      // rejects a non-positive cap, so fall back to the finite per-request ceiling.
+      // (The policy cap is already lifted — the validators treat 0 as unbounded.)
+      var { fields, files: uploaded } = await parseMultipart(req, limits.maxFileSize || C.UPLOAD.NO_LIMIT_CEILING_BYTES);
       var file = uploaded[0];
       if (!file) throw new ValidationError("No file.");
 
@@ -127,7 +130,10 @@ module.exports = function (app) {
         throw new ForbiddenError("Forbidden.");
       }
       var limits = resolveUploadConfig(null, req.user);
-      var { fields, files: uploaded } = await parseMultipart(req, limits.maxFileSize);
+      // limits.maxFileSize is 0 when the owner has "No limit" file size; the parser
+      // rejects a non-positive cap, so fall back to the finite per-request ceiling.
+      // (The policy cap is already lifted — the validators treat 0 as unbounded.)
+      var { fields, files: uploaded } = await parseMultipart(req, limits.maxFileSize || C.UPLOAD.NO_LIMIT_CEILING_BYTES);
       var chunk = uploaded[0];
       if (!chunk) throw new ValidationError("No chunk.");
 

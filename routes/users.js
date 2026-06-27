@@ -377,14 +377,24 @@ module.exports = function (app) {
     if (!target) throw new NotFoundError("Not found.");
     var body = req.body || (await b.parsers.json(req)) || {};
 
-    function nonNegInt(v) { var n = parseInt(v, 10); return (isFinite(n) && n > 0) ? n : 0; }
-    var quotaBytes = nonNegInt(body.quotaBytes);
-    var maxFileSize = nonNegInt(body.maxFileSize);
-    var maxFiles = nonNegInt(body.maxFiles);
-    var maxBundleSize = nonNegInt(body.maxBundleSize);
-    // Normalize the extension allowlist: lowercase, dot-prefixed, comma-joined; blank = unset.
+    // Each numeric override has three states: -1 = "No limit", a positive value =
+    // an explicit cap, and 0 / anything else = "not set" → fall back to the global
+    // default. The -1 sentinel is stored verbatim and resolved at upload time.
+    function limitVal(v) {
+      if (v === -1 || v === "-1") return -1;
+      var n = parseInt(v, 10);
+      return (isFinite(n) && n > 0) ? n : 0;
+    }
+    var quotaBytes = limitVal(body.quotaBytes);
+    var maxFileSize = limitVal(body.maxFileSize);
+    var maxFiles = limitVal(body.maxFiles);
+    var maxBundleSize = limitVal(body.maxBundleSize);
+    // Extension allowlist: "*" = "No limit" (allow any extension), stored verbatim.
+    // Otherwise normalize: lowercase, dot-prefixed, comma-joined; blank = unset (global).
     var allowedExtensions = null;
-    if (body.allowedExtensions && String(body.allowedExtensions).trim()) {
+    if (body.allowedExtensions === "*") {
+      allowedExtensions = "*";
+    } else if (body.allowedExtensions && String(body.allowedExtensions).trim()) {
       var exts = String(body.allowedExtensions).split(",").map(function (e) {
         e = e.trim().toLowerCase();
         return e ? (e.charAt(0) === "." ? e : "." + e) : "";

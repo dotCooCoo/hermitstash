@@ -61,25 +61,51 @@ function auditDetail(obj) {
  * Pass null for stash to get global config.
  */
 function resolveUploadConfig(stash, user) {
+  // Both a stash's limits and a user's per-user overrides share the same three-state
+  // model. Each numeric field: 0 / null = "not set" → fall back to the global; -1 =
+  // "No limit" → resolve to 0, which every downstream validator treats as no cap (the
+  // guards are `if (limit && ...)`); any positive value = that explicit cap. The
+  // extension allowlist mirrors it: "*" = "No limit" → an empty list, which the
+  // validator treats as "allow any extension".
   if (stash) {
-    // Stash uploads use the stash's own limits (falling back to global), regardless
-    // of who uploads — per-user overrides do NOT apply on a stash page.
+    // Stash uploads use the stash's own limits regardless of who uploads — per-user
+    // overrides do NOT apply on a stash page.
     return {
-      maxFileSize: (stash.maxFileSize && stash.maxFileSize > 0) ? stash.maxFileSize : config.maxFileSize,
-      maxFiles: (stash.maxFiles && stash.maxFiles > 0) ? stash.maxFiles : config.publicMaxFiles,
-      maxBundleSize: (stash.maxBundleSize && stash.maxBundleSize > 0) ? stash.maxBundleSize : config.publicMaxBundleSize,
-      allowedExtensions: stash.allowedExtensions ? stash.allowedExtensions.split(",").map(function (e) { return e.trim(); }).filter(Boolean) : config.allowedExtensions,
+      maxFileSize: _resolveCap(stash.maxFileSize, config.maxFileSize),
+      maxFiles: _resolveCap(stash.maxFiles, config.publicMaxFiles),
+      maxBundleSize: _resolveCap(stash.maxBundleSize, config.publicMaxBundleSize),
+      allowedExtensions: _resolveExtensions(stash.allowedExtensions, config.allowedExtensions),
     };
   }
-  // No stash. A logged-in user's own upload applies that user's per-user overrides
-  // when set (0 / null = not set → fall back to the global config); an anonymous
-  // upload (no user) uses the global config.
+  // No stash. A logged-in user's own upload applies that user's per-user overrides;
+  // an anonymous upload (no user) uses the global config.
   return {
-    maxFileSize: (user && Number(user.maxFileSize) > 0) ? Number(user.maxFileSize) : config.maxFileSize,
-    maxFiles: (user && Number(user.maxFiles) > 0) ? Number(user.maxFiles) : config.publicMaxFiles,
-    maxBundleSize: (user && Number(user.maxBundleSize) > 0) ? Number(user.maxBundleSize) : config.publicMaxBundleSize,
-    allowedExtensions: (user && user.allowedExtensions) ? user.allowedExtensions.split(",").map(function (e) { return e.trim(); }).filter(Boolean) : config.allowedExtensions,
+    maxFileSize: _resolveCap(user && user.maxFileSize, config.maxFileSize),
+    maxFiles: _resolveCap(user && user.maxFiles, config.publicMaxFiles),
+    maxBundleSize: _resolveCap(user && user.maxBundleSize, config.publicMaxBundleSize),
+    allowedExtensions: _resolveExtensions(user && user.allowedExtensions, config.allowedExtensions),
   };
+}
+
+// Resolve one numeric upload cap (stash or per-user) against its global default.
+//   < 0  → 0  (No limit — downstream validators treat 0 as "no cap")
+//   > 0  → the explicit override value
+//   else → the global default (override not set)
+function _resolveCap(raw, globalVal) {
+  var n = Number(raw);
+  if (n < 0) return 0;
+  if (n > 0) return n;
+  return globalVal;
+}
+
+// Resolve an extension allowlist (stash or per-user) against the global default.
+//   "*"   → [] (No limit — validator treats an empty list as "allow any extension")
+//   set   → the parsed list
+//   else  → the global default
+function _resolveExtensions(raw, globalVal) {
+  if (raw === "*") return [];
+  if (raw) return raw.split(",").map(function (e) { return e.trim(); }).filter(Boolean);
+  return globalVal;
 }
 
 // The effective per-user storage cap for a bundle owner: the owner's own
@@ -88,7 +114,13 @@ function resolveUploadConfig(stash, user) {
 function _perUserQuotaCap(ownerId) {
   if (!ownerId) return 0;
   var owner = usersRepo.findById(ownerId);
-  if (owner && Number(owner.quotaBytes) > 0) return Number(owner.quotaBytes);
+  if (owner) {
+    var q = Number(owner.quotaBytes);
+    // -1 = "No limit" → no cap, AND bypass the global PER_USER_QUOTA (an explicit
+    // grant overrides the instance default). 0 / null = not set → fall through.
+    if (q < 0) return 0;
+    if (q > 0) return q;
+  }
   return config.perUserQuotaBytes > 0 ? config.perUserQuotaBytes : 0;
 }
 

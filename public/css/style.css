@@ -938,6 +938,12 @@ select.text-input option{background:var(--bg,#0f0f0f);color:var(--text,#e8e8e8)}
 .size-input-group{display:flex;gap:8px;width:100%}
 .size-input-group .text-input{flex:1}
 .size-input-group .size-unit{width:80px;flex:none}
+.lim-row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.lim-nolimit{display:inline-flex;align-items:center;gap:5px;font-size:.78rem;color:var(--muted);cursor:pointer;font-weight:400;white-space:nowrap}
+.lim-nolimit input{cursor:pointer;accent-color:var(--accent)}
+.text-input:disabled{opacity:.45;cursor:not-allowed}
+.se-section-title{font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);margin:20px 0 12px;padding-bottom:7px;border-bottom:1px solid var(--border-thin)}
+.se-section-title:first-of-type{margin-top:0}
 
 .settings-label{font-size:.88rem;font-weight:500;color:var(--text);display:flex;align-items:center;gap:8px;min-width:180px;flex-shrink:0}
 .settings-hint{font-size:.72rem;color:var(--text-muted);font-weight:400}
