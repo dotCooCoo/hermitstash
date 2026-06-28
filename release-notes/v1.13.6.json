@@ -1,0 +1,17 @@
+{
+  "version": "1.13.6",
+  "date": "2026-06-28",
+  "headline": "Decrypt and export the audit log",
+  "summary": "Admins can download the decrypted audit trail in CSV, JSON, or CADF format for investigation, SIEM ingestion, or compliance.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "Audit log export",
+          "body": "Export the decrypted audit trail from the audit viewer, honoring the current search and date filters. Choose CSV (formula-injection-safe, for spreadsheets), JSON (the full structured entries), or CADF — a Cloud Auditing Data Federation event batch that SIEM and compliance tooling can ingest. Each export is admin-gated and is itself recorded in the audit log."
+        }
+      ]
+    }
+  ]
+}

@@ -41,6 +41,12 @@
       </select>
       <input type="date" id="dateFrom" class="text-input" onchange="loadAudit(1)" style="flex:.7">
       <input type="date" id="dateTo" class="text-input" onchange="loadAudit(1)" style="flex:.7">
+      <div class="audit-export">
+        <span class="audit-export-label">Export</span>
+        <button class="page-btn" onclick="exportAudit('csv')" title="Decrypted CSV (current filters)">CSV</button>
+        <button class="page-btn" onclick="exportAudit('json')" title="Decrypted JSON (current filters)">JSON</button>
+        <button class="page-btn" onclick="exportAudit('cadf')" title="CADF event batch — Cloud Auditing Data Federation for SIEM / compliance">CADF</button>
+      </div>
     </div>
 
     <!-- Audit list -->
@@ -71,6 +77,8 @@
 .ad-row{display:flex;gap:8px;margin-bottom:4px;line-height:1.45}
 .ad-k{color:var(--text-muted);min-width:110px;flex:none}
 .ad-v{color:var(--text-body);word-break:break-word;min-width:0}
+.audit-export{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.audit-export-label{font-size:.78rem;color:var(--text-muted)}
 .audit-time{font-size:.75rem;color:var(--text-muted);white-space:nowrap;min-width:145px;padding-top:2px}
 .audit-badge{display:inline-block;font-size:.68rem;font-weight:600;padding:3px 10px;border-radius:20px;white-space:nowrap;letter-spacing:.02em}
 .audit-badge-green{background:rgba(76,175,80,.1);color:#66bb6a}
@@ -195,6 +203,21 @@ function toggleAuditDetail(i){
   var d=document.getElementById('auditDetail'+i);
   if(!d)return;
   d.style.display=d.style.display==='none'?'block':'none';
+}
+
+// Download the decrypted audit trail in the chosen format, honoring the current
+// filters. The browser handles the Content-Disposition attachment as a download.
+function exportAudit(format){
+  var params='?format='+encodeURIComponent(format);
+  var q=document.getElementById('auditSearch').value;
+  var action=document.getElementById('filterAction').value;
+  var dateFrom=document.getElementById('dateFrom').value;
+  var dateTo=document.getElementById('dateTo').value;
+  if(q)params+='&q='+encodeURIComponent(q);
+  if(action)params+='&action='+encodeURIComponent(action);
+  if(dateFrom)params+='&dateFrom='+encodeURIComponent(dateFrom);
+  if(dateTo)params+='&dateTo='+encodeURIComponent(dateTo);
+  window.location.href='/admin/audit/export'+params;
 }
 
 function renderPagination(page,pages){
