@@ -13,7 +13,14 @@ function count(query) { return users.count(query || {}); }
 
 function findPaginated(query, opts) { return users.findPaginated(query, opts); }
 
-function create(doc) { return users.insert(doc); }
+// insert() returns the stored row with fields still sealed; re-read by _id so
+// callers receive the same unsealed shape as findById. Without this, sealed
+// blobs (email, displayName) leak into anything built from the return value —
+// e.g. the registration audit/SIEM event, which records targetEmail from it.
+function create(doc) {
+  var inserted = users.insert(doc);
+  return (inserted && inserted._id && users.findOne({ _id: inserted._id })) || inserted;
+}
 
 function update(id, ops) { return users.update({ _id: id }, ops); }
 

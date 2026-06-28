@@ -1,0 +1,30 @@
+{
+  "version": "1.13.8",
+  "date": "2026-06-28",
+  "headline": "Real-time SIEM forwarding for the audit log",
+  "summary": "Stream every audit event to a SIEM as it happens over syslog or an HTTP webhook, with secret- and PII-shaped values stripped before anything leaves the host.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "SIEM forwarding for audit events",
+          "body": "Forward every audit event to a SIEM in real time over RFC 5424 syslog (udp / tcp / tls) or an HTTP webhook (Splunk HEC, Datadog, Grafana Loki, or any JSON-ingest endpoint, with bearer / basic / header auth). Each event carries the structured who / what / when / where / how — actor, target, source IP, method and path, auth class, user-agent, and request id. Security failures forward at warn severity so a SIEM can alert on them; secret- and PII-shaped values (tokens, keys, card numbers) are stripped before the event leaves the host. Webhook delivery batches and retries on transient errors, tuned for near-real-time forwarding. Configure it under Audit Log settings or via the SIEM_* environment variables, and use the built-in connectivity test to send a probe event and confirm the endpoint before relying on it. Off by default."
+        },
+        {
+          "title": "Enabling SIEM forwarding captures full IP and user-agent",
+          "body": "A SIEM is only useful with the real source IP, so turning on forwarding automatically enables full-IP and user-agent capture and locks both on while it is active. The stored audit log and the forwarded stream stay consistent — an investigator never receives a hashed IP in their SIEM. Disable forwarding to return both capture toggles to your control."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Registration audit events recorded the email as an unreadable blob",
+          "body": "A new account's registration event stored the account email as an encrypted value instead of the address itself, so searching the audit log by that email missed the registration row and the forwarded event was not actionable. Registration and sign-in events now record the plaintext email consistently."
+        }
+      ]
+    }
+  ]
+}

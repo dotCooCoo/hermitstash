@@ -994,6 +994,50 @@
             <label class="settings-label">Archive passphrase <span class="settings-hint">encrypts the bundles (Argon2id + XChaCha20). Required to archive, verify, or export &mdash; store it safely</span></label>
             <input type="password" class="text-input" id="s-auditArchivePassphrase" data-key="auditArchivePassphrase" placeholder="••••••••" autocomplete="new-password" style="max-width:340px">
           </div>
+
+          <div class="settings-divider" style="margin:22px 0 14px"></div>
+          <h4 style="margin:0 0 4px;font-weight:600;font-size:.95rem">SIEM forwarding</h4>
+          <p style="font-size:.78rem;color:var(--muted);margin:0 0 14px;line-height:1.5">Stream every audit event to a SIEM in real time. Secrets are redacted before leaving the host. Changes take effect on the next restart; use Test to validate immediately.</p>
+          <div class="settings-field">
+            <label class="settings-label">Forward audit events to a SIEM <span class="settings-hint">forces full-IP and user-agent capture on (a SIEM needs the real values)</span></label>
+            <label class="toggle"><input type="checkbox" id="s-siemEnabled" data-key="siemEnabled" onchange="updateSiemDehashLock()"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Transport</label>
+            <select class="text-input" id="s-siemProtocol" data-key="siemProtocol" onchange="updateSiemFields()" style="max-width:220px">
+              <option value="syslog">Syslog (RFC 5424)</option>
+              <option value="webhook">HTTP webhook</option>
+            </select>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Endpoint URL <span class="settings-hint" id="siemUrlHint">udp:// , tcp:// , or tls://host:port</span></label>
+            <input type="text" class="text-input" id="s-siemUrl" data-key="siemUrl" placeholder="udp://siem.example.com:514" style="max-width:420px">
+          </div>
+          <div class="settings-field" id="siemAuthField">
+            <label class="settings-label">Webhook auth</label>
+            <select class="text-input" id="s-siemWebhookAuth" data-key="siemWebhookAuth" style="max-width:220px">
+              <option value="none">None</option>
+              <option value="bearer">Bearer token</option>
+              <option value="basic">Basic (user:pass)</option>
+              <option value="header">Authorization header</option>
+            </select>
+          </div>
+          <div class="settings-field" id="siemTokenField">
+            <label class="settings-label">Webhook credential <span class="settings-hint">bearer token, user:pass, or a full Authorization value (e.g. Splunk &lt;hec-token&gt;)</span></label>
+            <input type="password" class="text-input" id="s-siemWebhookToken" data-key="siemWebhookToken" placeholder="••••••••" autocomplete="new-password" style="max-width:420px">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Forward from level <span class="settings-hint">info forwards everything; warn/error forward only failures</span></label>
+            <select class="text-input" id="s-siemMinLevel" data-key="siemMinLevel" style="max-width:180px">
+              <option value="info">Info (all events)</option>
+              <option value="warn">Warn (failures)</option>
+              <option value="error">Error only</option>
+            </select>
+          </div>
+          <div class="settings-field" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <button class="butn butn-bord-thin butn-sm radius-30" onclick="testSiem()" id="siemTestBtn"><span>Test connection</span></button>
+            <span id="siemTestResult" style="font-size:.85rem"></span>
+          </div>
         </div>
         <div class="settings-actions">
           <button class="butn butn-bg butn-sm radius-30" onclick="saveTab('audit')"><span>Save Audit Log</span></button>
@@ -1643,7 +1687,7 @@ var tabFields={
   theme:['themeAccentColor','themeBgColor','themeFont'],
   email:['emailEnabled','emailBackend','resendApiKey','resendQuotaDaily','resendQuotaMonthly','smtpHost','smtpPort','smtpUser','smtpPass','smtpFrom','emailTemplateMode','emailTemplateSubject','emailTemplateHeader','emailTemplateFooter'],
   backup:['backupEnabled','backupScope','backupSchedule','backupTimeOfDay','backupTimezone','backupRetention','backupS3Bucket','backupS3Region','backupS3AccessKey','backupS3SecretKey','backupS3Endpoint','backupPassphrase'],
-  audit:['auditRetentionDays','auditIpFull','auditCaptureUserAgent','auditChainEnabled','auditArchiveEnabled','auditArchiveThresholdRows','auditArchivePassphrase']
+  audit:['auditRetentionDays','auditIpFull','auditCaptureUserAgent','auditChainEnabled','auditArchiveEnabled','auditArchiveThresholdRows','auditArchivePassphrase','siemEnabled','siemProtocol','siemUrl','siemWebhookAuth','siemWebhookToken','siemMinLevel']
 };
 
 function showTab(name){
@@ -2606,6 +2650,8 @@ function loadSettings(){
     toggleS3();
     toggleBackupScopeWarning();
     toggleEmailBackend();
+    updateSiemFields();
+    updateSiemDehashLock();
     loadExtFromValue(s.allowedExtensions);
     // Initialize the searchable timezone combobox with the full IANA list
     // returned from the server. Custom widget instead of <datalist> because
@@ -2625,6 +2671,43 @@ function loadSettings(){
     if(s.rpOrigin){try{var u=new URL(s.rpOrigin);document.getElementById('s-rpProto').value=u.protocol.replace(':','');document.getElementById('s-rpPort').value=u.port||(u.protocol==='https:'?'443':'80')}catch(e){}}
     updateAdminRpPort();
   });
+}
+
+// Show webhook-only auth/credential fields + adjust the URL hint by transport.
+function updateSiemFields(){
+  var proto=document.getElementById('s-siemProtocol');if(!proto)return;
+  var isWebhook=proto.value==='webhook';
+  var authF=document.getElementById('siemAuthField');var tokF=document.getElementById('siemTokenField');
+  if(authF)authF.style.display=isWebhook?'':'none';
+  if(tokF)tokF.style.display=isWebhook?'':'none';
+  var hint=document.getElementById('siemUrlHint');
+  if(hint)hint.textContent=isWebhook?'https://siem.example.com/ingest (e.g. Splunk HEC / Datadog / Loki)':'udp:// , tcp:// , or tls://host:port';
+}
+// SIEM forwarding is the de-hash opt-in: while on, full-IP + user-agent capture
+// are forced on (the SIEM needs real values), so check + lock both toggles to
+// mirror what the backend enforces. A disabled checkbox still reports checked=true
+// to saveTab, so the saved values stay consistent.
+function updateSiemDehashLock(){
+  var siem=document.getElementById('s-siemEnabled');if(!siem)return;
+  var on=siem.checked;
+  ['s-auditIpFull','s-auditCaptureUserAgent'].forEach(function(id){
+    var el=document.getElementById(id);if(!el)return;
+    if(on)el.checked=true;
+    el.disabled=on;
+    var field=el.closest('.settings-field');
+    if(field)field.style.opacity=on?'0.55':'';
+  });
+}
+function testSiem(){
+  var btn=document.getElementById('siemTestBtn');var out=document.getElementById('siemTestResult');
+  btn.disabled=true;btn.querySelector('span').textContent='Testing…';out.textContent='';
+  // Save current audit settings first so the test uses the on-screen config.
+  var data={};tabFields.audit.forEach(function(k){var el=document.getElementById('s-'+k);if(!el)return;data[k]=el.type==='checkbox'?(el.checked?'true':'false'):el.value;});
+  fetch('/admin/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(function(){return fetch('/admin/audit/siem/test',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})}).then(function(r){return r.json()}).then(function(d){
+    btn.disabled=false;btn.querySelector('span').textContent='Test connection';
+    if(d.ok){out.textContent='✓ Test event sent via '+esc(d.protocol)+' — confirm it appears in your SIEM';out.style.color='#66bb6a';}
+    else{out.textContent='✗ '+esc(d.error||'test failed');out.style.color='var(--danger)';}
+  }).catch(function(){btn.disabled=false;btn.querySelector('span').textContent='Test connection';out.textContent='✗ network error';out.style.color='var(--danger)';});
 }
 
 function saveTab(tab){

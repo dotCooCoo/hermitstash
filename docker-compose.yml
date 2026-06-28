@@ -118,4 +118,17 @@ services:
       S3_ENDPOINT: ""                  # custom endpoint for R2/MinIO/Backblaze
       S3_ACCESS_KEY: ""
       S3_SECRET_KEY: ""
+
+      # ── SIEM forwarding (opt-in) ──────────────────────────────────────────
+      # Stream every audit event to a SIEM in real time. Off by default. Also
+      # configurable from the admin Audit Log tab. Enabling forces full-IP and
+      # user-agent capture on so the forwarded stream is forensically complete.
+      # Secret- and PII-shaped values are stripped before anything leaves the host.
+      # SIEM_ENABLED: "true"
+      # SIEM_PROTOCOL: syslog          # "syslog" (RFC 5424) or "webhook"
+      # SIEM_URL: "udp://siem.example.com:514"   # udp|tcp|tls://host:port, or https://… for webhook
+      # SIEM_MIN_LEVEL: info           # info (all) | warn (failures) | error
+      # Webhook transport only (Splunk HEC / Datadog / Loki / generic JSON):
+      # SIEM_WEBHOOK_AUTH: none        # none | bearer | basic | header
+      # SIEM_WEBHOOK_TOKEN: ""         # bearer token, user:pass, or full Authorization value
     restart: unless-stopped

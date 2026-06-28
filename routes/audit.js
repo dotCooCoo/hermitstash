@@ -5,6 +5,7 @@ var requireAdmin = require("../middleware/require-admin");
 var { send } = require("../middleware/send");
 var auditService = require("../app/domain/admin/audit.service");
 var auditArchive = require("../lib/audit-archive");
+var auditSiem = require("../lib/audit-siem");
 var audit = require("../lib/audit");
 var config = require("../lib/config");
 var b = require("../lib/vendor/blamejs");
@@ -124,6 +125,17 @@ module.exports = function (app) {
       req: req,
     });
     await sendExport(res, entries, format, "audit-archive", {});
+  });
+
+  // SIEM connectivity test — re-init the configured sink and emit a test event.
+  app.post("/admin/audit/siem/test", async function (req, res) {
+    if (!requireAdmin(req, res)) return;
+    var result = await auditSiem.testConnection();
+    audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, {
+      details: "SIEM connectivity test — " + (result.ok ? "test event sent via " + result.protocol : "failed: " + result.error),
+      req: req,
+    });
+    res.json(result);
   });
 
   // Tamper-evidence chain verification — admin-only. Walks every live audit row and
