@@ -63,6 +63,17 @@
     <!-- Pagination -->
     <div class="users-pagination" id="pagination"></div>
 
+    <!-- Encrypted on-disk archives -->
+    <div class="admin-panel" id="archivesPanel" style="margin-top:26px">
+      <div class="admin-panel-head">
+        <h2>Encrypted Archives</h2>
+        <button class="page-btn" id="archiveRunBtn" onclick="runArchive()" title="Move the oldest entries (over the threshold) to an encrypted, signed bundle on disk">Archive now</button>
+      </div>
+      <div class="admin-panel-body" id="archivesList">
+        <div class="admin-empty">Loading...</div>
+      </div>
+    </div>
+
   </div>
 </section>
 
@@ -220,6 +231,55 @@ function exportAudit(format){
   window.location.href='/admin/audit/export'+params;
 }
 
+// ---- Encrypted archives ----
+function fmtBytes(n){n=Number(n)||0;if(n<1024)return n+' B';if(n<1048576)return (n/1024).toFixed(1)+' KB';return (n/1048576).toFixed(1)+' MB';}
+function loadArchives(){
+  fetch('/admin/audit/archives').then(function(r){return r.json()}).then(function(d){
+    var el=document.getElementById('archivesList');el.textContent='';
+    if(!d.archives||!d.archives.length){var e=document.createElement('div');e.className='admin-empty';e.textContent=d.enabled?'No archives yet.':'Archival is off — enable it in Settings → Audit Log.';el.appendChild(e);return}
+    var html='';
+    for(var i=0;i<d.archives.length;i++){
+      var a=d.archives[i];
+      html+='<div class="audit-row" style="cursor:auto">';
+      html+='<span class="audit-time">'+esc(a.createdAt?new Date(a.createdAt).toLocaleString():'')+'</span>';
+      html+='<div class="audit-content"><div class="audit-details">'+esc(a.id)+'</div><div class="audit-meta">';
+      html+='<span>'+(a.count||0)+' entries</span>';
+      if(a.firstCounter!=null)html+='<span>counters '+esc(a.firstCounter)+'–'+esc(a.lastCounter)+'</span>';
+      html+='<span>'+fmtBytes(a.sizeBytes)+'</span>';
+      html+='<span id="arcMsg'+i+'"></span>';
+      html+='</div></div><div class="audit-meta" style="gap:6px;align-items:center">';
+      html+='<button class="page-btn" onclick="verifyArchive(\''+esc(a.id)+'\','+i+')">Verify</button>';
+      html+='<button class="page-btn" onclick="exportArchive(\''+esc(a.id)+'\',\'csv\')">CSV</button>';
+      html+='<button class="page-btn" onclick="exportArchive(\''+esc(a.id)+'\',\'json\')">JSON</button>';
+      html+='<button class="page-btn" onclick="exportArchive(\''+esc(a.id)+'\',\'cadf\')" title="CADF compliance export">CADF</button>';
+      html+='</div></div>';
+    }
+    el.insertAdjacentHTML('beforeend',html);
+  }).catch(function(){});
+}
+function runArchive(){
+  var btn=document.getElementById('archiveRunBtn');btn.disabled=true;btn.textContent='Archiving…';
+  fetch('/admin/audit/archives/run',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d}})}).then(function(o){
+    btn.disabled=false;btn.textContent='Archive now';
+    var el=document.getElementById('archivesList');
+    if(o.ok&&o.d&&o.d.success){
+      loadArchives();loadAudit(currentPage);
+      if(!o.d.archived)el.insertAdjacentHTML('afterbegin','<div class="admin-empty">Nothing to archive — under the threshold.</div>');
+    }else{var m=(o.d&&(o.d.detail||o.d.error))||'Archive failed';el.insertAdjacentHTML('afterbegin','<div class="admin-empty" style="color:var(--danger)">'+esc(m)+'</div>');}
+  }).catch(function(){btn.disabled=false;btn.textContent='Archive now';});
+}
+function verifyArchive(id,i){
+  var s=document.getElementById('arcMsg'+i);if(s)s.textContent='verifying…';
+  fetch('/admin/audit/archives/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})}).then(function(r){return r.json()}).then(function(d){
+    if(!s)return;
+    if(d.ok){s.textContent='✓ verified '+d.rowsVerified+' rows';s.style.color='#66bb6a';}
+    else{s.textContent='✗ '+(d.reason||'verification failed');s.style.color='var(--danger)';}
+  }).catch(function(){if(s){s.textContent='✗ verify error';s.style.color='var(--danger)';}});
+}
+function exportArchive(id,format){
+  window.location.href='/admin/audit/archives/export?id='+encodeURIComponent(id)+'&format='+encodeURIComponent(format);
+}
+
 function renderPagination(page,pages){
   var el=document.getElementById('pagination');
   if(pages<=1){el.textContent='';return}
@@ -236,6 +296,6 @@ function renderPagination(page,pages){
 
 function esc(s){return window.Helpers?Helpers.esc(s):String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;').replace(/"/g,'&quot;')}
 
-window.addEventListener('load',function(){loadAudit(1)});
+window.addEventListener('load',function(){loadAudit(1);loadArchives();});
 </script>
 {{> foot}}

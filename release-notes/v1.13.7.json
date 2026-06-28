@@ -1,0 +1,17 @@
+{
+  "version": "1.13.7",
+  "date": "2026-06-28",
+  "headline": "Encrypted, signed on-disk audit archival",
+  "summary": "Optional size-based rotation moves the oldest audit entries to encrypted, post-quantum-signed bundles on disk, keeping the database lean while preserving a verifiable trail.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "Size-based encrypted audit archival",
+          "body": "When the audit log exceeds a configurable row threshold, the oldest entries are moved to a passphrase-encrypted (Argon2id + XChaCha20-Poly1305), post-quantum-signed bundle on disk and pruned from the database, with the tamper-evidence chain re-anchored so the live log still verifies. Every bundle is read back and verified end-to-end before any rows are pruned, so a failed write never loses data. Manage archives from the audit viewer: list them, verify a bundle (signature + checksum + full chain recompute), trigger a run on demand, and decrypt a bundle for export as CSV, JSON, or CADF. Enable it, set the threshold, and set the bundle passphrase under Audit Log settings, which also exposes the tamper-evidence chain toggle."
+        }
+      ]
+    }
+  ]
+}

@@ -971,6 +971,29 @@
           <p style="font-size:.78rem;color:var(--muted);margin:14px 0 0;line-height:1.5">
             IP and user-agent changes apply to new entries only; values already stored as a hash stay private.
           </p>
+
+          <div class="settings-divider" style="margin:22px 0 14px"></div>
+          <h4 style="margin:0 0 4px;font-weight:600;font-size:.95rem">Tamper-evidence &amp; archival</h4>
+          <p style="font-size:.78rem;color:var(--muted);margin:0 0 14px;line-height:1.5">Changes here take effect on the next restart.</p>
+          <div class="settings-field">
+            <label class="settings-label">Tamper-evidence chain <span class="settings-hint">hash-chains every entry so tampering is detectable (small per-write cost)</span></label>
+            <label class="toggle"><input type="checkbox" id="s-auditChainEnabled" data-key="auditChainEnabled"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Size-based encrypted archival <span class="settings-hint">when over the threshold, the oldest entries are moved to an encrypted, signed bundle on disk and pruned (also enables the chain)</span></label>
+            <label class="toggle"><input type="checkbox" id="s-auditArchiveEnabled" data-key="auditArchiveEnabled" onchange="if(this.checked){document.getElementById('s-auditChainEnabled').checked=true}"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Archive when over <span class="settings-hint">row count; the newest this many entries stay in the database</span></label>
+            <div style="display:flex;align-items:center;gap:8px">
+              <input type="number" class="text-input" id="s-auditArchiveThresholdRows" data-key="auditArchiveThresholdRows" min="1000" style="max-width:160px">
+              <span style="font-size:.82rem;color:var(--muted)">entries</span>
+            </div>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Archive passphrase <span class="settings-hint">encrypts the bundles (Argon2id + XChaCha20). Required to archive, verify, or export &mdash; store it safely</span></label>
+            <input type="password" class="text-input" id="s-auditArchivePassphrase" data-key="auditArchivePassphrase" placeholder="••••••••" autocomplete="new-password" style="max-width:340px">
+          </div>
         </div>
         <div class="settings-actions">
           <button class="butn butn-bg butn-sm radius-30" onclick="saveTab('audit')"><span>Save Audit Log</span></button>
@@ -1620,7 +1643,7 @@ var tabFields={
   theme:['themeAccentColor','themeBgColor','themeFont'],
   email:['emailEnabled','emailBackend','resendApiKey','resendQuotaDaily','resendQuotaMonthly','smtpHost','smtpPort','smtpUser','smtpPass','smtpFrom','emailTemplateMode','emailTemplateSubject','emailTemplateHeader','emailTemplateFooter'],
   backup:['backupEnabled','backupScope','backupSchedule','backupTimeOfDay','backupTimezone','backupRetention','backupS3Bucket','backupS3Region','backupS3AccessKey','backupS3SecretKey','backupS3Endpoint','backupPassphrase'],
-  audit:['auditRetentionDays','auditIpFull','auditCaptureUserAgent']
+  audit:['auditRetentionDays','auditIpFull','auditCaptureUserAgent','auditChainEnabled','auditArchiveEnabled','auditArchiveThresholdRows','auditArchivePassphrase']
 };
 
 function showTab(name){
