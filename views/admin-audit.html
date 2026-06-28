@@ -13,7 +13,7 @@
     <!-- Toolbar -->
     <div class="users-toolbar" style="position:relative">
       <div style="flex:2;position:relative">
-        <input type="text" id="auditSearch" class="text-input" placeholder="Search actions, details, emails..." style="width:100%">
+        <input type="text" id="auditSearch" class="text-input" placeholder="Search actions, details, emails, IP, path..." style="width:100%">
         <span id="auditSpinner" aria-hidden="true" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--text-body);border-radius:50%;display:none;animation:audit-spin .8s linear infinite"></span>
       </div>
       <select id="filterAction" class="text-input" onchange="loadAudit(1)">
@@ -61,9 +61,16 @@
 </section>
 
 <style>
-.audit-row{display:flex;align-items:flex-start;gap:16px;padding:14px 28px;border-bottom:1px solid var(--border-thin);transition:background .3s;flex-wrap:wrap}
+.audit-row{display:flex;align-items:flex-start;gap:16px;padding:14px 28px;border-bottom:1px solid var(--border-thin);transition:background .3s;flex-wrap:wrap;cursor:pointer}
 .audit-row:last-child{border-bottom:none}
 .audit-row:hover{background:rgba(255,255,255,.015)}
+.audit-authtype{text-transform:uppercase;font-size:.64rem;letter-spacing:.04em;opacity:.75}
+.audit-detail{flex-basis:100%;width:100%;margin-top:10px;padding:14px 16px;background:rgba(255,255,255,.02);border:1px solid var(--border-thin);border-radius:8px;display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px;cursor:auto}
+.ad-group{font-size:.76rem;min-width:0}
+.ad-gt{font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);margin-bottom:7px}
+.ad-row{display:flex;gap:8px;margin-bottom:4px;line-height:1.45}
+.ad-k{color:var(--text-muted);min-width:110px;flex:none}
+.ad-v{color:var(--text-body);word-break:break-word;min-width:0}
 .audit-time{font-size:.75rem;color:var(--text-muted);white-space:nowrap;min-width:145px;padding-top:2px}
 .audit-badge{display:inline-block;font-size:.68rem;font-weight:600;padding:3px 10px;border-radius:20px;white-space:nowrap;letter-spacing:.02em}
 .audit-badge-green{background:rgba(76,175,80,.1);color:#66bb6a}
@@ -139,6 +146,10 @@ function loadAudit(page){
   });
 }
 
+// A full IP carries a '.' (IPv4) or ':' (IPv6); the privacy-preserving form is a
+// bare 16-char hex hash with neither. Used to label WHERE accurately.
+function ipIsFull(ip){return /[.:]/.test(ip||'')}
+
 function renderAudit(list){
   var el=document.getElementById('auditList');
   if(!list.length){el.textContent='';var e=document.createElement('div');e.className='admin-empty';e.textContent='No audit entries found.';el.appendChild(e);return}
@@ -147,20 +158,43 @@ function renderAudit(list){
     var a=list[i];
     var color=actionColor(a.action);
     var ts=a.createdAt?new Date(a.createdAt).toLocaleString():'';
-    html+='<div class="audit-row">';
+    html+='<div class="audit-row" onclick="toggleAuditDetail('+i+')" title="Click for full who / what / when / where / how">';
     html+='<span class="audit-time">'+esc(ts)+'</span>';
     html+='<span class="audit-badge audit-badge-'+color+'">'+esc(actionLabel(a.action||''))+'</span>';
     html+='<div class="audit-content">';
     if(a.details)html+='<div class="audit-details">'+esc(a.details)+'</div>';
     html+='<div class="audit-meta">';
-    if(a.performedByEmail)html+='<span>by: '+esc(a.performedByEmail)+'</span>';
-    else if(a.performedBy)html+='<span>by: '+esc(a.performedBy)+'</span>';
-    if(a.targetEmail)html+='<span>target: '+esc(a.targetEmail)+'</span>';
-    if(a.ip)html+='<span>IP: '+esc(a.ip)+'</span>';
-    html+='</div></div></div>';
+    if(a.performedByEmail)html+='<span>by '+esc(a.performedByEmail)+'</span>';
+    else if(a.performedBy)html+='<span>by '+esc(a.performedBy)+'</span>';
+    if(a.targetEmail)html+='<span>target '+esc(a.targetEmail)+'</span>';
+    if(a.ip)html+='<span>'+(ipIsFull(a.ip)?'IP':'IP-hash')+' '+esc(a.ip)+'</span>';
+    if(a.method&&a.path)html+='<span>'+esc(a.method)+' '+esc(a.path)+'</span>';
+    if(a.authType)html+='<span class="audit-authtype">'+esc(a.authType)+'</span>';
+    html+='</div>';
+    html+='<div class="audit-detail" id="auditDetail'+i+'" style="display:none" onclick="event.stopPropagation()">'+detailHtml(a)+'</div>';
+    html+='</div></div>';
   }
   el.textContent='';
   el.insertAdjacentHTML('beforeend',html);
+}
+
+function _adRow(label,val){if(val==null||val==='')return '';return '<div class="ad-row"><span class="ad-k">'+esc(label)+'</span><span class="ad-v">'+esc(val)+'</span></div>'}
+function _adGroup(title,body){return body?'<div class="ad-group"><div class="ad-gt">'+title+'</div>'+body+'</div>':''}
+
+function detailHtml(a){
+  var who=_adRow('Email',a.performedByEmail)+_adRow('User id',a.performedBy)+_adRow('Auth',a.authType);
+  var what=_adRow('Action',actionLabel(a.action||''))+_adRow('Details',a.details)+_adRow('Target email',a.targetEmail)+_adRow('Target id',a.targetId);
+  var when=_adRow('Timestamp',a.createdAt?new Date(a.createdAt).toISOString():'');
+  var where=a.ip?_adRow(ipIsFull(a.ip)?'Source IP':'Source IP (hashed)',a.ip):'';
+  var how=_adRow('Method',a.method)+_adRow('Path',a.path)+_adRow('User-agent',a.userAgent)+_adRow('Request id',a.requestId);
+  var out=_adGroup('Who',who)+_adGroup('What',what)+_adGroup('When',when)+_adGroup('Where',where)+_adGroup('How',how);
+  return out||'<div class="ad-group"><div class="ad-gt">Detail</div><div class="ad-row"><span class="ad-v">No additional context recorded for this event.</span></div></div>';
+}
+
+function toggleAuditDetail(i){
+  var d=document.getElementById('auditDetail'+i);
+  if(!d)return;
+  d.style.display=d.style.display==='none'?'block':'none';
 }
 
 function renderPagination(page,pages){

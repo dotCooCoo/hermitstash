@@ -306,8 +306,9 @@ Built on Node.js 24.16.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - Row-based bundle lists with file drill-down (My Stash + Personal Vault)
 - Paginated file/bundle browser with search
 - User management -- create, suspend, delete, role toggle, and per-user upload-limit overrides (storage quota, max file size, max bundle size, max files, allowed extensions) set from the user list; each field falls back to the global default when left blank, or can be marked "No limit" to lift that cap for the individual user, so the overrides are off until set
-- Audit log -- searchable, filterable, date range
-- Settings panel -- 10 tabs (Branding, General, Auth, Uploads, Storage, Theme, Email, Security, Environment, Backup)
+- Audit log -- searchable (by action, details, email, IP, or path), filterable, date range; click any entry for the full who / what / when / where / how (performer, target, source IP, method + path, auth type, user-agent, request id). Sealed at rest and shown decrypted to admins
+- Audit Log settings -- retention period (or keep indefinitely), record full IP addresses for investigations (off by default, where the source IP is stored as a one-way hash the operator cannot reverse), and capture the client user-agent. IP and user-agent changes apply to new entries only
+- Settings panel -- 11 tabs (Branding, General, Auth, Uploads, Storage, Theme, Email, Security, Environment, Backup, Audit Log)
 - API keys with scoped permissions (upload, read, admin) validated against a canonical enum and enforced on read and mutating routes
 - Webhooks with HMAC-SHA3-512 signed payloads, per-hook delivery log, enable/disable toggle
 - IP blocklist
@@ -1349,7 +1350,7 @@ Managed via `scripts/vendor-update.sh`:
 
 | Vendored | Version | Author | Purpose |
 |----------|---------|--------|---------|
-| [`blamejs`](https://github.com/blamejs/blamejs) | 0.15.34 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, etc. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
+| [`blamejs`](https://github.com/blamejs/blamejs) | 0.15.46 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, etc. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
 | [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) (browser only) | 2.2.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | XChaCha20-Poly1305 in the browser vault + outbox flows |
 | [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (browser only) | 2.2.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | SHAKE256 KDF in the browser |
 | [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) (browser only) | 0.6.1 | [Paul Miller](https://github.com/paulmillr) (MIT) | ML-KEM-1024 in the browser vault flow |

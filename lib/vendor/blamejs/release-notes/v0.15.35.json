@@ -1,0 +1,27 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.15.35",
+  "date": "2026-06-26",
+  "headline": "`b.metrics` shadow registry no longer lets a comma in a label value forge extra Prometheus label pairs — a label-injection that downstream tenant-scoping or authorization selectors could be tricked by",
+  "summary": "The shadow registry serialized a metric's label set into a `name=value,name=value` string key and re-split it on `,` to build the Prometheus exposition. A label VALUE containing a comma therefore split into multiple label pairs, so a single operator-set label could forge additional label pairs in the scrape output (for example turning one `route` label into a `route` plus an attacker-named label), which downstream tenant-scoping filters, authorization selectors, recording rules, and alerting trust as a boundary; two distinct label sets could also collide into one cardinality bucket. The label key now uses canonical-JSON of the string-coerced label set (the same approach the main registry already used) and the render path emits the structured label set kept alongside that key rather than splitting or re-parsing, so a `,` or `=` inside a label value stays inside the value and a label NAMED `constructor`, `prototype`, or `__proto__` (all valid Prometheus label names) is preserved instead of being dropped. Note: the cardinality keys exposed by `shadowRegistry().snapshot()` are now canonical-JSON strings (e.g. `{\"route\":\"/api\"}`) rather than `route=/api`.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Label values can no longer forge extra Prometheus label pairs in the shadow registry",
+          "body": "b.metrics shadowRegistry built a metric's cardinality key by joining `name=value` pairs with commas, then split that string on commas when rendering the Prometheus exposition. A comma (and `=`) in a label value therefore broke one value into several forged label pairs in the scrape output, and two different label sets could collide into the same cardinality bucket. The key is now canonical-JSON of the string-coerced label set and the render emits the structured label set kept alongside that key rather than splitting or re-parsing, so a label value is emitted as a single quoted value with its commas/equals intact, distinct label sets get distinct keys, and a label NAMED `constructor`, `prototype`, or `__proto__` (each a valid Prometheus label name) is preserved rather than dropped. Deterministic regression tests assert a comma-bearing label value produces exactly one label pair and that the reserved-name labels survive render."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "shadowRegistry().snapshot() cardinality keys are canonical-JSON",
+          "body": "As a consequence of the label-injection fix, the per-series cardinality keys in a shadow-registry snapshot are now canonical-JSON strings (e.g. `{\"tenant\":\"a\"}`) instead of the previous `tenant=a` form. Code that reads those keys directly from snapshot() should parse them as JSON; the Prometheus render output is unchanged for conforming label values."
+        }
+      ]
+    }
+  ]
+}

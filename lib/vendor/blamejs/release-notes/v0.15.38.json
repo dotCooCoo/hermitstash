@@ -1,0 +1,26 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.15.38",
+  "date": "2026-06-27",
+  "headline": "Regex patterns supplied in feature-flag targeting rules and MCP tool input schemas are now screened for catastrophic-backtracking (ReDoS) shapes before compilation, so a pattern matched against request data can't pin a CPU",
+  "summary": "Two places compiled a caller-supplied regex pattern and `.test()`'d it against request-controlled input with only a length bound as the stated defense: a feature-flag targeting condition (`op: \"regex\"`) matched against runtime attribute values, and an MCP tool's input-schema `pattern` matched against tool-call arguments. A length bound is not a ReDoS defense — a catastrophic-backtracking pattern such as `(a+)+$` is six characters and pins a CPU on a crafted input. Both patterns now pass through `b.guardRegex` (strict profile) before compilation, which refuses nested-quantifier, alternation-with-quantifier, and quantifier-inside-lookaround shapes. A ReDoS-shaped flag pattern is refused when the rules are validated; a ReDoS-shaped MCP schema pattern fails tool-input validation. Patterns built from the framework's own static tables, operator-owned JSON Schema patterns, the Sieve glob translator (which cannot express nested quantifiers), and the I-Regexp translator (linear by dialect) are unchanged.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Feature-flag regex targeting conditions are screened for ReDoS before compilation",
+          "body": "A flag targeting rule with `op: \"regex\"` compiled the operator-supplied pattern and `.test()`'d it against runtime attribute values, guarded only by a 200-character length cap. Length does not bound catastrophic backtracking, so a pattern like `(a+)+$` combined with an attacker-controlled attribute value could pin a CPU during flag evaluation. The pattern is now screened through b.guardRegex (strict) when the rules are validated, and a catastrophic-backtracking shape is refused with a clear error."
+        },
+        {
+          "title": "MCP tool input-schema patterns are screened for ReDoS before matching request input",
+          "body": "b.mcp.validateToolInput compiled a tool author's input-schema `pattern` and matched it against tool-call argument values; the 4096-character input cap does not bound backtracking (a `(a+)+$` pattern blows up at roughly forty input characters). The schema pattern is now screened through b.guardRegex (strict) before compilation, so a ReDoS-shaped pattern in a registered tool's schema fails input validation instead of letting hostile arguments hang the validator."
+        },
+        {
+          "title": "b.guardRegex now catches wrapped nested-quantifier patterns",
+          "body": "The nested-quantifier detector matched a quantified group whose body contained a quantifier, but its inner match was paren-blind, so wrapping the inner quantifier in an extra group — `((a)+)+`, `(([a-z]+)*)*`, `((a+))+` — slipped past it while remaining catastrophic. A structural scan now tracks group nesting and refuses an unbounded-quantified group whose body itself contains an unbounded quantifier at any depth, so the wrapped forms are rejected alongside the bare `(a+)+`. Bounded repeats (`{n}`, `{n,m}`) are unaffected. This strengthens every b.guardRegex caller, including the flag-targeting and MCP screening above."
+        }
+      ]
+    }
+  ]
+}

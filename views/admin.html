@@ -210,6 +210,7 @@
         <button class="settings-tab" onclick="showTab('security');loadSecurityStatus()">Security</button>
         <button class="settings-tab" onclick="showTab('environment');loadEnvironment()">Environment</button>
         <button class="settings-tab" onclick="showTab('backup');loadBackupHistory()">Backup</button>
+        <button class="settings-tab" onclick="showTab('audit')">Audit Log</button>
       </div>
 
       <!-- Branding -->
@@ -942,6 +943,40 @@
         </div>
       </div>
 
+      <!-- Audit Log -->
+      <div class="settings-pane" id="pane-audit">
+        <div class="settings-group">
+          <p style="font-size:.82rem;color:var(--muted);margin:0 0 16px;line-height:1.55">
+            Controls what the security audit log records and how long it is kept. Every entry captures
+            <b style="color:var(--text)">who</b> did <b style="color:var(--text)">what</b>,
+            <b style="color:var(--text)">when</b>, from <b style="color:var(--text)">where</b>, and
+            <b style="color:var(--text)">how</b> &mdash; review it under Admin &rarr; Audit Log.
+          </p>
+          <div class="settings-field">
+            <label class="settings-label">Retention <span class="settings-hint">0 = keep indefinitely</span></label>
+            <div style="display:flex;align-items:center;gap:8px">
+              <input type="number" class="text-input" id="s-auditRetentionDays" data-key="auditRetentionDays" min="0" max="36500" style="max-width:140px">
+              <span style="font-size:.82rem;color:var(--muted)">days</span>
+            </div>
+          </div>
+          <div class="settings-divider"></div>
+          <div class="settings-field">
+            <label class="settings-label">Record full IP addresses <span class="settings-hint">off = one-way hash (operator cannot recover it); on = full IP, sealed but recoverable for investigations</span></label>
+            <label class="toggle"><input type="checkbox" id="s-auditIpFull" data-key="auditIpFull"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Record client user-agent <span class="settings-hint">browser / device string (PII) &mdash; off by default</span></label>
+            <label class="toggle"><input type="checkbox" id="s-auditCaptureUserAgent" data-key="auditCaptureUserAgent"><span class="toggle-slider"></span></label>
+          </div>
+          <p style="font-size:.78rem;color:var(--muted);margin:14px 0 0;line-height:1.5">
+            IP and user-agent changes apply to new entries only; values already stored as a hash stay private.
+          </p>
+        </div>
+        <div class="settings-actions">
+          <button class="butn butn-bg butn-sm radius-30" onclick="saveTab('audit')"><span>Save Audit Log</span></button>
+        </div>
+      </div>
+
     </div>
   </div>
 </section>
@@ -1584,7 +1619,8 @@ var tabFields={
   storage:['storageBackend','uploadDir','s3Bucket','s3Region','s3AccessKey','s3SecretKey','s3Endpoint'],
   theme:['themeAccentColor','themeBgColor','themeFont'],
   email:['emailEnabled','emailBackend','resendApiKey','resendQuotaDaily','resendQuotaMonthly','smtpHost','smtpPort','smtpUser','smtpPass','smtpFrom','emailTemplateMode','emailTemplateSubject','emailTemplateHeader','emailTemplateFooter'],
-  backup:['backupEnabled','backupScope','backupSchedule','backupTimeOfDay','backupTimezone','backupRetention','backupS3Bucket','backupS3Region','backupS3AccessKey','backupS3SecretKey','backupS3Endpoint','backupPassphrase']
+  backup:['backupEnabled','backupScope','backupSchedule','backupTimeOfDay','backupTimezone','backupRetention','backupS3Bucket','backupS3Region','backupS3AccessKey','backupS3SecretKey','backupS3Endpoint','backupPassphrase'],
+  audit:['auditRetentionDays','auditIpFull','auditCaptureUserAgent']
 };
 
 function showTab(name){

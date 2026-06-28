@@ -1,0 +1,36 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.15.42",
+  "date": "2026-06-28",
+  "headline": "The agent orchestrator and tenant registries serialize registration per name, so two concurrent register() calls for the same name can no longer both create a row (duplicate-create / lost registration), and a new b.safeAsync.keyedSerializer exposes that per-key serialization",
+  "summary": "b.agent.orchestrator and b.agent.tenant registered a name with a check-then-create: read the backend row for the name, throw a duplicate error if it exists, otherwise write the new row. Because the read and the write are separated by an await, two concurrent register() calls for the same name both observed absence and both wrote — a duplicate-create where the second silently clobbered the first and both callers saw success, violating the one-row-per-name invariant. register() (and unregister()) now run through a per-name in-process serializer, so concurrent calls for the same name apply one at a time and the second is correctly refused as a duplicate; distinct names still run concurrently. The serializer is exposed as b.safeAsync.keyedSerializer() for any read-modify-write or check-then-create that must not interleave per key. It is in-process only: a registry backend shared across processes still needs its own atomic create or unique constraint to refuse a cross-process duplicate.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Agent orchestrator + tenant registries serialize registration per name (no duplicate-create race)",
+          "body": "b.agent.orchestrator.register and b.agent.tenant.register did a check-then-create (await backend.get -> throw-if-exists -> await backend.set) with an await between the read and the write, so two concurrent registrations of the same name both passed the duplicate check and both wrote — the second silently clobbering the first while both callers saw success. Registration now serializes per name in-process, so concurrent calls for one name apply sequentially and the second is refused with the duplicate error; distinct names are unaffected. A backend shared across processes still needs its own uniqueness constraint to refuse a cross-process duplicate."
+        }
+      ]
+    },
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "b.safeAsync.keyedSerializer — serialize async work per key",
+          "body": "b.safeAsync.keyedSerializer() returns a { run(key, fn) } that queues fn behind any in-flight or queued work for the same key and runs it once they settle, so a read-modify-write or a check-then-create on a shared store cannot interleave with another call for the same key in the same process. Distinct keys run concurrently, and the per-key chain is dropped once it drains. It is the serialization the agent registries now use, and the same primitive backs the lockout and bot-challenge per-key failure counters."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "Build guard: a registry check-then-create must serialize per key",
+          "body": "A codebase guard now fails the build if a primitive does an async check-then-create on a pluggable backend (await backend.get -> throw a /duplicate error -> await backend.set) without serializing per key, so the duplicate-create race fixed here cannot reappear at a new registry."
+        }
+      ]
+    }
+  ]
+}

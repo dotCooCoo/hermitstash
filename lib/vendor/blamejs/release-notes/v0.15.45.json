@@ -1,0 +1,27 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.15.45",
+  "date": "2026-06-28",
+  "headline": "`b.selfUpdate.swap` now re-hashes the asset against the hash `verify` returned and refuses to install on a mismatch, closing the window where an asset swapped between verify and swap could be installed after the signature check passed",
+  "summary": "selfUpdate.verify (signature-checks the asset and returns its hash) and selfUpdate.swap (renames the new asset into place) were two separate path-keyed operations with nothing binding the bytes swap installs to the bytes verify checked. An attacker able to write the asset path in the window between the two calls — or who pointed verify at a different inode via a symlink — could have the signature-verified bytes replaced before swap renamed the file into place, installing unverified code. swap now requires an expectedHash and re-hashes the from bytes against it immediately before the install, refusing with selfupdate/swap-hash-mismatch on any difference; the re-check runs right before the rename so the residual is a sub-millisecond window rather than the operator-controlled gap between verify and swap. Because swap now requires expectedHash, callers must pass the hash that verify returned (await verify(...) then swap({ ..., expectedHash: result.hash })).",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "self-update install is bound to the signature-verified bytes (verify→swap TOCTOU closed)",
+          "body": "selfUpdate.swap renamed the new asset into place with no integrity re-check, so the bytes it installed were not bound to the bytes selfUpdate.verify had signature-checked: an attacker who could write the asset path between verify and swap (or repoint a symlink) could install unverified code. swap now re-hashes the from bytes against a required expectedHash (the hash verify returns) immediately before the install and refuses a mismatch (selfupdate/swap-hash-mismatch), with the check positioned right before the rename to minimize the residual window. A symlinked or differing-inode asset is caught the same way, because the install source is what gets re-hashed."
+        }
+      ]
+    },
+    {
+      "heading": "Migration",
+      "items": [
+        {
+          "title": "selfUpdate.swap requires expectedHash",
+          "body": "swap now requires an expectedHash option (refused at the call with selfupdate/bad-expected-hash if absent). Pass the hash that selfUpdate.verify returns: const v = await selfUpdate.verify({ assetPath, signaturePath, pubkeyPem }); await selfUpdate.swap({ from, to, backupTo, expectedHash: v.hash }). An optional hashAlgo (default sha3-512, matching verify's default) selects the digest when verify used a non-default algorithm."
+        }
+      ]
+    }
+  ]
+}

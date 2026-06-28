@@ -1,0 +1,40 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.15.39",
+  "date": "2026-06-27",
+  "headline": "Nine more places that matched an operator-supplied regex against request data — User-Agent, Origin, request path, form fields, SMTP HELO, release-asset names — now screen the pattern for catastrophic backtracking (ReDoS) before use, and a new b.guardRegex.assertSafe helper makes that screening one call",
+  "summary": "The previous release screened feature-flag and MCP regex patterns for ReDoS but did not sweep every place the framework matches an operator-supplied regex against attacker-controlled input. Nine more were found and fixed: the bot guard (User-Agent), CORS (Origin), the HTTP span middleware and the shared request skip-matcher used by CSRF / fetch-metadata / rate-limit / access-lock / age-gate and the request logger (request path), static serving (hashed-asset path pattern), form field validation (submitted field value), SMTP HELO generic-rDNS patterns (HELO name), and the self-updater's asset/signature patterns (names from a remote release feed). Each accepted an operator RegExp with only a type check and ran it on every matching request, so an accidentally catastrophic pattern such as (a+)+$ or ((a)+)+$ could pin a CPU on a crafted input — a length cap does not bound backtracking. Every one now screens the pattern through b.guardRegex at configuration time. A new b.guardRegex.assertSafe(input, label?, ErrorClass?, code?) primitive performs that screen in one call (accepting a RegExp or a pattern string), which operators can also use on their own patterns.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Operator regex patterns matched against request data are screened for ReDoS framework-wide",
+          "body": "An operator-supplied RegExp matched against attacker-controllable input is a denial-of-service surface if it has a catastrophic-backtracking shape: the input triggers exponential work in the regex engine. Nine sites accepted such patterns with only an `instanceof RegExp` type check and executed them per request — bot-guard against the User-Agent, CORS against the Origin header, the HTTP span middleware and the shared skip-path matcher (CSRF / fetch-metadata / rate-limit / access-lock / age-gate / request-log) against the request path, static serving against the request path, form validation against the submitted field value, SMTP HELO checks against the HELO name, and the self-updater against asset names from a remote release feed. Each now routes the pattern through b.guardRegex at configuration time, so a catastrophic shape is refused up front instead of being weaponized by a crafted request. A length bound on the input is not a defense: a nested-quantifier pattern backtracks catastrophically at a few dozen characters."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "Build guard: an operator regex matched against request input must be ReDoS-screened",
+          "body": "A codebase guard now fails the build if a primitive accepts an operator-supplied RegExp and executes it against request input without screening the pattern through b.guardRegex.assertSafe — so the catastrophic-backtracking class fixed in this release cannot be reintroduced at a new site (the trusted-input cases — local filesystem paths, operator config keys, operator-owned schemas — are explicitly allowlisted)."
+        },
+        {
+          "title": "Build guard: process.moduleLoadList filters must match the 'NativeModule X' naming",
+          "body": "A guard now fails the build if a test filters process.moduleLoadList by the 'node:X' name only. Node 20+ records a loaded builtin as 'NativeModule X', so a 'node:'-only filter in an edge-runtime no-eager-load test would rot green and miss a reintroduced top-level networking require."
+        }
+      ]
+    },
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "b.guardRegex.assertSafe — screen a RegExp or pattern string for ReDoS in one call",
+          "body": "b.guardRegex.assertSafe(input, label?, ErrorClass?, code?, opts?) screens an already-compiled RegExp (its source) or a raw pattern string for the catastrophic-backtracking classes — nested, alternation-with, and lookaround quantifiers — throwing the supplied framework-error class (or the underlying GuardRegexError) on a hostile pattern and returning the input on success. It allows large or open-ended bounded repeats (`{8,}`, `{n,m}`): a single counted repeat matches in linear time and legitimate patterns (including the framework's own defaults) use them. It is the config-time guard used by the request-lifecycle fixes above, and operators can apply it to their own patterns before matching them against untrusted input."
+        }
+      ]
+    }
+  ]
+}

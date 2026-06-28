@@ -1,0 +1,21 @@
+{
+  "version": "1.13.5",
+  "date": "2026-06-28",
+  "headline": "Full request context in the audit log and an Audit Log settings panel",
+  "summary": "Audit entries now record the full who / what / when / where / how of each action, with an admin panel to control IP visibility, user-agent capture, and retention.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "Full request context on every audit entry",
+          "body": "Audit entries now record the request method and path, the authentication type (session, API key, or anonymous), the client user-agent (when enabled), and a request id, alongside the existing performer, target, and source IP. The audit viewer groups each entry into a who / what / when / where / how breakdown on click, and the search box now also matches on IP, path, and user-agent. The added fields that carry identifiers (path, user-agent) are encrypted at rest and shown decrypted to admins."
+        },
+        {
+          "title": "Audit Log settings panel",
+          "body": "A new admin Settings tab controls the audit log: set a retention period in days or keep entries indefinitely; record full IP addresses for investigations (off by default — otherwise the source IP is stored as a one-way hash the operator cannot reverse); and capture the client user-agent. The IP and user-agent settings apply to new entries only — values already stored as a hash stay private."
+        }
+      ]
+    }
+  ]
+}

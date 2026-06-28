@@ -48,14 +48,19 @@ function queryAuditLog(opts) {
     entries = entries.filter(function (e) { return e.action === actionFilter; });
   }
 
-  // Text search across unsealed fields
+  // Text search across unsealed fields. Includes the WHERE/HOW context (IP, path,
+  // performer id) so an investigator can pivot on an address or request path.
   if (q) {
     entries = entries.filter(function (e) {
       return (e.action || "").toLowerCase().includes(q) ||
         (e.details || "").toLowerCase().includes(q) ||
         (e.targetEmail || "").toLowerCase().includes(q) ||
         (e.performedByEmail || "").toLowerCase().includes(q) ||
-        (e.targetId || "").toLowerCase().includes(q);
+        (e.targetId || "").toLowerCase().includes(q) ||
+        (e.performedBy || "").toLowerCase().includes(q) ||
+        (e.ip || "").toLowerCase().includes(q) ||
+        (e.path || "").toLowerCase().includes(q) ||
+        (e.userAgent || "").toLowerCase().includes(q);
     });
   }
 

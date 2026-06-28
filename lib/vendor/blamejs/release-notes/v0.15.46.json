@@ -1,0 +1,27 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.15.46",
+  "date": "2026-06-28",
+  "headline": "`b.auth.fidoMds3` now enforces basicConstraints cA:TRUE on every intermediate link of the MDS3 x5c chain, closing a bypass where a non-CA certificate spliced in as an intermediate could sign a forged FIDO metadata BLOB that fido-mds3 accepted",
+  "summary": "fido-mds3's x5c chain validation checked each intermediate link with X509Certificate.checkIssued(), which validates the issuer/subject linkage and signature but does NOT enforce the basicConstraints CA bit; only the final tail-to-root anchor used the framework's cA-enforcing helper. An attacker holding a non-CA (cA:FALSE) end-entity certificate that legitimately chains to a trusted MDS3 root (and its private key) could splice it in as an intermediate, sign a forged leaf with it, and have fido-mds3 accept an attacker-authored MDS3 metadata BLOB as authentic — the classic basicConstraints bypass (CVE-2002-0862 class). Every intermediate link now routes through x509Chain.issuerValidlyIssued, which enforces basicConstraints cA:TRUE in addition to the issuance and signature linkage, matching the mdoc / tsa / bimi / content-credentials / S-MIME chain walkers. A codebase guard now fails the build if any chain walker uses a bare issuance checkIssued() instead.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "fido-mds3 x5c intermediate links enforce the CA bit (basicConstraints bypass closed)",
+          "body": "b.auth.fidoMds3 validated each intermediate x5c link with X509Certificate.checkIssued(), which does not enforce basicConstraints cA:TRUE, so a non-CA certificate inserted as an intermediate was accepted as an issuer. An attacker with a cA:FALSE end-entity cert chaining to a trusted MDS3 root could sign a forged leaf and have a forged FIDO metadata BLOB accepted as authentic (CVE-2002-0862 class). Each intermediate link now routes through x509Chain.issuerValidlyIssued (cA:TRUE + issuance + signature), the same hardened test the framework's other certificate-chain walkers already use. The default GlobalSign MDS3 root and operator-supplied caCertificate roots are both covered."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "Build guard: a cert-chain issuance link must use issuerValidlyIssued, not bare checkIssued",
+          "body": "A codebase guard now fails the build if a certificate-chain walker validates an issuance link with a bare X509Certificate.checkIssued() (which omits the basicConstraints CA check) instead of x509Chain.issuerValidlyIssued, so the basicConstraints bypass cannot reappear at a new walker. A self-signed-root check (cert.checkIssued(cert)) is not an issuance link and is unaffected."
+        }
+      ]
+    }
+  ]
+}
