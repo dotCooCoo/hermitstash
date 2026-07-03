@@ -1,0 +1,26 @@
+{
+  "version": "1.13.10",
+  "date": "2026-07-03",
+  "headline": "Refreshes the vendored framework, hardening redirect and header handling",
+  "summary": "A maintenance release that refreshes the vendored cryptography and identity framework to its current release. The refresh hardens the redirect and protocol-header handling HermitStash builds on — most visibly, a redirect target carrying a horizontal tab is now refused, closing an open-redirect a browser's URL parser would otherwise collapse to an attacker origin. No configuration changes are required.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Redirect targets reject a horizontal tab (open-redirect hardening)",
+          "body": "The framework's redirect helper — which HermitStash's sign-in, OAuth, and admin flows use — now refuses a redirect target containing a horizontal tab, alongside the carriage-return, line-feed, and NUL it already rejected. A browser's URL parser strips a tab before resolving the address, so a target such as a tab followed by an authority would otherwise collapse to a protocol-relative address and navigate off-origin, slipping past the same-origin and allowlist checks. HermitStash inherits the fix by refreshing the framework."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Refreshed the vendored cryptography and identity framework",
+          "body": "The vendored framework was updated to its current release, picking up its latest security and correctness hardening across the redirect, protocol-header, mail-authentication, federated-identity, and keychain primitives — including several fail-open and header-injection fixes in the paths HermitStash composes."
+        }
+      ]
+    }
+  ]
+}

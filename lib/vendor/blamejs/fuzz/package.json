@@ -5,6 +5,6 @@
   "description": "Coverage-guided fuzz harnesses (jazzer.js) for lib/ guards — dev-only, never published; not part of the framework tarball.",
   "license": "Apache-2.0",
   "dependencies": {
-    "@jazzer.js/core": "2.1.0"
+    "@jazzer.js/core": "4.0.0"
   }
 }

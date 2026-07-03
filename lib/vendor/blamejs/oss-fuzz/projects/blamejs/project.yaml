@@ -1,0 +1,28 @@
+# OSS-Fuzz project metadata for blamejs.
+#
+# Fields documented at
+# https://google.github.io/oss-fuzz/getting-started/new-project-guide/#projectyaml
+
+homepage: "https://blamejs.com"
+language: javascript
+primary_contact: "security@blamejs.com"
+auto_ccs:
+  - "security@blamejs.com"
+
+main_repo: "https://github.com/blamejs/blamejs"
+
+fuzzing_engines:
+  - libfuzzer
+
+sanitizers:
+  - none   # jazzer.js is pure-JS; libFuzzer drives mutation without a native sanitizer
+
+# Optional vulnerability disclosure: when ClusterFuzz finds a bug, it
+# files a private issue against this repo (24-hour disclosure delay).
+vendor_ccs:
+  - "security@blamejs.com"
+
+# Restrict view of crash-report deduplication clusters to the project
+# maintainers + the Google OSS-Fuzz team.
+disclosure:
+  type: "soft"
