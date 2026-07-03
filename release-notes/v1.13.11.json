@@ -1,0 +1,17 @@
+{
+  "version": "1.13.11",
+  "date": "2026-07-03",
+  "headline": "Pulls the latest patched base-image packages at build time",
+  "summary": "The container image now upgrades every base-operating-system package to its latest patched build during the image build, instead of relying solely on the base image's own rebuild cadence. This closes the window where a freshly-published operating-system security fix has reached the package repository but not yet the rebuilt base image, so the image ships with the current patched packages. No configuration changes are required.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "The image upgrades its base-OS packages to the latest patched build at build time",
+          "body": "The build now runs an explicit package upgrade against the base image so it always ships the latest patched operating-system packages (for example a just-released glibc fix), independent of when the upstream base image is next rebuilt. Previously a security fix that had landed in the package repository but not yet in a rebuilt base image would ship unpatched until the base image caught up."
+        }
+      ]
+    }
+  ]
+}

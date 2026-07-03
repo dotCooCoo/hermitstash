@@ -62,6 +62,16 @@ LABEL org.opencontainers.image.title="HermitStash" \
 #     images for this exact workflow.
 #   - shadow: groupmod / usermod / groupadd / useradd for PUID/PGID remap
 #     at container start (Unraid/Synology integration — see entrypoint)
+# Force every base package to the latest patched wolfi build at image-build
+# time. `:latest-dev` is rebuilt continuously, but a fresh wolfi security fix
+# (e.g. a glibc patch) can land in the apk repo before Chainguard has rebuilt
+# the base image that carries it — so a build pulling a not-yet-rebuilt
+# `:latest-dev` inherits the pre-patch package and trips the release Trivy gate
+# on a fixable CVE. Upgrading here pulls the patched packages directly from the
+# repo, independent of the base-image rebuild cadence.
+# hadolint ignore=DL3018
+RUN apk upgrade --no-cache
+
 # --no-cache keeps the layer small. Intentionally NOT pinning package
 # versions (hadolint DL3018): Chainguard's value proposition is that each
 # rebuild of :latest-dev carries the latest patched wolfi packages. Pinning
