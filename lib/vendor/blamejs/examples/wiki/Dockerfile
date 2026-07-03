@@ -52,7 +52,7 @@ WORKDIR /home/node/examples/wiki
 # given a pinned source tree, so building at image-build time is a
 # reproducibility win as well.
 RUN rm -rf node_modules data data-e2e public/dist \
- && npm install --no-package-lock --omit=dev --install-links \
+ && npm ci --omit=dev --install-links \
  && node -e "var b = require('@blamejs/core'); var path = require('node:path'); (async function () { var bundler = b.bundler.create({ entries: { wiki: path.join(process.cwd(), 'src', 'wiki.js'), editor: path.join(process.cwd(), 'src', 'editor.js') }, outdir: path.join(process.cwd(), 'public', 'dist'), manifest: 'manifest.json', hashLen: 16 }); await bundler.build(); console.log('[Dockerfile] bundle pre-built into public/dist'); })().catch(function (e) { console.error('bundle build failed:', e.stack || e); process.exit(1); });" \
  && mkdir -p /home/node/data-skeleton
 

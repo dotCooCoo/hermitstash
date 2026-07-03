@@ -2,7 +2,7 @@ const { describe, it } = require("node:test");
 const assert = require("node:assert");
 const b = require("../../lib/vendor/blamejs");
 
-const { validateMagicBytes } = require("../../app/http/validators/upload.validator");
+const { validateMagicBytes, safeServeMime } = require("../../app/http/validators/upload.validator");
 
 // Pad each fixture past the 8-byte minimum validateMagicBytes enforces.
 const PAD = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
@@ -68,5 +68,29 @@ describe("upload-validator — guardImage primitive contract (what the new pass 
 
     const clean = b.guardImage.validate({ bytes: PNG, declaredMime: "image/png" });
     assert.strictEqual(clean.ok, true);
+  });
+});
+
+describe("upload-validator — safeServeMime binds the stored MIME to sniffed content", function () {
+  const PNG = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0]);
+  const NOT_PNG = Buffer.from("this is really text, not a PNG image at all");
+
+  it("keeps a declared inline type when the magic bytes agree", function () {
+    assert.strictEqual(safeServeMime("image/png", PNG), "image/png");
+  });
+
+  it("downgrades a spoofed inline type to application/octet-stream when bytes disagree", function () {
+    // A file the client declared image/png that is NOT a PNG must not be stored as
+    // image/png — otherwise the serve-time inline/preview gate would render it inline.
+    assert.strictEqual(safeServeMime("image/png", NOT_PNG), "application/octet-stream");
+  });
+
+  it("passes through a non-inline declared type unchanged (only inline types are bound)", function () {
+    assert.strictEqual(safeServeMime("application/zip", NOT_PNG), "application/zip");
+  });
+
+  it("returns application/octet-stream for a missing declared type", function () {
+    assert.strictEqual(safeServeMime("", PNG), "application/octet-stream");
+    assert.strictEqual(safeServeMime(null, PNG), "application/octet-stream");
   });
 });

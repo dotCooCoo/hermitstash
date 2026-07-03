@@ -19,7 +19,7 @@ FROM cgr.dev/chainguard/node:latest-dev
 # Node's built-in crypto.argon2, so there is no prebuild to match against the
 # base image's libc and the Alpine musl trap doesn't apply here.
 #
-# Requires Node 24.16.0+ for PQC: ML-KEM-1024, SLH-DSA-SHAKE-256f,
+# Requires Node 24.18.0+ for PQC: ML-KEM-1024, SLH-DSA-SHAKE-256f,
 # ML-DSA-87 (OpenSSL 3.5) plus cumulative 24.x security patches.
 # `:latest-dev` tracks the current Node major and includes apk-tools
 # + shell needed by docker-entrypoint.sh.

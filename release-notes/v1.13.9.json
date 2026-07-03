@@ -1,0 +1,87 @@
+{
+  "version": "1.13.9",
+  "date": "2026-07-03",
+  "headline": "Security hardening across auth, uploads, backups, and the audit log",
+  "summary": "A broad security-hardening release. It closes fail-open and encoding-mismatch gaps in the sign-in, CSRF, session, single-use-code, upload, backup, and audit-log paths; refreshes the vendored cryptography and identity framework to its current release; and raises the minimum Node.js runtime to 24.18.0.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Google sign-in domain gate rejects malformed addresses",
+          "body": "The allowed-domains gate for Google sign-in now validates the address and derives the domain from its final \"@\". A crafted address carrying more than one \"@\" (for example user@allowed.example@attacker.example) previously had its domain read from the wrong segment, so it could satisfy an allowed-domains restriction while its real mailbox was elsewhere. Such an address is now refused."
+        },
+        {
+          "title": "CSRF same-origin check canonicalizes both origins",
+          "body": "The JSON/multipart cross-origin check now normalizes the browser Origin and the configured origin the same way (host case, default port, trailing dot, and internationalized labels) before comparing. A legitimate same-origin request can no longer be refused — nor a cross-site one accepted — because the two sides used different encodings of the same host."
+        },
+        {
+          "title": "Single-use email access codes are consumed atomically",
+          "body": "Redeeming a one-time bundle access code now claims it with an atomic compare-and-set. Two simultaneous redemptions of the same code can no longer both succeed; the second is refused."
+        },
+        {
+          "title": "A stored file's content type is bound to its actual bytes",
+          "body": "When an uploaded file's declared type is one the server renders inline (an image or PDF) but its magic bytes do not match, it is now stored as a generic download type instead of the spoofed inline type, so the serve-time preview cannot be steered by a false Content-Type regardless of the file extension. File downloads and previews also carry X-Content-Type-Options: nosniff."
+        },
+        {
+          "title": "Off-site backups exclude the plaintext upload scratch directory",
+          "body": "The backup walk no longer copies the transient chunk-assembly scratch directory (pre-assembly upload chunks that are not yet application-encrypted) to the off-site backup bucket. Only encrypted stored content is backed up."
+        },
+        {
+          "title": "Encrypted audit-log export verifies the archive before returning rows",
+          "body": "Exporting a decrypted audit-log archive now verifies the archive's post-quantum signature (pinned to this server's own key history) and recomputes its tamper chain before any row is returned. A rewritten or wrong-key archive is refused rather than exported as authentic."
+        },
+        {
+          "title": "Idempotency-Key replay cache is scoped to the authenticated principal",
+          "body": "The Idempotency-Key replay cache slot is now bound to the requesting principal, so one client's key can no longer collide with another's — closing a cross-actor denial where a shared or guessed key blocked another principal from using it."
+        },
+        {
+          "title": "Session refresh enforces the configured timeout floors",
+          "body": "Refreshing a session's activity now re-checks the configured idle and absolute timeout floors, so an expired session cannot be revived by continued activity, and an active one is not over-expired by the framework defaults."
+        },
+        {
+          "title": "Time-window gates fail closed on a malformed value",
+          "body": "The brute-force lockout backoff, the pending two-factor deadline, and invite expiry now treat an absent or unparseable timestamp as expired/locked rather than letting a non-finite value silently disable the check. Disabling two-factor is now rate-limited like the other code-checking endpoints."
+        },
+        {
+          "title": "Admin IP blocklist canonicalizes IPv6 entries",
+          "body": "An IPv6 address added to the admin block list is now canonicalized to the same form the runtime peer lookup produces, so a block written in an expanded or alternate compression form takes effect instead of silently never matching."
+        },
+        {
+          "title": "Reserved object keys are refused in settings and stored-record merges",
+          "body": "Administrative settings dispatch and the database overflow-field merge now reject reserved prototype keys and resolve entries by own-property lookup, so a request-supplied key cannot re-parent an object or pass an inherited member off as a known setting."
+        },
+        {
+          "title": "Untrusted paths and email headers route through the hardened primitives",
+          "body": "Restore-time upload paths are resolved through the shared safe-path primitive, and email address validation and subject composition through the shared header-safety primitive that rejects carriage-return, line-feed, and NUL — closing header-injection and traversal classes at their source. API-key scope selection now matches whole scopes rather than a substring."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Minimum Node.js runtime raised to 24.18.0",
+          "body": "The runtime floor is now Node.js 24.18.0 (24.17.0 was a security release; 24.18.0 bundles SQLite 3.53.1 and a backup-path fix, and guarantees the OpenSSL 3.5 post-quantum signature surface)."
+        },
+        {
+          "title": "Refreshed the vendored cryptography and identity framework",
+          "body": "The vendored cryptography and identity framework was updated to its current release, picking up its security hardening for HTTP message signatures, mail authentication, path-scoped routing, single-use token concurrency, and recursion and header-injection defenses."
+        },
+        {
+          "title": "Folder ZIP downloads use a query parameter for the folder path",
+          "body": "The in-bundle folder download link now carries the folder path as a query parameter. The router refuses an encoded path separator in the request path, so nested folders are addressed via the query string rather than an encoded path segment."
+        }
+      ]
+    },
+    {
+      "heading": "Migration",
+      "items": [
+        {
+          "title": "Run Node.js 24.18.0 or newer",
+          "body": "Upgrade the runtime to Node.js 24.18.0+ before deploying this release. The Docker image already pins a matching runtime; only non-container deployments need to act."
+        }
+      ]
+    }
+  ]
+}

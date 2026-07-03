@@ -28,7 +28,7 @@
             var folderPath = pathPrefix ? pathPrefix + '/' + name : name;
             out += '<div class="tree-item tree-folder" style="padding-left:' + (depth * 20) + 'px">';
             out += '&#128193; ' + __esc(name);
-            out += ' <a href="/b/' + __esc(bundle.shareId) + '/folder/' + encodeURIComponent(folderPath) + '" class="tree-folder-dl" title="Download folder as ZIP">⬇</a>';
+            out += ' <a href="/b/' + __esc(bundle.shareId) + '/folder?path=' + encodeURIComponent(folderPath) + '" class="tree-folder-dl" title="Download folder as ZIP">⬇</a>';
             out += '</div>';
             out += renderNode(node.children[name], depth + 1, folderPath);
           }

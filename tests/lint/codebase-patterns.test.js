@@ -1001,7 +1001,7 @@ function testNoDynamicRequires() {
   // are also dynamic if they contain `${…}`, but pure backtick-no-
   // interpolation is rare in require()). Skip require.resolve too —
   // distinct API.
-  var matches = _scan(/\brequire\(\s*[^"'`)]/);
+  var matches = _scan(/\brequire\(\s*[^"'`)]/, { skipComments: true, appScope: true });
   matches = _filterMarkers(matches, "dynamic-require");
   _report("require() argument must be a string literal " +
           "(or has dynamic-require allow marker)",
@@ -1124,7 +1124,7 @@ function testFormatValidatorLengthCap() {
 // ---- Pattern 17: process.exit() in lib/ (should not exit unilaterally) ----
 
 function testNoProcessExitInLib() {
-  var matches = _scan(/\bprocess\.exit\(/);
+  var matches = _scan(/\bprocess\.exit\(/, { skipComments: true, appScope: true });
   matches = _filterMarkers(matches, "process-exit");
   _report("no process.exit() in lib/ (CLI surface only)", matches);
 }
@@ -1135,7 +1135,7 @@ function testNoSilentCatchSwallow() {
   // `catch (_e) { }` (empty body) silently swallows. Should at least
   // re-throw, log, or have an allow marker explaining why dropping
   // is correct (e.g., best-effort cleanup, audit-safe drops).
-  var matches = _scan(/catch\s*\(\s*_\w*\s*\)\s*\{\s*\}/);
+  var matches = _scan(/catch\s*\(\s*_\w*\s*\)\s*\{\s*\}/, { skipComments: true, appScope: true });
   matches = _filterMarkers(matches, "silent-catch");
   _report("empty catch(_e) {} blocks have an explicit silent-catch allow marker",
     matches);
@@ -1238,7 +1238,7 @@ function testNoRawProcessEnv() {
   // for the size cap + type coercion + missing/empty handling. log.js
   // is an exception (safeEnv requires log → load-time cycle); other
   // bootstrap files might be too. Mark per site.
-  var matches = _scan(/\bprocess\.env\.\w+/);
+  var matches = _scan(/\bprocess\.env\.\w+/, { skipComments: true, appScope: true });
   // safe-env.js / parsers/safe-env.js DEFINE the safe reader.
   matches = matches.filter(function (m) {
     return m.file !== "lib/safe-env.js" &&
@@ -1422,7 +1422,7 @@ function testNoRawOutboundHttp() {
   // SSRF guard + DNS pinning + retry policy live in b.httpClient.
   // Direct http.request / https.request / fetch in lib/ bypasses the
   // ssrfGuard + pinned-DNS lookup (v0.5.4 DNS-rebinding window).
-  var matches = _scan(/\b(http|https)\.(request|get)\s*\(|^[^/]*\bfetch\s*\(/);
+  var matches = _scan(/\b(http|https)\.(request|get)\s*\(|^[^/]*\bfetch\s*\(/, { skipComments: true, appScope: true });
   // Documented exemptions:
   //   lib/http-client.js IS the wrapper.
   //   lib/network-dns.js DoH bootstrap can't loop through httpClient
@@ -1555,7 +1555,7 @@ function testNoHandrolledBufferCollect() {
   // by partial-record inspection rather than complete-message resolve)
   // get a per-line allow marker since the primitive doesn't expose
   // peek; pqc-gate.js's TLS ClientHello parser is the canonical example.
-  var files = _libFiles();
+  var files = _libFiles().concat(_appFiles());
   var bad = [];
   for (var fi = 0; fi < files.length; fi++) {
     var rel = _relPath(files[fi]);
@@ -4639,6 +4639,66 @@ function testDenyPathHardcodedResponse() {
   _report("non-HTML denials use b.problemDetails.send (RFC 9457 problem+json), not res.end(JSON.stringify({ error }))", bad);
 }
 
+// ---- Pattern: email-domain derivation via split("@")[1] (multi-@ divergence) ----
+//
+// An RFC 5322 addr-spec has exactly one "@". Deriving the domain with
+// str.split("@")[1] reads the SECOND segment, not the domain after the FINAL
+// "@" — so a multi-@ address (x@allowed.com@evil.com) is authorized on the wrong
+// segment (DMARC/SPF-style alignment bypass, CWE-290). Derive from the final "@"
+// (str.slice(str.lastIndexOf("@") + 1)) after validating the address is single-@
+// (b.guardEmail.validateAddress / a lastIndexOf guard). Scans lib/ + the app tree;
+// a non-routing informational use carries an inline allow marker.
+function testNoMultiAtEmailSplit() {
+  // class: email-multi-at-split
+  var files = _libFiles().concat(_appFiles());
+  var bad = [];
+  var splitRe = /\.split\(\s*["']@["']\s*\)\s*\[\s*1\s*\]/;
+  for (var fi = 0; fi < files.length; fi++) {
+    var rel = _relPath(files[fi]);
+    var content;
+    try { content = fs.readFileSync(files[fi], "utf8"); }
+    catch (_e) { continue; }
+    var lines = content.split(/\r?\n/);
+    for (var j = 0; j < lines.length; j++) {
+      if (/^\s*(\/\/|\*|\/\*)/.test(lines[j])) continue;
+      if (splitRe.test(lines[j])) {
+        bad.push({ file: rel, line: j + 1, content: lines[j].trim() });
+      }
+    }
+  }
+  bad = _filterMarkers(bad, "email-multi-at-split");
+  _report("email-domain derivation must not use split(\"@\")[1] — derive from the final \"@\" after a single-@ validation (multi-@ alignment bypass, CWE-290)", bad);
+}
+
+// ---- Pattern: permission scope tested by substring (indexOf/includes) ----
+//
+// A scope check done with permissions.indexOf("x") / permissions.includes("x")
+// is a raw substring test, not a scope match: it misses a wildcard/role grant
+// (an "admin"/"*" key that carries the scope via parseScopes but not the literal
+// token) and can over-match a partial-segment token. Route scope decisions
+// through app/security/scope-policy.hasScope(apiKey, scope). Scans lib/ + app.
+function testNoSubstringScopeMatch() {
+  // class: permission-substring-scope
+  var files = _libFiles().concat(_appFiles());
+  var bad = [];
+  var scopeRe = /\.permissions\b[^;{}]*\.(?:indexOf|includes)\s*\(/;
+  for (var fi = 0; fi < files.length; fi++) {
+    var rel = _relPath(files[fi]);
+    var content;
+    try { content = fs.readFileSync(files[fi], "utf8"); }
+    catch (_e) { continue; }
+    var lines = content.split(/\r?\n/);
+    for (var j = 0; j < lines.length; j++) {
+      if (/^\s*(\/\/|\*|\/\*)/.test(lines[j])) continue;
+      if (scopeRe.test(lines[j])) {
+        bad.push({ file: rel, line: j + 1, content: lines[j].trim() });
+      }
+    }
+  }
+  bad = _filterMarkers(bad, "permission-substring-scope");
+  _report("permission scope must be matched via scope-policy.hasScope (parseScopes expands wildcard/role grants), not a permissions.indexOf/includes substring test", bad);
+}
+
 function testKnownAntipatterns() {
   // class: known-antipattern
   // Fires at n=1. Per-entry `scanScope` selects the file set:
@@ -4830,6 +4890,8 @@ async function run() {
   testSealWithoutAad();
   testHostnameCompareTrailingDot();
   testDenyPathHardcodedResponse();
+  testNoMultiAtEmailSplit();
+  testNoSubstringScopeMatch();
   testEveryAllowMarkerNamesRegisteredClass();
   testNoStrayEmptyStatement();
   testNoInternalProcessNarrative();

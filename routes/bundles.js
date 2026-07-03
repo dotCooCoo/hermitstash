@@ -364,20 +364,21 @@ module.exports = function (app) {
 
   // Download a subfolder from a bundle as ZIP (same DoS posture as /download —
   // rate-limited per subnet, with the same ZIP_BUFFER_CAP aggregate ceiling).
-  app.get("/b/:shareId/folder/:prefix", rateLimit.guard({ max: 10, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
+  app.get("/b/:shareId/folder", rateLimit.guard({ max: 10, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
     var bundle = bundlesRepo.findCompleteByShareId(req.params.shareId);
     if (!bundle) { res.writeHead(404); return res.end("Not found"); }
     if (isBundleExpired(bundle)) { res.writeHead(410); return res.end("Bundle expired"); }
     if (isBundleLocked(bundle, req.session, bundleAllowedMatch(bundle))) {
       res.writeHead(401); return res.end("Access restricted");
     }
-    // The folder prefix is a single percent-encoded path segment — the UI builds
-    // it with encodeURIComponent, so nested slashes arrive as %2F. The vendored
-    // segment router has no splat/catch-all, so the prefix is a named param we
-    // decode here (a literal `/folder/*` never matched a real folder path).
-    var prefix;
-    try { prefix = decodeURIComponent(req.params.prefix || ""); }
-    catch (_e) { res.writeHead(400); return res.end("Invalid folder path"); }
+    // The folder path is carried in the query string (?path=a/b), which the router
+    // decodes exactly once via searchParams. A nested folder used to ride a single
+    // percent-encoded PATH segment (…/folder/a%2Fb), but the hardened router now
+    // refuses an encoded separator (%2f/%5c/%00) in the path — and decoding a
+    // route param a second time (it is already decoded once) mangled any value
+    // containing a literal '%'. The query param avoids both: decoded exactly once,
+    // and not subject to the path-separator reject.
+    var prefix = String(req.query.path || "");
     if (!prefix) { res.writeHead(400); return res.end("Folder path required"); }
     // Normalize: ensure trailing slash for prefix matching
     if (!prefix.endsWith("/")) prefix += "/";
@@ -496,7 +497,7 @@ module.exports = function (app) {
     }
     // Decrement stash stats if bundle belongs to a stash page
     if (bundle.stashId) {
-      try { stashRepo.decrementBundleStats(bundle.stashId, bundle.totalSize); } catch (_e) {}
+      try { stashRepo.decrementBundleStats(bundle.stashId, bundle.totalSize); } catch (_e) {} // allow:silent-catch — best-effort stats decrement; never blocks the delete
     }
     bundlesRepo.remove(bundle._id);
     audit.log(audit.ACTIONS.ADMIN_BUNDLE_DELETED, { targetId: bundle._id, targetEmail: bundle.uploaderEmail, details: "owner delete, shareId: " + bundle.shareId + ", files: " + bundleFiles.length, req: req });

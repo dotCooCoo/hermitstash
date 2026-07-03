@@ -81,12 +81,12 @@ examples/*/data-e2e/
 # never reaches staging.
 examples/*/C\:/
 examples/wiki/C*/
-examples/*/package-lock.json
-# Top-level lockfile — the framework owns its stack via vendoring
-# (lib/vendor/) and runs zero npm deps (runtime OR dev). Any
-# package-lock.json that appears at the root is from a transient
-# `npm install` and shouldn't be tracked.
-/package-lock.json
+# Dev/example lockfiles ARE committed (root, examples/wiki, fuzz) so CI's
+# `npm ci` pins the reviewed dev-tool versions with integrity hashes and
+# OpenSSF Scorecard sees a pinned install. This does NOT relax the zero-npm-
+# RUNTIME-deps rule — the framework still ships zero runtime deps (everything
+# vendored under lib/vendor/); these lockfiles are dev/example-only and are
+# excluded from the published tarball's `files` allowlist.
 # Root-level runtime state — a test (or local run) that points b.db / the
 # cluster at a relative default writes its sealed vault key + encrypted
 # SQLite DB here. It is per-instance state, never repo content; the *.key /

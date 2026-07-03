@@ -99,7 +99,12 @@ function verifyCode(opts) {
     return { success: false, error: "Invalid or expired code.", status: 401, attempts: codeRecord.attempts + 1 };
   }
 
-  accessCodesRepo.update(codeRecord._id, { $set: { status: "used" } });
+  // Consume the code with an ATOMIC compare-and-set (pending→used) so two
+  // simultaneous redemptions of the same valid code cannot both succeed — the
+  // loser changes 0 rows and is refused with the same generic message.
+  if (!accessCodesRepo.claimPending(codeRecord._id)) {
+    return { success: false, error: "Invalid or expired code.", status: 401 };
+  }
   return { success: true };
 }
 

@@ -145,6 +145,7 @@ var UNTESTED_BACKLOG = {
   "pick":                          "backfill — covered indirectly through a sibling primitive or by direct lib import",
   "safeEnv":                       "backfill — covered indirectly through a sibling primitive or by direct lib import",
   "safeRedirect":                  "backfill — covered indirectly through a sibling primitive or by direct lib import",
+  "auditTools":                    "HS doesn't consume — the only b.auditTools mention is a comment in lib/audit-archive.js explaining why the archival path is deliberately HS-native (HS runs no blamejs DB layer, so the b.auditTools helpers are unusable); no code path calls it",
   "auditSign.rotateSigningKey":    "audit-sign rotation needs a real init() with sealed/plaintext keypair on disk + a vault passphrase prompt — exercised by the audit-key rotation runbook documented in SECURITY.md, not unit-testable without a fixture vault",
   "auditSign.reSignAll":           "companion to auditSign.rotateSigningKey — async iterable + per-payload verify+sign needs real audit-sign init; covered by the rotation runbook",
   "circuitBreaker":                "thin re-export of b.retry.CircuitBreaker for ergonomic top-level discovery; the underlying class is tested via b.retry.CircuitBreaker references — direct b.circuitBreaker references aren't load-bearing",

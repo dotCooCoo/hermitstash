@@ -66,17 +66,23 @@ var idempotencyKey = b.middleware.idempotencyKey({
     // (headers + body sealed via b.cryptoField once b.vault.init() has run).
   }),
   ttlMs: b.constants.TIME.hours(24),
-  // Scope the replay cache to the authenticated principal by folding the actor
-  // id into the body fingerprint. This middleware runs BEFORE the in-handler
-  // auth gate (requireAdmin), and a cache hit replays the stored response
-  // without re-running the handler — and some of these endpoints return a
-  // one-time secret (e.g. /admin/apikeys/create returns the raw key). Without
-  // per-principal scoping, a different principal replaying the same
-  // Idempotency-Key + body would receive the first principal's secret with no
-  // admin check. With the actor in the fingerprint, a cross-principal replay
-  // reads as a key-reuse mismatch (422) instead of a cache hit; the original
-  // principal's own retry still matches. req.user (cookie/attachUser) and
-  // req.apiKey (Bearer/api-auth) are set by global middleware before this mount.
+  // Scope the replay-cache SLOT to the authenticated principal. The framework's
+  // default scope resolves the actor via b.requestHelpers.extractActorContext,
+  // which reads actor.userId — but HS sets req.user._id / req.apiKey._id (not
+  // .userId), so the default collapses EVERY request to a single shared "anon"
+  // slot. With one slot for all principals, one principal's Idempotency-Key
+  // reuses another's slot: principal B is refused key K that principal A already
+  // used (cross-actor denial). Bind the slot to HS's own principal id so each
+  // principal has an isolated key namespace. Mounted after global auth
+  // (attachUser / api-auth), so req.user / req.apiKey are set before this runs.
+  scopeFn: function (req) {
+    return (req.user && req.user._id) || (req.apiKey && req.apiKey._id) || "anon";
+  },
+  // Defense-in-depth against cross-principal DISCLOSURE: even within a slot, fold
+  // the actor into the body fingerprint so a slot mismatch (should one ever occur)
+  // reads as a 422 key-reuse rather than replaying another principal's stored
+  // response — several of these endpoints return a one-time secret (e.g.
+  // /admin/apikeys/create returns the raw key).
   bodyFingerprint: function (req) {
     var actor = (req.user && req.user._id) || (req.apiKey && req.apiKey._id) || "anon";
     return JSON.stringify({ actor: actor, body: (req.body !== undefined ? req.body : null) });

@@ -289,35 +289,40 @@ describe("admin settings weaponization", function () {
     config.allowedExtensions = savedExtensions;
   });
 
-  it("12. maxFileSize of 0 rejects uploads", async function () {
-    config.maxFileSize = 0;
+  it("12. a positive maxFileSize cap rejects an over-limit upload", async function () {
+    // HS's cap model: maxFileSize 0 / null = "not set" (the routes translate a
+    // falsy cap to NO_LIMIT_CEILING_BYTES — no cap); -1 = explicit "No limit"; a
+    // POSITIVE value is the enforced byte cap. Enforcement is the security
+    // property worth testing — set a tiny positive cap and confirm an over-limit
+    // file is refused and never stored.
+    config.maxFileSize = 8;
 
     client.clearCookies();
     await client.initApiKey();
     var init = await client.post("/drop/init", {
-      json: { uploaderName: "ZeroSize", fileCount: 1, skippedCount: 0, skippedFiles: [] },
+      json: { uploaderName: "SmallCap", fileCount: 1, skippedCount: 0, skippedFiles: [] },
     });
     assert.strictEqual(init.status, 200);
 
-    // maxFileSize=0 causes the multipart parser to call req.destroy() which
-    // may reset the connection before a response is sent. Either an error
-    // response or a connection reset is acceptable -- the key is the file
-    // must NOT be stored.
+    // The multipart parser aborts an over-limit stream, which may reset the
+    // connection before a response is sent. Either an error response or a
+    // connection reset is acceptable -- the key is the file must NOT be stored.
     var rejected = false;
     try {
       var res = await client.uploadFile(
-        "/drop/file/" + init.json.bundleId, "file", "tiny.txt",
-        "a", { relativePath: "tiny.txt" }
+        "/drop/file/" + init.json.bundleId, "file", "big.txt",
+        "this content is well over eight bytes", { relativePath: "big.txt" }
       );
-      // If we get a response, it must be an error
-      assert.ok(res.status === 400 || res.status === 500, "maxFileSize=0 must reject upload (got " + res.status + ")");
+      // If we get a response, it must be an error.
+      assert.ok(res.status === 400 || res.status === 413 || res.status === 500,
+        "over-limit upload must reject (got " + res.status + ")");
       rejected = true;
     } catch (e) {
-      // Connection reset (ECONNRESET) is expected when req.destroy() fires
+      // Connection reset (ECONNRESET) is expected when the parser aborts the stream.
       assert.strictEqual(e.code, "ECONNRESET");
       rejected = true;
     }
-    assert.strictEqual(rejected, true, "maxFileSize=0 must reject the upload");
+    assert.strictEqual(rejected, true, "over-limit upload must be rejected");
 
     // Restore and verify server is still alive
     config.maxFileSize = savedMaxFileSize;

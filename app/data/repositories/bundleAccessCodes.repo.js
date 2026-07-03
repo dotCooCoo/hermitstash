@@ -19,6 +19,15 @@ function countRecentCodes(bundleShareId, emailHash, sinceIso) {
 
 function update(id, ops) { return bundleAccessCodes.update({ _id: id }, ops); }
 
+// Atomically consume a single-use pending code: flip status pending→used only
+// while it is STILL pending, and report whether THIS call won. The status:"pending"
+// in the WHERE is the compare-and-set — two concurrent redemptions of the same
+// code can't both succeed (the loser changes 0 rows), closing the read-validate-
+// then-write double-use race (CWE-367). Mirrors the enrollment-code claim.
+function claimPending(id) {
+  return !!bundleAccessCodes.update({ _id: id, status: "pending" }, { $set: { status: "used" } });
+}
+
 function invalidatePending(bundleShareId, emailHash) {
   var pending = bundleAccessCodes.find({ bundleShareId: bundleShareId, status: "pending", emailHash: emailHash });
   for (var i = 0; i < pending.length; i++) {
@@ -33,4 +42,4 @@ function cleanupExpired() {
   return old.length;
 }
 
-module.exports = { create, findPendingCode, countRecentCodes, update, invalidatePending, cleanupExpired };
+module.exports = { create, findPendingCode, countRecentCodes, update, claimPending, invalidatePending, cleanupExpired };

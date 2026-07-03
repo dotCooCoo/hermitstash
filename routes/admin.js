@@ -1,6 +1,13 @@
 /**
  * Admin domain routes — every endpoint gated by requireAdmin middleware.
  *
+ * codebase-patterns:allow-file process-exit — operator-triggered restart
+ *   endpoints (backup restore, mTLS CA regeneration) exit after flushing the
+ *   response so the supervisor (Docker/systemd) restarts the process.
+ * codebase-patterns:allow-file raw-process-env — the security panel reads raw
+ *   env (TLS / CA / vault sealing modes, plaintext-key paths) to report the
+ *   operator's actual environment configuration, distinct from resolved config.
+ *
  * This is a large multi-domain surface (deliberately kept in one file per
  * CLAUDE.md Rule 5: routes live in existing files that own the domain, and
  * the "admin" domain spans the full management surface). Sub-domains covered:
@@ -316,7 +323,7 @@ module.exports = function (app) {
         } });
         // Decrement stash totalBytes if bundle belongs to a stash page
         if (bundle.stashId) {
-          try { stashRepo.decrementBytes(bundle.stashId, doc.size); } catch (_e) {}
+          try { stashRepo.decrementBytes(bundle.stashId, doc.size); } catch (_e) {} // allow:silent-catch — best-effort stats decrement; never blocks the delete
         }
       }
     }
@@ -1178,7 +1185,7 @@ module.exports = function (app) {
         mtlsCa.commit({ caCertPem: fresh.caCertPem, caKeyPem: fresh.caKeyPem });
         // Delete browser cert api_keys — their cert was issued by the old CA
         for (var bc = 0; bc < browserCerts.length; bc++) {
-          try { apiKeysRepo.remove(browserCerts[bc]._id); } catch (_e) {}
+          try { apiKeysRepo.remove(browserCerts[bc]._id); } catch (_e) {} // allow:silent-catch — best-effort cert-record cleanup
         }
         audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "mTLS CA regenerated: " + JSON.stringify(summary), req: req });
         logger.info("[mTLS] CA regenerated — exiting for restart", { summary: summary, note: note });

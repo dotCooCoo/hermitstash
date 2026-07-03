@@ -78,7 +78,7 @@ jobs:
           node-version: '24'
 
       - name: Install jazzer.js
-        run: npm install --no-save @jazzer.js/core@^2
+        run: npm ci --prefix fuzz
 
       - name: Fuzz ${{ matrix.target }}
         env:
@@ -89,10 +89,10 @@ jobs:
           corpus="fuzz/${{ matrix.target }}_seed_corpus"
           echo "::group::jazzer fuzz $harness ($FUZZ_TIME s)"
           if [ -d "$corpus" ]; then
-            npx --yes jazzer "$harness" "$corpus" -- \
+            npx --prefix fuzz jazzer "$harness" "$corpus" -- \
               -max_total_time="$FUZZ_TIME" -error_exitcode=1 -timeout=30
           else
-            npx --yes jazzer "$harness" -- \
+            npx --prefix fuzz jazzer "$harness" -- \
               -max_total_time="$FUZZ_TIME" -error_exitcode=1 -timeout=30
           fi
           echo "::endgroup::"

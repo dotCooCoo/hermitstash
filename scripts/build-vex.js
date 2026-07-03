@@ -55,7 +55,8 @@ function readInput() {
 }
 
 function readVersion() {
-  return require(path.join(REPO_ROOT, 'lib', 'constants')).version;
+  // Static literal require so bundlers/SEA can trace it (no require(variable)).
+  return require('../lib/constants').version;
 }
 
 function expandProductScope(scope, version) {

@@ -29,6 +29,29 @@ var b = require("../../lib/vendor/blamejs");
 var { emitError } = require("../../middleware/respond-error");
 var originPolicy = require("./origin-policy");
 
+// Canonicalize an origin (scheme://host[:port]) to an encoding-stable form so the
+// same-origin CSRF gate can't be steered by a case, trailing-dot, IDN, or
+// default-port difference between the browser Origin and the configured rpOrigin
+// (b.publicSuffix.canonicalDomain is the shared host-identity form). Returns "" for
+// an unparseable value, which never equals a valid configured origin (fail closed:
+// a present-but-malformed Origin is rejected).
+function canonicalOrigin(raw) {
+  var s = String(raw || "").trim().replace(/\/+$/, "");
+  if (!s) return "";
+  // Allow http AND https — a same-origin deployment may be plain-HTTP (local, or
+  // the app hop behind a TLS-terminating proxy). safeUrl.parse rejects http by
+  // default and THROWS; catch so a malformed / non-http(s) Origin fails closed to
+  // "" (which never equals a valid configured origin) rather than 500-ing.
+  var u;
+  try { u = b.safeUrl.parse(s, { allowedProtocols: b.safeUrl.ALLOW_HTTP_ALL }); }
+  catch (_e) { return ""; }
+  if (!u || !u.hostname) return "";
+  var host = b.publicSuffix.canonicalDomain(u.hostname);
+  if (!host) return "";
+  var scheme = String(u.protocol || "").replace(/:$/, "").toLowerCase();
+  return scheme + "://" + host + (u.port ? ":" + u.port : "");
+}
+
 var EXEMPT_PREFIXES = [
   "/drop/",           // public uploads (init, file, chunk, finalize)
   "/auth/google",     // OAuth redirect/callback
@@ -130,13 +153,13 @@ function csrfMiddleware(req, res, next) {
   // portals, all of which pass the Origin check cleanly.
   if (contentType.includes("application/json") || contentType.includes("multipart/")) {
     var origin = (req.headers && req.headers.origin) || "";
-    // Compare canonicalized origins. A browser Origin is bare scheme://host[:port]
-    // with no trailing slash; an operator's configured rpOrigin may carry one, which
-    // would make a legitimate same-origin POST fail the check. Strip trailing
-    // slashes from both before comparing — this only loosens the SAME-origin match,
-    // never the cross-site rejection.
-    var configuredOrigin = (originPolicy.getOrigin() || "").replace(/\/+$/, "");
-    if (origin && origin.replace(/\/+$/, "") !== configuredOrigin) {
+    // Compare CANONICALIZED origins so a legitimate same-origin POST is never
+    // refused (nor a cross-site one accepted) over a case / default-port /
+    // trailing-dot / IDN difference between the browser Origin and the operator's
+    // configured rpOrigin — both sides run through the same host canonicalizer.
+    var reqOrigin = canonicalOrigin(origin);
+    var configuredOrigin = canonicalOrigin(originPolicy.getOrigin());
+    if (origin && reqOrigin !== configuredOrigin) {
       // emitError routes problem+json through the encrypting res.json on an
       // api-encrypt cookie session — a direct b.problemDetails.send would ship
       // this 403 in CLEARTEXT on a session the client negotiated as encrypted

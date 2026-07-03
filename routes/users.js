@@ -292,7 +292,10 @@ module.exports = function (app) {
     var tokenHash = b.crypto.sha3Hash(req.params.token);
     var invite = invitesRepo.findAll({}).filter(function (i) { return i.tokenHash && i.tokenHash.length === tokenHash.length && b.crypto.timingSafeEqual(i.tokenHash, tokenHash) && i.status === "pending"; })[0];
     if (!invite) return send(res, "error", { title: "Invalid Invite", message: "This invite link is invalid or has already been used.", user: null }, 404);
-    if (invite.expiresAt < new Date().toISOString()) return send(res, "error", { title: "Invite Expired", message: "This invite has expired. Please ask your admin for a new one.", user: null }, 410);
+    // Fail closed: parse the stored expiry and treat a missing/malformed value as
+    // expired (a lexicographic `null < isoString` would read as not-expired).
+    var inviteExpiry = Date.parse(invite.expiresAt);
+    if (!Number.isFinite(inviteExpiry) || inviteExpiry < Date.now()) return send(res, "error", { title: "Invite Expired", message: "This invite has expired. Please ask your admin for a new one.", user: null }, 410);
     send(res, "invite-accept", { email: invite.email, token: req.params.token, user: null, localAuth: config.localAuth, passkeyEnabled: config.passkeyEnabled, googleAuth: !!config.google.clientID });
   });
 

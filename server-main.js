@@ -2,6 +2,13 @@
 var path = require("node:path");
 var fs = require("node:fs");
 
+// codebase-patterns:allow-file process-exit — this is the server entry point;
+// boot-fatal aborts and graceful-shutdown exits (post-restore, mTLS CA regen, DB
+// re-encrypt) are inherent to its role, not library code unilaterally exiting.
+// codebase-patterns:allow-file raw-process-env — bootstrap reads env directly
+// because it runs before (and in order to build) the config layer; config.js is
+// the canonical reader for everything downstream.
+
 // -- lib/ modules --
 var config = require("./lib/config");
 var C = require("./lib/constants");
@@ -617,7 +624,12 @@ if (Array.isArray(config.adminAllowedCidrs) && config.adminAllowedCidrs.length >
     catch (_e) { throw new Error("ADMIN_ALLOWED_CIDRS contains a malformed CIDR: " + JSON.stringify(cidr)); }
   });
   app.use(function adminNetworkFence(req, res, next) {
-    var pathname = req.pathname || (req.url || "").split("?")[0];
+    // Decide on the router's canonical, once-decoded req.pathname — never the raw
+    // req.url, whose percent-escapes the gate and the downstream route matcher
+    // would resolve differently (a gate-vs-resolver split). The router always sets
+    // req.pathname before middleware; if it is ever absent, fail CLOSED by treating
+    // the request as admin-scoped so the fence still applies.
+    var pathname = typeof req.pathname === "string" ? req.pathname : "/admin";
     if (pathname !== "/admin" && pathname.indexOf("/admin/") !== 0) return next();
     var ip = clientIp.getIp(req);
     var allowed = !!ip && adminFenceCidrs.some(function (cidr) {
@@ -855,7 +867,7 @@ scheduler.register("shm_usage_monitor", C.TIME.minutes(5), function () { // ever
     } else if (pct >= 75) {
       logger.warn("[SHM] " + tmpdir + " is " + pct + "% full (" + usedMB + "/" + totalMB + " MB) — consider increasing shm_size.");
     }
-  } catch (_e) {} // statfsSync not available on all platforms
+  } catch (_e) {} // allow:silent-catch — statfsSync not available on all platforms
 });
 if (config.backup && config.backup.enabled) {
   // register(name, intervalMs, fn) declares only 3 params — a 4th options arg
@@ -1324,7 +1336,7 @@ server.on("upgrade", function (req, socket, head) {
 
   // Real-time event listener
   var syncListener = function (event) {
-    try { safeSend(JSON.stringify(event)); } catch (_e) {}
+    try { safeSend(JSON.stringify(event)); } catch (_e) {} // allow:silent-catch — best-effort WS push; a dead socket is reaped elsewhere
   };
   syncEmitter.on("sync:" + bundleId, syncListener);
 
@@ -1396,7 +1408,7 @@ server.on("upgrade", function (req, socket, head) {
         // regeneration endpoint is awaiting so it knows this client is
         // ready for the restart. See routes/admin.js.
         var ackCb = caRotationAckCallbacks.get(keyId);
-        if (ackCb) { try { ackCb(); } catch (_e) {} }
+        if (ackCb) { try { ackCb(); } catch (_e) {} } // allow:silent-catch — best-effort ack callback
       } else if (msg.type === "catch_up") {
         // Paged: `since` is attacker-controlled (since=0 = whole bundle), so the
         // query bounds the work to one SQL-limited page on the raw bundleId/seq
@@ -1459,7 +1471,7 @@ function gracefulShutdown(signal) {
   });
 
   // Unwatch TLS cert to remove persistent file watcher
-  if (tlsEnabled) try { fs.unwatchFile(TLS_CERT); } catch (_e) {}
+  if (tlsEnabled) try { fs.unwatchFile(TLS_CERT); } catch (_e) {} // allow:silent-catch — best-effort cert-watcher teardown
 
   // Stop accepting new connections
   if (gateServer) gateServer.close();

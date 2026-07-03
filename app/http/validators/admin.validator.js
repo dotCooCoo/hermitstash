@@ -5,6 +5,7 @@
 var { validateEmail } = require("../../shared/validate");
 var C = require("../../../lib/constants");
 var settingsSchema = require("../../../lib/settings-schema");
+var clientIp = require("../../../lib/client-ip");
 
 // Roles the admin can assign via invite or role toggle
 var VALID_ROLES = ["user", "admin"];
@@ -37,6 +38,10 @@ function validateSettingsInput(body) {
   var errors = [];
   for (var j = 0; j < keys.length; j++) {
     var key = keys[j];
+    // Never dispatch or write a reserved prototype key: `cleaned[key] = ...` with
+    // key "__proto__"/"constructor"/"prototype" would re-parent the object, and
+    // these are never valid setting names.
+    if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
     // Skip masked sensitive values (handled by config.updateSettings)
     if (/^\u2022+$/.test(body[key])) { cleaned[key] = body[key]; continue; }
     var result = settingsSchema.sanitizeAndValidate(key, body[key]);
@@ -153,16 +158,20 @@ function validatePaginationParams(query) {
  */
 function validateBlocklistInput(body) {
   if (!body) return { error: "Request body required." };
-  // Lowercase so an admin-entered IPv6 matches the canonical form lib/client-ip
-  // produces on the read side (an IPv4-mapped form is rejected below, so the
-  // block and the peer lookup key off the same digest).
-  var ip = String(body.ip || "").trim().toLowerCase();
-  if (!ip || ip.length > 45) return { error: "Valid IP required." };
+  var raw = String(body.ip || "").trim();
+  if (!raw || raw.length > 45) return { error: "Valid IP required." };
 
   // Basic format check — IPv4 or IPv6 (simple patterns, no nested quantifiers)
-  var isIpv4 = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip);
-  var isIpv6 = /^[0-9a-fA-F:]+$/.test(ip) && ip.includes(":");
+  var isIpv4 = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(raw);
+  var isIpv6 = /^[0-9a-fA-F:]+$/.test(raw) && raw.includes(":");
   if (!isIpv4 && !isIpv6) return { error: "Invalid IP format." };
+
+  // Canonicalize to the EXACT RFC 5952 form lib/client-ip produces on the read
+  // side (not just lowercased): the block digest is keyed off this string, and an
+  // IPv6 written in an expanded or alternate zero-compression form would otherwise
+  // be stored under a hash the runtime peer-lookup never reproduces — a ban that
+  // silently never takes effect.
+  var ip = clientIp.canonicalize(raw);
 
   var reason = String(body.reason || "").slice(0, 500);
   return { ip: ip, reason: reason };

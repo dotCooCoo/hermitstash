@@ -13,6 +13,7 @@ One install. One upgrade path. One place to look when something breaks — no bl
 [![CI](https://img.shields.io/github/actions/workflow/status/blamejs/blamejs/ci.yml?branch=main&label=CI)](https://github.com/blamejs/blamejs/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/blamejs/blamejs?include_prereleases&sort=semver)](https://github.com/blamejs/blamejs/releases)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/blamejs/blamejs/badge)](https://scorecard.dev/viewer/?uri=github.com/blamejs/blamejs)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13471/badge)](https://www.bestpractices.dev/projects/13471)
 [![SLSA Level 3](https://slsa.dev/images/gh-badge-level3.svg)](https://slsa.dev)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 [![node](https://img.shields.io/node/v/@blamejs/core.svg)](https://nodejs.org)
@@ -52,7 +53,7 @@ var b = require("@blamejs/core");
 })();
 ```
 
-**Requirements:** Node.js 24.16+ (current active LTS line; 24.14.1 fixed CVE-2026-21713 non-constant-time HMAC compare, 24.16 is the current patch level). Node 26 satisfies the floor and the framework test suite runs cleanly on it today; the floor itself will bump to `>=26.x` when Node 26 promotes to Active LTS. Two Node 26 platform changes operators integrating with blamejs should know about: the new `localStorage` global (the framework's storage backend is `b.backup.diskStorage`; the legacy `b.backup.localStorage` alias was removed in v0.11.20 — update call sites accordingly), and the seed-only ML-KEM / ML-DSA PKCS8 export shape (sealed material from Node 24 re-imports cleanly on Node 26; new material from Node 26 in the seed-only shape). See [SECURITY.md](SECURITY.md#node-26-compatibility) for the details.
+**Requirements:** Node.js 24.18+ (current active LTS line; 24.14.1 fixed CVE-2026-21713 non-constant-time HMAC compare, 24.18 is the current patch level). Node 26 satisfies the floor and the framework test suite runs cleanly on it today; the floor itself will bump to `>=26.x` when Node 26 promotes to Active LTS. Two Node 26 platform changes operators integrating with blamejs should know about: the new `localStorage` global (the framework's storage backend is `b.backup.diskStorage`; the legacy `b.backup.localStorage` alias was removed in v0.11.20 — update call sites accordingly), and the seed-only ML-KEM / ML-DSA PKCS8 export shape (sealed material from Node 24 re-imports cleanly on Node 26; new material from Node 26 in the seed-only shape). See [SECURITY.md](SECURITY.md#node-26-compatibility) for the details.
 
 ## What ships in the box
 

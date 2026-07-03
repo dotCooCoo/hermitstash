@@ -102,6 +102,14 @@ async function authenticateLocal(email, password) {
     noPwErr.noPassword = true;
     throw noPwErr;
   }
+  // Verify the password BEFORE any account-status gate. Throwing pending/suspended
+  // first skipped the Argon2id cost (a status-by-timing oracle) and revealed an
+  // account's status to anyone holding only its email. Now the same verify cost is
+  // paid on every existing-account branch, and only a caller who proves the
+  // password learns pending/suspended state.
+  var valid = await b.auth.password.verify(user.passwordHash, password);
+  if (!valid) throw new AuthenticationError("Invalid email or password.");
+
   if (user.status === "pending") {
     var err = new ForbiddenError("Please verify your email before signing in.");
     err.pending = true;
@@ -109,9 +117,6 @@ async function authenticateLocal(email, password) {
     throw err;
   }
   if (user.status === "suspended") throw new ForbiddenError("Account suspended.");
-
-  var valid = await b.auth.password.verify(user.passwordHash, password);
-  if (!valid) throw new AuthenticationError("Invalid email or password.");
 
   return user;
 }
@@ -123,7 +128,15 @@ async function authenticateLocal(email, password) {
 function resolveGoogleUser(profile, allowedDomains) {
   if (!profile || !profile.email) throw new ValidationError("Google returned no email.");
 
-  var domain = profile.email.split("@")[1];
+  // The IdP userinfo email is untrusted input that never passes validateEmail
+  // (which is applied only on the local-registration path). An addr-spec has
+  // exactly one "@" (RFC 5322 §3.4.1); a multi-@ address like
+  // x@allowed.com@evil.com would satisfy an allowedDomains gate on the wrong
+  // segment while the real mailbox lives elsewhere (CWE-290). Validate the
+  // whole address first, then derive the domain from the FINAL "@".
+  var addrCheck = b.guardEmail.validateAddress(profile.email);
+  if (!addrCheck.ok) throw new ForbiddenError("Malformed email.");
+  var domain = profile.email.slice(profile.email.lastIndexOf("@") + 1);
   if (allowedDomains && allowedDomains.length > 0 && !allowedDomains.includes(domain)) {
     throw new ForbiddenError("Domain not allowed: " + domain);
   }
@@ -135,9 +148,12 @@ function resolveGoogleUser(profile, allowedDomains) {
   // to a stable googleId, if ever wanted, must be an explicit googleId-only lookup.)
   var user = usersRepo.findByEmail(profile.email);
 
-  // Enforce allowedDomains on returning users too
+  // Enforce allowedDomains on returning users too. user.email is a persisted,
+  // previously-validated address; derive from the FINAL "@" for consistency
+  // with the fresh-profile path above.
   if (user && allowedDomains && allowedDomains.length > 0) {
-    var userDomain = (user.email || "").split("@")[1];
+    var stored = user.email || "";
+    var userDomain = stored.indexOf("@") === -1 ? "" : stored.slice(stored.lastIndexOf("@") + 1);
     if (!allowedDomains.includes(userDomain)) {
       throw new ForbiddenError("Domain no longer allowed: " + userDomain);
     }

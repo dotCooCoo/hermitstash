@@ -22,6 +22,7 @@ var logger = require("../app/shared/logger");
 var bundleService = require("../app/domain/uploads/bundle.service");
 var uploadValidator = require("../app/http/validators/upload.validator");
 var requireAdmin = require("../middleware/require-admin");
+var scopePolicy = require("../app/security/scope-policy");
 var { resolveUploadConfig, handleFileUpload, handleChunkUpload, handleFinalize } = require("../app/domain/uploads/upload.handler");
 var { TIME, PATHS, BYTES, UPLOAD } = require("../lib/constants");
 var { validateEmail } = require("../app/shared/validate");
@@ -59,7 +60,13 @@ function emailMatchesAllowedList(email, allowedEmails) {
   if (!allowedEmails) return false;
   var list = allowedEmails.split(",").map(function (e) { return e.trim().toLowerCase(); }).filter(Boolean);
   var emailLower = email.toLowerCase();
-  var domain = "@" + emailLower.split("@")[1];
+  // An addr-spec has exactly one "@" (RFC 5322 §3.4.1). A multi-@ address would
+  // have its domain read from the wrong segment, matching an @domain allowlist
+  // entry it should not (an access grant). Self-guard rather than trusting every
+  // caller to pre-validate; derive the domain from the FINAL "@".
+  var at = emailLower.indexOf("@");
+  if (at === -1 || at !== emailLower.lastIndexOf("@")) return false;
+  var domain = "@" + emailLower.slice(at + 1);
   for (var i = 0; i < list.length; i++) {
     if (list[i] === emailLower) return true;
     if (list[i].startsWith("@") && list[i] === domain) return true;
@@ -930,7 +937,10 @@ module.exports = function (app) {
     if (!stash) throw new NotFoundError("Stash page not found.");
 
     var keys = apiKeysRepo.findAll({}).filter(function (k) {
-      return k.boundStashId === stash._id && k.permissions && k.permissions.indexOf("sync") !== -1;
+      // Exact scope match, not a raw substring: an admin-/"*"-scoped key bound to
+      // this stash carries the sync scope via parseScopes and must appear in the
+      // cert-status list even though it lacks the literal "sync" token.
+      return k.boundStashId === stash._id && scopePolicy.hasScope(k, "sync");
     });
 
     var now = new Date();

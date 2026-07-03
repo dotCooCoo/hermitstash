@@ -247,6 +247,11 @@ async function handleFileUpload(ctx) {
     return { error: "Could not validate file content." };
   }
 
+  // Bind the stored MIME to the sniffed content for inline-rendered types: the
+  // serve-time preview gate reads this stored value, so a spoofed inline
+  // Content-Type is downgraded to a forced download rather than trusted.
+  var serveMime = uploadValidator.safeServeMime(file.mimetype, file.data);
+
   // Bundle limits
   var limitsCheck = uploadValidator.validateBundleLimits(bundle.receivedFiles + 1, limits.maxFiles, bundle.totalSize + file.size, limits.maxBundleSize);
   if (!limitsCheck.valid) {
@@ -297,7 +302,7 @@ async function handleFileUpload(ctx) {
   if (replaced) {
     filesRepo.update(old._id, { $set: {
       originalName: sanitizeFilename(file.filename),
-      storagePath: saved.path, mimeType: file.mimetype, size: file.size,
+      storagePath: saved.path, mimeType: serveMime, size: file.size,
       checksum: checksum, encryptionKey: saved.encryptionKey,
       teamId: bundle.teamId || null,
       updatedAt: now, seq: newSeq,
@@ -306,7 +311,7 @@ async function handleFileUpload(ctx) {
     var result = await fileService.saveAndCreateFileRecord(file.data, {
       bundleShareId: bundle.shareId, bundleId: bundle._id,
       filename: file.filename, relativePath: cleanRelPath,
-      mimeType: file.mimetype, uploadedBy: ctx.uploadedBy,
+      mimeType: serveMime, uploadedBy: ctx.uploadedBy,
       uploaderEmail: ctx.uploaderEmail, expiresAt: ctx.expiresAt,
       // Inherit the bundle's team so team-scoped uploads land in the team's
       // shared file list (GET /teams/:teamId/files). null for non-team bundles.
@@ -508,11 +513,15 @@ async function handleChunkUpload(ctx) {
     return { error: "Could not validate file content." };
   }
 
+  // Bind the stored MIME to the sniffed content (parity with the non-chunked
+  // path): a spoofed inline Content-Type is downgraded to a forced download.
+  var chunkServeMime = uploadValidator.safeServeMime(fields.mimeType, fullData);
+
   // Save file and create DB record
   var chunkResult = await fileService.saveAndCreateFileRecord(fullData, {
     bundleShareId: bundle.shareId, bundleId: bundle._id,
     filename: filename, relativePath: relativePath,
-    mimeType: fields.mimeType, uploadedBy: ctx.uploadedBy,
+    mimeType: chunkServeMime, uploadedBy: ctx.uploadedBy,
     uploaderEmail: ctx.uploaderEmail, expiresAt: ctx.expiresAt,
     // Inherit the bundle's team so chunked uploads to a team-scoped stash also
     // land in the team's file list (parity with the non-chunked path above).

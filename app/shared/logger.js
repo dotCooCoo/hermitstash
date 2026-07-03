@@ -23,6 +23,7 @@
 var b = require("../../lib/vendor/blamejs");
 
 var VALID_LEVELS = { debug: 1, info: 1, warn: 1, error: 1, fatal: 1 };
+// allow:raw-process-env — the logger initializes before the config layer is built
 var level = VALID_LEVELS[process.env.LOG_LEVEL] ? process.env.LOG_LEVEL : "info";
 
 var logger = b.log.create({

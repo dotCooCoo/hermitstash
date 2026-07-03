@@ -209,4 +209,116 @@ describe("blamejs consumed-primitive coverage", function () {
     assert.notStrictEqual(a, diffNs, "different namespace → different blind index");
     assert.notStrictEqual(a, diffVal, "different value → different blind index");
   });
+
+  it("b.guardEmail.validateAddress accepts a single-@ address and refuses a multi-@ one", function () {
+    assert.strictEqual(b.guardEmail.validateAddress("user@example.com").ok, true);
+    assert.strictEqual(b.guardEmail.validateAddress("x@allowed.com@evil.com").ok, false,
+      "an addr-spec has exactly one @ (RFC 5322 §3.4.1)");
+    assert.strictEqual(b.guardEmail.validateAddress("no-at-sign").ok, false);
+  });
+
+  it("b.publicSuffix.canonicalDomain returns an encoding-stable host form", function () {
+    assert.strictEqual(b.publicSuffix.canonicalDomain("Example.COM."), "example.com");
+    assert.strictEqual(b.publicSuffix.canonicalDomain("example.com"), "example.com");
+    assert.strictEqual(b.publicSuffix.canonicalDomain(""), "");
+  });
+
+  it("b.fileType.detect identifies binary signatures and assertOneOf gates by them", function () {
+    var png = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    assert.strictEqual(b.fileType.detect(png).mime, "image/png");
+    assert.strictEqual(b.fileType.detect(Buffer.from("plain text, no signature")), null);
+    assert.doesNotThrow(function () { b.fileType.assertOneOf(png, ["image/png"]); });
+    assert.throws(function () { b.fileType.assertOneOf(png, ["application/pdf"]); });
+  });
+
+  it("b.safePath.validate accepts an in-base rel and refuses traversal / absolute", function () {
+    assert.strictEqual(b.safePath.validate("/data", "bundles/x.bin").ok, true);
+    assert.strictEqual(b.safePath.validate("/data", "../etc/passwd").ok, false);
+    assert.strictEqual(b.safePath.validate("/data", "/etc/passwd").ok, false);
+    assert.throws(function () { b.safePath.resolve("/data", "../x"); });
+  });
+
+  it("b.safeBuffer.foldHeaderText folds CR/LF to a space and strips NUL; assertHeaderSafe throws on them", function () {
+    assert.strictEqual(b.safeBuffer.foldHeaderText("a\r\nb"), "a  b", "each of CR and LF becomes a space");
+    assert.strictEqual(b.safeBuffer.foldHeaderText("x\u0000y"), "xy", "NUL is removed, not spaced");
+    assert.doesNotThrow(function () { b.safeBuffer.assertHeaderSafe("safe value", "f", Error, "C"); });
+    assert.throws(function () { b.safeBuffer.assertHeaderSafe("bad\r\nvalue", "f", Error, "C"); });
+    assert.throws(function () { b.safeBuffer.assertHeaderSafe("bad\u0000value", "f", Error, "C"); });
+  });
+
+  it("b.ssrfGuard.canonicalizeHost normalizes an IPv6 address to RFC 5952 form", function () {
+    assert.strictEqual(b.ssrfGuard.canonicalizeHost("2001:0DB8:0000:0000:0000:0000:0000:0001"), "2001:db8::1");
+    assert.strictEqual(b.ssrfGuard.canonicalizeHost("1.2.3.4"), "1.2.3.4");
+  });
+
+  it("b.csp.build renders a validated directive set", function () {
+    var csp = b.csp.build({ "default-src": ["'self'"], "object-src": ["'none'"] },
+      { acknowledgeUnsafe: true, requireTrustedTypes: false });
+    assert.ok(csp.indexOf("default-src 'self'") !== -1);
+    assert.ok(csp.indexOf("object-src 'none'") !== -1);
+  });
+
+  it("b.forms.verifyCsrfToken does a constant-time token compare", function () {
+    assert.strictEqual(b.forms.verifyCsrfToken("a-token-value", "a-token-value"), true);
+    assert.strictEqual(b.forms.verifyCsrfToken("a-token-value", "a-token-valuX"), false);
+  });
+
+  it("b.crypto.generateSigningKeyPair / sign / verify round-trip (PQC signature)", function () {
+    var kp = b.crypto.generateSigningKeyPair();
+    var msg = Buffer.from("payload to sign");
+    var sig = b.crypto.sign(msg, kp.privateKey);
+    assert.strictEqual(b.crypto.verify(msg, sig, kp.publicKey), true);
+    assert.strictEqual(b.crypto.verify(Buffer.from("tampered"), sig, kp.publicKey), false);
+  });
+
+  it("b.crypto.randomInt returns an integer in [min, max)", function () {
+    for (var i = 0; i < 50; i++) {
+      var n = b.crypto.randomInt(0, 1000000);
+      assert.ok(Number.isInteger(n) && n >= 0 && n < 1000000);
+    }
+  });
+
+  it("b.crypto.decryptPacked reverses encryptPacked under the same key", function () {
+    var key = Buffer.alloc(32, 7);
+    var packed = b.crypto.encryptPacked(Buffer.from("secret bytes"), key);
+    assert.strictEqual(b.crypto.decryptPacked(packed, key).toString("utf8"), "secret bytes");
+    assert.throws(function () { b.crypto.decryptPacked(packed, Buffer.alloc(32, 9)); }, "wrong key fails the AEAD tag");
+  });
+
+  it("b.safeAsync.Mutex.runExclusive serializes concurrent critical sections", async function () {
+    var mutex = new b.safeAsync.Mutex();
+    var order = [];
+    var a = mutex.runExclusive(async function () { order.push("a-start"); await Promise.resolve(); order.push("a-end"); });
+    var c = mutex.runExclusive(async function () { order.push("c-start"); await Promise.resolve(); order.push("c-end"); });
+    await Promise.all([a, c]);
+    // b cannot interleave inside a's critical section.
+    assert.deepStrictEqual(order, ["a-start", "a-end", "c-start", "c-end"]);
+  });
+
+  it("b.atomicFile.read reads back what write wrote (async, O_NOFOLLOW)", async function () {
+    var p = path.join(TMP, "atomic-read-" + nodeCrypto.randomBytes(3).toString("hex") + ".bin");
+    var data = nodeCrypto.randomBytes(64);
+    await b.atomicFile.write(p, data);
+    var got = await b.atomicFile.read(p);
+    assert.ok(got.equals(data), "b.atomicFile.read returns the written bytes");
+  });
+
+  it("b.auditSign signs and verifies under a pinned key (SLH-DSA archive signing)", async function () {
+    var signDir = fs.mkdtempSync(path.join(os.tmpdir(), "hs-auditsign-"));
+    try {
+      await b.auditSign.init({ dataDir: signDir, mode: "plaintext", algorithm: "slh-dsa-shake-256f" });
+      var payload = Buffer.from("v1\nchecksum\n2026-07-03T00:00:00Z", "utf8");
+      var sig = b.auditSign.sign(payload);
+      var pub = b.auditSign.getPublicKey();
+      assert.strictEqual(b.auditSign.verify(payload, sig, pub), true);
+      assert.strictEqual(b.auditSign.verify(Buffer.from("tampered"), sig, pub), false);
+      assert.ok(typeof b.auditSign.getPublicKeyFingerprint() === "string");
+      // getPublicKeyByFingerprint resolves a rotated-out key by fingerprint; an
+      // unknown fingerprint (no rotation in this test) resolves to nothing.
+      assert.ok(!b.auditSign.getPublicKeyByFingerprint("de".repeat(32)),
+        "an unknown key fingerprint is not trusted");
+    } finally {
+      try { fs.rmSync(signDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch (_e) { /* best effort */ }
+    }
+  });
 });

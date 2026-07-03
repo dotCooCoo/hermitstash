@@ -427,6 +427,7 @@ var PATTERNS_NA = {
   "gitleaks-entropy": "HS covers via its gitleaks-entropy-unallowed detector",
   "slsa-framework-action-not-sha-pinned": "HS covers via this runner's actions-currency gate",
   "numeric-opt-no-bounds-check": "HS covers via its numeric-opt-Infinity detector",
+  "leftmost-domain-informational": "HS's email-multi-at-split detector flags every split(\"@\")[1] domain derivation and exempts a non-routing use via the standard inline allow marker, so a separate informational-only leftmost-domain detector is subsumed",
   "from-base64url-untrapped": "HS decodes via Buffer.from(x,'base64'); never blamejs's .fromBase64Url() helper",
   "no-number-money-arithmetic": "HS has no monetary/billing domain",
   "wildcard-suffix-match-without-single-label-check": "wildcard SNI/SAN lives in vendored blamejs; HS delegates CORS origin matching to b.middleware.cors",
@@ -435,6 +436,31 @@ var PATTERNS_NA = {
   "inline-require-non-empty-string-validation": "blamejs opts-factory primitive shape; HS authors no framework primitives (consumes b.* via the public surface)",
   "internal-narrative-comment": "blamejs-specific label vocabulary (SUBSTRATE-/MAIL-/Codex P#/blamejs PR #N); HS lib/ comments carry none (0 sites); HS's no-internal-narrative discipline targets Phase/Sweep/Tier/Slice, enforced via the release-notes leak-vocabulary blocklist — a HS gate, if wanted, is a new detector, not this port.",
   "hand-rolled-sql": "blamejs detector for migrating its OWN data layer (clusterStorage/externalDb + the b.sql builder + _blamejs_* framework tables) onto b.sql; HS owns a deliberate standalone SQLite substrate (lib/db.js, its own prepared-statement handle + schema migration) and consumes none of that data layer, so there is no b.sql to migrate onto — HS already uses the portable b.safeSql.quoteIdentifier for identifier-injection safety (lib/db.js).",
+  // blamejs's 2026-06-26 "re-verify pass" renamed 17 detectors (a descriptive
+  // suffix; same regex/scan). HS keeps its own stable class ids (they are the
+  // in-tree `// allow:<id>` marker handles — renaming would orphan every marker),
+  // so each new blamejs id maps here to the HS detector that already covers it.
+  // For 6 of them the shape-gap audit found HS-owned hazards outside lib/ (HS is
+  // a full app; blamejs is lib-only), so those HS detectors were widened to the
+  // app tree (app/ middleware/ routes/ server-main.js) and the legitimate sites
+  // allow-markered — see tests/lint/codebase-patterns.test.js.
+  "bare-split-on-quoted-header-token-grammar": "rename of bare-split-on-quoted-header; HS covers via that detector (identical quoted-header split scan)",
+  "dynamic-require-operator-module": "rename of dynamic-require; HS covers via that detector, now app-scope-widened (the one scripts/ site, build-vex.js, was fixed to a static literal require)",
+  "handrolled-buffer-collect-bounded-framing": "rename of handrolled-buffer-collect; HS covers via that detector, now app-scope-widened (steers to b.safeBuffer.boundedChunkCollector)",
+  "handrolled-debounce-stream-idle": "rename of handrolled-debounce; HS covers via that detector (steers to b.safeAsync.debounce)",
+  "hostname-compare-trailing-dot-pre-split-refused": "rename of hostname-compare-trailing-dot; HS covers via that detector (already app-scope-widened)",
+  "math-random-noncrypto-jitter-sampling": "rename of math-random-noncrypto; HS covers via that detector (same /Math.random(/ scan)",
+  "process-exit-operator-optin": "rename of process-exit; HS covers via that detector, now app-scope-widened (the boot-fatal / operator-restart sites in server-main.js, routes/admin.js, startup-checks.js are allow-markered)",
+  "raw-hash-compare-nonsecret-tag": "rename of raw-hash-compare; HS covers via that detector + testNoHexShaCompareEquals, backed by the timingSafeEqual invariant",
+  "raw-new-url-parse-only": "rename of raw-new-url; HS covers via that detector (steers outbound URLs through b.safeUrl.parse)",
+  "raw-outbound-http-framework-internal": "rename of raw-outbound-http; HS covers via that detector, now app-scope-widened (runtime outbound goes through b.* / s3-client; the only raw calls are in scripts/vendor-font.js, a manual dev tool fetching hardcoded Google Fonts hosts — out of the runtime gate scope by design)",
+  "raw-process-env-bootstrap": "rename of raw-process-env; HS covers via that detector, now app-scope-widened (bootstrap reads in server-main.js/startup-checks.js and security-panel diagnostics in routes/admin.js carry allow-file markers; config.js stays the canonical reader)",
+  "raw-randombytes-token-mime-boundary": "rename of raw-randombytes-token; HS covers via that detector (tokens use b.crypto.generateToken)",
+  "raw-timing-safe-equal-boot-prechecked": "rename of raw-timing-safe-equal; HS covers via that detector (steers to the length-tolerant wrapper)",
+  "raw-xfp-telemetry-only": "rename of raw-xfp; HS covers via that detector (app-scope; explicitly mirrors blamejs Pattern 20b)",
+  "seal-without-aad-by-design": "rename of seal-without-aad; HS covers via that detector (HS seals via b.cryptoField aad:true/rowIdField:_id; 0 raw-seal sites)",
+  "silent-catch-stream-teardown": "rename of silent-catch; HS covers via that detector, now app-scope-widened (best-effort teardown/cleanup catches in routes/, middleware/, server-main.js are allow-markered)",
+  "timer-no-unref-unrefed-below": "rename of timer-no-unref; HS covers via that detector (setInterval handle must .unref() within the window)",
 };
 
 // Extract the detector class-id set from a codebase-patterns gate file.

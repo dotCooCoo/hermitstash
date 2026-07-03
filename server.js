@@ -17,22 +17,23 @@
  */
 "use strict";
 
-// Node version guard — fail fast with a clear message on <24.16.0.
-// HermitStash needs Node 24.16.0+ for OpenSSL 3.5 PQC bindings
+// Node version guard — fail fast with a clear message on <24.18.0.
+// HermitStash needs Node 24.18.0+ for OpenSSL 3.5 PQC bindings
 // (ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87) plus the cumulative
-// security patches that have shipped on the 24.x line since 24.8.
+// security patches that have shipped on the 24.x line since 24.8
+// (24.17.0 was a security release; 24.18.0 bundles SQLite 3.53.1).
 // Operators bypassing deploy/install.sh + Dockerfile (e.g. running
 // directly under a system Node) get this error instead of cryptic
 // blamejs / OpenSSL failures deep in the require chain.
 (function checkNodeVersion() {
   var parts = process.versions.node.split(".").map(Number);
   var major = parts[0], minor = parts[1];
-  var tooOld = major < 24 || (major === 24 && minor < 16);
+  var tooOld = major < 24 || (major === 24 && minor < 18);
   if (tooOld) {
     console.error(
-      "FATAL: HermitStash requires Node.js 24.16.0 or newer (found v" + process.versions.node + ").\n" +
+      "FATAL: HermitStash requires Node.js 24.18.0 or newer (found v" + process.versions.node + ").\n" +
       "  HermitStash uses OpenSSL 3.5 post-quantum bindings (ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87)\n" +
-      "  plus crypto.argon2; the 24.16.0 floor pins the latest active 24.x patches. Upgrade Node and re-run.\n" +
+      "  plus crypto.argon2; the 24.18.0 floor pins the latest active 24.x patches. Upgrade Node and re-run.\n" +
       "  Install: https://nodejs.org/  |  Linux/systemd: deploy/install.sh"
     );
     process.exit(1);

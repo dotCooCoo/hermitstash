@@ -66,5 +66,5 @@ module.exports = function webGuard(req, res, next) {
 
   // No mTLS, no Bearer, not an always-allowed path → drop the connection.
   // No response body, no template render, no information leakage.
-  try { req.socket.destroy(); } catch (_e) {}
+  try { req.socket.destroy(); } catch (_e) {} // allow:silent-catch — best-effort socket teardown; peer may have already closed
 };

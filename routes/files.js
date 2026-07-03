@@ -159,7 +159,7 @@ module.exports = function (app) {
           // totalBytes aggregates stay permanently inflated when a stash bundle
           // is emptied via this auto-cleanup path.
           if (bundle.stashId) {
-            try { stashRepo.decrementBundleStats(bundle.stashId, bundle.totalSize); } catch (_e) {}
+            try { stashRepo.decrementBundleStats(bundle.stashId, bundle.totalSize); } catch (_e) {} // allow:silent-catch — best-effort stats decrement; never blocks the delete
           }
           bundlesRepo.remove(bundle._id);
           audit.log(audit.ACTIONS.ADMIN_BUNDLE_DELETED, { targetId: bundle._id, details: "auto-cleanup: last file deleted", req: req });

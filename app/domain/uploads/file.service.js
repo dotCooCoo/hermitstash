@@ -52,6 +52,10 @@ async function getDownloadStream(doc) {
   var headers = {
     "Content-Disposition": safeContentDisposition(doc.originalName),
     "Content-Type": doc.mimeType || "application/octet-stream",
+    // Pin the declared type on this user-content route so a mislabeled body can
+    // never be sniffed into an active type (defense-in-depth; the global security
+    // headers set this too).
+    "X-Content-Type-Options": "nosniff",
   };
   return { stream: stream, headers: headers };
 }
@@ -77,6 +81,8 @@ async function getInlinePreviewStream(doc) {
   var headers = {
     "Content-Type": doc.mimeType,
     "Content-Disposition": "inline",
+    // An inline-rendered body must never be sniffed away from its declared type.
+    "X-Content-Type-Options": "nosniff",
   };
   return { stream: stream, headers: headers };
 }

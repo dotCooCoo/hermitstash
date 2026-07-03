@@ -17,7 +17,12 @@ var { TIME } = require("../../lib/constants");
 async function run() {
   var apiKeysRepo = require("../data/repositories/apiKeys.repo");
   var db = require("../../lib/db");
-  var allKeys = apiKeysRepo.findAll({}).filter(function (k) { return k.certExpiresAt && k.permissions && k.permissions.indexOf("sync") !== -1; });
+  var scopePolicy = require("../security/scope-policy");
+  // Select sync-capable keys by exact SCOPE, not a raw substring: an admin- or
+  // "*"-scoped key carries the sync scope via parseScopes but does not contain the
+  // literal "sync" token, so indexOf("sync") wrongly excluded it from expiry
+  // monitoring and auto-renewal. hasScope expands wildcard/role grants.
+  var allKeys = apiKeysRepo.findAll({}).filter(function (k) { return k.certExpiresAt && scopePolicy.hasScope(k, "sync"); });
 
   if (allKeys.length === 0) return { checked: 0 };
 

@@ -1,6 +1,6 @@
 {
   "name": "@blamejs/core",
-  "version": "0.15.47",
+  "version": "0.16.1",
   "description": "The Node framework that owns its stack.",
   "license": "Apache-2.0",
   "author": "blamejs contributors",
@@ -54,7 +54,7 @@
     "owns-its-stack"
   ],
   "engines": {
-    "node": ">=24.16.0"
+    "node": ">=24.18.0"
   },
   "files": [
     "index.js",
@@ -70,7 +70,7 @@
   ],
   "scripts": {
     "test": "node test/smoke.js",
-    "fuzz": "npx --yes @jazzer.js/core fuzz/safe-json.fuzz.js -- -max_total_time=60",
+    "fuzz": "npm ci --prefix fuzz && npx --prefix fuzz jazzer fuzz/safe-json.fuzz.js -- -max_total_time=60",
     "prepack": "node scripts/check-pack-against-gitignore.js",
     "check:vendor-currency": "node scripts/check-vendor-currency.js"
   },

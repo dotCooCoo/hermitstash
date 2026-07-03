@@ -80,8 +80,10 @@ module.exports = function (app) {
     }
   });
 
-  // Disable 2FA
-  app.post("/2fa/disable", async (req, res) => {
+  // Disable 2FA. Rate-limited like /2fa/verify: the disable code is the current
+  // TOTP, so a hijacked session without the second factor must not be able to
+  // brute-force it off.
+  app.post("/2fa/disable", rateLimit.guard({ max: 5, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {
       var body = (await b.parsers.json(req)) || {};
@@ -115,10 +117,12 @@ module.exports = function (app) {
       var body = (await b.parsers.json(req)) || {};
       var code = String(body.code || "");
       var userId = req.session.pendingTotpUserId;
-      var pendingExpires = req.session.pendingTotpExpires || 0;
+      // Fail closed on a missing / non-numeric deadline: a non-finite value must
+      // read as expired, never as an unbounded pending window.
+      var pendingExpires = Number(req.session.pendingTotpExpires);
 
       if (!userId) throw new ValidationError("No pending 2FA verification.");
-      if (Date.now() > pendingExpires) {
+      if (!Number.isFinite(pendingExpires) || Date.now() > pendingExpires) {
         delete req.session.pendingTotpUserId;
         delete req.session.pendingTotpExpires;
         throw new ValidationError("2FA session expired. Please log in again.");
@@ -228,8 +232,10 @@ module.exports = function (app) {
   // rather than showing a code prompt that /2fa/verify would reject anyway.
   app.get("/2fa", function (req, res) {
     var userId = req.session && req.session.pendingTotpUserId;
-    var expires = (req.session && req.session.pendingTotpExpires) || 0;
-    if (!userId || Date.now() > expires) return res.redirect("/auth/login");
+    // Fail closed: a non-finite deadline sends the visitor back to login rather
+    // than rendering a code prompt against an unbounded pending window.
+    var expires = Number(req.session && req.session.pendingTotpExpires);
+    if (!userId || !Number.isFinite(expires) || Date.now() > expires) return res.redirect("/auth/login");
     // user:null renders the logged-out chrome — the shared partials reference a
     // bare `user` in `{% if (user) %}` guards, which ReferenceErrors under the
     // template's with(__data) if the key is absent. The visitor is mid-login

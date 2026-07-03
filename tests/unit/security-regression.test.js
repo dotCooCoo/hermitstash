@@ -23,7 +23,7 @@ var vault = require("../../lib/vault");
 var clientIp = require("../../lib/client-ip");
 var fieldCrypto = require("../../lib/field-crypto");
 var config = require("../../lib/config");
-var db, bundlesRepo, accessCodeService, accessCodesRepo, email;
+var db, bundlesRepo, accessCodeService, accessCodesRepo, email, authService, errors;
 
 before(async function () {
   await vault.init();
@@ -32,6 +32,8 @@ before(async function () {
   accessCodeService = require("../../app/domain/access-code.service");
   accessCodesRepo = require("../../app/data/repositories/bundleAccessCodes.repo");
   email = require("../../lib/email");
+  authService = require("../../app/domain/auth/auth.service");
+  errors = require("../../app/shared/errors");
 });
 
 function seedCode(shareId, email, code) {
@@ -235,5 +237,48 @@ describe("Resend quota is enforced in combo backends (was bypassed — strict ba
     seedSends(5);
     assert.strictEqual(email.checkQuota().allowed, true, "a non-Resend mode is never quota-gated");
     assert.strictEqual(email.checkQuota({ backend: "smtp" }).allowed, true);
+  });
+});
+
+describe("single-use email access code is consumed atomically (was a read-validate-then-write, double-use under concurrency)", function () {
+  it("a code verifies once, then a second redemption of the same code is refused", function () {
+    var shareId = "b-" + b.crypto.generateToken(4);
+    seedCode(shareId, "once@ex.com", "424242");
+    var first = accessCodeService.verifyCode({ shareId: shareId, email: "once@ex.com", code: "424242" });
+    assert.strictEqual(first.success, true, "first redemption succeeds");
+    var second = accessCodeService.verifyCode({ shareId: shareId, email: "once@ex.com", code: "424242" });
+    assert.strictEqual(second.success, false, "the same code cannot be redeemed twice (single-use)");
+  });
+
+  it("claimPending is a compare-and-set: only the first claim of a pending code wins", function () {
+    var shareId = "b-" + b.crypto.generateToken(4);
+    seedCode(shareId, "cas@ex.com", "515151");
+    // bundleShareId + status are queryable raw columns; grab the seeded row's _id.
+    var row = db.bundleAccessCodes.find({ bundleShareId: shareId, status: "pending" })[0];
+    assert.ok(row && row._id, "seeded pending row exists");
+    assert.strictEqual(accessCodesRepo.claimPending(row._id), true, "the first claim transitions pending→used");
+    assert.strictEqual(accessCodesRepo.claimPending(row._id), false, "a second claim changes 0 rows (already used)");
+  });
+});
+
+describe("Google-SSO domain gate rejects a multi-@ address (was split(\"@\")[1] alignment bypass, CWE-290)", function () {
+  it("resolveGoogleUser refuses a multi-@ IdP email before the allowedDomains check", function () {
+    // x@allowed.com@evil.com would derive 'allowed.com' from the second segment
+    // via split("@")[1] while the real mailbox domain is evil.com — the gate must
+    // refuse the malformed address outright.
+    assert.throws(function () {
+      authService.resolveGoogleUser(
+        { email: "x@allowed.com@evil.com", googleId: "g-1", displayName: "Evil" },
+        ["allowed.com"]
+      );
+    }, function (e) { return e instanceof errors.ForbiddenError; }, "a multi-@ SSO email is refused");
+  });
+
+  it("resolveGoogleUser still accepts a well-formed in-domain address", function () {
+    var res = authService.resolveGoogleUser(
+      { email: "alice@allowed.com", googleId: "g-2", displayName: "Alice" },
+      ["allowed.com"]
+    );
+    assert.ok(res && res.user && res.user.email === "alice@allowed.com", "a single-@ in-domain email resolves");
   });
 });

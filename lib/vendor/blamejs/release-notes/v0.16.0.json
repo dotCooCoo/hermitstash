@@ -1,0 +1,44 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.16.0",
+  "date": "2026-07-03",
+  "headline": "Raises the minimum Node.js engine to 24.18.0; the status-list verifier now binds the token type against a typ-confusion replay; and CI supply-chain pinning is consolidated behind committed dev/example lockfiles, `npm ci`, and a single aggregating pin tool that closes the OpenSSF Scorecard pinned-dependency gaps",
+  "summary": "This minor raises the supported Node.js floor from 24.16.0 to 24.18.0 — operators must run Node 24.18.0 or newer (24.17.0 was a security release; 24.18.0 bundles SQLite 3.53.1 and a backup-path fix, and guarantees the native OpenSSL 3.5 SLH-DSA surface). b.auth.statusList.fromJwt now enforces RFC 8725 §3.11 by binding the JWS header typ to the \"statuslist+jwt\" that toJwt stamps, so a token minted for another purpose can't be replayed as a status list. The build's supply-chain pinning is reworked so OpenSSF Scorecard sees pinned installs everywhere it can: the dev-tool, example, and fuzz manifests now ship committed lockfiles and CI installs them with `npm ci` (Scorecard keys pinning on the `ci` verb, not on an `@version` specifier), the vendored fuzz toolchain and the oss-fuzz base image are pinned, and a new scripts/pin-all.js aggregates every pin — regenerating all lockfiles, pinning the GitHub Action SHAs, and syncing the Docker base-image digests in one `--fix`, with a `--check` gate wired into CI and the release flow so no pin can silently drift. The committed lockfiles are dev/example-only and excluded from the published tarball; the zero-npm-RUNTIME-deps rule is unchanged.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Minimum Node.js engine raised to 24.18.0",
+          "body": "engines.node is now >=24.18.0 (was >=24.16.0). Operators must run Node 24.18.0 or newer. 24.17.0 was a security release and 24.18.0 bundles SQLite 3.53.1 plus a backup-keepalive fix; the floor also guarantees the native OpenSSL 3.5 SLH-DSA sign/verify surface. CI, the release container, and the docs are updated to the new floor."
+        },
+        {
+          "title": "Supply-chain pinning consolidated behind committed lockfiles + `npm ci` + one aggregating pin tool",
+          "body": "The root dev-tool (esbuild, postject), examples/wiki, and fuzz (jazzer.js) manifests now ship committed package-lock.json files, and CI installs them with `npm ci` instead of `npm install pkg@version` — OpenSSF Scorecard's Pinned-Dependencies check treats only the `npm ci` verb as pinned, so this is what actually clears those alerts (an exact `@version` specifier does not). The vendored fuzz toolchain is pinned to an exact jazzer version and the oss-fuzz base image is digest-pinned (mirroring the Dependabot-tracked .clusterfuzzlite digest). A new scripts/pin-all.js aggregates every pinning segment — it regenerates all committed lockfiles, pins the GitHub Action SHAs (via check-actions-currency), and syncs the Docker base-image digests in one `--fix`; a `--check` mode runs in CI and scripts/release.js so a stale lockfile or drifted digest fails closed. The committed lockfiles are dev/example-only, excluded from the published tarball's files allowlist; the zero-npm-RUNTIME-deps rule is unchanged."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Status-list verification binds the token type (RFC 8725 §3.11 typ-confusion)",
+          "body": "b.auth.statusList.fromJwt now passes expectedTyp \"statuslist+jwt\" to the JWT verifier, matching the typ that b.auth.statusList.toJwt stamps and every sibling verifier enforces. A token minted for another purpose — even one that happens to carry a status_list.lst claim — is now refused on the type binding before the claim is read, closing the typ-confusion class where such a token could be replayed as a status list."
+        }
+      ]
+    },
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "scripts/pin-all.js — aggregated supply-chain pin tool",
+          "body": "One command re-pins every supply-chain segment: `--fix` regenerates the committed lockfiles (root / examples/wiki / fuzz), pins the GitHub Action SHAs, and syncs the Docker base-image digests; `--check` (wired into CI and the release flow) verifies the lockfile and digest segments — including each lockfile's package version — are in sync and fails closed on drift. Contributor tooling — it does not ship in the tarball."
+        },
+        {
+          "title": "Project-governance and assurance documentation; OpenSSF Best Practices silver badge",
+          "body": "Adds a ROADMAP.md (documented direction plus an explicit out-of-scope list), a Developer Certificate of Origin policy in CONTRIBUTING.md (contributions carry a Signed-off-by; releases sign off through the release tooling), and an explicit security assurance case in SECURITY.md (a top security claim decomposed into evidence-backed sub-claims, with a residual-risk statement). The project earned the OpenSSF Best Practices silver badge, linked from the README."
+        }
+      ]
+    }
+  ]
+}

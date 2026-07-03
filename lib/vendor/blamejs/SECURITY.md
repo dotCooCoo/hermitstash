@@ -228,6 +228,56 @@ What blamejs does **not** defend against (operator responsibility):
 
 ---
 
+## Assurance case
+
+This is blamejs's assurance case — the argument, backed by evidence, that the
+framework meets its security requirements (in the sense of NIST IR 7608). The top
+claim is decomposed into sub-claims, each supported by the design and by
+verifiable evidence.
+
+**Top claim.** A blamejs deployment, run with defaults, resists the threats in
+the [Threat model](#threat-model) above and does not silently degrade its
+security posture.
+
+- **Sub-claim 1 — the security defaults are actually on.** CSRF, origin /
+  fetch-metadata, bot-guard, sealed storage, encrypted session, cookie prefixes,
+  Trusted Types, strict CSP, and the SSRF guard are wired into the request
+  lifecycle, not behind config flags. *Evidence:* the smoke suite asserts each
+  default fires; any change that trips a security default is fixed in the test,
+  never by weakening the default.
+- **Sub-claim 2 — the cryptography is post-quantum and misuse-resistant.** No
+  classical-only defaults; every sealed/signed envelope is algorithm-tagged so a
+  substitution fails the AEAD/verify check; keys and RNG come from audited
+  implementations. *Evidence:* the [Cryptographic stack](#cryptographic-stack)
+  section; known-answer tests on the crypto primitives; algorithm agility
+  exercised by round-trip tests.
+- **Sub-claim 3 — untrusted input cannot crash or subvert a parser.** Every
+  `safe-*` / `guard-*` primitive validates adversarial input and is fuzzed.
+  *Evidence:* ClusterFuzzLite per-PR + daily fuzzing with a regression corpus,
+  and a coverage gate that refuses any new parser primitive without a fuzz
+  harness.
+- **Sub-claim 4 — defects are caught before release and fixed at the root.**
+  Every bug fix lands with a reproducing test (RED-before-fix) and, where
+  structural, a detector; CI runs the full suite plus CodeQL, Semgrep,
+  OSV-Scanner, gitleaks, and OpenSSF Scorecard on every change across three
+  platforms. *Evidence:* the [CI workflow](.github/workflows/ci.yml); the
+  23,000+ smoke assertions; the OpenSSF Scorecard and Best Practices badges.
+- **Sub-claim 5 — what ships is what was reviewed.** Releases carry SLSA L3
+  provenance, Sigstore-signed SBOMs, npm provenance, and SSH-signed tags; the
+  supply chain (vendored deps, CI actions, Docker bases) is hash/digest-pinned
+  and integrity-checked at boot. *Evidence:*
+  [Verifying release authenticity](#verifying-release-authenticity);
+  `b.configDrift.verifyVendorIntegrity` at boot; the pinned-dependency gates.
+
+**Residual risk.** The items under "does not defend against" above are explicit
+operator responsibilities (vault-passphrase strength, host/root compromise,
+network-layer DoS, reverse-proxy CVEs). The project is solo-maintained, so
+review-by-a-second-person is a known gap tracked in
+[GOVERNANCE.md](GOVERNANCE.md); it is compensated by the automated gates above
+until a second maintainer is onboarded.
+
+---
+
 ## Cryptographic stack
 
 | Layer | Algorithm | Standard |
@@ -473,7 +523,7 @@ CVE classes the framework tracks but does not currently ship a primitive for —
 
 ## Node 26 compatibility
 
-Today's `engines.node` floor is `>=24.16.0` and the release container pins `node:24-alpine`. Node 26 satisfies the floor and the framework's test suite runs cleanly on Node 26 today. When Node 26 promotes to Active LTS (target Oct 2026), the framework will bump the floor to `>=26.x` in a dedicated release that ships the queued refactors (Map.getOrInsertComputed sweep, Ed25519 context-parameter adoption, PKCS8 reverse-direction roundtrip test) as one PR.
+Today's `engines.node` floor is `>=24.18.0` and the release container pins `node:24-alpine`. Node 26 satisfies the floor and the framework's test suite runs cleanly on Node 26 today. When Node 26 promotes to Active LTS (target Oct 2026), the framework will bump the floor to `>=26.x` in a dedicated release that ships the queued refactors (Map.getOrInsertComputed sweep, Ed25519 context-parameter adoption, PKCS8 reverse-direction roundtrip test) as one PR.
 
 Two Node 26 platform-level changes operators integrating with blamejs should be aware of now:
 

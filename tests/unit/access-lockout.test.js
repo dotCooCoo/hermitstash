@@ -89,4 +89,20 @@ describe("access-lockout (finding #3 — shared subnet-keyed backoff)", function
     assert.strictEqual(accessLockout.getLockout(ns, id, "198.51.101.10"), null,
       "a different /24 is an independent counter");
   });
+
+  it("lockedFor fails CLOSED on a non-finite lastAttempt (stays locked, never NaN)", function () {
+    // A malformed / non-parseable lastAttempt used to make Date.parse return NaN,
+    // which propagated through the elapsed math so the gate returned NaN and the
+    // caller's `retryAfter > 0` silently skipped the lockout (fail-open). It must
+    // now keep the account locked for the full backoff window.
+    var armed = accessLockout.THRESHOLD + 1;
+    var backoff = accessLockout.lockedFor({ failures: armed, lastAttempt: "not-a-date" });
+    assert.ok(Number.isFinite(backoff) && backoff > 0,
+      "an unparseable lastAttempt keeps the lockout armed, not disabled");
+    // An absent lastAttempt on an armed row is equally unverifiable → still locked.
+    var missing = accessLockout.lockedFor({ failures: armed, lastAttempt: null });
+    assert.ok(Number.isFinite(missing) && missing > 0, "a missing lastAttempt also stays locked");
+    // Below the threshold there is no lock regardless of lastAttempt.
+    assert.strictEqual(accessLockout.lockedFor({ failures: 0, lastAttempt: "not-a-date" }), 0);
+  });
 });

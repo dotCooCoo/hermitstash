@@ -3,6 +3,11 @@
  * Prints warnings for non-critical issues, exits on critical ones.
  *
  * Call this after config is loaded but before routes are registered.
+ *
+ * codebase-patterns:allow-file process-exit — a boot-check module: exiting on a
+ *   failed critical invariant is its whole purpose, before any request is served.
+ * codebase-patterns:allow-file raw-process-env — reads boot-time env toggles
+ *   (ARGON2_FAST, ENFORCE_MTLS_STRICT) that gate the checks themselves.
  */
 var nodeFs = require("node:fs");
 var b = require("../../lib/vendor/blamejs");

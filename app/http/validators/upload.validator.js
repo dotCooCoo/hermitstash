@@ -160,4 +160,27 @@ function validateMagicBytes(filename, buffer) {
   return { valid: true };
 }
 
-module.exports = { validateFile, validateChunk, validateBundleLimits, detectContentType, validateMagicBytes };
+// MIME types HS renders INLINE at serve time (mirrors app/domain/uploads/
+// file.service.js SAFE_INLINE) and that b.fileType.detect can verify by magic
+// bytes. The serve-time inline/download gate reads the STORED mimeType, which is
+// the client-advertised multipart Content-Type — so a file declared as an
+// inline-rendered type but whose bytes are something else could be steered to an
+// inline render regardless of its extension (0.15.58 class). safeServeMime binds
+// the stored type to the sniffed reality: a declared inline type whose bytes do
+// not match is stored as application/octet-stream (forces download), never
+// rejected. (image/svg+xml is absent — SVG is magic-byte-less and always routes
+// to the sanitizer; every file response also carries X-Content-Type-Options:
+// nosniff, so the browser never sniffs a served body into an active type.)
+var INLINE_SNIFFABLE_MIME = new Set([
+  "application/pdf", "image/gif", "image/jpeg", "image/png", "image/webp",
+]);
+
+function safeServeMime(declaredMime, buffer) {
+  if (!declaredMime || typeof declaredMime !== "string") return "application/octet-stream";
+  if (!INLINE_SNIFFABLE_MIME.has(declaredMime)) return declaredMime;
+  if (!buffer || buffer.length < 4) return "application/octet-stream";
+  var sniffed = b.fileType.detect(buffer);
+  return (sniffed && sniffed.mime === declaredMime) ? declaredMime : "application/octet-stream";
+}
+
+module.exports = { validateFile, validateChunk, validateBundleLimits, detectContentType, validateMagicBytes, safeServeMime };

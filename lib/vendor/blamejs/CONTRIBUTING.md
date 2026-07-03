@@ -98,6 +98,15 @@ A new framework primitive lands with at least layer-0 tests. New middleware land
 
 The smoke target is `OK — N checks passed` ending with a count higher than the previous release. New operator-facing routes / primitives add their own checks to `examples/wiki/test/e2e.js`.
 
+## Developer Certificate of Origin (DCO)
+
+Contributions are accepted under the [Developer Certificate of Origin](https://developercertificate.org/).
+By adding a `Signed-off-by` line to each commit you certify that you wrote the
+patch — or otherwise have the right to submit it — under the project's Apache-2.0
+license. Sign off with `git commit -s` (which appends
+`Signed-off-by: Your Name <you@example.com>`); the sign-off must match the commit
+author. Releases are cut with sign-off through `scripts/release.js`.
+
 ## The PR loop
 
 1. **Open an issue first** for non-trivial work — design discussion catches scope problems before code is written. Trivial fixes (typos, doc tweaks, single-line bug fixes) can skip the issue.
@@ -120,6 +129,13 @@ The smoke target is `OK — N checks passed` ending with a count higher than the
    - Does the patch ship complete, or does it leave a "future" bullet behind?
 
 ## What to contribute
+
+**New here?** Issues labeled [`good first issue`](https://github.com/blamejs/blamejs/labels/good%20first%20issue)
+are deliberately scoped small and self-contained — a doc or wiki-example fix, a
+test for an uncovered branch, an error message that could better say what to do
+next. They're the best on-ramp: pick one, comment that you're taking it, and open
+a PR per the loop above. If none fit, the areas below are all newcomer-friendly at
+their smaller end.
 
 Good contribution areas, ordered by current need:
 
