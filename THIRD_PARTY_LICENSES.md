@@ -11,7 +11,7 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
 
 ---
 
-## blamejs v0.17.10
+## blamejs v0.17.11
 
 - **License:** Apache-2.0
 - **Copyright:** blamejs contributors

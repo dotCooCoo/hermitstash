@@ -1,0 +1,22 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.17.11",
+  "date": "2026-07-17",
+  "headline": "The DER decoder rejects a non-minimal length encoding, and the OAuth client-attestation verifier pins the JWT type so a JWT minted for another purpose can't be replayed into the attestation slot",
+  "summary": "The shared ASN.1 DER decoder accepted a non-minimal long-form length encoding (a long form used for a value that fits the short form, or a length carrying a leading-zero octet), a BER/DER parser-differential an attacker could use to smuggle an alternate encoding of a certificate, CMS structure, or OCSP response past the strict decoder. And the OAuth client-attestation verifier did not pin the JOSE type header of the attestation and proof-of-possession JWTs, so a JWT minted for another purpose but signed by the same key could be replayed into the attestation slot.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "DER decoder rejects a non-minimal length encoding",
+          "body": "b.asn1Der is the shared DER reader every certificate, CMS, and OCSP parse in the framework routes through. X.690 §10.1 requires the minimum number of length octets: the long form may be used only for lengths of 128 or more, and must carry no leading-zero octet. The decoder accepted both non-minimal forms -- a long-form length for a value that fits the short form, and a long-form length with a leading zero -- which is a BER/DER parser-differential an attacker can use to encode the same structure two ways and slip an alternate encoding past a strict verifier that canonicalizes differently. The decoder already refused every other BER-ism it encounters (indefinite-length, non-minimal OID sub-identifiers, non-minimal high-tag-number tags); it now also refuses a non-minimal length, closing the remaining differential."
+        },
+        {
+          "title": "OAuth client-attestation verifier pins the JWT type",
+          "body": "b.auth.oauth's attestation-based client authentication (draft-ietf-oauth-attestation-based-client-auth) verifies two JWTs -- the client-attestation JWT and its proof-of-possession JWT -- each of which carries a REQUIRED, distinct JOSE type header (oauth-client-attestation+jwt and oauth-client-attestation-pop+jwt). The verifier checked the signature and claims but not the type header, so a JWT minted for a different purpose but signed by the same key -- a private_key_jwt client assertion, or the other proof-of-possession JWT -- could be replayed into the attestation or PoP slot (the cross-JWT confused-deputy class RFC 8725 §3.11 explicit typing defends against). The verifier now pins the expected type for each slot, and the builders emit the same literals so a produced and a checked type can never drift; the framework's DPoP and back-channel-logout JWT verifiers already pin their type, and the attestation verifier now matches."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "version": "1.13.13",
+  "date": "2026-07-18",
+  "headline": "Audit-forwarding secret scrub and a stricter-DER vendored-framework refresh",
+  "summary": "A security-hardening patch. It adds a second-layer credential scrub to the audit events forwarded to a SIEM, and refreshes the vendored cryptography and identity framework to pick up a stricter DER length decoder on the shared certificate, CMS, and OCSP parse path.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Forwarded audit events scrub a recognized secret shape",
+          "body": "When SIEM forwarding is enabled, a free-form audit detail now passes through a credential-shape scrub before it leaves the process, so a value matching a recognized secret shape (a PEM or SSH private key, a card number) is masked. The high-entropy content HS logs legitimately — content checksums, storage paths, and key prefixes — is left intact, so forensic context is preserved. Call sites already log prefixes and reasons rather than raw secrets; this is a second layer behind that discipline."
+        },
+        {
+          "title": "Refreshed the vendored cryptography and identity framework",
+          "body": "The bundled framework is updated to its current release. The DER decoder that underlies every certificate, CMS, and OCSP parse now rejects a non-minimal length encoding, closing a BER/DER parser-differential an attacker could use to slip an alternate encoding of a certificate past a strict verifier."
+        }
+      ]
+    }
+  ]
+}

@@ -55,4 +55,25 @@ describe("audit-siem classification", function () {
       assert.strictEqual(siem._outcome("passkey_login_success"), "success");
     });
   });
+
+  describe("_scrubDetails (defense-in-depth value scrub)", function () {
+    it("leaves legitimate high-entropy audit content untouched", function () {
+      // HS logs SHA3 checksums, storage paths, and key prefixes in details —
+      // these are not secrets and must survive the scrub, or forensic context is lost.
+      var checksum = "file: report.pdf, checksum: " + "a1b2c3d4".repeat(16) + ", size: 1024";
+      assert.strictEqual(siem._scrubDetails(checksum), checksum, "checksum must not be masked");
+      assert.strictEqual(siem._scrubDetails("bundles/abc123/1699-XYZ.pdf"), "bundles/abc123/1699-XYZ.pdf", "storage path stays");
+      assert.strictEqual(siem._scrubDetails("Reissued cert for stash x (key: hs_abcd...)"), "Reissued cert for stash x (key: hs_abcd...)", "key prefix stays");
+    });
+
+    it("masks a framework-recognized credential shape if one reaches the field", function () {
+      var out = siem._scrubDetails("leaked: -----BEGIN PRIVATE KEY-----\nMIIBVAIBADANBg\n-----END PRIVATE KEY-----");
+      assert.ok(!/BEGIN PRIVATE KEY/.test(out), "a PEM private key must be masked before egress");
+    });
+
+    it("returns null for empty/absent details", function () {
+      assert.strictEqual(siem._scrubDetails(null), null);
+      assert.strictEqual(siem._scrubDetails(""), null);
+    });
+  });
 });
