@@ -1,0 +1,17 @@
+{
+  "version": "1.13.14",
+  "date": "2026-07-18",
+  "headline": "Refresh the runtime base image to drop the patched node-tar advisories",
+  "summary": "Repins the runtime base image to the current Chainguard rebuild, which carries npm's patched node-tar and current glibc.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Runtime base image repinned to the current patched rebuild",
+          "body": "The digest-pinned Chainguard Node base image is advanced to the current rebuild, which ships npm's node-tar 12.0.0-r1 (resolving CVE-2026-59871, CVE-2026-59873, and CVE-2026-59874 — node-tar denial-of-service via a crafted PAX header, gzip bomb, or malformed archive) and glibc 2.43-r11. The base image is pinned by digest for reproducible builds; this bump is the base-OS patch path."
+        }
+      ]
+    }
+  ]
+}
