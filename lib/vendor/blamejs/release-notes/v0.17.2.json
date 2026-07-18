@@ -1,0 +1,26 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.17.2",
+  "date": "2026-07-17",
+  "headline": "Recurrence expansion refuses to spin or crash on an out-of-range interval, the CIDR guard rejects the whole of the ULA and link-local IPv6 ranges, and a device-bound session assertion no longer accepts a far-future issued-at",
+  "summary": "b.calendar.expandRecurrence accepted an unbounded, unvalidated recurrence interval; a large interval drove its date arithmetic past the representable range, which either spun the expansion loop forever at full CPU (a denial of service reachable from any JSCalendar event in a request body) or threw an uncaught error that crashed the caller. The expander now stops as soon as the date arithmetic overflows. b.guardCidr tested IPv6 reserved-range membership on whole hex nibbles, so it missed the parts of the ULA (fc00::/7) and link-local (fe80::/10) ranges that do not fall on a nibble boundary -- accepting fd00::/8 and several fe80::/10 sub-ranges as clean under the strict profile that is supposed to refuse them. And b.dbsc.verifyBindingAssertion bounded the assertion's issued-at only from below, so a far-future issued-at was accepted and never aged out of the replay window.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Recurrence expansion refuses an out-of-range interval instead of hanging or crashing",
+          "body": "b.calendar.expandRecurrence validated a recurrence rule's frequency but not its interval, so a caller-supplied interval was used unbounded. A large interval drives the expander's date arithmetic past the representable ECMAScript date range and yields a non-finite date, with two consequences from the one root: with a by-set-position rule the outer loop computed a non-finite period whose inner day-enumeration ran zero times, so the shared step budget never decremented and the not-after break comparisons (which compare against a non-finite value) never fired -- an infinite loop pinning a CPU at 100%; without by-set-position, the loop advanced to a non-finite date and threw an uncaught error when serializing it. Because the rule passed validation, any attacker supplying a JSCalendar event (a JMAP request body, an imported calendar) could trigger it. The expander now stops stepping as soon as the date arithmetic overflows the representable range -- no further instances can exist -- so a hostile interval yields the finite instances that fit and returns, rather than hanging or crashing."
+        },
+        {
+          "title": "CIDR guard rejects the full ULA and link-local IPv6 ranges under the strict profile",
+          "body": "b.guardCidr tested whether an IPv6 address falls in a reserved range by comparing hex-nibble prefixes with a string prefix match. Reserved membership is a bit-prefix relation, and the unique-local (fc00::/7, 7 bits) and link-local (fe80::/10, 10 bits) ranges end mid-nibble, so the nibble comparison covered only fc00-fcff and fe80-fe8f -- it missed fd00::/8 (the half of the ULA block that real deployments actually assign) and the fe90::/16 through febf::/16 sub-ranges of link-local. Under the strict profile, which refuses reserved ranges, those CIDRs were accepted as clean and sanitize normalized them into place instead of refusing them. The reserved-range check now compares the whole nibbles and then the remaining prefix bits of the boundary nibble under a mask -- the same bit-prefix relation the IPv4 path and the SSRF guard already use -- so the entire reserved range is caught; nibble-aligned ranges (documentation, multicast, loopback) are unaffected."
+        },
+        {
+          "title": "Device-bound session assertions reject a far-future issued-at",
+          "body": "b.dbsc.verifyBindingAssertion enforced the assertion's issued-at only as a lower bound (refusing one older than the configured max age), with no upper bound. A forward-dated issued-at makes the age check compare a negative interval, which never trips, so an assertion carrying an issued-at far in the future was accepted and could not age out of the replay window on the default 300-second path. verifyBindingAssertion now also refuses an issued-at more than a small clock-skew allowance in the future, matching the future-issued-at bound the JWT, DPoP, and client-attestation verifiers already enforce."
+        }
+      ]
+    }
+  ]
+}

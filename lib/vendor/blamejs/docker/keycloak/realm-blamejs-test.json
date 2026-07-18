@@ -82,6 +82,35 @@
         "saml.authnstatement":                 "true"
       },
       "defaultClientScopes": ["role_list"]
+    },
+    {
+      "clientId": "https://sp-enc.blamejs-test.example",
+      "name": "blamejs SAML SP encrypted (integration test)",
+      "description": "SP entityID for the EncryptedAssertion decrypt-interop stage. Keycloak encrypts the assertion CEK to saml.encryption.certificate; the integration test overrides that cert with a runtime-generated one (via the admin API) so it holds the matching private key. The algorithm attributes request AES-GCM + RSA-OAEP-SHA256, which Keycloak >= 26.2 honors; Keycloak 26.0.x ignores them and emits aes128-cbc + rsa-oaep-mgf1p(SHA-1), which the framework refuses by design.",
+      "enabled": true,
+      "protocol": "saml",
+      "publicClient": true,
+      "redirectUris": [
+        "http://127.0.0.1:18099/saml/acs"
+      ],
+      "frontchannelLogout": false,
+      "attributes": {
+        "saml.assertion.signature":               "true",
+        "saml.server.signature":                  "false",
+        "saml.signature.algorithm":               "RSA_SHA256",
+        "saml.client.signature":                  "false",
+        "saml.encrypt":                           "true",
+        "saml.encryption.certificate":            "MIIDJTCCAg2gAwIBAgIUJ7mxaTrHZabJZAzkMg4eMDoFQRcwDQYJKoZIhvcNAQELBQAwIjEgMB4GA1UEAwwXc3AuYmxhbWVqcy10ZXN0LmV4YW1wbGUwHhcNMjYwNzE3MDQ1NjUzWhcNMzYwNzE0MDQ1NjUzWjAiMSAwHgYDVQQDDBdzcC5ibGFtZWpzLXRlc3QuZXhhbXBsZTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAKm+j361HUDN3Ii1mTVy+zLJosG0NbR1AGbd2HiD8IxdogG4qg6/K5sNQ/qPMDszC596dqPKnIZFCj+xf6GwRxN83Eetbn8dq7BJJjuRrifEDrW7E+xMvYyecKuNccDOzOlQ4fsy2UKjP50XCZyosXUT02I7mm93IKVDy4KWBOizrTXOiD7Mfx/rUTarFObzxrOMBIFOhfeDxg+hRJjN6+LC/lzpbpxQZglkBhUq2gUU3/jTQPdEyCpFJ3gyndUufi7Drxlqp7Taod/jINbL1sHScsHapth1JB8836uOAuXPQ1NAKvLcQEDmd6Y+08N++hkO4PRDFPbGnKwNEzZYDqUCAwEAAaNTMFEwHQYDVR0OBBYEFOaSe3V7aicztXNyr/D67j/bZUvBMB8GA1UdIwQYMBaAFOaSe3V7aicztXNyr/D67j/bZUvBMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAEIIw7N99KMxgLDz7ZLesUupzNX+M5iWx9Ip3RVaRzf//nTQQUvGsaFgCeoFzAZ3TsfCtAqWu51pLmnox4bgyC+q1cPfFGjbfieF6VcK1+gnMRAQuDF7TSB98CIkIum+Y2jFXFnrP5nwplW6L00SFWaeqT9x8whNT0QEHbQ05IVeCn+IDUZwNLf+XIZWD3xpfilQ7KBE1USznYH9bqVQljWqPnUphnU2izIgQ/Ggsq9sZSmN1qcFl9QSJVJAmNXaddeQSXNUf7NtLs4OmuXZye66KJWg4W7oHb92sEiZIkKVHTlJSFzzumMToJsgBzvbkIvOy5mTP/JgrbOwTczIu40=",
+        "saml.encryption.algorithm":              "AES_256_GCM",
+        "saml.encryption.keyAlgorithm":           "RSA-OAEP",
+        "saml.encryption.digestMethod":           "SHA-256",
+        "saml.encryption.maskGenerationFunction": "MGF1-SHA256",
+        "saml.force.post.binding":                "true",
+        "saml_assertion_consumer_url_post":       "http://127.0.0.1:18099/saml/acs",
+        "saml_name_id_format":                    "username",
+        "saml.authnstatement":                    "true"
+      },
+      "defaultClientScopes": ["role_list"]
     }
   ]
 }

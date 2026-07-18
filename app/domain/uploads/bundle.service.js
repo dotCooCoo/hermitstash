@@ -4,7 +4,7 @@
  */
 var b = require("../../../lib/vendor/blamejs");
 var bundlesRepo = require("../../data/repositories/bundles.repo");
-var { TIME } = require("../../../lib/constants");
+var { TIME, UPLOAD } = require("../../../lib/constants");
 var { getTotalStorageUsed } = require("../../../lib/db");
 var { ValidationError, NotFoundError, ForbiddenError } = require("../../shared/errors");
 var { sanitizeRename } = require("../../shared/sanitize-filename");
@@ -29,10 +29,19 @@ async function initBundle(opts) {
     uploaderEmail = validParts.length > 0 ? validParts.join(",") : null;
   }
   var message = opts.message ? String(opts.message).slice(0, 2000) : null;
-  var expiryDays = parseInt(opts.expiryDays, 10) || 0;
+  // Bundle expiry is server-authoritative. A client (including an anonymous
+  // /drop uploader) may request a retention window via expiryDays, but the
+  // operator's configured FILE_EXPIRY_DAYS is the CEILING — a request can only
+  // shorten retention, never extend it past what the operator allows. When the
+  // operator sets no expiry (0 = keep indefinitely) there is no per-operator
+  // ceiling, so a client-chosen finite window is honored up to the absolute
+  // MAX_EXPIRY_DAYS bound (which also keeps the date math from overflowing).
+  var requestedDays = parseInt(opts.expiryDays, 10);
+  requestedDays = (Number.isFinite(requestedDays) && requestedDays > 0) ? requestedDays : 0;
   var defaultExpiry = opts.defaultExpiryDays || 0;
-  var expiresAt = (expiryDays > 0) ? new Date(Date.now() + expiryDays * TIME.days(1)).toISOString()
-    : (defaultExpiry > 0 ? new Date(Date.now() + defaultExpiry * TIME.days(1)).toISOString() : null);
+  var ceilingDays = defaultExpiry > 0 ? defaultExpiry : UPLOAD.MAX_EXPIRY_DAYS;
+  var effectiveDays = requestedDays > 0 ? Math.min(requestedDays, ceilingDays) : defaultExpiry;
+  var expiresAt = effectiveDays > 0 ? new Date(Date.now() + effectiveDays * TIME.days(1)).toISOString() : null;
 
   // Email-gated access: clean and validate allowed emails through the same
   // canonical validator used for uploaderEmail above. validateEmail lowercases,

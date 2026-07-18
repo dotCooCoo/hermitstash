@@ -1,0 +1,26 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.17.9",
+  "date": "2026-07-17",
+  "headline": "A prototype-member regime name no longer voids a breach-notification clock into reporting a missed deadline as met, a planted plaintext file can no longer stand in for the sealed keyed-hash MAC key, and content-safety sanitization recomputes the integrity descriptor over the bytes actually delivered",
+  "summary": "The incident-report deadline clock resolved its per-regime statutory table by a plain-object lookup with no own-property check, so a regime name equal to an inherited object member (valueOf, toString, constructor) resolved to a prototype function instead of the default deadlines -- every due-by became NaN, and a notification filed long past a statutory wall was recorded on-time, reporting a missed regulatory deadline as met. The retention posture-floor lookup had the same defect. The vault's keyed-hash MAC key reader trusted the vault's documented pass-through of a non-sealed value, so a plaintext file substituted on disk was accepted as the secret MAC key without the vault passphrase. And the static file server and the upload finalizer both replaced the served/stored payload when a content-safety gate sanitized it but kept advertising the ORIGINAL bytes' ETag/SRI (static) and sha3/size descriptor (upload), so a client validating the integrity of the delivered body -- or an operator storing the reported hash as the dedup/integrity key -- got a digest that did not match what was actually delivered.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Breach-notification and retention lookups reject a prototype-member name",
+          "body": "b.incident.report's deadline clock resolves the statutory deadline set for an incident's regime (GDPR 72h, NIS2 24h, DORA 4h initial, HIPAA 60 days, ...) by indexing a per-regime table with the operator-supplied regime string. The lookup used a truthiness check with no own-property guard, so a regime equal to an inherited object member -- valueOf, toString, constructor, hasOwnProperty -- resolved to the prototype function instead of falling back to the default deadlines. Every computed due-by then became NaN, and because a late comparison against NaN is never true, a notification filed long past the real statutory wall was recorded on-time (not late) and the clock's late count stayed zero -- a genuinely missed regulatory deadline reported to a regulator as met. b.retention's compliance-posture floor lookup (hipaa, pci-dss, gdpr, soc2) had the identical defect, resolving a prototype-member posture to an inherited function as the retention floor. Both now resolve the name through an own-property check, so a prototype-member name falls back to the default deadlines (incident-report) or is rejected as an unknown posture (retention); real regimes and postures are unaffected."
+        },
+        {
+          "title": "Vault refuses a non-sealed file as the keyed-hash MAC key",
+          "body": "b.vault derives a keyed-hash MAC key (used by field-level encryption's keyed derived-hash mode to keep an attacker with disk access from correlating low-entropy plaintexts) and seals it at rest. The reader loaded the sealed file and called the vault's unseal, which by its documented idempotent-read contract returns any value lacking the vault seal prefix verbatim -- so a plaintext 32-byte value planted on disk passed straight through and was accepted as the MAC key. In wrapped-vault mode this let an attacker with disk-write access but no vault passphrase (and therefore unable to forge a genuine seal) inject a known MAC key, downgrading the keyed derived-hash to an attacker-known key. The reader now requires the on-disk value to actually be sealed (carry the vault prefix) before unsealing, refusing a substituted plaintext or otherwise-unsealed file -- the same load-bearing prefix check the database key loader and the key-rotation pipeline already apply to their sealed key material."
+        },
+        {
+          "title": "Content-safety sanitization recomputes the served body's integrity descriptor",
+          "body": "When a content-safety gate returns a sanitize action it replaces the payload with the cleaned bytes. b.staticServe still emitted the strong ETag and subresource-integrity (SRI) header derived from the original file on disk, and b.fileUpload's finalizer still handed onFinalize (and recorded in the audit) the sha3 and size of the original assembled bytes -- so the integrity descriptor advertised for the delivered/stored bytes did not match them. A browser performing SRI verification of the sanitized static response would fail the check, a strong-validator or If-None-Match cache would be keyed to a representation the client never receives, and an operator storing the upload's reported sha3 as the integrity or dedup key of the stored (sanitized) file would record a hash that never matches it. Both now recompute the ETag/SRI (static) and the sha3/size descriptor (upload) over the bytes actually delivered whenever a gate sanitized the payload; an unsanitized response keeps the on-disk/reassembly digest, which already describes the delivered bytes."
+        }
+      ]
+    }
+  ]
+}

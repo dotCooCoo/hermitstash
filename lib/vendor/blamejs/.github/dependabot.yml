@@ -8,6 +8,14 @@ updates:
     labels:
       - "deps"
       - "github-actions"
+    # codeql-action ships init / analyze / upload-sarif from one repo at one
+    # version. Split PRs leave the workflows on mixed versions, which the
+    # actions-currency gate refuses and the CodeQL bundle rejects at run
+    # time — group them so every bump arrives as a single coherent PR.
+    groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
 
   - package-ecosystem: "npm"
     directory: "/examples/wiki"

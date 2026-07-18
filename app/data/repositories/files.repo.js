@@ -45,6 +45,22 @@ function findByBundleShareId(shareId) { return files.find({ bundleShareId: share
 function findLiveByBundleShareId(shareId) {
   return files.find({ bundleShareId: shareId }).filter(function (f) { return !f.deletedAt; });
 }
+// Servable files in a bundle: live (non-tombstone) AND not individually expired.
+// The single-file and bundle-file download routes already 410 an individually
+// expired file (its own expiresAt is in the past); every content- and
+// metadata-serving path that lists a bundle's files — the browse page, the JSON
+// listing, and both ZIP builders — must use this so an expired file is neither
+// streamed nor advertised before the hourly sweep removes its row. expiresAt is a
+// sealed column, so the compare runs in JS on the unsealed value (an index on
+// ciphertext is useless); ISO-8601 UTC strings order lexically, matching the
+// string comparison the download routes use. Management/admin views that
+// deliberately show pending-sweep rows keep findByBundleShareId.
+function findServableByBundleShareId(shareId) {
+  var now = new Date().toISOString();
+  return files.find({ bundleShareId: shareId }).filter(function (f) {
+    return !f.deletedAt && !(f.expiresAt && f.expiresAt < now);
+  });
+}
 function searchPaginated(fields, q, query, opts) { return files.searchPaginated(fields, q, query, opts); }
 
 // Sync change-feed page: the next `limit` files in a bundle whose seq is
@@ -70,4 +86,4 @@ function findBundleChangesSince(bundleId, since, limit) {
   return out;
 }
 
-module.exports = { findById, findByShareId, findCompleteByShareId, findByBundle, findByBundleShareId, findLiveByBundleShareId, findByUploader, findAll, findPaginated, searchPaginated, findBundleChangesSince, count, create, update, remove, incrementDownloads };
+module.exports = { findById, findByShareId, findCompleteByShareId, findByBundle, findByBundleShareId, findLiveByBundleShareId, findServableByBundleShareId, findByUploader, findAll, findPaginated, searchPaginated, findBundleChangesSince, count, create, update, remove, incrementDownloads };

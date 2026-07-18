@@ -273,19 +273,25 @@ async function handleFileUpload(ctx) {
   // Sync bundle: check for existing file with same relativePath → replace
   var replaced = false;
   var oldSize = 0;
+  var oldBlobToDelete = null; // superseded blob, deleted only AFTER the post-write cap check passes
   if (bundle.bundleType === "sync") {
     var existing = filesRepo.findAll({ bundleId: bundle._id })
       .filter(function (f) { return f.relativePath === cleanRelPath && !f.deletedAt; });
     if (existing.length > 0) {
       var old = existing[0];
       oldSize = old.size || 0;
-      // Save new file, delete old blob, update existing record
+      // Save the new blob, but do NOT delete the old blob yet: the authoritative
+      // post-write cap check below can still reject this write, and destroying the
+      // old content before the write is known to commit turns a rejected replace
+      // into silent data loss (the client is told it failed while the old file is
+      // already gone). The old blob is deleted only on the success path; on
+      // rejection the record is pointed back at it (see the rollback below).
       var ext = nodePath.extname(file.filename).toLowerCase();
       fileShareId = b.crypto.generateToken(32);
       var storagePath = "bundles/" + bundle.shareId + "/" + Date.now() + "-" + fileShareId + ext;
       checksum = b.crypto.sha3Hash(file.data);
       saved = await storage.saveFile(file.data, storagePath);
-      try { await storage.deleteFile(old.storagePath); } catch (_e) { /* cleanup — old replaced-file may already be gone on S3 */ }
+      oldBlobToDelete = old.storagePath;
       replaced = true;
     }
   }
@@ -357,19 +363,38 @@ async function handleFileUpload(ctx) {
     if (postReason) {
       // Roll back the exact increment this writer committed.
       bundlesRepo.incrementCounters(bundle._id, -fileCountChange, -sizeChange);
-      // Remove the blob + DB record this writer created. On the replace path the
-      // old blob was already deleted and the existing record was overwritten in
-      // place, so there is nothing to delete here without losing the prior file;
-      // only the freshly-created (non-replace) record/blob is rolled back.
       if (!replaced) {
+        // Non-replace: remove the freshly-created blob + record.
         try { if (saved && saved.path) { await storage.deleteFile(saved.path); } } catch (_e) { /* cleanup — blob may already be gone on S3 */ }
         try { if (createdFileId) { filesRepo.remove(createdFileId); } } catch (_e) { /* cleanup — record removal best-effort */ }
+      } else {
+        // Replace: fully reverse it. The old blob was intentionally NOT deleted
+        // yet, so point the record back at it and delete the new blob — the file
+        // reverts to exactly its pre-upload content and the counter (undone above)
+        // stays consistent, instead of reporting failure while committing the new
+        // bytes and leaking a size delta.
+        try {
+          filesRepo.update(old._id, { $set: {
+            originalName: old.originalName, storagePath: old.storagePath,
+            mimeType: old.mimeType, size: old.size, checksum: old.checksum,
+            encryptionKey: old.encryptionKey, teamId: old.teamId || null,
+            updatedAt: old.updatedAt, seq: old.seq,
+          }});
+        } catch (_e) { /* restore best-effort — old blob still on disk regardless */ }
+        try { if (saved && saved.path) { await storage.deleteFile(saved.path); } } catch (_e) { /* cleanup — new blob */ }
       }
       // Release the per-IP byte reservation — this upload didn't land.
       _refundIpQuota(ctx.req, quota.ipReserved);
       audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + postReason + " (post-write)" + suffix, req: ctx.req });
       return { error: postReason };
     }
+  }
+
+  // The replace committed (post-write cap check passed): the superseded blob is
+  // now safe to delete. Deferring it to here is what makes a rejected replace
+  // reversible above.
+  if (oldBlobToDelete) {
+    try { await storage.deleteFile(oldBlobToDelete); } catch (_e) { /* cleanup — old replaced-file may already be gone on S3 */ }
   }
 
   // Emit sync event for WebSocket subscribers
@@ -417,25 +442,33 @@ async function handleChunkUpload(ctx) {
     return { error: "Chunk too large." };
   }
 
-  // Aggregate scratch cap. The per-chunk cap above bounds ONE chunk, but the
+  // Aggregate scratch caps. The per-chunk cap above bounds ONE chunk, but the
   // reassembly-time quota check only runs once ALL chunks arrive — so an attacker
-  // could upload many chunks (and never send the last) to fill the scratch disk.
-  // Sum the already-saved chunks for this file plus this one and refuse before the
-  // write if it would exceed the file-size limit; discard the partial on a breach
-  // so the scratch can't accumulate past one file's worth.
-  if (limits.maxFileSize) {
-    var existingChunks = storage.countChunks(bundle.shareId, fileId);
-    var accumulated = chunk.data.length;
-    var counted = 0;
-    for (var ai = 0; ai < totalChunks && counted < existingChunks; ai++) {
-      if (ai === chunkIndex) continue;
-      var st = storage.statChunk(bundle.shareId, fileId, ai);
-      if (st) { accumulated += st.size; counted++; }
-    }
-    if (accumulated > limits.maxFileSize) {
-      storage.removeChunkAssembly(bundle.shareId, fileId);
-      return { error: "Assembled file exceeds the maximum allowed size." };
-    }
+  // could stage many chunks (and never send the last) to fill the scratch disk.
+  // Two caps close that, both enforced BEFORE this chunk is written:
+  //
+  //  1. Per-file: sum this file's already-staged chunks (this index excluded, so a
+  //     re-upload replaces rather than double-counts) plus this chunk, against the
+  //     per-file ceiling. When the operator set a maxFileSize that IS the ceiling;
+  //     when they set "no limit" (0) the ceiling falls back to the always-on
+  //     per-bundle scratch bound so a single fileId still can't stage unbounded.
+  //  2. Per-bundle: sum ALL chunks staged for this bundle across every in-flight
+  //     fileId plus this chunk, against MAX_BUNDLE_SCRATCH_BYTES. This runs
+  //     regardless of the policy caps, so staging many partial assemblies under
+  //     distinct fileIds can't accumulate past the bundle backstop.
+  // Re-uploading an already-present index overwrites it, so exclude its current
+  // bytes from both post-write sums rather than double-counting.
+  var oldChunkStat = storage.statChunk(bundle.shareId, fileId, chunkIndex);
+  var oldChunkSize = oldChunkStat ? oldChunkStat.size : 0;
+  var perFileCeiling = limits.maxFileSize > 0 ? limits.maxFileSize : C.UPLOAD.MAX_BUNDLE_SCRATCH_BYTES;
+  var fileAfter = storage.fileScratchBytes(bundle.shareId, fileId, chunkIndex) + chunk.data.length;
+  if (fileAfter > perFileCeiling) {
+    storage.removeChunkAssembly(bundle.shareId, fileId);
+    return { error: "Assembled file exceeds the maximum allowed size." };
+  }
+  var bundleAfter = storage.bundleScratchBytes(bundle.shareId) - oldChunkSize + chunk.data.length;
+  if (bundleAfter > C.UPLOAD.MAX_BUNDLE_SCRATCH_BYTES) {
+    return { error: "Upload scratch limit exceeded for this bundle." };
   }
 
   // Store chunk in the scratch directory (always local, never S3).

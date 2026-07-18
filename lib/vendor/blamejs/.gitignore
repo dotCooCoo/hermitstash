@@ -34,6 +34,8 @@ coverage/
 *.pid.lock
 *.seed
 tmp/
+# vendor-update.sh --refresh-data in-flight downloads (never shippable)
+*.refresh-tmp
 
 # OS junk (non-dotfile)
 Thumbs.db

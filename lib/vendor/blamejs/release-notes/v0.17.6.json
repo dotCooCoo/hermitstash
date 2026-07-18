@@ -1,0 +1,26 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.17.6",
+  "date": "2026-07-17",
+  "headline": "PDF disarm now refuses JavaScript, launch actions, and polyglots even when an operator opt says allow, a renewed cluster lease no longer stretches its own expiry into the future, and a credential-issuance proof is refused when its replay nonce is absent",
+  "summary": "b.guardPdf.sanitize is documented to strip a PDF down to inert content and to refuse -- under every profile -- the JavaScript, launch-action, and polyglot classes it cannot safely neutralize. But its forced-reject override pinned only the exfiltration and encryption policies, omitting the JavaScript, launch-action, and polyglot policies; those default to reject, so the gap was invisible until an operator passed an explicit permissive opt, which then let sanitize hand back a live PDF still carrying JavaScript or a launch action. b.clusterProviderDb.renewLease computed a lease's time-to-live as the span between its acquire time and its expiry, but on renewal advanced only the expiry and left the acquire time frozen, so each renewal re-derived an ever-larger TTL and pushed the expiry unboundedly into the future -- a dead leader's lease then never lapsed and no follower could take over. And b.auth.oid4vci's issuer skipped the credential-proof replay/holder-binding nonce check when the expected nonce was null, the miss sentinel that a Redis-, Map-, or SQL-backed nonce store commonly returns, so a forged proof could mint a credential bound to an attacker-chosen key.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "PDF disarm refuses active content even against a permissive operator opt",
+          "body": "b.guardPdf.sanitize is the disarm-by-refusal primitive: it guarantees it never returns a PDF that still carries JavaScript, a launch/open action, an embedded file, or encryption, and that the JavaScript, launch-action, and polyglot classes are refused under every profile. To hold that guarantee regardless of the operator's configuration, sanitize builds a forced override that pins the relevant policies to reject -- but the override pinned only the embedded-file, open-action, magic, and encryption policies and omitted the JavaScript, launch-action, and polyglot policies. Because those three already default to reject in every shipped profile, the omission was invisible in normal use; an operator who passed an explicit permissive opt (javascriptPolicy, launchActionPolicy, or polyglotPolicy set to allow or audit) turned that opt back on inside sanitize and received a live PDF still carrying JavaScript or a launch action -- exactly the remote-code-execution and polyglot classes the primitive promises to refuse. The forced override now pins all three, so sanitize refuses them unconditionally; the overridable validate and gate entry points, which document these policies as operator-tunable, are unchanged."
+        },
+        {
+          "title": "Cluster lease renewal keeps a bounded expiry so a dead leader can be taken over",
+          "body": "b.clusterProviderDb models a leader lease as a sliding window whose span -- expiry minus acquire time -- equals the configured lease TTL. renewLease recovered the TTL from that span but then advanced only the expiry while leaving the acquire time frozen at the original acquisition, so the next renewal measured a span that had grown by one renewal interval and re-derived an ever-larger TTL, pushing the expiry unboundedly into the future. A leader that renewed even a few times and then died left a lease whose expiry was far beyond the configured TTL, so it never lapsed within the takeover window and no follower could steal it -- the cluster could stall with no active leader. renewLease now slides both ends of the window forward on every renewal (acquire time and expiry both move to now and now-plus-TTL), keeping the span at the configured TTL so a lapsed leader's lease expires on schedule and bounded takeover works."
+        },
+        {
+          "title": "Credential-issuance proof is refused when its replay nonce is absent",
+          "body": "b.auth.oid4vci's issuer verifies the wallet's key-binding proof against the c_nonce it minted with the access token -- the challenge that binds the proof to this issuance and prevents replay. The verifier treated three states of the expected nonce differently: a string was compared, an undefined value (the miss sentinel b.cache returns) was refused, and a null value was treated as no check required. But a nonce store fronting Redis, a Map, or a SQL row -- all accepted through the documented store option -- commonly signals a miss with null, which fell straight through the comparison and disabled the replay and holder-binding defense entirely: after the short-lived c_nonce expired (while the access token was still valid, in batch issuance), an attacker holding that token could submit a proof signed by an arbitrary key with any nonce and have a credential minted bound to that attacker-controlled key. The verifier now requires the expected nonce to be a non-empty string and fails closed on any other value, so an absent or expired nonce is refused regardless of the store's miss sentinel."
+        }
+      ]
+    }
+  ]
+}

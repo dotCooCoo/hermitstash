@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.16.2",
-  "createdAt": "2026-07-03T12:18:24.287Z",
+  "frameworkVersion": "0.17.10",
+  "createdAt": "2026-07-17T20:47:45.514Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -6827,6 +6827,127 @@
           "type": "instance",
           "ctorName": "RegExp"
         },
+        "NAMED_ENTITY_ASCII": {
+          "type": "object",
+          "members": {
+            "NewLine": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "Tab": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "amp": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "apos": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "ast": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "bsol": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "colon": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "commat": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "dollar": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "excl": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "gt": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "hyphen": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "lcub": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "lowbar": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "lpar": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "lsqb": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "lt": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "nbsp": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "num": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "percnt": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "period": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "plus": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "quest": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "quot": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "rcub": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "rpar": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "rsqb": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "semi": {
+              "type": "primitive",
+              "valueType": "string"
+            },
+            "sol": {
+              "type": "primitive",
+              "valueType": "string"
+            }
+          }
+        },
         "NULL_BYTE": {
           "type": "primitive",
           "valueType": "string"
@@ -6920,6 +7041,10 @@
           "type": "function",
           "arity": 1
         },
+        "decodeMarkupEntities": {
+          "type": "function",
+          "arity": 1
+        },
         "decodeNumericEntities": {
           "type": "function",
           "arity": 1
@@ -6961,6 +7086,10 @@
           "arity": 1
         },
         "scriptFor": {
+          "type": "function",
+          "arity": 1
+        },
+        "stripUrlSchemeWhitespace": {
           "type": "function",
           "arity": 1
         }
@@ -42369,7 +42498,7 @@
           "members": {
             "verify": {
               "type": "function",
-              "arity": 1
+              "arity": 2
             }
           }
         },
@@ -49903,6 +50032,10 @@
           "type": "function",
           "arity": 2
         },
+        "byteLengthOfIfMeasurable": {
+          "type": "function",
+          "arity": 1
+        },
         "collectStream": {
           "type": "function",
           "arity": 2
@@ -49930,6 +50063,10 @@
         "normalizeText": {
           "type": "function",
           "arity": 2
+        },
+        "quoteString": {
+          "type": "function",
+          "arity": 1
         },
         "secureZero": {
           "type": "function",
@@ -51541,6 +51678,10 @@
           "arity": 2
         },
         "countPlaceholders": {
+          "type": "function",
+          "arity": 1
+        },
+        "normalizeForScan": {
           "type": "function",
           "arity": 1
         },

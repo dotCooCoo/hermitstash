@@ -244,9 +244,18 @@ function scanEmptyBundles() {
  * Returns count deleted.
  */
 function deleteEmptyBundles(empties) {
+  var stashRepo = require("../data/repositories/stash.repo");
   var deleted = 0;
   for (var i = 0; i < empties.length; i++) {
     try {
+      // Decrement the stash aggregate before removing the bundle — mirrors every
+      // interactive bundle-removal path (routes/files.js, bundles.js, admin.js,
+      // stash.js). Without it a stash-owned empty bundle removed here leaves
+      // customer_stash.bundleCount / totalBytes permanently inflated.
+      var bundle = bundles.findOne({ _id: empties[i].bundleId });
+      if (bundle && bundle.stashId) {
+        try { stashRepo.decrementBundleStats(bundle.stashId, bundle.totalSize); } catch (_e) { /* stash may have been deleted */ }
+      }
       bundles.remove({ _id: empties[i].bundleId });
       deleted++;
     } catch (e) {

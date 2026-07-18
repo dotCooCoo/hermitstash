@@ -1,0 +1,35 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.17.7",
+  "date": "2026-07-17",
+  "headline": "A histogram exemplar's label name can no longer forge a line into the metrics scrape, the CSP report endpoint bounds how many reports one request can carry, and a cron field of the form N/step now fires on the whole repeating series instead of once",
+  "summary": "A histogram exemplar's label VALUES were scrubbed before rendering but its label NAMES were written verbatim into the OpenMetrics exposition, and a Prometheus label name -- unlike a value -- cannot be quoted or escaped, so a name containing a newline forged an entire metric line into every /metrics scrape (the label-name sibling of the exemplar value injection already closed). The CSP report endpoint processed an unbounded number of reports per request: a single unauthenticated POST within the body-size cap could pack well over a thousand tiny reports, each driving a full audit-chain append and report hook, an amplification vector now bounded by a per-request report cap. And the shared cron parser mis-read a field of the form N/step -- e.g. 5/15 -- as the single value N instead of the standard N, N+step, ... through the field maximum, so a job scheduled that way fired once per period instead of on the intended repeating series; a recurring queue job also silently dropped its configured retry limit when it re-enqueued the next occurrence.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Metrics exemplar label names cannot inject a line into the scrape",
+          "body": "b.metrics histogram exemplars carry their own label set, stored through the same redaction step the regular labels use -- but that step scrubbed only the label VALUES (for credential shapes) and passed every label NAME through verbatim to the shared exposition renderer. A regular label name is validated against the Prometheus name grammar at registration and refused if undeclared, but the exemplar path had no equivalent gate, and because a label name cannot be quoted or escaped in the OpenMetrics wire format, an exemplar label name containing a newline (or a quote or brace) forged a complete, attacker-shaped metric line into every /metrics scrape -- reachable wherever an operator routes request-derived data into an exemplar label name (CWE-93). The exemplar redaction step now drops any label name that is not a valid Prometheus label name (length-bounded so a hostile oversized name cannot itself become a denial of service), matching the gate regular labels already get; valid names such as trace_id are unaffected. This closes the label-name sibling of the exemplar value injection fixed earlier."
+        },
+        {
+          "title": "CSP report endpoint bounds the number of reports per request",
+          "body": "b.middleware.cspReport accepts a batch of reports in one POST (the Reporting API delivers them batched). The body-size cap bounded the request bytes but not the number of reports inside it, so a single unauthenticated request could carry well over a thousand small report objects, and the handler drove a full audit-chain append (a hash, a seal, and a serialized database insert) plus an operator report hook for every one of them -- a per-request amplification denial-of-service against an endpoint that is public by design. The endpoint now caps the batch length at a configurable maxReports (default 100, generous for a real browser batch): an over-cap batch is refused with 413 and the documented too-many-reports rejection reason, processing none of its reports, so the amplification is bounded while a normal browser report is unaffected."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "A cron field of the form N/step fires on the full repeating series",
+          "body": "The shared cron parser read a field of the form N/step -- a bare number followed by a step, such as 5/15 in the minute field -- as the single value N, dropping the step entirely, instead of the standard Vixie-cron meaning N, N+step, ... up to the field maximum (5/15 in minutes is 5, 20, 35, 50, the same way */15 is 0, 15, 30, 45). A schedule written that way therefore fired once per period instead of on the intended repeating series -- and a job that runs less often than intended (a rotation, a cleanup, a scan) is a silent operational-safety gap. The parser now anchors the range at the field maximum whenever a step is present, so N/step expands to the full series; a bare number with no step is still the single value N. The cron-recurring queue backends (local and Redis) parse through this shared code and inherit the fix."
+        },
+        {
+          "title": "A recurring queue job keeps its configured retry limit across occurrences",
+          "body": "A cron-recurring queue job re-enqueues itself for its next firing time and carried its priority, classification, and trace id forward -- but silently dropped the operator's configured maxAttempts, so every occurrence after the first reverted to the enqueue default retry budget rather than the one the operator set. Both queue backends now carry maxAttempts forward (guarded to a positive finite value, falling back to the enqueue default only when it is unset), so a recurring job's retry limit is stable across every occurrence."
+        }
+      ]
+    }
+  ]
+}

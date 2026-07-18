@@ -1,0 +1,35 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.17.4",
+  "date": "2026-07-17",
+  "headline": "Three fail-open holes closed: a raw cross-border write could evade the data-residency gate by wedging a comment or eliding whitespace, safe decompression returned undecompressed bytes for an unknown algorithm name, and the shared anti-replay helper admitted a replay when its store signalled a duplicate with a non-boolean value",
+  "summary": "A raw SQL write submitted through b.db.runSql / b.db.prepare().run() could slip past the cross-border data-residency gate: the gate's write-detection matched tokens on whitespace boundaries, but SQL lets tokens abut with no whitespace when a comment or a quoted identifier sits between them, so INSERT/**/INTO, an INSERT whose quoted table name abuts INTO, and UPDATE/**/table all executed while the gate never engaged -- landing or moving a row across a residency boundary under a regulated posture. b.safeDecompress resolved its algorithm allowlist with a truthiness lookup, so an algorithm name that collides with an inherited object member (constructor, toString) reached the dispatch and returned the input undecompressed instead of refusing the unknown algorithm -- a fail-open for any caller that maps a client Content-Encoding onto the algorithm. And b.nonceStore.enforceReplay -- the anti-replay helper JWT and DPoP verification use -- detected a replay only when its store returned a literal false, so a store signalling a duplicate with another falsy value (a Redis SETNX null, a SQL INSERT rowcount of 0) let the replayed token through.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Data-residency gate catches a raw write that hides behind a comment or elided whitespace",
+          "body": "The cross-border data-residency gate that guards raw SQL writes (b.db.runSql, b.db.prepare().run()) detected the write and extracted its target table with regexes that assume tokens are separated by whitespace. SQL does not require whitespace between tokens when a comment or a quoted-identifier boundary separates them, so three forms that every engine executes as ordinary writes slipped the detection entirely and the gate never engaged: an INSERT whose double-quoted table name abuts INTO with no space, an INSERT with a block comment wedged between INSERT and INTO, and the same for UPDATE and its table. Under a regulated residency posture a row could therefore be inserted or moved across a residency boundary with no tag check (CWE-863; a GDPR Chapter V transfer-restriction bypass). The gate now normalizes a parse-only copy of the statement through the new b.safeSql.normalizeForScan before matching -- collapsing comments to a space and inserting a boundary where a quoted token abuts a word character -- so every write is detected and gated regardless of how its tokens are spaced. The executed SQL is unchanged."
+        },
+        {
+          "title": "Safe decompression refuses an unknown algorithm instead of returning the input undecompressed",
+          "body": "b.safeDecompress resolved opts.algorithm against its allowlist of supported codecs (gzip, deflate, deflate-raw, brotli) with a truthiness lookup on a plain object. An algorithm name that names an inherited object member -- constructor, toString, valueOf -- read back a truthy inherited value, slipped the unsupported-algorithm refusal, and reached the dispatch, where invoking the inherited member returned the raw input buffer. The primitive therefore silently returned undecompressed bytes with no error, contrary to its contract that any algorithm outside the allowlist is refused -- a fail-open for a consumer that maps a client-supplied Content-Encoding token onto the algorithm, which also sidesteps the decompression-bomb size and ratio caps. The allowlist is now resolved with an own-property check, so any unsupported name -- however it collides with a built-in member -- is refused."
+        },
+        {
+          "title": "Shared anti-replay helper fails closed on a non-boolean store result",
+          "body": "b.nonceStore.enforceReplay is the anti-replay helper that b.auth.jwt and b.auth.dpop route their replay defense through; it calls the store's checkAndInsert and treated the result as a replay only when it was the literal false. The recommended stores signal a duplicate with a different falsy value -- a Redis SET ... NX returns null and a SQL INSERT ... ON CONFLICT returns a rowcount of 0 -- so a store using either would have its duplicate signal missed and the replayed nonce admitted (a replay-protection bypass for a JWT or DPoP proof). enforceReplay now admits a nonce only on a truthy first-seen confirmation and treats every other result as a replay, matching the fail-closed check the framework's inline anti-replay consumers already use."
+        }
+      ]
+    },
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "b.safeSql.normalizeForScan",
+          "body": "A parse-only SQL normalizer that produces a copy whose token boundaries are real whitespace, so a scanner built with whitespace-anchored patterns cannot be evaded by a comment or a quoted-identifier boundary that lets two tokens abut. It collapses line and block comments to a single space and inserts a separating space where a quoted string or identifier follows a word character, in the same quote- and comment-aware single pass as the existing b.safeSql placeholder scanners (a comment marker inside a string literal is preserved, never collapsed). The executed SQL is never derived from this copy -- it only feeds a scanner."
+        }
+      ]
+    }
+  ]
+}

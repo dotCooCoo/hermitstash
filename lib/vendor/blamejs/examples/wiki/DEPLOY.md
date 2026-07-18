@@ -97,6 +97,7 @@ Every passphrase / webhook secret in the table above is **never** ENV-baked into
 - The wiki container persists state in the `wiki-data` named volume — vault key, sealed audit-signing key, sqlite database, audit chain. **Back this up.** Losing it loses the audit chain and admin credentials.
 - Caddy persists ACME state in the `caddy-data` named volume. Deleting it forces a re-issuance from scratch — Let's Encrypt rate limits apply, so don't.
 - All TLS is Caddy's. The wiki container only speaks HTTP on the compose network.
+- Prefer nginx? [`nginx.conf`](./nginx.conf) is an equivalent reference config — same TLS 1.3 floor, `www.`→apex 308 redirect, `X-Forwarded-Proto https` / `X-Forwarded-For`, and HSTS `max-age=63072000; includeSubDomains; preload`. nginx does not issue certificates itself; pair it with certbot for the cert paths it references, and set `WIKI_ADMIN_TRUSTED_PROXIES` to the proxy's CIDR so the wiki trusts the forwarded headers.
 
 ## Updating to a new version
 

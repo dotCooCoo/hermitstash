@@ -1,0 +1,30 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.17.10",
+  "date": "2026-07-17",
+  "headline": "A CIDR-scoped SMTP relay allowlist is now actually enforced instead of relaying for the whole internet, EU AI-Act social scoring is flagged prohibited for any actor rather than only public authorities, and the X-Wing hybrid KEM stays uniform implicit-rejection on a low-order X25519 point",
+  "summary": "The mail server's relay authorization discarded its arguments and returned allowed for every connecting peer whenever an operator configured any relayAllowedFor entry, so a per-CIDR relay allowlist -- intended to scope relay to registered sources -- turned the server into an open relay for the entire internet. The EU AI-Act prohibited-practice classifier gated social scoring on the deployer being a public authority, a limitation that was in the 2021 Commission proposal but dropped from the adopted Regulation (EU) 2024/1689, so a private-actor social-scoring system was under-classified as not-prohibited. The GDPR record-of-processing updater validated a legal-basis change with a truthiness guard, so a falsy-but-invalid value skipped the enum check and could corrupt a required Article 30 field. And the X-Wing hybrid post-quantum KEM threw a raw derivation error on a low-order X25519 point instead of the uniform implicit-rejection its contract and the draft specification require, exposing a decapsulation-oracle distinguisher and a crash for any consumer following the documented no-try/catch advice.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "SMTP relay allowlist enforces its per-entry CIDR instead of relaying for everyone",
+          "body": "b.mail.server.mx accepts a relayAllowedFor allowlist of { cidr, scope } entries, documented as scoping relay to registered source ranges over the default MX-only, no-relay posture. The relay-authorization check discarded both the peer address and recipient and simply returned allowed whenever the allowlist was non-empty, so an operator restricting relay to, for example, 10.0.0.0/8 actually granted relay to every peer on the internet -- an open relay, directly contradicting the module's advertised open-relay defense. The check now admits relay only when the connecting peer's source address falls inside one of the allowlisted ranges (using the same range arithmetic the HTTP network-allowlist fence uses); a peer outside every range is refused. Each relayAllowedFor entry's cidr is now validated at startup -- a mask is required so a bare IP cannot silently disable an entry, private and reserved ranges are allowed since relay allowlists legitimately name them, and a malformed entry throws at boot rather than mis-scoping relay."
+        },
+        {
+          "title": "AI-Act classifier flags social scoring by any actor as prohibited",
+          "body": "b.compliance.aiAct's prohibited-practice classifier implements EU AI-Act Article 5. Its social-scoring gate (Art. 5(1)(c)) required both the purpose to be social scoring and the deployer to be a public authority before flagging the practice as prohibited. The \"by public authorities or on their behalf\" limitation existed in the 2021 Commission proposal but was removed from the adopted Regulation (EU) 2024/1689, which prohibits social scoring by any actor. A private-actor social-scoring system was therefore under-classified as not-prohibited. The classifier now flags social scoring on the purpose alone, matching the adopted text; the other Article 5 gates (predictive policing based solely on profiling, untargeted facial-recognition scraping, emotion inference in the workplace/education outside medical/safety uses) correctly retain the conjuncts that are part of their statutory definitions rather than over-broad limitations."
+        },
+        {
+          "title": "GDPR record-of-processing rejects a falsy-but-invalid legal basis on update",
+          "body": "b.gdpr.ropa records the Article 30 register of processing activities, whose legalBasis field is constrained to the six Article 6(1) bases. register validates the basis against the allowlist, but update validated a legal-basis change with a truthiness guard, so a falsy-but-invalid value (an empty string, and similar) short-circuited past the enum check and was written into the record -- silently corrupting a required Article 30 field. The updater now validates whenever the patch touches legalBasis, keyed on the field being present rather than truthy, so an invalid value is rejected with the same rigor register applies and a genuine change to a valid basis still succeeds."
+        },
+        {
+          "title": "X-Wing hybrid KEM stays uniform implicit-rejection on a low-order X25519 point",
+          "body": "b.crypto.xwing implements the X-Wing hybrid post-quantum KEM (ML-KEM-768 combined with X25519), whose contract and the draft-connolly-cfrg-xwing-kem specification require decapsulation to be uniform implicit-rejection: a tampered ciphertext yields a different secret, never an error, so a consumer must not branch on success. But a hostile low-order X25519 point in the ciphertext (or in the recipient's X25519 public half) drove the X25519 derivation to an all-zero shared secret, which the underlying library aborts with a raw derivation error rather than returning the value RFC 7748 X25519 (without the optional abort) yields. That exposed a decapsulation-oracle distinguisher (a low-order point throws while every other ciphertext returns a secret) and a crash for any caller following the documented advice not to wrap decapsulation in a try/catch. The shared X25519 step now translates that abort back into the all-zero shared secret, restoring uniform implicit-rejection; the combiner still binds the X25519 ciphertext and public key and the ML-KEM-768 leg still protects the result, so the hybrid's secure-if-either-holds guarantee is unchanged."
+        }
+      ]
+    }
+  ]
+}

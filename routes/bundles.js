@@ -218,7 +218,7 @@ module.exports = function (app) {
       var emailVerified = locked === "email-then-password";
       return send(res, "bundle-locked", { shareId: req.params.shareId, user: req.user, emailVerified: emailVerified });
     }
-    var bundleFiles = filesRepo.findLiveByBundleShareId(bundle.shareId)
+    var bundleFiles = filesRepo.findServableByBundleShareId(bundle.shareId)
       .sort((a, b) => (a.relativePath || "").localeCompare(b.relativePath || ""));
     var verifiedEmail = req.session["bundle_" + req.params.shareId];
     var viewerEmail = (typeof verifiedEmail === "object" && verifiedEmail.emailVerified && typeof verifiedEmail.emailVerified === "string") ? verifiedEmail.emailVerified : (typeof verifiedEmail === "string" ? verifiedEmail : null);
@@ -311,13 +311,14 @@ module.exports = function (app) {
     if (isBundleLocked(bundle, req.session, bundleAllowedMatch(bundle))) {
       res.writeHead(401); return res.end("Access restricted");
     }
-    // Exclude sync-bundle tombstones (deletedAt) so the ZIP matches the browse
-    // view — a deleted file must not be fed to getFileStream (it would land in
-    // the user-visible _MISSING_FILES.txt manifest and leak its name).
-    var bundleFiles = filesRepo.findLiveByBundleShareId(bundle.shareId);
+    // Exclude sync-bundle tombstones (deletedAt) AND individually-expired files
+    // so the ZIP matches the browse view and the single-file 410 — a deleted or
+    // expired file must not be fed to getFileStream (it would otherwise land in
+    // the user-visible _MISSING_FILES.txt manifest and leak its name, or ship an
+    // expired file's bytes ahead of the sweep).
+    var bundleFiles = filesRepo.findServableByBundleShareId(bundle.shareId);
     if (bundleFiles.length === 0) { res.writeHead(404); return res.end("Empty bundle"); }
 
-    db.rawExec("UPDATE bundles SET downloads = downloads + 1 WHERE _id = ?", bundle._id);
     audit.log(audit.ACTIONS.BUNDLE_ZIP_DOWNLOADED, { targetId: bundle._id, details: "shareId: " + bundle.shareId + ", files: " + bundleFiles.length, req: req });
 
     res.writeHead(200, {
@@ -328,6 +329,7 @@ module.exports = function (app) {
     var zip = b.archive.zip();
     var skippedFiles = [];
     var truncatedFiles = [];
+    var addedCount = 0;
     var bufferedBytes = 0;
     // Buffer each file before queuing — keeps the per-file skip-on-error
     // semantic (b.archive.zip aborts the whole stream if a queued source
@@ -344,10 +346,19 @@ module.exports = function (app) {
         var buf = await _streamToBuffer(stream);
         bufferedBytes += buf.length;
         zip.addFile(f.relativePath || f.originalName, buf);
+        addedCount++;
       } catch (e) {
         logger.error("Zip skip", { error: e.message || String(e), file: f.originalName, bundle: bundle.shareId });
         skippedFiles.push(f.relativePath || f.originalName);
       }
+    }
+    // Count the download only once at least one file has actually been packed —
+    // mirrors the single-file paths, which increment after the storage stream
+    // opens rather than on request receipt, so an all-skipped build or a storage
+    // outage no longer inflates the counter. (The per-folder ZIP is a partial
+    // download and deliberately does not bump the whole-bundle counter.)
+    if (addedCount > 0) {
+      db.rawExec("UPDATE bundles SET downloads = downloads + 1 WHERE _id = ?", bundle._id);
     }
     var notices = [];
     if (skippedFiles.length > 0) {
@@ -383,7 +394,7 @@ module.exports = function (app) {
     // Normalize: ensure trailing slash for prefix matching
     if (!prefix.endsWith("/")) prefix += "/";
 
-    var allFiles = filesRepo.findLiveByBundleShareId(bundle.shareId);
+    var allFiles = filesRepo.findServableByBundleShareId(bundle.shareId);
     var folderFiles = allFiles.filter(function (f) {
       var rel = f.relativePath || f.originalName;
       return rel.startsWith(prefix) || rel === prefix.slice(0, -1);

@@ -6,7 +6,19 @@
 # secrets (vault passphrase, SMTP credentials, OAuth secrets) continue to
 # be delivered at runtime via env / Docker secrets / mounted files — never
 # baked into the image.
-FROM cgr.dev/chainguard/node:latest-dev
+# Runtime base — DIGEST-PINNED for reproducible, byte-identical builds. Chainguard's
+# wolfi Node image is rebuilt continuously as upstream CVE fixes land; we pin a
+# specific rebuild by digest rather than the floating :latest-dev tag so every build
+# is reproducible and the release Trivy gate has a stable target. When the gate flags
+# a fixable base-image CVE, bump this ONE digest to the newer Chainguard rebuild that
+# carries the fix and update the date below — that digest bump IS the intended
+# CVE-response path (no in-image apk upgrade, which would make the build non-
+# deterministic). Resolve the current digest with:
+#   docker pull cgr.dev/chainguard/node:latest-dev && \
+#   docker inspect --format '{{index .RepoDigests 0}}' cgr.dev/chainguard/node:latest-dev
+# Pinned 2026-07-03 — glibc 2.43-r9.
+ARG RUNTIME_BASE=cgr.dev/chainguard/node:latest-dev@sha256:cb5ca16a7d09b83cbcb0fcedd2e26ef30bc22b011e2ab372684c7d612c64c66b
+FROM ${RUNTIME_BASE}
 # Chainguard wolfi-based Node image — glibc-dynamic (not musl), continuously
 # rebuilt when upstream CVE fixes land. CVE count at any given digest is
 # typically near-zero; chosen over debian-slim to eliminate the unfixed
@@ -62,20 +74,10 @@ LABEL org.opencontainers.image.title="HermitStash" \
 #     images for this exact workflow.
 #   - shadow: groupmod / usermod / groupadd / useradd for PUID/PGID remap
 #     at container start (Unraid/Synology integration — see entrypoint)
-# Force every base package to the latest patched wolfi build at image-build
-# time. `:latest-dev` is rebuilt continuously, but a fresh wolfi security fix
-# (e.g. a glibc patch) can land in the apk repo before Chainguard has rebuilt
-# the base image that carries it — so a build pulling a not-yet-rebuilt
-# `:latest-dev` inherits the pre-patch package and trips the release Trivy gate
-# on a fixable CVE. Upgrading here pulls the patched packages directly from the
-# repo, independent of the base-image rebuild cadence.
-# hadolint ignore=DL3018
-RUN apk upgrade --no-cache
-
-# --no-cache keeps the layer small. Intentionally NOT pinning package
-# versions (hadolint DL3018): Chainguard's value proposition is that each
-# rebuild of :latest-dev carries the latest patched wolfi packages. Pinning
-# defeats the continuous-rebuild CVE posture we switched bases to get.
+# --no-cache keeps the layer small. Intentionally NOT pinning package versions
+# (hadolint DL3018): the patched-package posture is owned by the RUNTIME_BASE digest
+# pin above (bump the digest to pick up a base-image CVE fix), so these tooling
+# packages track whatever that pinned rebuild ships.
 # hadolint ignore=DL3018
 RUN apk add --no-cache shadow su-exec
 

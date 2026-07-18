@@ -1,0 +1,43 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.17.3",
+  "date": "2026-07-17",
+  "headline": "A family of security guards that compared a token case-sensitively where the browser or HTTP stack matches it case-insensitively now normalize first, closing a CSP unsafe-keyword bypass and a cookie-prefix bypass and fixing several over-strict refusals of spec-compliant input",
+  "summary": "Browsers, HTTP stacks, and URL parsers match a whole family of security-relevant tokens ASCII case-insensitively -- CSP source keywords and scheme sources, the __Secure-/__Host- cookie name prefixes, HTTP auth schemes, media types, and URL schemes. Several framework guards compared those tokens case-sensitively, so a mixed-case variant behaved differently in the guard than it does downstream. In the bypass direction this let a case-variant unsafe CSP keyword reach a header the browser still honors, and let a prefix-violating cookie past the invariant that keeps the browser from silently dropping it. In the over-strict direction it wrongly refused spec-compliant input (a lowercase auth scheme, a mixed-case media type, an uppercase URL scheme, a mixed-case operator allowlist entry). Every case now normalizes the token to ASCII lowercase before the membership, equality, or prefix test. Separately, two crypto algorithm-name lookups and a CBOR integer-boundary round-trip are corrected.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "CSP builder refuses unsafe keywords and catch-all schemes in any case",
+          "body": "b.csp.build screened its source tokens ('unsafe-inline', 'unsafe-eval', 'unsafe-hashes', the catch-all '*'/'https:', and 'data:' in img/media/font) against its guard sets with a case-sensitive comparison. A User-Agent matches CSP keywords and scheme sources ASCII case-insensitively (CSP3 §2.3/§6.7.2), so a case-variant such as 'Unsafe-Inline', 'HTTPS:', or 'DATA:' slipped the guard and was emitted verbatim into a Content-Security-Policy header the browser still enforces -- reintroducing the exact XSS-defense hole the guard exists to refuse, without the required acknowledgement opt-in. The builder now lowercases each token before the membership test; the original case is still emitted for real hosts and paths, only the guard comparison is normalized. mergeDirectives routes added sources through the same guard, so a case-variant in a merged policy is refused too."
+        },
+        {
+          "title": "Cookie name-prefix invariants hold for any case of __Secure-/__Host-",
+          "body": "Browsers apply the __Secure-/__Host- cookie name-prefix requirements (RFC 6265bis §4.1.3) case-insensitively -- they lowercase the cookie name before the prefix test. b.cookies.serialize and the CSRF middleware's cookie-name safety check compared the prefix case-sensitively, so a case-variant name like __host- or __SECURE- dodged the framework's Secure/Path=//no-Domain invariant while still being subject to the browser's enforcement -- the cookie would then be silently rejected by the browser (never set), defeating the middleware or session it belonged to. Both now compare a lowercased copy of the name, so a prefix-violating cookie is refused at the source for every case. The CSRF middleware, which builds its own Set-Cookie header rather than routing through serialize, additionally gained the __Secure- branch it was missing entirely."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Auth scheme, media type, and URL scheme comparisons accept spec-compliant case variants",
+          "body": "Three guards refused input that a case-insensitive downstream would accept. The CIBA notification endpoint (b.auth.ciba) matched the Authorization Bearer scheme case-sensitively, rejecting a spec-compliant 'bearer <token>' sender (RFC 7235 auth-schemes are case-insensitive); it now matches the scheme case-insensitively while comparing the token itself verbatim. The tus upload middleware's creation-with-upload path compared the application/offset+octet-stream media type as an exact string, so a compliant 'Application/Offset+Octet-Stream' (or a variant carrying a parameter) created the upload but silently dropped the body; it now compares the lowercased media type with parameters stripped (RFC 7231 §3.1.1.1). The NEL middleware required its collector URL to begin with a lowercase 'https://', rejecting an equivalent 'HTTPS://'; it now compares the scheme case-insensitively (RFC 3986)."
+        },
+        {
+          "title": "Redirect allowlist matches a mixed-case operator origin or host",
+          "body": "b.safeRedirect.resolve compared the parser-canonicalized (lowercased) origin and host of a candidate URL against the operator's allowedOrigins/allowedHosts entries verbatim. A mixed-case operator entry such as 'Example.COM' or 'HTTPS://Example.com' therefore silently never matched, and a legitimate redirect fell through to the fallback. The operator entries are now canonicalized to lowercase before the comparison. This only makes the operator's intended allowlist work; because the attacker-controlled target is already normalized by the parser, it never widens the allowlist."
+        },
+        {
+          "title": "Streaming-hash and OPRF suite selection reject an unknown algorithm name cleanly",
+          "body": "b.crypto.hashStream (and b.crypto.hashFile, which composes it) and b.crypto.oprf.suite resolved a caller-supplied algorithm/suite name against a plain-object lookup table with a truthiness check. A name colliding with an inherited Object.prototype member -- 'constructor' or '__proto__' -- read back a truthy inherited value and slipped the guard: hashStream then threw a synchronous TypeError from a function documented to return a rejected Promise (an unhandled exception for a caller wired only to .catch()), and oprf.suite returned a malformed suite object instead of throwing its documented bad-suite error. Both now resolve the name through an own-property check, matching the guarding used for the SRI algorithm table, so any unknown name is refused with the documented error."
+        },
+        {
+          "title": "Deterministic CBOR re-encodes a negative integer at the -2^53 boundary as an integer",
+          "body": "The CBOR decoder returned the negative integer at the -2^53 boundary as a plain Number, but that value is one below the safe-integer range, so the deterministic encoder's integer branch re-emitted it as a float -- breaking round-trip and falsely tripping the requireDeterministic check on a value that is canonically an integer. The decoder now promotes a negative integer that is not a safe integer to a BigInt, so the encoder re-emits the integer head (RFC 8949 §3)."
+        }
+      ]
+    }
+  ]
+}

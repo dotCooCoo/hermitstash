@@ -14,6 +14,10 @@ permissions:
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
+    # Code scanning is available only on the public mirror; the private origin
+    # has no code-scanning entitlement, so the upload would fail there. This
+    # file is mirrored to the public repo, where the guard evaluates true.
+    if: github.repository == 'dotCooCoo/hermitstash'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -36,13 +40,13 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@c35d1b164463ee62a100735382aaaa525c5d3496 # codeql-bundle-v2.25.6
+        uses: github/codeql-action/init@e58424170fb0262c8d7ed60a2e84b9bffe205c67 # codeql-bundle-v2.26.1
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
           config-file: ./.github/codeql/codeql-config.yml
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@c35d1b164463ee62a100735382aaaa525c5d3496 # codeql-bundle-v2.25.6
+        uses: github/codeql-action/analyze@e58424170fb0262c8d7ed60a2e84b9bffe205c67 # codeql-bundle-v2.26.1
         with:
           category: "/language:${{ matrix.language }}"

@@ -19,7 +19,10 @@ module.exports = function (app) {
   // Share page
   app.get("/s/:shareId", (req, res) => {
     try {
-      var doc = fileService.lookupFile(req.params.shareId);
+      // checkExpiry so an individually-expired file renders the not-found page
+      // instead of leaking its name/size/uploader — matching the 410 the
+      // /download and /preview routes already return for the same state.
+      var doc = fileService.lookupFile(req.params.shareId, { checkExpiry: true });
       send(res, "share", { file: doc, user: req.user, host: host(req) });
     } catch (_e) {
       return send(res, "error", { title: "Not Found", message: "File not found.", user: req.user }, 404);

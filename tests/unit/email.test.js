@@ -288,4 +288,23 @@ describe("email", function () {
       assert.strictEqual(result, false);
     });
   });
+
+  describe("template placeholder resolution (own-property)", function () {
+    it("substitutes a real variable", function () {
+      assert.strictEqual(email._renderTpl("Hi {name}", { name: "Ann" }), "Hi Ann");
+    });
+
+    it("leaves an inherited Object.prototype name as the literal placeholder", function () {
+      // {constructor} / {__proto__} / {toString} name inherited members. A bare
+      // vars[key] read would splice a function's source into the email; the
+      // own-property guard renders them as the literal {name} instead.
+      assert.strictEqual(email._renderTpl("x{constructor}y", {}), "x{constructor}y");
+      assert.strictEqual(email._renderTpl("a{__proto__}b", {}), "a{__proto__}b");
+      assert.strictEqual(email._renderTpl("p{toString}q", { name: "Ann" }), "p{toString}q");
+    });
+
+    it("leaves an unknown own name as the literal placeholder", function () {
+      assert.strictEqual(email._renderTpl("{missing}", { name: "Ann" }), "{missing}");
+    });
+  });
 });

@@ -459,6 +459,7 @@ var PATTERNS_NA = {
   "raw-timing-safe-equal-boot-prechecked": "rename of raw-timing-safe-equal; HS covers via that detector (steers to the length-tolerant wrapper)",
   "raw-xfp-telemetry-only": "rename of raw-xfp; HS covers via that detector (app-scope; explicitly mirrors blamejs Pattern 20b)",
   "seal-without-aad-by-design": "rename of seal-without-aad; HS covers via that detector (HS seals via b.cryptoField aad:true/rowIdField:_id; 0 raw-seal sites)",
+  "applydefaults-dropped-opt": "blamejs opts-factory shape (an option read from applyDefaults(opts,DEFAULTS) absent from DEFAULTS); HS authors no framework primitives and calls applyDefaults nowhere in owned code (0 sites), so there is no defaults-bag read to guard",
   "silent-catch-stream-teardown": "rename of silent-catch; HS covers via that detector, now app-scope-widened (best-effort teardown/cleanup catches in routes/, middleware/, server-main.js are allow-markered)",
   "timer-no-unref-unrefed-below": "rename of timer-no-unref; HS covers via that detector (setInterval handle must .unref() within the window)",
 };

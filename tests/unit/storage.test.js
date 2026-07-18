@@ -345,4 +345,53 @@ describe("storage", function () {
       assert.ok(fs.existsSync(storage.uploadDir), "uploadDir should exist");
     });
   });
+
+  // Chunk scratch accounting + garbage-collection staleness. These back the
+  // per-file / per-bundle scratch ceilings in upload.handler and the abandoned-
+  // assembly GC.
+  describe("chunk scratch caps + GC", function () {
+    var bundleShareId = "scratch-" + testId;
+
+    after(function () {
+      try { storage.removeBundleChunks(bundleShareId); } catch {}
+    });
+
+    it("fileScratchBytes sums a file's chunks and honors excludeIndex", function () {
+      storage.saveChunk(bundleShareId, "fileA", 0, Buffer.alloc(100));
+      storage.saveChunk(bundleShareId, "fileA", 1, Buffer.alloc(250));
+      assert.strictEqual(storage.fileScratchBytes(bundleShareId, "fileA"), 350, "sum of both chunks");
+      assert.strictEqual(storage.fileScratchBytes(bundleShareId, "fileA", 1), 100, "excluding index 1 drops its 250 bytes");
+      assert.strictEqual(storage.fileScratchBytes(bundleShareId, "missing"), 0, "absent file dir → 0");
+    });
+
+    it("bundleScratchBytes sums across every in-flight fileId", function () {
+      // fileA already holds 350 bytes from the previous test.
+      storage.saveChunk(bundleShareId, "fileB", 0, Buffer.alloc(500));
+      assert.strictEqual(storage.bundleScratchBytes(bundleShareId), 850, "fileA(350) + fileB(500)");
+      assert.strictEqual(storage.bundleScratchBytes("no-such-bundle"), 0, "absent bundle dir → 0");
+    });
+
+    it("listStaleBundleChunkDirs keys on the newest chunk mtime, not the bundle-dir mtime", function () {
+      var freshBundle = "scratch-fresh-" + testId;
+      var staleBundle = "scratch-stale-" + testId;
+      try {
+        storage.saveChunk(freshBundle, "f", 0, Buffer.alloc(10));
+        storage.saveChunk(staleBundle, "f", 0, Buffer.alloc(10));
+
+        // Backdate every chunk file AND its dirs in the stale bundle to 48h ago,
+        // then touch a NEW fileId subdir in the fresh bundle to prove a refreshed
+        // bundle-dir mtime alone does not keep an otherwise-stale tree alive.
+        var twoDaysAgo = new Date(Date.now() - 48 * 3600 * 1000);
+        var staleFile = path.join(storage.scratchDir, staleBundle, "f", "0");
+        fs.utimesSync(staleFile, twoDaysAgo, twoDaysAgo);
+
+        var stale = storage.listStaleBundleChunkDirs(24 * 3600 * 1000).map(function (p) { return path.basename(p); });
+        assert.ok(stale.indexOf(staleBundle) !== -1, "a bundle whose newest chunk is 48h old is stale");
+        assert.strictEqual(stale.indexOf(freshBundle), -1, "a bundle with a fresh chunk is not stale");
+      } finally {
+        try { storage.removeBundleChunks(freshBundle); } catch {}
+        try { storage.removeBundleChunks(staleBundle); } catch {}
+      }
+    });
+  });
 });

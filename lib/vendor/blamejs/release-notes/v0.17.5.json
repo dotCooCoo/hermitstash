@@ -1,0 +1,26 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.17.5",
+  "date": "2026-07-17",
+  "headline": "A tampered or over-filtered backup can no longer silently wipe the live data directory on restore, DNSSEC-strict resolution stays enforced when a stale answer is served, and a family of guards that matched a name against a lookup table now reject a prototype-member name instead of misclassifying it",
+  "summary": "Restoring a backup whose manifest lists zero files -- because a tampered unsigned bundle stripped every entry, or an opts.filter matched nothing -- extracted an empty staging directory and swapped it over the live data directory: a silent, full data-directory wipe reported to the operator as a successful restore. The manifest validator now refuses an empty file list, and the restore path refuses to swap a zero-file extract over a non-empty data directory. Separately, b.network.dns.resolver's validate: true DNSSEC gate was skipped on the serve-stale path, so an upstream outage could downgrade a DNSSEC-strict lookup (including DANE TLSA resolution) to unauthenticated stale data; the gate now holds on the stale path too. And a group of guards resolved a host, scheme, tag, method, or agent name against a plain-object lookup table with a truthiness read, so a name colliding with an inherited object member (constructor) was misclassified -- over-rejected as reserved/forbidden, or, for the mail-server method catalogue, passed the catalogue gate unregistered. All now match against the table's own keys.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Restore refuses a zero-file backup instead of wiping the data directory",
+          "body": "b.backupManifest.validate accepted a manifest with an empty files array. The bundle writer never emits one, but the validator is the single guard the restore path parses an untrusted manifest through, so a tampered unsigned bundle that stripped every file entry (while keeping the still-valid wrapped vault key, which needs no passphrase knowledge) parsed cleanly, extracted an empty staging directory, and had the atomic swap move that empty directory over the live data directory -- a silent, destructive wipe of every file, reported to the operator as a successful restore with a file count of zero. The validator now refuses an empty file list (fixing every consumer -- parse, create, serialize -- at once), so a tampered manifest is rejected before extraction. As defense in depth, b.restore.run now also refuses to swap a zero-file extract over a non-empty data directory, which additionally catches an opts.filter that matched no manifest entry; the swap is refused with the data directory left intact rather than destroyed."
+        },
+        {
+          "title": "DNSSEC-strict resolution stays enforced on the serve-stale path",
+          "body": "b.network.dns.resolver's validate: true option refuses a response that is not DNSSEC-authenticated (AD=0), but the RFC 8767 serve-stale short-circuit returned a cached stale answer before that gate ran. An attacker who can force an upstream outage (denying the DoH endpoint) could therefore downgrade a DNSSEC-strict lookup -- including b.network.dns.resolver.queryTlsa for DANE, queryDs, or a CNAME chase -- to unauthenticated stale data cached earlier at AD=0, with the caller seeing a success rather than the documented validate-failed refusal. The AD-bit gate now applies on the serve-stale path too (the DNSSEC verdict is per-response), so a stale answer that was not authenticated is refused rather than served to a validating caller."
+        },
+        {
+          "title": "Name-lookup guards reject a prototype-member name instead of misclassifying it",
+          "body": "A group of guards tested whether a caller- or peer-supplied name was in a fixed table -- a reserved-HELO-name set, a reserved-local-host set, a dangerous-URL-scheme denylist, a reserved agent-name set, a Tiny-PS forbidden-element set, an HTML void-element set, and the mail-server method catalogue -- with a plain-object truthiness read (TABLE[name]) that walks the prototype chain. A name that collides with an inherited object member -- constructor is the one that survives a lowercased key -- read the inherited value as truthy and was misclassified: over-rejected as reserved or forbidden (b.mail.helo, b.guardListUnsubscribe, b.guardAgentRegistry, b.mailBimi, b.htmlBalance), or, for the mail-server method catalogue, passed the catalogue gate as if it were a registered method (a fail-open at registration). Every site now matches against the table's own keys with an own-property check, so a prototype-member name is treated as any other unknown name; supported names are unaffected."
+        }
+      ]
+    }
+  ]
+}

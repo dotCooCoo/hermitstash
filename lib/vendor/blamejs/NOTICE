@@ -25,6 +25,16 @@ Used for:    XChaCha20-Poly1305 authenticated encryption (lib/crypto.js,
              lib/vault-wrap.js, via lib/vendor/noble-ciphers.cjs).
              Thank you to Paul Miller for the audited noble-ciphers suite.
 --------------------------------------------------------------------------------
+Component:   @noble/curves
+Version:     2.2.0
+Source:      https://github.com/paulmillr/noble-curves
+License:     MIT
+Copyright:   Copyright (c) 2022 Paul Miller (https://paulmillr.com)
+Used for:    RFC 9497 Oblivious Pseudo-Random Function (OPRF / VOPRF / POPRF)
+             over ristretto255 / P-256 / P-384 / P-521 (lib/crypto-oprf.js,
+             via lib/vendor/noble-curves.cjs). Thank you to Paul Miller for the
+             audited noble-curves suite.
+--------------------------------------------------------------------------------
 Component:   @noble/post-quantum
 Version:     0.6.1
 Source:      https://github.com/paulmillr/noble-post-quantum
@@ -41,7 +51,7 @@ Used for:    FIPS 203 ML-KEM (ml_kem_512 / ml_kem_768 / ml_kem_1024),
              reference implementation.
 --------------------------------------------------------------------------------
 Component:   @simplewebauthn/server
-Version:     13.3.0
+Version:     13.3.2
 Source:      https://github.com/MasterKale/SimpleWebAuthn
 License:     MIT
 Copyright:   Copyright (c) Matthew Miller
@@ -78,4 +88,19 @@ Used for:    Top-10000 most-common (breach-derived) passwords. Loaded by
              common-passwords-top-10000.txt; thank you to the SecLists
              project maintainers for keeping a curated, freely-redistributable
              baseline.
+--------------------------------------------------------------------------------
+Component:   publicsuffix-list (Mozilla Public Suffix List)
+Version:     master snapshot (bundled 2026-07-15)
+Source:      https://publicsuffix.org/list/public_suffix_list.dat
+License:     MPL-2.0
+Copyright:   Copyright (c) Mozilla Foundation and Public Suffix List contributors
+Used for:    Canonical catalog of effective top-level domains. Loaded at module
+             init by b.publicSuffix to derive organizational domains for
+             DMARCbis (psd= / np=) alignment, BIMI issuer scoping, cookie-scope
+             confinement, and same-site policy (lib/public-suffix.js, via
+             lib/vendor/public-suffix-list.dat). This is data, not a code
+             bundle. The list is vendored verbatim and unmodified and remains
+             licensed under the Mozilla Public License 2.0; its complete source
+             is available at the canonical URL above, satisfying MPL-2.0 §3.2.
+             The full MPL-2.0 text is at https://www.mozilla.org/MPL/2.0/.
 --------------------------------------------------------------------------------

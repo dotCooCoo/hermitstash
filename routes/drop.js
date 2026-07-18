@@ -100,7 +100,10 @@ module.exports = function (app) {
       var result = await handleFileUpload({
         bundle: bundle, file: file, fields: fields, limits: limits,
         uploadedBy: bundle.ownerId || "public", uploaderEmail: bundle.uploaderEmail,
-        expiresAt: config.fileExpiryDays > 0 ? new Date(Date.now() + config.fileExpiryDays * C.TIME.days(1)).toISOString() : null,
+        // Per-file expiry follows the bundle's server-authoritative, clamped
+        // expiresAt — the same source the chunked path uses — so every file in a
+        // bundle expires together regardless of which transport carried it.
+        expiresAt: bundle.expiresAt || null,
         req: req,
       });
       if (result.error) throw new AppError(result.error, result.status || 400);

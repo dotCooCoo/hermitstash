@@ -6,10 +6,17 @@
 #   ./scripts/vendor-update.sh --check                # show outdated vendored packages
 #   ./scripts/vendor-update.sh --diff <package>       # show vendored vs latest + changelog url
 #   ./scripts/vendor-update.sh --diff-all             # diff every outdated package
+#   ./scripts/vendor-update.sh --refresh-data [entry] # refresh + re-sign vendored data files
+#                                                     # (publicsuffix-list, SecLists-common-
+#                                                     # passwords-top-10000, bimi-trust-anchors;
+#                                                     # default: all)
 #
 # What it does:
 #   1. installs the package(s) temporarily via npm
-#   2. bundles with esbuild (CJS, server-side)
+#   2. bundles with esbuild (CJS, server-side, unminified — vendored
+#      bundles ship as reviewable source so operators can diff them
+#      against upstream; esbuild still tree-shakes and keeps upstream
+#      license comments)
 #   3. copies native prebuilds where applicable (argon2)
 #   4. updates lib/vendor/MANIFEST.json (version + bundledAt)
 #   5. removes the temporarily-installed npm package
@@ -113,6 +120,250 @@ if [ "${1:-}" = "--diff-all" ]; then
   exit 0
 fi
 
+# ---- refresh-data mode ----
+#
+# Vendored DATA files (not code bundles): fetch the upstream where one
+# exists, re-append the in-payload integrity canary, and regenerate +
+# re-sign the .data.js carrier via scripts/vendor-data-gen.js whenever
+# the raw file changed. bimi-trust-anchors is operator-managed (no
+# upstream to fetch) — it is re-signed only when the local .pem was
+# edited per its file-header procedure. Runs of the CI vendor-currency
+# gate that report the publicsuffix-list entry as stale are resolved by
+# this mode. Requires the operator-local SLH-DSA signing key
+# (.keys/vendor-data-private.pem; see scripts/vendor-data-keygen.js).
+
+DATA_SIGNING_KEY=".keys/vendor-data-private.pem"
+REFRESH_DATA_ANY_REGEN=false
+
+fetch_upstream_raw() {
+  # $1 url, $2 dest tmp path, $3.. fixed strings that must all appear
+  # in the body (sanity gate — a truncated or error body must never
+  # reach the signer).
+  #
+  # NOTE for this function and everything refresh_data_entry calls:
+  # the entry functions run as `refresh_data_entry ... || exit 1`, and
+  # bash suspends errexit inside a function invoked under || — every
+  # state-changing command here must carry its own explicit failure
+  # handling; none may rely on `set -e`.
+  local url="$1" tmp="$2"
+  shift 2
+  if ! curl -fsSL --connect-timeout 30 --max-time 300 "$url" -o "$tmp"; then
+    echo "ERROR: fetch failed: $url"
+    rm -f "$tmp"
+    return 1
+  fi
+  if [ ! -s "$tmp" ]; then
+    echo "ERROR: fetched $url is empty — refusing to sign it"
+    rm -f "$tmp"
+    return 1
+  fi
+  local needle
+  for needle in "$@"; do
+    if ! grep -qF -- "$needle" "$tmp"; then
+      echo "ERROR: fetched $url failed the sanity check (missing '$needle') — refusing to sign it"
+      rm -f "$tmp"
+      return 1
+    fi
+  done
+  return 0
+}
+
+regen_data_module_if_changed() {
+  # $1 manifest key, $2 raw file, $3 .data.js carrier, $4 generator
+  # --name, $5 --source-url, $6 --license, $7 --canary ("" = none),
+  # $8 NOTICE component match string ("" = no dated NOTICE stamp)
+  #
+  # Regenerates when the raw payload no longer matches the carrier's
+  # recorded SHA-256 OR when the carrier itself fails four-layer
+  # verification (a payload-identical carrier with a corrupted
+  # signature block, a stripped header, or a signature from a rotated
+  # key must be re-signable through this documented path, not by
+  # reverse-engineering a manual generator invocation).
+  local key="$1" raw="$2" datajs="$3" name="$4" srcurl="$5" license="$6" canary="$7" noticekey="$8"
+  local rawsha datasha carrier_ok
+  rawsha=$(node -e "var c=require('node:crypto'),f=require('node:fs');console.log(c.createHash('sha256').update(f.readFileSync(process.argv[1])).digest('hex'))" "$raw" 2>/dev/null) || rawsha=""
+  if [ -z "$rawsha" ]; then
+    echo "ERROR: cannot hash $raw — file missing or unreadable"
+    return 1
+  fi
+  # Empty datasha (carrier missing, or its provenance header stripped)
+  # is a regeneration trigger, never a match.
+  datasha=$(node -e "var f=require('node:fs');var m=f.readFileSync(process.argv[1],'utf8').match(/^\/\/ SHA-256:\s+([0-9a-f]{64})/m);console.log(m?m[1]:'')" "$datajs" 2>/dev/null) || datasha=""
+  carrier_ok=$(BLAMEJS_VENDOR_DATA_DEFER_BOOT_VERIFY=1 \
+    BLAMEJS_VENDOR_DATA_DEFER_BOOT_VERIFY_REASON="vendor-update:per-entry-refresh-probe" \
+    node -e "try { require('./lib/vendor-data.js').get(process.argv[1]); console.log('ok'); } catch (e) { console.log('bad'); }" "$name" 2>/dev/null) || carrier_ok="bad"
+  if [ -n "$datasha" ] && [ "$rawsha" = "$datasha" ] && [ "$carrier_ok" = "ok" ]; then
+    echo "  $name: carrier verified and matches the raw file — nothing to re-sign"
+    return 0
+  fi
+  if [ -n "$datasha" ] && [ "$rawsha" = "$datasha" ]; then
+    echo "  $name: carrier fails verification — regenerating + re-signing"
+  else
+    echo "  $name: raw file changed — regenerating + re-signing the carrier"
+  fi
+  local gen_args=(--src "$raw" --dst "$datajs" --name "$name" --source-url "$srcurl" --license "$license" --signing-key "$DATA_SIGNING_KEY")
+  if [ -n "$canary" ]; then gen_args+=(--canary "$canary"); fi
+  node scripts/vendor-data-gen.js "${gen_args[@]}" || return 1
+  node -e "
+var fs = require('fs');
+var m = JSON.parse(fs.readFileSync('$MANIFEST', 'utf8'));
+var key = process.argv[1];
+if (m.packages[key]) {
+  m.packages[key].bundledAt = process.argv[2] + 'T00:00:00Z';
+  fs.writeFileSync('$MANIFEST', JSON.stringify(m, null, 2) + '\n');
+  console.log('  MANIFEST.json: ' + key + ' bundledAt -> ' + process.argv[2]);
+}
+" "$key" "$DATE" || { echo "ERROR: MANIFEST.json bundledAt update failed for $key"; return 1; }
+  if [ -n "$noticekey" ]; then
+    node -e "
+var fs = require('fs');
+var sep = Array(81).join('-');
+var noticeKey = process.argv[1];
+var date = process.argv[2];
+var blocks = fs.readFileSync('NOTICE', 'utf8').split(sep);
+var touched = false;
+for (var i = 0; i < blocks.length; i++) {
+  if (blocks[i].indexOf('Component:') === -1 || blocks[i].indexOf(noticeKey) === -1) continue;
+  var next = blocks[i].replace(/\(bundled \d{4}-\d{2}-\d{2}\)/, '(bundled ' + date + ')');
+  if (next !== blocks[i]) { blocks[i] = next; touched = true; }
+}
+if (touched) {
+  fs.writeFileSync('NOTICE', blocks.join(sep));
+  console.log('  NOTICE: ' + noticeKey + ' bundled date -> ' + date);
+}
+" "$noticekey" "$DATE" || { echo "ERROR: NOTICE date update failed for $noticekey"; return 1; }
+  fi
+  REFRESH_DATA_ANY_REGEN=true
+  return 0
+}
+
+refresh_data_entry() {
+  local key="$1" tmp
+  case "$key" in
+    publicsuffix-list)
+      tmp="lib/vendor/public-suffix-list.dat.refresh-tmp"
+      fetch_upstream_raw "https://publicsuffix.org/list/public_suffix_list.dat" "$tmp" \
+        "===END PRIVATE DOMAINS===" "// VERSION:" "// COMMIT:" || return 1
+      { printf '\n// ===BEGIN blamejs canary===\n'
+        printf '// Honeytoken — vendor-data integrity defense (lib/vendor-data.js).\n'
+        printf '_blamejs_canary_v0_9_8_.local\n'
+        printf '// ===END blamejs canary===\n'; } >> "$tmp"
+      # Directional freshness guard: the list is CDN-served and an edge
+      # can return an OLDER cached copy than the snapshot already
+      # vendored (publication reaches edges at different times). The
+      # VERSION header is a sortable UTC timestamp — never replace the
+      # local file with a fetch whose VERSION is older than the local
+      # one; a genuinely newer local copy is what the CI currency gate
+      # already treats as current.
+      local fetchv localv
+      fetchv=$(grep -m1 '^// VERSION:' "$tmp" | awk '{print $3}') || fetchv=""
+      localv=$(grep -m1 '^// VERSION:' "lib/vendor/public-suffix-list.dat" 2>/dev/null | awk '{print $3}') || localv=""
+      if [ -n "$fetchv" ] && [ -n "$localv" ] && [[ "$fetchv" < "$localv" ]]; then
+        echo "  public-suffix-list: fetched copy ($fetchv) is older than the vendored one ($localv) — lagging CDN edge; keeping the local file"
+        rm -f "$tmp"
+      elif cmp -s "$tmp" "lib/vendor/public-suffix-list.dat"; then
+        echo "  public-suffix-list: upstream unchanged"
+        rm -f "$tmp"
+      else
+        mv "$tmp" "lib/vendor/public-suffix-list.dat" || { echo "ERROR: could not replace lib/vendor/public-suffix-list.dat"; return 1; }
+        echo "  public-suffix-list: raw file refreshed from upstream"
+      fi
+      regen_data_module_if_changed "publicsuffix-list" \
+        "lib/vendor/public-suffix-list.dat" \
+        "lib/vendor/public-suffix-list.data.js" \
+        "public-suffix-list" \
+        "https://publicsuffix.org/list/public_suffix_list.dat" \
+        "MPL-2.0 (Mozilla Public Suffix List)" \
+        "_blamejs_canary_v0_9_8_.local" \
+        "publicsuffix-list"
+      ;;
+    SecLists-common-passwords-top-10000)
+      tmp="lib/vendor/common-passwords-top-10000.txt.refresh-tmp"
+      fetch_upstream_raw "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Passwords/Common-Credentials/10k-most-common.txt" "$tmp" \
+        "password" || return 1
+      if [ "$(grep -c . "$tmp")" -lt 9000 ]; then
+        echo "ERROR: fetched password list has fewer than 9000 lines — refusing to sign it"
+        rm -f "$tmp"
+        return 1
+      fi
+      printf '\n_blamejs_canary_password_2026_05_13_blamejs_internal_\n' >> "$tmp"
+      if cmp -s "$tmp" "lib/vendor/common-passwords-top-10000.txt"; then
+        echo "  common-passwords-top-10000: upstream unchanged"
+        rm -f "$tmp"
+      else
+        mv "$tmp" "lib/vendor/common-passwords-top-10000.txt" || { echo "ERROR: could not replace lib/vendor/common-passwords-top-10000.txt"; return 1; }
+        echo "  common-passwords-top-10000: raw file refreshed from upstream"
+      fi
+      regen_data_module_if_changed "SecLists-common-passwords-top-10000" \
+        "lib/vendor/common-passwords-top-10000.txt" \
+        "lib/vendor/common-passwords-top-10000.data.js" \
+        "common-passwords-top-10000" \
+        "https://github.com/danielmiessler/SecLists/blob/master/Passwords/Common-Credentials/10k-most-common.txt" \
+        "CC-BY-3.0 (SecLists / Daniel Miessler)" \
+        "_blamejs_canary_password_2026_05_13_blamejs_internal_" \
+        "SecLists"
+      ;;
+    bimi-trust-anchors)
+      # Operator-managed — never fetched. Re-signs only when the local
+      # .pem was edited per the refresh procedure in its file header.
+      regen_data_module_if_changed "bimi-trust-anchors" \
+        "lib/vendor/bimi-trust-anchors.pem" \
+        "lib/vendor/bimi-trust-anchors.data.js" \
+        "bimi-trust-anchors" \
+        "https://bimigroup.org/resources/vmc-trust-anchors.pem" \
+        "Public domain (BIMI Group VMC trust anchors)" \
+        "" \
+        ""
+      ;;
+    *)
+      echo "ERROR: unknown data entry: $key"
+      echo "       valid: publicsuffix-list, SecLists-common-passwords-top-10000, bimi-trust-anchors"
+      return 1
+      ;;
+  esac
+}
+
+if [ "${1:-}" = "--refresh-data" ]; then
+  if [ ! -f "$DATA_SIGNING_KEY" ]; then
+    echo "ERROR: $DATA_SIGNING_KEY not found — the vendored-data SLH-DSA signing"
+    echo "       key is operator-local. Generate a keypair with"
+    echo "       scripts/vendor-data-keygen.js (shipping a new PUBLIC key is a"
+    echo "       lib/vendor-data.js change and a breaking data-integrity event)."
+    exit 1
+  fi
+  # A Ctrl-C'd or failed fetch must not leave a partial download inside
+  # the shipped lib/vendor/ tree (the printed next step is `git add
+  # lib/vendor/`). Belt: this trap. Braces: *.refresh-tmp is gitignored.
+  trap 'rm -f lib/vendor/*.refresh-tmp' EXIT
+  echo "=== Refreshing vendored data files ==="
+  if [ -n "${2:-}" ]; then
+    refresh_data_entry "$2" || exit 1
+  else
+    refresh_data_entry "publicsuffix-list" || exit 1
+    refresh_data_entry "SecLists-common-passwords-top-10000" || exit 1
+    refresh_data_entry "bimi-trust-anchors" || exit 1
+  fi
+  if [ "$REFRESH_DATA_ANY_REGEN" = true ]; then
+    echo ""
+    echo "=== Refreshing MANIFEST.json sha256 hashes ==="
+    node scripts/refresh-vendor-manifest.js || { echo "Manifest hash refresh failed."; exit 1; }
+  fi
+  echo ""
+  echo "=== Verifying vendored data (dual-hash + SLH-DSA + canary) ==="
+  node -e "require('./lib/vendor-data.js').verifyAll(); console.log('  vendor-data verifyAll: OK');" || exit 1
+  if [ "$REFRESH_DATA_ANY_REGEN" = true ]; then
+    echo ""
+    echo "Next steps:"
+    echo "  1. node scripts/check-vendor-currency.js"
+    echo "  2. node test/smoke.js"
+    echo "  3. git add lib/vendor/ lib/vendor/MANIFEST.json NOTICE && git commit"
+  else
+    echo ""
+    echo "Nothing changed — every vendored data file already matches upstream."
+  fi
+  exit 0
+fi
+
 # ---- update mode ----
 PKG="${1:?Usage: vendor-update.sh <package> [version]}"
 VER="${2:-latest}"
@@ -128,8 +379,9 @@ fi
 case "$PKG" in
   "@noble/ciphers")
     echo 'export { xchacha20poly1305 } from "@noble/ciphers/chacha.js";' > _entry.mjs
-    npx esbuild _entry.mjs --bundle --format=cjs --minify --platform=node --outfile=lib/vendor/noble-ciphers.cjs
+    npx esbuild _entry.mjs --bundle --format=cjs --platform=node --outfile=lib/vendor/noble-ciphers.cjs
     rm _entry.mjs
+    BUNDLER_DESC="esbuild --format=cjs --platform=node"
     sed -i "1s|^|// XChaCha20-Poly1305 — vendored from @noble/ciphers v${INSTALLED_VER} by Paul Miller\n// License: MIT — https://github.com/paulmillr/noble-ciphers\n// Bundled with esbuild. Exports: xchacha20poly1305\n|" lib/vendor/noble-ciphers.cjs
     ;;
 
@@ -138,8 +390,9 @@ case "$PKG" in
 export { ristretto255_oprf } from "@noble/curves/ed25519.js";
 export { p256_oprf, p384_oprf, p521_oprf } from "@noble/curves/nist.js";
 ENTRY
-    npx esbuild _entry.mjs --bundle --format=cjs --minify --platform=node --outfile=lib/vendor/noble-curves.cjs
+    npx esbuild _entry.mjs --bundle --format=cjs --platform=node --outfile=lib/vendor/noble-curves.cjs
     rm _entry.mjs
+    BUNDLER_DESC="esbuild --format=cjs --platform=node"
     sed -i "1s|^|// @noble/curves v${INSTALLED_VER} — vendored from Paul Miller\n// License: MIT — https://github.com/paulmillr/noble-curves\n// Bundled with esbuild. Exports the RFC 9497 OPRF suites:\n//   ristretto255_oprf (ristretto255-SHA512), p256_oprf (P-256-SHA256),\n//   p384_oprf (P-384-SHA384), p521_oprf (P-521-SHA512) — each with\n//   oprf / voprf / poprf modes. Backs b.crypto.oprf.\n|" lib/vendor/noble-curves.cjs
     ;;
 
@@ -149,15 +402,22 @@ export { ml_kem512, ml_kem768, ml_kem1024 } from "@noble/post-quantum/ml-kem.js"
 export { ml_dsa44, ml_dsa65, ml_dsa87 } from "@noble/post-quantum/ml-dsa.js";
 export { slh_dsa_sha2_128f, slh_dsa_sha2_192f, slh_dsa_sha2_256f, slh_dsa_shake_128f, slh_dsa_shake_192f, slh_dsa_shake_256f } from "@noble/post-quantum/slh-dsa.js";
 ENTRY
-    npx esbuild _entry.mjs --bundle --format=cjs --minify --platform=node --outfile=lib/vendor/noble-post-quantum.cjs
+    npx esbuild _entry.mjs --bundle --format=cjs --platform=node --outfile=lib/vendor/noble-post-quantum.cjs
     rm _entry.mjs
+    BUNDLER_DESC="esbuild --format=cjs --platform=node"
     sed -i "1s|^|// @noble/post-quantum v${INSTALLED_VER} — vendored from Paul Miller\n// License: MIT — https://github.com/paulmillr/noble-post-quantum\n// Bundled with esbuild. Exports: ml_kem512 / ml_kem768 / ml_kem1024 (FIPS 203 KEM),\n//   ml_dsa44 / ml_dsa65 / ml_dsa87 (FIPS 204 lattice signatures),\n//   slh_dsa_sha2_*f / slh_dsa_shake_*f (FIPS 205 hash signatures).\n|" lib/vendor/noble-post-quantum.cjs
     ;;
 
   "@simplewebauthn/server")
+    # reflect-metadata (pulled in via @peculiar/x509) resolves to its upstream
+    # ./lite entry: identical metadata API and cross-copy registry, but built
+    # for runtimes with native globalThis / Map / Set / WeakMap — it has none
+    # of the legacy global-object probes (Function("return this") / indirect
+    # eval) that can never execute on the Node versions the framework supports.
     echo "module.exports = require(\"@simplewebauthn/server\");" > _entry.cjs
-    npx esbuild _entry.cjs --bundle --format=cjs --platform=node --minify --external:crypto --external:node:crypto --outfile=lib/vendor/simplewebauthn-server.cjs
+    npx esbuild _entry.cjs --bundle --format=cjs --platform=node --alias:reflect-metadata=reflect-metadata/lite --external:crypto --external:node:crypto --outfile=lib/vendor/simplewebauthn-server.cjs
     rm _entry.cjs
+    BUNDLER_DESC="esbuild --format=cjs --platform=node --alias:reflect-metadata=reflect-metadata/lite --external:crypto --external:node:crypto"
     sed -i "1s|^|// @simplewebauthn/server v${INSTALLED_VER} — vendored. License: MIT\n// https://github.com/MasterKale/SimpleWebAuthn\n|" lib/vendor/simplewebauthn-server.cjs
     ;;
 
@@ -174,11 +434,25 @@ ENTRY
     # ASN.1 schema package, packed into one CJS file. lib/mtls-ca.js loads the
     # bundle via the default engine in lib/mtls-engine-default.js for CA gen,
     # client-cert signing, and PKCS#12 packaging — no openssl CLI at runtime.
+    #
+    # Version argument: "latest" (default) bundles the newest @peculiar/x509 +
+    # pkijs; the MANIFEST version form "<x509ver>+pkijs-<pkijsver>" (e.g.
+    # "2.0.0+pkijs-3.4.0") rebundles those exact component versions.
+    X509_REQ="latest"
+    PKIJS_REQ="latest"
+    if [ "$VER" != "latest" ]; then
+      X509_REQ="${VER%%+pkijs-*}"
+      PKIJS_REQ="${VER##*+pkijs-}"
+      if [ -z "$X509_REQ" ] || [ -z "$PKIJS_REQ" ] || [ "$X509_REQ" = "$VER" ]; then
+        echo "ERROR: peculiar-pki version must be 'latest' or '<x509ver>+pkijs-<pkijsver>' (e.g. 2.0.0+pkijs-3.4.0)"
+        exit 1
+      fi
+    fi
     npm install --no-save --ignore-scripts \
       reflect-metadata \
       pvutils pvtsutils asn1js \
       "@peculiar/asn1-schema" "@peculiar/asn1-x509" "@peculiar/asn1-ecc" "@peculiar/asn1-rsa" \
-      "@peculiar/x509" pkijs 2>/dev/null
+      "@peculiar/x509@${X509_REQ}" "pkijs@${PKIJS_REQ}" 2>/dev/null
     X509_VER=$(node -e "console.log(require('./node_modules/@peculiar/x509/package.json').version)")
     PKIJS_VER=$(node -e "console.log(require('./node_modules/pkijs/package.json').version)")
     echo "Installed: @peculiar/x509@$X509_VER, pkijs@$PKIJS_VER"
@@ -197,10 +471,17 @@ export const pkijs = pkijsLib;
 export const x509 = x509Lib;
 export const crypto = webcrypto;
 ENTRY
-    npx esbuild _pki-entry.mjs --bundle --format=cjs --platform=node --minify \
+    # reflect-metadata resolves to its upstream ./lite entry: identical
+    # metadata API and cross-copy registry, but built for runtimes with native
+    # globalThis / Map / Set / WeakMap — it has none of the legacy
+    # global-object probes (Function("return this") / indirect eval) that can
+    # never execute on the Node versions the framework supports.
+    npx esbuild _pki-entry.mjs --bundle --format=cjs --platform=node \
+      --alias:reflect-metadata=reflect-metadata/lite \
       --external:node:crypto --external:crypto \
       --outfile=lib/vendor/pki.cjs
     rm _pki-entry.mjs
+    BUNDLER_DESC="esbuild --format=cjs --platform=node --alias:reflect-metadata=reflect-metadata/lite --external:node:crypto --external:crypto"
     sed -i "1s|^|// Peculiar PKI — vendored @peculiar/x509 v${X509_VER} + pkijs v${PKIJS_VER}\n// License: MIT. Bundled with esbuild.\n// Exports: { pkijs, x509, crypto (node:webcrypto bound) }\n// Includes: reflect-metadata, pvutils, pvtsutils, asn1js, @peculiar/asn1-*\n// Used by lib/mtls-engine-default.js for pure-JS CA + PKCS#12 operations.\n|" lib/vendor/pki.cjs
     INSTALLED_VER="${X509_VER}+pkijs-${PKIJS_VER}"
     # Structured SBOM component versions, derived from the ACTUALLY-INSTALLED
@@ -222,14 +503,17 @@ esac
 # Update MANIFEST.json. COMPONENT_VERSIONS_JSON (set only for meta-bundles that
 # carry a structured components[] sub-object, e.g. peculiar-pki) is passed via
 # the environment so its JSON braces/quotes don't fight the bash interpolation
-# into the inline node script.
-COMPONENT_VERSIONS_JSON="${COMPONENT_VERSIONS_JSON:-}" node -e "
+# into the inline node script. BUNDLER_DESC records the esbuild invocation that
+# actually produced the artifact, so the manifest's bundler field can never
+# drift from the command in the case-block above.
+COMPONENT_VERSIONS_JSON="${COMPONENT_VERSIONS_JSON:-}" BUNDLER_DESC="${BUNDLER_DESC:-}" node -e "
 var fs = require('fs');
 var m = JSON.parse(fs.readFileSync('$MANIFEST', 'utf8'));
 var pkg = '$PKG';
 if (m.packages[pkg]) {
   m.packages[pkg].version = '$INSTALLED_VER';
   m.packages[pkg].bundledAt = '$DATE';
+  if (process.env.BUNDLER_DESC) { m.packages[pkg].bundler = process.env.BUNDLER_DESC; }
   // Derive structured SBOM component versions from the ACTUALLY-INSTALLED
   // packages (issue #366) so components[].version — the field CycloneDX / Trivy
   // / Grype key on — can never drift from the bundled version string.

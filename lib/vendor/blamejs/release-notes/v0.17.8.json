@@ -1,0 +1,22 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.17.8",
+  "date": "2026-07-17",
+  "headline": "The AI-Act transparency HTML emitters now escape every interpolated value, closing a reflected-XSS through a banner's language attribute and a script-context breakout through the JSON-LD disclosure",
+  "summary": "b.compliance.aiAct.transparency.htmlBanner rendered its lang value -- a free-form string that is typically a request locale, Accept-Language, or query parameter when the banner is server-rendered -- into a double-quoted HTML attribute by raw concatenation, so a lang containing a double quote broke out of the attribute and injected active content (reflected XSS). Only the element text was escaped before; the attribute values were not. And b.compliance.aiAct.transparency.jsonLdDisclosure embedded the watermark manifest (operator-supplied strings such as the model id and deployer name) inside a <script type=\"application/ld+json\"> element with raw JSON.stringify, which does not escape </script>; the HTML parser ends a script element at the first </script> regardless of its type, so a manifest value carrying that sequence terminated the block early and injected markup. Both emitters now escape at the sink -- every attribute value through the HTML-entity escaper and the JSON-LD payload through the script-safe serializer -- so no interpolated value can break out of its context.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "AI-Act transparency banner escapes its attribute values",
+          "body": "b.compliance.aiAct.transparency.htmlBanner builds a status banner whose lang attribute carries a free-form language value -- in a server-rendered banner that value commonly comes from the request (a locale, an Accept-Language header, or a query parameter). The banner escaped its visible text but concatenated the lang, article, and kind values into their double-quoted HTML attributes raw, so a lang value containing a double quote closed the attribute early and let the remainder inject an element or event handler into the page (reflected cross-site scripting, CWE-79). Every attribute value is now passed through the HTML-entity escaper before interpolation, matching the escaping the banner text already had, so a hostile value is rendered as inert text inside the attribute rather than breaking out of it; the escape-at-the-sink handling also covers the article and kind values even though their range is currently constrained."
+        },
+        {
+          "title": "AI-Act JSON-LD disclosure cannot break out of its script element",
+          "body": "b.compliance.aiAct.transparency.jsonLdDisclosure emits the watermark manifest as JSON-LD inside a <script type=\"application/ld+json\"> element, serializing operator-supplied manifest strings (the model id, deployer name, prompt hash, and similar). It used raw JSON.stringify, which does not escape the sequence </script>; because an HTML parser terminates a script element at the first </script> regardless of the element's type, a manifest value containing </script> (or an HTML comment opener) ended the disclosure block early and injected arbitrary markup that the browser then parsed and could execute. The disclosure now serializes the manifest with the framework's script-safe serializer, which escapes <, >, & and the U+2028/U+2029 separators to their \\uXXXX form so the parsed JSON is unchanged but no substring can break out of the script context."
+        }
+      ]
+    }
+  ]
+}

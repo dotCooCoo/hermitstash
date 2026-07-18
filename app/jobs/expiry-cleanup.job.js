@@ -15,13 +15,39 @@ async function cleanupExpiredFiles() {
   var now = new Date().toISOString();
   var expired = files.find({}).filter(function (f) { return f.expiresAt && f.expiresAt < now; });
   var removed = 0;
+  var affectedBundleShareIds = new Set();
   for (var i = 0; i < expired.length; i++) {
     try {
       if (expired[i].storagePath) await storage.deleteFile(expired[i].storagePath);
       files.remove({ _id: expired[i]._id });
+      if (expired[i].bundleShareId) affectedBundleShareIds.add(expired[i].bundleShareId);
       removed++;
     } catch (e) { logger.error("Expiry cleanup error", { error: e.message }); }
   }
+
+  // Auto-cleanup: a bundle whose last file just expired is now empty. Remove the
+  // empty bundle and decrement its stash aggregate — mirroring the interactive
+  // single-file delete path (routes/files.js), so a scheduled expiry doesn't
+  // leave an empty bundle behind (and its customer_stash.bundleCount / totalBytes
+  // permanently inflated). Uses the hash-indexed repo lookups so sealed shareId /
+  // bundleShareId columns resolve correctly.
+  if (affectedBundleShareIds.size > 0) {
+    var filesRepo = require("../data/repositories/files.repo");
+    var bundlesRepo = require("../data/repositories/bundles.repo");
+    var stashRepo = require("../data/repositories/stash.repo");
+    affectedBundleShareIds.forEach(function (shareId) {
+      try {
+        if (filesRepo.findByBundleShareId(shareId).length > 0) return; // bundle still has files
+        var bundle = bundlesRepo.findByShareId(shareId);
+        if (!bundle) return;
+        if (bundle.stashId) {
+          try { stashRepo.decrementBundleStats(bundle.stashId, bundle.totalSize); } catch (_e) { /* stash may have been deleted */ }
+        }
+        bundlesRepo.remove(bundle._id);
+      } catch (_e) { /* best-effort empty-bundle cleanup — orphan-cleanup is the backstop */ }
+    });
+  }
+
   if (removed > 0) {
     try {
       audit.log(audit.ACTIONS.FILE_EXPIRY_CLEANUP, { performedBy: "system", details: "Removed " + removed + " expired files" });

@@ -392,6 +392,18 @@ app.post("/sync/enroll", rateLimit.guard({ max: SYNC_ENROLL_MAX, windowMs: C.TIM
       reissue: record.reissue || false,
     }));
 
+    // Destroy the one-time provisioning secret the moment it has been delivered.
+    // The response above was assembled entirely from the in-memory `record`, so
+    // the row is no longer needed — leaving it (with the raw apiKey, client cert
+    // + private key, and CA cert still on it) until the hourly sweep serves no
+    // purpose. The CAS above already claimed the code, so a concurrent redeemer
+    // lost; removing the row now makes the code single-use with no residual
+    // secret at rest. Consumption-by-removal mirrors the verification-token and
+    // access-code paths. Best-effort: a failure still leaves a redeemed (non-
+    // pending) row that the sweep removes, and the sweep remains the backstop
+    // for codes that expire unredeemed.
+    try { db.enrollmentCodes.remove({ _id: record._id }); } catch (_e) { /* sweep backstop */ }
+
     audit.log(audit.ACTIONS.ENROLLMENT_REDEEMED, { details: "Sync enrollment code redeemed", req: req });
   } catch (err) {
     // Don't leak the specific error to the client (it may reference DB rows,

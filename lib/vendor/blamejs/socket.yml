@@ -1,0 +1,94 @@
+# Socket.dev supply-chain policy for @blamejs/core.
+#
+# blamejs ships ZERO npm runtime dependencies — package.json "dependencies" is
+# empty. All third-party code is vendored under lib/vendor/ as unminified,
+# reviewable esbuild bundles of pinned upstream versions, each recorded with a
+# SHA-256 in lib/vendor/MANIFEST.json (vendored data files additionally carry a
+# SHA3-512 hash, an SLH-DSA signature, and an in-payload canary, all verified
+# at every load by lib/vendor-data.js), and reviewed on every refresh by
+# diffing the published upstream tarball and re-verifying the pinned hash
+# before the vendored copy is updated.
+#
+# The alert classes disabled below are inherent to what this package IS — a
+# server-side framework that makes network calls, reads configuration, serves
+# and stores files, and supervises processes. They fire identically on every
+# release for the same benign reasons, so they carry no per-release signal
+# here and are dispositioned once, with rationale, rather than re-triaged each
+# time. A genuinely new surface can only enter through a vendored-bundle
+# refresh, which is gated by the full tarball-diff + hash verification above —
+# so it is caught at vendor review, not by this scanner.
+#
+# The eval class is deliberately left enabled. The package contains no eval /
+# Function-constructor construct outside the documented worker-thread sandbox
+# compiler (lib/sandbox-worker.js, which compiles operator-submitted source
+# inside a stripped worker_threads isolate), and a codebase-patterns gate
+# enforces that for every lib/vendor/ artifact — so a future eval alert is a
+# real regression signal, not noise. The code bundles are likewise enforced
+# unminified by the same gate; the minifiedFile class below stays
+# dispositioned only because that detector also fires on high-density
+# embedded-asset files, which the signed data payload carriers are by design.
+
+version: 2
+
+issueRules:
+  # Network access — blamejs is a network framework: the HTTP client, SMTP /
+  # IMAP / POP3 mail stack, DNS-over-TLS, NTP, ACME, OCSP, and webhook dispatch
+  # all perform egress. Network access is the product, not an anomaly.
+  networkAccess: false
+
+  # Environment variable access — configuration reads process.env (NODE_ENV,
+  # listen port, data directory, feature flags). Expected configuration surface.
+  envVars: false
+
+  # URL strings — RFC reference URLs in documentation plus endpoint defaults
+  # (ACME directory, OCSP responders, publicsuffix.org, BIMI trust-anchor roots).
+  # Nothing is fetched at runtime beyond the operator-configured endpoints.
+  urlStrings: false
+
+  # Shell access — process execution is confined to b.processSpawn, a wrapper
+  # that requires a fixed binary and an argument array and never sets
+  # shell:true. Its callers: the daemon supervisor, the OS keychain readers
+  # (/usr/bin/security, secret-tool, pwsh — secrets pass via stdin, never
+  # argv), systemd readiness notification (execFile of systemd-notify), and
+  # the dev-mode watcher (refused under NODE_ENV=production). No call site
+  # composes a shell command string.
+  shellAccess: false
+
+  # Filesystem access — the framework serves static files, stores uploads,
+  # writes audit / backup / restore artifacts, and reads its own vendored
+  # data. Filesystem access is the product, not an anomaly.
+  filesystemAccess: false
+
+  # Debug access — no debugger statements and no node:inspector usage in
+  # first-party code. The vendored PKI / WebAuthn bundles use
+  # Reflect.defineMetadata / Reflect.getMetadata — decorator metadata for
+  # their ASN.1 schema serializers, reviewed at the pinned versions. That is
+  # reflection over their own class metadata, not dynamic code execution.
+  debugAccess: false
+
+  # Minified code — the esbuild code bundles under lib/vendor/ ship unminified
+  # (enforced by the repository's codebase-patterns gate), but this detector
+  # also fires on high-density / compressed-or-embedded-asset files. The
+  # signed vendored data carriers (lib/vendor/*.data.js) are that shape by
+  # design: a 76-char-wrapped base64 payload plus one multi-KB SLH-DSA
+  # signatureB64 line. Their integrity is verified at every load (SHA-256 +
+  # SHA3-512 + SLH-DSA signature + in-payload canary; lib/vendor-data.js) and
+  # the plain-format companions (.dat / .txt / .pem) ship alongside for
+  # inspection. Known and reviewed.
+  minifiedFile: false
+
+  # Dynamic require — operator-extensibility entry points only: CLI plugins,
+  # database migrations, and operator-supplied modules loaded by explicit path.
+  # Each call site is annotated in source; none loads a network- or
+  # attacker-controlled module id.
+  dynamicRequire: false
+
+  # Copyleft License — the Public Suffix List is vendored verbatim under MPL-2.0
+  # (a data file, not code). It is attributed in NOTICE with its canonical source
+  # URL, satisfying MPL-2.0 §3.2 source availability. Known and reviewed.
+  copyleftLicense: false
+
+  # Non-permissive License — the SecLists common-password list is vendored under
+  # CC-BY-3.0 (a data file). It is attributed in NOTICE with copyright and source.
+  # Known and reviewed.
+  nonpermissiveLicense: false

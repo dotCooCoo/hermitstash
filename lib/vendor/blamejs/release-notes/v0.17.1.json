@@ -1,0 +1,31 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.17.1",
+  "date": "2026-07-17",
+  "headline": "Profile, posture, and capability name lookups across the content-safety and mail-protocol guards reject a prototype-member name instead of running under it, the mTLS CA can generate a CRL after a fingerprint-only revocation, and a hostile MIME filename no longer crashes attachment extraction",
+  "summary": "A second family of guards resolved a profile, posture, or capability name against a plain-object lookup table with a truthiness or in-operator guard, so a name that is an inherited Object.prototype member (constructor, __proto__, toString) slipped the guard and the gate ran under the inherited member instead of refusing the unknown name. The shared profile resolver (b.gateContract.makeProfileResolver, which the guard family composes), the iCal and vCard content guards, the dark-patterns posture check, the JMAP capability allowlist, and the IMAP/POP3/ManageSieve command guards now all resolve names through an own-property check. Separately, b.mtlsCa.generateCrl crashed with a null-serial error once any certificate had been revoked by fingerprint (the mode the require-mTLS gate pins on), dropping every serial-keyed revocation from the published CRL; and b.safeMime.extractAttachments threw an uncaught URIError on a hostile Content-Disposition filename with a malformed percent-escape, crashing the caller.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Guard profile, posture, and capability lookups reject a prototype-member name",
+          "body": "A group of content-safety and mail-protocol guards resolved a caller- or request-supplied profile / posture / capability name against a plain-object lookup table using a truthiness check (var caps = TABLE[name]; if (!caps)) or the prototype-chain-aware in operator. A name that names an inherited Object.prototype member -- constructor, __proto__, toString -- is truthy (or present via the prototype chain), so it slipped the guard and the gate ran under the inherited member instead of refusing the unknown name. The shared resolver b.gateContract.makeProfileResolver (composed by the idempotency-key, mail-compose, message-id and other guards) now guards both its posture and profile lookups with hasOwnProperty; b.safeIcal, b.safeVcard, b.darkPatterns, b.guardJmap (capability allowlist and profile/posture), and the b.guardImapCommand / b.guardPop3Command / b.guardManageSieveCommand command guards do the same. An unknown or prototype-member name is now rejected with the guard's typed error; supported names are unaffected. This extends the same own-property hardening applied to the crypto algorithm-table lookups in 0.17.0 to the guard-family profile resolvers."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "mTLS CA generates a CRL after a fingerprint-only revocation",
+          "body": "b.mtlsCa.revoke accepts a certificate fingerprint (the value the require-mTLS gate pins on and generateClientCert surfaces for exactly this use), which is stored without a serial number. b.mtlsCa.generateCrl then mapped the whole revocation registry into CRL entries and handed the null serial to the CRL encoder, which threw -- aborting CRL generation entirely. Because one fingerprint-only revocation broke every subsequent CRL build, all serial-keyed revocations were silently dropped from the published CRL and it could never be regenerated, going stale for external CRL-based revocation checking. generateCrl now projects out fingerprint-only entries (which a standard X.509 CRL cannot represent) before encoding and reports how many were omitted; fingerprint-only revocations remain enforced through the mTLS gate, and the CRL publishes every serial-keyed revocation."
+        },
+        {
+          "title": "A hostile MIME filename no longer crashes attachment extraction",
+          "body": "b.safeMime.extractAttachments decoded an RFC 2231 / RFC 5987 extended filename parameter (filename*=charset''percent-encoded) with an unguarded percent-decode, so a malformed escape -- a truncated %, a non-hex %ZZ, or a sequence that decodes to invalid UTF-8 -- threw an uncaught URIError that escaped the parser's typed-error contract and crashed the caller (for example a mail store extracting attachments). A one-line hostile Content-Disposition header was a trivial denial of service. The decode now degrades to the still-encoded filename on failure, matching the framework's handling of every other percent-decode site, so a hostile filename yields a best-effort name that downstream filename guards still vet rather than a crash."
+        }
+      ]
+    }
+  ]
+}

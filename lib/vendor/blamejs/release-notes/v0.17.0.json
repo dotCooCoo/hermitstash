@@ -1,0 +1,31 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.17.0",
+  "date": "2026-07-17",
+  "headline": "Algorithm and key-type lookups across the crypto verifiers reject a prototype-member name instead of accepting it, the ZIP reader honors the operator's decompression-ratio policy, and signed S3/GCS query parameters transmit the space encoding they were signed with",
+  "summary": "A family of verifiers resolved an algorithm, hash, or key-type name against a plain-object lookup table with a truthiness or `in`-operator guard, so a name that is an inherited Object.prototype member (constructor, __proto__, toString, valueOf) slipped the guard and resolved to the inherited member: b.jwk thumbprinted an attacker-crafted key to a predictable digest, b.vc and b.contentCredentials emitted a real signature under a bogus algorithm, and b.sdJwtVc accepted an attacker-controlled hash name from an unsigned issuer payload. All of them now reject a name that is not an own property of the table. Separately, b.archive's ZIP reader silently capped the decompression ratio at its composed default and ignored the operator's configured bomb policy, refusing legitimate highly-compressible entries; and b.storage's SigV4 (and the GCS V4 presigner) signed a query space as %20 but transmitted it as +, so a signed parameter carrying a space was rejected as a signature mismatch.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Crypto algorithm and key-type lookups reject a prototype-member name",
+          "body": "Several verifiers resolved a caller- or attacker-supplied algorithm / hash / key-type name against a plain-object lookup table using a truthiness check (`var v = TABLE[name]; if (!v) reject`) or the prototype-chain-aware `in` operator. A name that names an inherited Object.prototype member -- constructor, __proto__, toString, valueOf, toLocaleString -- is truthy (or present via the prototype chain), so it slipped the guard and resolved to the inherited member. The observed consequences: b.jwk.thumbprint / canonicalize accepted an unsupported kty and thumbprinted the key to a single predictable digest; b.vc.issue (JOSE) and b.contentCredentials.signCose emitted a real signature under a bogus algorithm id; and b.sdJwtVc.present accepted an attacker-controlled _sd_alg read from the unsigned issuer payload. b.tsa and the SD-JWT hash-disclosure path returned a raw runtime error rather than a typed rejection. Every one of these table lookups now checks Object.prototype.hasOwnProperty before indexing, so a name that is not an own member of the table is rejected with the primitive's typed error. Supported algorithm and key-type names are unaffected."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "ZIP extraction honors the operator's decompression-ratio policy",
+          "body": "b.archive's random-access ZIP reader composed b.safeDecompress for each DEFLATE entry without forwarding the reader's own expansion-ratio cap, so the decompression inherited safeDecompress's stricter default ratio and silently overrode the operator's configured bomb policy. A ZIP entry that legitimately compressed better than the default ratio (logs, JSON, telemetry, zero-padded or sparse binaries) was refused even when the operator's policy permitted it. The reader now forwards its configured maximum expansion ratio into the decode, so the actual-bytes ratio re-check uses the same cap the declared-size gate already enforced."
+        },
+        {
+          "title": "Signed S3 and GCS query parameters transmit the space encoding they were signed with",
+          "body": "b.storage's SigV4 request signing (S3, R2, MinIO, and the S3-compatible backends) and the GCS V4 presigner sign the canonical query string, which encodes a space as %20 per the AWS/GCS specification, but transmitted the request via the WHATWG URL serializer, which encodes a space as +. A signed query parameter carrying a literal space -- a response-content-disposition filename or a list prefix -- was therefore signed over %20 but sent as +, so the storage server re-canonicalized to different bytes and rejected the request with a signature mismatch. The signer now aligns the wire query to the signed canonical encoding (rewriting a bare + back to %20) at each signing sink, so the transmitted query is byte-identical to what the signature commits to."
+        }
+      ]
+    }
+  ]
+}

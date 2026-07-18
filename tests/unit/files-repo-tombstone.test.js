@@ -102,4 +102,41 @@ describe("files.repo tombstone exclusion", function () {
     db.files.remove({ _id: live.doc._id });
     db.files.remove({ _id: dead.doc._id });
   });
+
+  it("findServableByBundleShareId excludes individually-expired files and tombstones, keeps live/unexpired", function () {
+    var share = "bundle-serv-" + b.crypto.generateToken(4);
+    var past = new Date(Date.now() - 3600000).toISOString();
+    var future = new Date(Date.now() + 3600000).toISOString();
+
+    var live = seedFile({ bundleShareId: share, originalName: "live.pdf", relativePath: "live.pdf", expiresAt: null });
+    var future1 = seedFile({ bundleShareId: share, originalName: "future.pdf", relativePath: "future.pdf", expiresAt: future });
+    var expired = seedFile({ bundleShareId: share, originalName: "expired-secret.pdf", relativePath: "expired-secret.pdf", expiresAt: past });
+    var tomb = seedFile({ bundleShareId: share, originalName: "deleted-secret.pdf", relativePath: "deleted-secret.pdf", deletedAt: new Date().toISOString(), storagePath: null, encryptionKey: null });
+
+    var serv = filesRepo.findServableByBundleShareId(share);
+    var names = serv.map(function (f) { return f.originalName; });
+    assert.ok(names.indexOf("live.pdf") !== -1, "no-expiry file should be servable");
+    assert.ok(names.indexOf("future.pdf") !== -1, "future-expiry file should be servable");
+    assert.strictEqual(names.indexOf("expired-secret.pdf"), -1, "individually-expired file must not be served or listed");
+    assert.strictEqual(names.indexOf("deleted-secret.pdf"), -1, "tombstone must not be served or listed");
+
+    // findLiveByBundleShareId (tombstone-only filter) STILL includes the expired
+    // file — proving the servable variant adds the per-file expiry predicate the
+    // content-serving paths need on top of the tombstone exclusion.
+    var liveOnly = filesRepo.findLiveByBundleShareId(share).map(function (f) { return f.originalName; });
+    assert.ok(liveOnly.indexOf("expired-secret.pdf") !== -1, "findLiveByBundleShareId does not filter expiry (documents the difference)");
+
+    db.files.remove({ _id: live.doc._id });
+    db.files.remove({ _id: future1.doc._id });
+    db.files.remove({ _id: expired.doc._id });
+    db.files.remove({ _id: tomb.doc._id });
+  });
+
+  it("findServableByBundleShareId treats a just-expired file (1s ago) as gone", function () {
+    var share = "bundle-serv-boundary-" + b.crypto.generateToken(4);
+    var justExpired = seedFile({ bundleShareId: share, originalName: "just-expired.pdf", relativePath: "just-expired.pdf", expiresAt: new Date(Date.now() - 1000).toISOString() });
+    var serv = filesRepo.findServableByBundleShareId(share);
+    assert.strictEqual(serv.length, 0, "a file expired 1s ago must not be servable");
+    db.files.remove({ _id: justExpired.doc._id });
+  });
 });

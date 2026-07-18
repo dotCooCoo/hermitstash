@@ -255,4 +255,62 @@ describe("expiry", function () {
       assert.strictEqual(db.files.findOne({ _id: "boundary-1" }), null, "just-expired file should be removed");
     });
   });
+
+  // Server-authoritative bundle expiry: the operator's FILE_EXPIRY_DAYS is the
+  // retention ceiling — a client (including an anonymous /drop uploader) may
+  // shorten retention but never extend it past what the operator allows.
+  describe("bundle expiry clamp (bundle.service.initBundle)", function () {
+    var bundleService = require("../../app/domain/uploads/bundle.service");
+    var C = require("../../lib/constants");
+
+    // Read the stored expiresAt back and return the whole-day delta from now.
+    async function daysFor(opts) {
+      var res = await bundleService.initBundle(Object.assign({ uploaderName: "t", bundleType: "snapshot", fileCount: 0 }, opts));
+      var bundle = db.bundles.findOne({ _id: res.bundleId });
+      db.bundles.remove({ _id: res.bundleId });
+      if (!bundle.expiresAt) return null;
+      return Math.round((Date.parse(bundle.expiresAt) - Date.now()) / 86400000);
+    }
+
+    it("clamps a client expiryDays above the operator ceiling down to the ceiling", async function () {
+      var d = await daysFor({ expiryDays: 36500, defaultExpiryDays: 7 });
+      assert.strictEqual(d, 7, "client 36500d must clamp to the operator's 7d ceiling");
+    });
+
+    it("honors a client expiryDays below the ceiling (shortening allowed)", async function () {
+      var d = await daysFor({ expiryDays: 3, defaultExpiryDays: 7 });
+      assert.strictEqual(d, 3, "a shorter client retention window is allowed");
+    });
+
+    it("falls back to the operator default when the client sends no expiryDays", async function () {
+      var d = await daysFor({ defaultExpiryDays: 7 });
+      assert.strictEqual(d, 7, "no client value falls back to the operator default");
+    });
+
+    it("allows a finite client window when the operator sets no expiry (0 = keep indefinitely)", async function () {
+      var d = await daysFor({ expiryDays: 30, defaultExpiryDays: 0 });
+      assert.strictEqual(d, 30, "with no operator ceiling a finite client window is honored");
+    });
+
+    it("keeps files permanent when neither client nor operator sets an expiry", async function () {
+      var d = await daysFor({ defaultExpiryDays: 0 });
+      assert.strictEqual(d, null, "no expiry configured anywhere => expiresAt null");
+    });
+
+    it("bounds an absurd client window to MAX_EXPIRY_DAYS when the operator sets none", async function () {
+      var d = await daysFor({ expiryDays: 999999999, defaultExpiryDays: 0 });
+      assert.strictEqual(d, C.UPLOAD.MAX_EXPIRY_DAYS, "an over-max client window is bounded to the absolute ceiling");
+    });
+
+    it("rejects a hostile non-numeric / negative expiryDays without producing an Invalid Date", async function () {
+      for (var bad of ["abc", "-5", "0", "NaN", "1e999"]) {
+        var res = await bundleService.initBundle({ uploaderName: "t", bundleType: "snapshot", fileCount: 0, expiryDays: bad, defaultExpiryDays: 7 });
+        var bundle = db.bundles.findOne({ _id: res.bundleId });
+        db.bundles.remove({ _id: res.bundleId });
+        // A non-positive/garbage client value falls back to the 7d operator default;
+        // whatever the value, expiresAt is either null or a valid ISO instant.
+        assert.ok(bundle.expiresAt === null || !isNaN(Date.parse(bundle.expiresAt)), "expiresAt must never be an Invalid Date for input " + bad);
+      }
+    });
+  });
 });

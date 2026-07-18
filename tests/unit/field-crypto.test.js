@@ -298,12 +298,15 @@ describe("field-crypto", function () {
   // ---- falsy passthrough ----
 
   describe("falsy passthrough", function () {
-    it("empty-string sealed field stays raw and round-trips to empty string", function () {
+    it("empty-string sealed field is sealed as a tamper-evident envelope and round-trips to empty string", function () {
       var id = rid();
       var sealed = fieldCrypto.sealDoc("users", { _id: id, email: "" }, id);
-      assert.strictEqual(sealed.email, "", "empty string should be stored raw");
-      assert.ok(!b.vault.aad.isAadSealed(sealed.email), "empty string must not be AAD-sealed");
-      assert.ok(!String(sealed.email).startsWith(AAD_PREFIX), "empty string must not carry the AAD prefix");
+      // 0.16.19+: an empty string is no longer stored raw. b.cryptoField seals it
+      // to a real AAD envelope (a bare "" in an AAD column fail-closes to null on
+      // read), so sealing is what preserves BOTH the round-trip and the
+      // tamper-evidence — a DB-write attacker can't downgrade the envelope to "".
+      assert.notStrictEqual(sealed.email, "", "empty string must not be stored raw");
+      assert.ok(b.vault.aad.isAadSealed(sealed.email), "empty string is AAD-sealed");
       var unsealed = fieldCrypto.unsealDoc("users", sealed, id);
       assert.strictEqual(unsealed.email, "", "empty string round-trips to empty string");
     });
