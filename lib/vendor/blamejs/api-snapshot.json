@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.17.11",
-  "createdAt": "2026-07-18T00:55:50.545Z",
+  "frameworkVersion": "0.17.22",
+  "createdAt": "2026-07-25T13:46:32.462Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -2126,7 +2126,7 @@
         },
         "parseRaw": {
           "type": "function",
-          "arity": 1
+          "arity": 2
         }
       }
     },
@@ -14759,6 +14759,14 @@
           "type": "function",
           "arity": 2
         },
+        "spkiPin": {
+          "type": "function",
+          "arity": 1
+        },
+        "spkiPinVerifier": {
+          "type": "function",
+          "arity": 1
+        },
         "sri": {
           "type": "function",
           "arity": 2
@@ -15130,6 +15138,10 @@
           "arity": 4
         },
         "start": {
+          "type": "function",
+          "arity": 1
+        },
+        "status": {
           "type": "function",
           "arity": 1
         },
@@ -49403,6 +49415,10 @@
           "type": "function",
           "arity": 2
         },
+        "redactText": {
+          "type": "function",
+          "arity": 1
+        },
         "registerFieldRule": {
           "type": "function",
           "arity": 2
@@ -51203,12 +51219,29 @@
         }
       }
     },
+    "safeObject": {
+      "type": "object",
+      "members": {
+        "ownProp": {
+          "type": "function",
+          "arity": 2
+        },
+        "ownSet": {
+          "type": "function",
+          "arity": 3
+        }
+      }
+    },
     "safePath": {
       "type": "object",
       "members": {
         "SafePathError": {
           "type": "function",
           "arity": 4
+        },
+        "confineToBase": {
+          "type": "function",
+          "arity": 3
         },
         "resolve": {
           "type": "function",
@@ -52445,9 +52478,21 @@
           "type": "function",
           "arity": 4
         },
+        "beginProbation": {
+          "type": "function",
+          "arity": 1
+        },
         "compareTags": {
           "type": "function",
           "arity": 2
+        },
+        "confirmHealthy": {
+          "type": "function",
+          "arity": 1
+        },
+        "evaluateOnBoot": {
+          "type": "function",
+          "arity": 1
         },
         "poll": {
           "type": "function",
@@ -52466,7 +52511,7 @@
             },
             "verify": {
               "type": "function",
-              "arity": 3
+              "arity": 4
             }
           }
         },
@@ -52892,11 +52937,19 @@
           "type": "function",
           "arity": 1
         },
+        "isExactLoopbackName": {
+          "type": "function",
+          "arity": 1
+        },
         "isLinkLocal": {
           "type": "function",
           "arity": 1
         },
         "isLoopback": {
+          "type": "function",
+          "arity": 1
+        },
+        "isLoopbackHost": {
           "type": "function",
           "arity": 1
         },
@@ -54122,6 +54175,14 @@
     "watcher": {
       "type": "object",
       "members": {
+        "MAX_IGNORE_PATTERN_LEN": {
+          "type": "primitive",
+          "valueType": "number"
+        },
+        "MAX_IGNORE_STAR_COUNT": {
+          "type": "primitive",
+          "valueType": "number"
+        },
         "WatcherError": {
           "type": "function",
           "arity": 4

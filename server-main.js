@@ -524,7 +524,17 @@ app.use(require("./middleware/api-auth"));
 //
 // Legacy api-encrypt is carved out for blamejs scope so the two
 // layers never both wrap res.json on the same request.
-var blamejsKeypair = apiEncryptKeypair.loadOrGenerate();
+var blamejsKeypair;
+try {
+  blamejsKeypair = apiEncryptKeypair.loadOrGenerate();
+} catch (e) {
+  // loadOrGenerate throws a generic, secret-free message on a corrupt on-disk
+  // keypair (raw key bytes are suppressed at the parse site). Catch it here so a
+  // boot failure is a clean exit rather than an unhandled exception at
+  // module-require time.
+  logger.error("api-encrypt keypair load failed", { error: e && e.message });
+  process.exit(1);
+}
 var blamejsApiEncrypt = b.middleware.apiEncrypt({
   keypair:     blamejsKeypair,
   keying:      "per-session",

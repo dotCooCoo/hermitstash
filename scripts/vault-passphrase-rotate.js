@@ -43,6 +43,7 @@ var fs = require("fs");
 
 var C = require("../lib/constants");
 var b = require("../lib/vendor/blamejs");
+var safeLog = require("../lib/safe-log");
 var passphraseSource = require("../lib/passphrase-source");
 var serverLiveness = require("./lib/server-liveness");
 
@@ -213,7 +214,7 @@ async function execute(oldPw, newPw) {
   try {
     plaintextBytes = await b.vaultWrap.unwrap(sealedBytes, oldPw);
   } catch (e) {
-    console.error("ERROR: " + e.message);
+    console.error("ERROR: " + safeLog.scrub(e.message));
     console.error("  OLD passphrase rejected. The sealed file is unchanged.");
     process.exit(1);
   }
@@ -223,7 +224,7 @@ async function execute(oldPw, newPw) {
   try {
     newSealed = await b.vaultWrap.wrap(plaintextBytes, newPw);
   } catch (e) {
-    console.error("ERROR: failed to wrap with new passphrase: " + e.message);
+    console.error("ERROR: failed to wrap with new passphrase: " + safeLog.scrub(e.message));
     console.error("  The sealed file is unchanged.");
     process.exit(1);
   }
@@ -234,7 +235,7 @@ async function execute(oldPw, newPw) {
   try {
     verifyBytes = await b.vaultWrap.unwrap(newSealed, newPw);
   } catch (e) {
-    console.error("ERROR: round-trip verification failed — " + e.message);
+    console.error("ERROR: round-trip verification failed — " + safeLog.scrub(e.message));
     console.error("  The sealed file is unchanged.");
     process.exit(1);
   }
@@ -296,8 +297,10 @@ function printSuccess() {
     await execute(pws.oldPw, pws.newPw);
     printSuccess();
   } catch (e) {
-    console.error("FATAL: " + (e && e.message || String(e)));
-    if (e && e.stack) console.error(e.stack);
+    // Backstop for unexpected errors. This tool handles vault key material, so
+    // never dump a raw stack (CWE-532); scrub any credential-shaped substring from
+    // the message and surface only the non-secret error code.
+    console.error("FATAL: " + safeLog.scrub(e && e.message || String(e)) + " (code: " + safeLog.code(e) + ")");
     process.exit(1);
   }
 })();

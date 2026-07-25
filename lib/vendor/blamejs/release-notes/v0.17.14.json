@@ -1,0 +1,40 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.17.14",
+  "date": "2026-07-23",
+  "headline": "The framework's file watchers are hardened against an uncatchable process abort on Windows 8.3 short-name paths",
+  "summary": "fs.watch aborts the whole Node process -- an uncatchable libuv assertion in the directory-change backend -- when the watched path is reached through a Windows 8.3 short-name component (the shape of a path under C:\\Users\\SOMEUS~1\\... or a short-named temp directory). The recursive file watcher already expanded the short name before watching; this closes the same gap everywhere else the framework watches a path: the feature-flag file watcher now stat-polls its config file instead of directory-watching it, and the dev-server and bundler watchers expand the short name before watching. Three structural detectors lock the invariant in so it cannot regress in a way a behavioral test cannot reach (the abort only fires on a real short-name path, which a host with 8.3 generation disabled cannot reproduce).",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "The feature-flag file watcher no longer aborts on a Windows short-name config path",
+          "body": "b.flags localFile provider with watch enabled directory-watched the config file via fs.watch, which aborts the process (uncatchable) when the config path resolves through a Windows 8.3 short-name component -- its surrounding try/catch cannot recover from a libuv abort(). It now stat-polls the file (StatWatcher opens no directory-change handle, so it is immune to the path form) and reloads on change with sub-second latency."
+        },
+        {
+          "title": "The dev-server and bundler watchers expand a short-name path before watching",
+          "body": "b.dev and b.bundler watch a source directory or file via fs.watch; on Windows a path reached through an 8.3 short-name component aborts libuv. Both now resolve the real long-form path (realpathSync.native) before the watch, matching the guard the recursive b.watcher already applied."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Public Suffix List refreshed to the current upstream snapshot",
+          "body": "The vendored Mozilla Public Suffix List is updated to the current upstream snapshot, so organizational-domain derivation reflects the latest registry delegations wherever the framework draws a registrable-domain boundary -- DMARC identifier alignment, BIMI issuer scoping, cookie-scope confinement, and same-site policy. The .data.js carrier is regenerated and re-signed across all four integrity layers."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "Filesystem-watch short-name safety and pid-liveness composition are enforced structurally",
+          "body": "Three codebase-patterns detectors close invariants a behavioral test cannot assert (the underlying abort is environment-specific to a real 8.3 short-name path): any lib fs.watch must expand the short name via realpathSync.native in the same file (or use the StatWatcher path instead); the daemon's Windows cooperative-stop sentinel must poll a synchronous existsSync rather than watch the filesystem; and a signal-0 process-liveness probe must compose the shared pid-probe classifier rather than re-roll process.kill(pid, 0) with its own EPERM/ESRCH interpretation."
+        }
+      ]
+    }
+  ]
+}

@@ -41,6 +41,7 @@
 })();
 
 (async function boot() {
+  var safeLog = require("./lib/safe-log");
   var vault;
   try {
     vault = require("./lib/vault");
@@ -53,10 +54,11 @@
     await vault.init();
   } catch (e) {
     // vault.init() itself calls process.exit(1) on fatal errors and prints a
-    // detailed message. A throw reaching here means an unexpected exception
-    // bubbled out — fail loudly.
-    console.error("FATAL: unexpected error during vault init: " + (e && e.message));
-    if (e && e.stack) console.error(e.stack);
+    // detailed message. A throw reaching here is an unexpected exception — and
+    // because vault.init() parses and unwraps secret key material, its error
+    // text or stack can embed raw key bytes (CWE-532). Log only the non-secret
+    // error code and suppress the message/stack.
+    console.error("FATAL: unexpected error during vault init (code: " + safeLog.code(e) + "). Error text suppressed to avoid logging key material; see the vault.init diagnostics above.");
     process.exit(1);
   }
   // Vault is now either loaded (plaintext) or unsealed (wrapped). The module
@@ -124,7 +126,17 @@
     var migrate = require("./lib/legacy-envelope-migrate");
     if (!migrate.isAlreadyMigrated()) {
       console.log("[envelope-migrate] detected 0xE1 sealed data — converting to 0xE2 before server start...");
-      var keys = JSON.parse(vault.getKeysJson());
+      var keys;
+      try {
+        keys = JSON.parse(vault.getKeysJson());
+      } catch (_e) {
+        // getKeysJson() returns JSON.stringify(keys) so this normally cannot
+        // throw; guard anyway so a future change or in-memory corruption can't
+        // dump raw key bytes through the catch below (CWE-532). Mirrors the
+        // operator CLI twin scripts/envelope-migrate-0xE1-to-0xE2.js.
+        console.error("FATAL: in-memory vault keypair did not serialize to valid JSON (parser detail suppressed to avoid logging key material).");
+        process.exit(1);
+      }
       var result = migrate.run({
         keys: keys,
         log:  { info: function (m) { console.log("[envelope-migrate] " + m); }, warn: console.warn, error: console.error },
@@ -132,8 +144,11 @@
       console.log("[envelope-migrate] complete — " + result.filesMigrated + " sealed files + " + result.rowsMigrated + " DB rows migrated to 0xE2");
     }
   } catch (e) {
-    console.error("FATAL: envelope migration failed: " + (e && e.message));
-    if (e && e.stack) console.error(e.stack);
+    // migrate.run() re-encrypts sealed data with the vault keys; an error can
+    // carry a window of those bytes in its message/stack (CWE-532). Scrub
+    // credential-shaped substrings, log only the non-secret code, and never
+    // dump the raw stack.
+    console.error("FATAL: envelope migration failed (code: " + safeLog.code(e) + "): " + safeLog.scrub(e && e.message || String(e)));
     console.error("Restore data/ from a pre-upgrade backup, then either re-run the upgrade or run scripts/envelope-migrate-0xE1-to-0xE2.js manually.");
     process.exit(1);
   }

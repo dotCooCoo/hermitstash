@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.17.18",
+  "date": "2026-07-24",
+  "headline": "`b.i18n` validates every inline translation tree at boot, closing a path where t() could return undefined",
+  "summary": "b.i18n.create validated the translation trees only for the locales listed in the configured locales array. A locale present in the inline translations map but absent from locales is still reachable through an explicit t(key, vars, { locale }) override, and its tree escaped validation: a plural entry there missing the mandatory CLDR 'other' category made t() with a count return undefined instead of the key -- a contract violation that could render the literal string 'undefined' into server-rendered HTML or crash a downstream length/escape. Every inline translation tree is now validated at create, so a malformed one fails closed at boot rather than at the first request that reaches it.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Every inline translation tree is validated at create, not only the configured locales",
+          "body": "b.i18n.create walked only opts.locales when validating translation trees up front, so a locale that appears in opts.translations but not in opts.locales was never checked even though it is reachable via an explicit locale override on t()/has(). A plural entry in such a tree that omits the mandatory 'other' category caused t(key, { count }) to select 'other', find nothing, and return undefined -- violating the documented contract that t() returns a string (the key on a miss) and never a non-string. create now validates every key of opts.translations, so a malformed tree is rejected at boot regardless of whether its locale is in opts.locales."
+        }
+      ]
+    }
+  ]
+}

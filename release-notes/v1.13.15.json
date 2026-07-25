@@ -1,0 +1,25 @@
+{
+  "version": "1.13.15",
+  "date": "2026-07-25",
+  "headline": "Refresh the vendored framework and keep key material out of error logs",
+  "summary": "A vendored-framework security refresh, together with hardening that stops secret key bytes from reaching error logs.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Refresh the vendored framework to 0.17.22",
+          "body": "Update the vendored blamejs framework, picking up upstream security fixes: a quote-aware subjectAltName parser that closes a TLS hostname-verification bypass (a certificate could smuggle a hostname through a JSON-quoted SAN value), OIDC id_token verification that now requires a configured issuer to defend the cross-realm/cross-issuer case, RFC 8463 raw-key ed25519 DKIM interoperability, and a batch of cross-platform file-watch and daemon lifecycle fixes."
+        },
+        {
+          "title": "Suppress error text and stack traces on key-handling failure paths",
+          "body": "Vault initialization, the boot-time envelope migration, the API-encrypt keypair load, and the vault / TLS / CA operator command-line tools no longer print an error message or stack trace that could embed raw private-key bytes when a key file is corrupt or a wrapped file fails to open (CWE-532). These paths now log only a non-secret error code, and any surfaced message is passed through a credential redactor first."
+        },
+        {
+          "title": "Clear two advisories in the test tooling",
+          "body": "Update fast-uri and brace-expansion — development-only test dependencies, not shipped in the runtime image — to their patched releases, resolving a host-confusion and a denial-of-service advisory in the lint/test toolchain."
+        }
+      ]
+    }
+  ]
+}

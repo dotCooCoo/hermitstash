@@ -537,6 +537,129 @@ function testNoLiteralNulBytesInSource() {
     hits);
 }
 
+// ---- Dots-only regex escape (incomplete-sanitization / regex-injection) ----
+// `.replace(/\./g, "\\.")` (or `/[.]/g`) escapes ONLY the dot when building a
+// literal matcher from an interpolated string, leaving every other regex
+// metacharacter — and the backslash itself — live. That is the CodeQL
+// js/incomplete-sanitization + js/regex-injection class. Use the framework's
+// complete escaper b.codepointClass.escapeRegExp instead.
+function testNoDotsOnlyRegexEscape() {
+  var fs = require("node:fs");
+  var path = require("node:path");
+  var repoRoot = path.resolve(__dirname, "..", "..");
+  var hits = [];
+  var re = /\.replace\(\s*\/(?:\\\.|\[\.\])\/g\s*,\s*(['"])\\\\\.\1\s*\)/;
+  function walk(dir) {
+    var entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_e) { return; }
+    for (var i = 0; i < entries.length; i += 1) {
+      var e = entries[i];
+      if (e.name === "vendor" || e.name === "node_modules" || e.name === ".git") continue;
+      var full = path.join(dir, e.name);
+      if (e.isDirectory()) { walk(full); continue; }
+      if (!e.isFile() || !/\.js$/.test(e.name)) continue;
+      var lines = fs.readFileSync(full, "utf8").split(/\r?\n/);
+      for (var j = 0; j < lines.length; j += 1) {
+        if (/^\s*(\/\/|\*|\/\*)/.test(lines[j])) continue;
+        if (/allow:dots-only-regex/.test(lines[j]) || (j > 0 && /allow:dots-only-regex/.test(lines[j - 1]))) continue;
+        if (re.test(lines[j])) {
+          hits.push({
+            file: path.relative(repoRoot, full).replace(/\\/g, "/"),
+            line: j + 1,
+            content: "dots-only regex escape — use b.codepointClass.escapeRegExp (complete metacharacter escape) to build a literal matcher",
+          });
+        }
+      }
+    }
+  }
+  ["lib", "app", "scripts", "tests"].forEach(function (d) { walk(path.join(repoRoot, d)); });
+  _report("no dots-only regex escapes (use b.codepointClass.escapeRegExp)", hits);
+}
+
+// ---- No raw stack/message dump in key-handling CLI tools (CWE-532) ----
+// The vault / TLS / CA / envelope-migrate scripts handle private key material.
+// A `console.error(e.stack)` (or `+ e.stack`) from such a tool can echo raw key
+// bytes carried in an error thrown while parsing decrypted key material. Log the
+// non-secret code via lib/safe-log (safeLog.code / safeLog.scrub) instead.
+function testNoStackDumpInKeyScripts() {
+  var fs = require("node:fs");
+  var path = require("node:path");
+  var repoRoot = path.resolve(__dirname, "..", "..");
+  var scriptsDir = path.join(repoRoot, "scripts");
+  var hits = [];
+  var entries;
+  try { entries = fs.readdirSync(scriptsDir, { withFileTypes: true }); } catch (_e) { entries = []; }
+  for (var i = 0; i < entries.length; i += 1) {
+    var e = entries[i];
+    if (!e.isFile() || !/\.js$/.test(e.name)) continue;
+    var full = path.join(scriptsDir, e.name);
+    var src = fs.readFileSync(full, "utf8");
+    // Only key-handling tools: those that touch vault / pem-seal / vaultWrap / vaultRotate.
+    if (!/require\(["']\.\.\/lib\/(?:vault|pem-seal)["']\)|vaultWrap|vaultRotate/.test(src)) continue;
+    var lines = src.split(/\r?\n/);
+    for (var j = 0; j < lines.length; j += 1) {
+      if (/^\s*(\/\/|\*|\/\*)/.test(lines[j])) continue;
+      if (/console\.(?:error|log|warn)\([^)]*\b(?:e|err|error)\.stack\b/.test(lines[j])) {
+        hits.push({
+          file: path.relative(repoRoot, full).replace(/\\/g, "/"),
+          line: j + 1,
+          content: "key-handling CLI must not dump a raw error stack (CWE-532) — log safeLog.code(e) and scrub the message",
+        });
+      }
+    }
+  }
+  _report("no raw error-stack dump in vault/TLS/CA key-handling scripts (use lib/safe-log)", hits);
+}
+
+// ---- JSON.parse of decrypted key material must be guarded (CWE-532) ----
+// `JSON.parse(vault.unseal(...))` / `JSON.parse(...getKeysJson())` throws a
+// SyntaxError whose message embeds a window of the input — raw key bytes when the
+// input is a decrypted keypair. Such a parse must sit inside a try/catch that
+// throws or logs a GENERIC message (never the parser detail).
+function testGuardedKeyParse() {
+  var fs = require("node:fs");
+  var path = require("node:path");
+  var repoRoot = path.resolve(__dirname, "..", "..");
+  var hits = [];
+  var keySrcRe = /JSON\.parse\(\s*[^)]*(?:unseal\(|getKeysJson\(|KeysJson\(|plaintextBuf|plainBuf|plaintextBytes)/;
+  var files = [];
+  ["lib", "scripts"].forEach(function (d) {
+    (function walk(dir) {
+      var entries;
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_e) { return; }
+      entries.forEach(function (e) {
+        if (e.name === "vendor" || e.name === "node_modules") return;
+        var full = path.join(dir, e.name);
+        if (e.isDirectory()) walk(full);
+        else if (e.isFile() && /\.js$/.test(e.name)) files.push(full);
+      });
+    })(path.join(repoRoot, d));
+  });
+  ["server.js", "server-main.js"].forEach(function (f) { files.push(path.join(repoRoot, f)); });
+  files.forEach(function (full) {
+    var lines;
+    try { lines = fs.readFileSync(full, "utf8").split(/\r?\n/); } catch (_e) { return; }
+    for (var j = 0; j < lines.length; j += 1) {
+      if (/^\s*(\/\/|\*|\/\*)/.test(lines[j])) continue;
+      if (!keySrcRe.test(lines[j])) continue;
+      var guarded = /\btry\b/.test(lines[j]);
+      for (var k = j - 1; k >= 0 && k >= j - 3 && !guarded; k -= 1) {
+        if (lines[k].trim() === "") continue;
+        if (/\btry\b/.test(lines[k])) guarded = true;
+        break;
+      }
+      if (!guarded) {
+        hits.push({
+          file: path.relative(repoRoot, full).replace(/\\/g, "/"),
+          line: j + 1,
+          content: "JSON.parse of decrypted key material must be inside a try/catch that logs a GENERIC message (CWE-532) — never the parser detail",
+        });
+      }
+    }
+  });
+  _report("no unguarded JSON.parse of decrypted key material (vault.unseal / *KeysJson)", hits);
+}
+
 // ---- Release-named test files refused ----
 // Tests must live in per-domain files (e.g. honeytoken.test.js,
 // resource-access-lock.test.js) not release-bucket files like
@@ -590,6 +713,7 @@ function testParserPrimitivesHaveFuzzHarness() {
   // (lib/parsers/safe-toml.js, lib/auth/...) are covered.
   var FUZZ_NOT_REQUIRED = {
     "lib/safe-async.js":     "runtime-control wrapper (not input-parsing)",
+    "lib/safe-log.js":       "logging helper — scrub() delegates to b.redact.redactText, code() extracts a non-secret error code; not an input-parsing surface",
     "lib/safe-buffer.js":    "byte-level helper consumed only by other primitives, no operator-facing parse path",
     "lib/safe-redirect.js":  "post-validation redirect builder; the validation lives in safe-url which is fuzzed",
     "lib/safe-schema.js":    "schema-builder fluent API; takes operator-authored schema, not adversarial input",
@@ -4895,6 +5019,9 @@ async function run() {
   testEveryAllowMarkerNamesRegisteredClass();
   testNoStrayEmptyStatement();
   testNoInternalProcessNarrative();
+  testNoDotsOnlyRegexEscape();
+  testNoStackDumpInKeyScripts();
+  testGuardedKeyParse();
   testKnownAntipatterns();
 
   // Final cumulative assertion — every detector is a hard gate.

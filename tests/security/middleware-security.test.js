@@ -200,19 +200,23 @@ describe("middleware-security", function () {
       }
     });
 
-    it("host() falls back to req.headers.host only when rpOrigin is not set", function () {
+    it("host() ignores req.headers.host and falls back to localhost:port when rpOrigin is unset", function () {
       var { host } = require(path.join(projectRoot, "middleware", "send"));
       var config = require(path.join(projectRoot, "lib", "config"));
 
       var originalRpOrigin = config.rpOrigin;
+      var originalPort = config.port;
 
       try {
-        // Clear rpOrigin to test fallback path
+        // With rpOrigin unset, host() must NOT trust a spoofed Host header — it
+        // derives the origin from the configured localhost:port and ignores
+        // req.headers.host entirely (Host/X-Forwarded-Host spoofing defense).
         config.rpOrigin = "";
+        config.port = 3000;
 
         var fakeReq = {
           headers: {
-            host: "localhost:3000",
+            host: "attacker.example:9999",
           },
         };
 
@@ -220,6 +224,7 @@ describe("middleware-security", function () {
         assert.strictEqual(result, "http://localhost:3000");
       } finally {
         config.rpOrigin = originalRpOrigin;
+        config.port = originalPort;
       }
     });
 
@@ -247,7 +252,7 @@ describe("middleware-security", function () {
         // The verification URL should use rpOrigin
         var verifyBase = host(fakeReq);
         assert.strictEqual(verifyBase, "https://hermitstash.example.com");
-        assert.ok(!verifyBase.includes("evil.com"), "verification base URL must not contain attacker domain");
+        assert.notStrictEqual(new URL(verifyBase).hostname, "evil.com", "verification base URL host must not be the attacker domain");
       } finally {
         config.rpOrigin = originalRpOrigin;
       }

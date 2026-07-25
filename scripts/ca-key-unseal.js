@@ -22,6 +22,7 @@ var fs = require("fs");
 var C = require("../lib/constants");
 var pemSeal = require("../lib/pem-seal");
 var vault = require("../lib/vault");
+var safeLog = require("../lib/safe-log");
 
 var CA_KEY_PATH = C.PATHS.CA_KEY;
 var CA_KEY_SEALED_PATH = C.PATHS.CA_KEY_SEALED;
@@ -81,7 +82,7 @@ function printHelp() {
   try {
     await vault.init();
   } catch (e) {
-    console.error("FATAL: vault.init() failed: " + e.message);
+    console.error("FATAL: vault.init() failed: " + safeLog.scrub(e.message));
     process.exit(1);
   }
 
@@ -90,7 +91,7 @@ function printHelp() {
     pemSeal.unsealPemFile(CA_KEY_SEALED_PATH, CA_KEY_PATH);
     console.log("[ca-key-unseal] Done. Plaintext written; sealed file removed.");
   } catch (e) {
-    console.error("FATAL: " + e.message);
+    console.error("FATAL: " + safeLog.scrub(e.message));
     process.exit(1);
   }
 
@@ -103,7 +104,9 @@ function printHelp() {
   console.log("    2. Restart the server.");
   console.log("======================================================================");
 })().catch(function (e) {
-  console.error("FATAL: " + (e && e.message || String(e)));
-  if (e && e.stack) console.error(e.stack);
+  // Backstop for unexpected errors. This tool handles CA private-key material, so
+  // never dump a raw stack (CWE-532); scrub any credential-shaped substring from
+  // the message and surface only the non-secret error code.
+  console.error("FATAL: " + safeLog.scrub(e && e.message || String(e)) + " (code: " + safeLog.code(e) + ")");
   process.exit(1);
 });

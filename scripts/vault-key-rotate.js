@@ -49,6 +49,7 @@ var { DatabaseSync } = require("node:sqlite");
 
 var C = require("../lib/constants");
 var b = require("../lib/vendor/blamejs");
+var safeLog = require("../lib/safe-log");
 var cryptoLib = require("../lib/crypto");
 var passphraseSource = require("../lib/passphrase-source");
 var fieldCrypto = require("../lib/field-crypto");
@@ -316,7 +317,7 @@ async function loadOldKeys(mode, oldPw) {
   try {
     plainBuf = await b.vaultWrap.unwrap(sealedBytes, oldPw);
   } catch (e) {
-    console.error("ERROR: current passphrase rejected — " + e.message);
+    console.error("ERROR: current passphrase rejected — " + safeLog.scrub(e.message));
     console.error("  The sealed vault.key is unchanged. No rotation was attempted.");
     process.exit(1);
   }
@@ -561,7 +562,7 @@ function printSuccess(dataOldDir, result) {
     // are live in this function's scope during rotation, and a thrown crypto error
     // can carry a window of those bytes in its stack/detail (CWE-532). e.message is
     // sanitized; surface only it plus the error code/name for diagnosis.
-    console.error("FATAL: " + (e && e.message || String(e)));
+    console.error("FATAL: " + safeLog.scrub(e && e.message || String(e)));
     if (e && (e.code || e.name)) console.error("  (" + (e.code || e.name) + ")");
     // Attempt cleanup if staging exists
     if (fs.existsSync(ROTATING_DIR)) {

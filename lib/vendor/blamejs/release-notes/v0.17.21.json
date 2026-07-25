@@ -1,0 +1,26 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.17.21",
+  "date": "2026-07-25",
+  "headline": "`blamejs erase` treats only `--confirm true` as confirmation, so `--confirm false` no longer triggers the irreversible erase",
+  "summary": "Three fixes to the blamejs command line. The `erase` subcommand (a cryptographic single-row erase) gated its irreversible action on a bare-truthiness check, so `--confirm false` -- a string -- counted as confirmation and the erase proceeded; the gate now accepts only `true` / \"true\", matching `audit purge`, and refuses anything else. A stray `-v` / `--version` token alongside a subcommand no longer short-circuits to the version print: `blamejs migrate up --db x -v` previously returned 0 after printing the version without running the migration, handing automation a false pass; the version flag is now honored only when it is the whole invocation. And `blamejs dev` now survives a crash of the watched child -- it stays up to hot-restart on the next file change instead of draining the event loop and exiting 0 -- and awaits the child's full termination on SIGINT/SIGTERM so a shutdown cannot orphan it.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "blamejs erase refuses --confirm false instead of performing the irreversible erase",
+          "body": "The erase subcommand confirmed its irreversible action with a bare-truthiness check, so the string `--confirm false` was treated as confirmation and the erase ran. Confirmation is now satisfied only by `--confirm true` (or the bare `--confirm`), matching the check `audit purge` already used; any other value -- including `false` -- is refused with a non-zero exit and no erase. A shared confirmation helper backs every destructive subcommand so the acknowledgement contract cannot drift between them."
+        },
+        {
+          "title": "A stray -v / --version no longer turns a subcommand into a silent no-op",
+          "body": "The top-level version flag was evaluated before subcommand dispatch and returned 0 whenever `-v` / `--version` appeared anywhere in the arguments, so a consequential command such as `migrate up`, `seed run`, or `erase` alongside a stray `-v` printed the version and exited 0 without doing anything -- a false success for any script checking the exit code. The version flag is now honored only when the invocation carries no subcommand; otherwise the subcommand runs (or fails) as written."
+        },
+        {
+          "title": "blamejs dev survives a watched-child crash and shuts the child down cleanly",
+          "body": "The dev supervisor held the event loop open with an unref'd timer, so when the watched child process crashed the supervisor drained the loop and exited 0 -- defeating crash-resilience (it should stay up and hot-restart on the next file change) and reporting success even though the app had crashed. It now holds a referenced heartbeat so a child crash leaves the supervisor running, and on SIGINT/SIGTERM it awaits the child's full termination (graceful signal, then escalation) before exiting, so a shutdown can no longer race ahead and orphan the child."
+        }
+      ]
+    }
+  ]
+}

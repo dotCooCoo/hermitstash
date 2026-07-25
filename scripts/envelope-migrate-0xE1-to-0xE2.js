@@ -25,6 +25,7 @@
  */
 "use strict";
 
+var safeLog = require("../lib/safe-log");
 var args = process.argv.slice(2);
 var DRY_RUN = !args.includes("--apply");
 var VERBOSE = args.includes("--verbose") || args.includes("-v");
@@ -69,7 +70,8 @@ console.log("=== HermitStash envelope migration 0xE1 → 0xE2 (" + (DRY_RUN ? "D
   }
   process.exit(0);
 })().catch(function (err) {
-  console.error("\n[fatal] " + (err && err.message ? err.message : String(err)));
-  if (err && err.stack) console.error(err.stack);
+  // This tool re-encrypts sealed data with the vault keys; never dump a raw stack
+  // (CWE-532). Scrub credential-shaped substrings and surface only the non-secret code.
+  console.error("\n[fatal] " + safeLog.scrub(err && err.message ? err.message : String(err)) + " (code: " + safeLog.code(err) + ")");
   process.exit(1);
 });

@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.17.12",
+  "date": "2026-07-22",
+  "headline": "The vendored Public Suffix List is refreshed to the current upstream snapshot",
+  "summary": "The vendored Mozilla Public Suffix List is updated to the current upstream build, so organizational-domain derivation for DMARC identifier alignment, BIMI issuer scoping, cookie-scope confinement, and same-site policy reflects the current registry delegations. The data module is regenerated and re-signed across all four integrity layers, the manifest hashes are refreshed, and the NOTICE attribution date is updated.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Public Suffix List refreshed to the current upstream snapshot",
+          "body": "The vendored Mozilla Public Suffix List is updated to the current upstream snapshot, so organizational-domain derivation reflects the current registry delegations everywhere the framework draws a registrable-domain boundary -- DMARC identifier alignment, BIMI issuer scoping, cookie-scope confinement, and same-site policy. The precise upstream commit and version are recorded in the signed data file and the vendor manifest. The .data.js carrier is regenerated and re-signed across all four integrity layers (SHA-256 + SHA3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary), the manifest hashes are refreshed, and the NOTICE attribution date is updated."
+        }
+      ]
+    }
+  ]
+}

@@ -39,6 +39,7 @@ var os = require("os");
 
 var C = require("../lib/constants");
 var b = require("../lib/vendor/blamejs");
+var safeLog = require("../lib/safe-log");
 var passphraseSource = require("../lib/passphrase-source");
 var serverLiveness = require("./lib/server-liveness");
 ;
@@ -236,7 +237,7 @@ async function execute(passphrase, opts) {
     unwrapped = await b.vaultWrap.unwrap(verifyBytes, passphrase);
   } catch (e) {
     fs.unlinkSync(SEALED_TMP_PATH);
-    console.error("ERROR: round-trip verification failed — " + e.message);
+    console.error("ERROR: round-trip verification failed — " + safeLog.scrub(e.message));
     console.error("  vault.key is UNCHANGED. Nothing was committed.");
     process.exit(1);
   }
@@ -337,8 +338,10 @@ function printSuccess(opts) {
     await execute(passphrase, opts);
     printSuccess(opts);
   } catch (e) {
-    console.error("FATAL: " + (e && e.message || String(e)));
-    if (e && e.stack) console.error(e.stack);
+    // Backstop for unexpected errors. This tool handles vault key material, so
+    // never dump a raw stack (CWE-532); scrub any credential-shaped substring from
+    // the message and surface only the non-secret error code.
+    console.error("FATAL: " + safeLog.scrub(e && e.message || String(e)) + " (code: " + safeLog.code(e) + ")");
     process.exit(1);
   }
 })();

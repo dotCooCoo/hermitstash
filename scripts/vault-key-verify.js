@@ -26,6 +26,7 @@ var { DatabaseSync } = require("node:sqlite");
 
 var C = require("../lib/constants");
 var b = require("../lib/vendor/blamejs");
+var safeLog = require("../lib/safe-log");
 var cryptoLib = require("../lib/crypto");
 var passphraseSource = require("../lib/passphrase-source");
 var fieldCrypto = require("../lib/field-crypto");
@@ -98,14 +99,14 @@ async function loadKeys(mode) {
   try {
     pw = await passphraseSource.getPassphrase({ prompt: "Vault passphrase: " });
   } catch (e) {
-    console.error("ERROR: " + e.message);
+    console.error("ERROR: " + safeLog.scrub(e.message));
     process.exit(2);
   }
   var plainBuf;
   try {
     plainBuf = await b.vaultWrap.unwrap(sealedBytes, pw);
   } catch (e) {
-    console.error("ERROR: passphrase rejected — " + e.message);
+    console.error("ERROR: passphrase rejected — " + safeLog.scrub(e.message));
     process.exit(1);
   }
   try { return JSON.parse(plainBuf.toString("utf8")); }
@@ -129,7 +130,7 @@ function decryptDbToTemp(keys) {
       "base64"
     );
   } catch (e) {
-    console.error("ERROR: db.key.enc cannot be unsealed with the current vault — " + e.message);
+    console.error("ERROR: db.key.enc cannot be unsealed with the current vault — " + safeLog.scrub(e.message));
     console.error("  The DB file encryption key is not readable by this vault keypair.");
     console.error("  Either the vault key is wrong, or db.key.enc is corrupted.");
     process.exit(1);
@@ -139,7 +140,7 @@ function decryptDbToTemp(keys) {
   try {
     plainBytes = b.crypto.decryptPacked(packed, dbKey);
   } catch (e) {
-    console.error("ERROR: hermitstash.db.enc cannot be decrypted with the unsealed dbKey — " + e.message);
+    console.error("ERROR: hermitstash.db.enc cannot be decrypted with the unsealed dbKey — " + safeLog.scrub(e.message));
     process.exit(1);
   }
   var tmpPath = path.join(path.dirname(DATA_DIR), ".verify-" + Date.now() + ".db");
@@ -186,7 +187,7 @@ function cleanupTemp(tmpPath) {
     var max = Math.min(result.failures.length, 10);
     for (var f = 0; f < max; f++) {
       var fail = result.failures[f];
-      console.error("  " + fail.table + "." + fail.column + " _id=" + fail._id + " → " + fail.error);
+      console.error("  " + fail.table + "." + fail.column + " _id=" + fail._id + " → " + safeLog.scrub(fail.error));
     }
     if (result.failures.length > max) {
       console.error("  ... and " + (result.failures.length - max) + " more failure(s)");
@@ -197,7 +198,9 @@ function cleanupTemp(tmpPath) {
   console.log("");
   console.log("✓ All sampled sealed columns decrypt cleanly with the current vault key.");
 })().catch(function (e) {
-  console.error("FATAL: " + (e && e.message || String(e)));
-  if (e && e.stack) console.error(e.stack);
+  // Backstop for unexpected errors. This tool reads sealed key material, so never
+  // dump a raw stack (CWE-532); scrub any credential-shaped substring from the
+  // message and surface only the non-secret error code.
+  console.error("FATAL: " + safeLog.scrub(e && e.message || String(e)) + " (code: " + safeLog.code(e) + ")");
   process.exit(1);
 });
