@@ -42,7 +42,10 @@ var DENIED_HOSTNAMES = [
 function isPrivateIp(ip) {
   if (!ip) return true;
   var h = String(ip).toLowerCase().replace(/^\[|\]$/g, "").replace(/\.+$/, "");
-  if (h === "localhost" || h === "") return true;
+  // Classify the canonical loopback name set (exact "localhost", IP literals) via
+  // the framework primitive instead of a bare "localhost" literal, so every
+  // loopback spelling is treated consistently with b.ssrfGuard elsewhere.
+  if (h === "" || b.ssrfGuard.isExactLoopbackName(h)) return true;
   if (net.isIP(h) === 0) return true;        // not a valid IP literal → blocked
   return b.ssrfGuard.classify(h) !== null;   // any non-public class → blocked
 }

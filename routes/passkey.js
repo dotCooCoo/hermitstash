@@ -106,7 +106,7 @@ module.exports = function (app) {
   // ---- Authentication (login with passkey) ----
 
   // Generate authentication options
-  app.post("/passkey/login/options", async (req, res) => {
+  app.post("/passkey/login/options", rateLimit.guard({ max: 30, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
     if (!config.passkeyEnabled) throw new ForbiddenError("Passkeys are disabled.");
 
     try {

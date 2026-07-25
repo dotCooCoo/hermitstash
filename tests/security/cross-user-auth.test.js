@@ -109,6 +109,44 @@ describe("cross-user authentication security", function () {
       users.remove({ _id: userB._id });
     });
 
+    it("email recycling: same email with a different googleId is refused (no takeover)", function () {
+      var { users } = require(path.join(projectRoot, "lib", "db"));
+      var authService = require(path.join(projectRoot, "app", "domain", "auth", "auth.service"));
+      var email = "recycle-" + testId + "@test.com";
+      var u = users.insert({ email: email, displayName: "Orig", googleId: "gid-orig-" + testId, authType: "google", role: "user", status: "active", createdAt: new Date().toISOString() });
+      assert.throws(
+        function () { authService.resolveGoogleUser({ email: email, googleId: "gid-DIFFERENT-" + testId, displayName: "New" }); },
+        /does not match the linked identity/,
+        "a different googleId (OIDC sub) on the same recycled email must be refused"
+      );
+      users.remove({ _id: u._id });
+    });
+
+    it("cross-provider: a local-password account cannot be assumed via Google on an email match", function () {
+      var { users } = require(path.join(projectRoot, "lib", "db"));
+      var authService = require(path.join(projectRoot, "app", "domain", "auth", "auth.service"));
+      var email = "localonly-" + testId + "@test.com";
+      var u = users.insert({ email: email, displayName: "Local", authType: "local", passwordHash: "x", role: "user", status: "active", createdAt: new Date().toISOString() });
+      assert.throws(
+        function () { authService.resolveGoogleUser({ email: email, googleId: "gid-attacker-" + testId, displayName: "Attacker" }); },
+        /different sign-in method/,
+        "a local account must not be assumable through Google just because the addresses coincide"
+      );
+      users.remove({ _id: u._id });
+    });
+
+    it("returning Google user with a matching googleId logs in normally", function () {
+      var { users } = require(path.join(projectRoot, "lib", "db"));
+      var authService = require(path.join(projectRoot, "app", "domain", "auth", "auth.service"));
+      var email = "returning-" + testId + "@test.com";
+      var gid = "gid-returning-" + testId;
+      var u = users.insert({ email: email, displayName: "Ret", googleId: gid, authType: "google", role: "user", status: "active", createdAt: new Date().toISOString() });
+      var result = authService.resolveGoogleUser({ email: email, googleId: gid, displayName: "Ret" });
+      assert.strictEqual(result.isNew, false, "existing user is not treated as new");
+      assert.strictEqual(result.user._id, u._id, "the correct account is resolved on a matching googleId");
+      users.remove({ _id: u._id });
+    });
+
     it("googleId fallback does not match if email differs", function () {
       var { users } = require(path.join(projectRoot, "lib", "db"));
       var sharedGoogleId = "shared-gid-" + testId;

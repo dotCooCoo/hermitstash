@@ -148,6 +148,22 @@ function resolveGoogleUser(profile, allowedDomains) {
   // to a stable googleId, if ever wanted, must be an explicit googleId-only lookup.)
   var user = usersRepo.findByEmail(profile.email);
 
+  // Bind a returning user to the stable OIDC subject (googleId), not the email
+  // alone. A verified email can move between two distinct Google identities over
+  // time — a Workspace admin reassigns a departed employee's address to a new hire,
+  // or a consumer account is deleted and the address later recreated — so a match
+  // on email with a DIFFERENT googleId is an identity change, not the same person
+  // (CWE-290). And a local password account must not be assumable through Google
+  // just because the addresses coincide (cross-provider takeover, CWE-287). Refuse
+  // both. googleId is the sealed OIDC sub, read back as plaintext here.
+  if (user && user.googleId &&
+      !b.crypto.timingSafeEqual(Buffer.from(String(user.googleId)), Buffer.from(String(profile.googleId || "")))) {
+    throw new ForbiddenError("Google account does not match the linked identity.");
+  }
+  if (user && user.authType && user.authType !== "google") {
+    throw new ForbiddenError("This account uses a different sign-in method.");
+  }
+
   // Enforce allowedDomains on returning users too. user.email is a persisted,
   // previously-validated address; derive from the FINAL "@" for consistency
   // with the fresh-profile path above.
