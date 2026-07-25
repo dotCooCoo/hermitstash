@@ -97,7 +97,11 @@ async function migrateStorage(direction, progressCb) {
         // Clean up empty parent directories (best-effort, async)
         var parentDir = nodePath.dirname(localPath);
         try {
-          while (parentDir !== uploadDir) {
+          // Fail-closed containment guard on the empty-dir ascent: never rmdir a
+          // directory that resolves outside uploadDir (b.safePath.confineToBase
+          // returns null on any escape), even if an unexpected localPath slipped
+          // the resolveLocalPath confinement upstream.
+          while (parentDir !== uploadDir && b.safePath.confineToBase(uploadDir, nodePath.relative(uploadDir, parentDir)) !== null) {
             var kids = await fsp.readdir(parentDir);
             if (kids.length !== 0) break;
             await fsp.rmdir(parentDir);

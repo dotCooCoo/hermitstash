@@ -697,6 +697,48 @@ function testMultipartMemoryStorage() {
   _report("b.parsers.multipart uses storage:\"memory\" (no plaintext upload at rest)", hits);
 }
 
+// ---- Raw fs.watch must expand the short name (Windows 8.3 abort safety) ----
+// fs.watch aborts the whole Node process — an uncatchable libuv assertion in the
+// directory-change backend — when the watched path is reached through a Windows
+// 8.3 short-name component (e.g. under C:\Users\SOMEUS~1\...). A raw fs.watch in
+// lib/app must expand the real long path via fs.realpathSync.native in the same
+// file, or use fs.watchFile (StatWatcher opens no directory-change handle and is
+// immune). Mirrors the blamejs 0.17.14 detector. HS currently uses only
+// fs.watchFile — this keeps a future raw fs.watch from reintroducing the abort.
+function testNoUnsafeFsWatch() {
+  var fs = require("node:fs");
+  var path = require("node:path");
+  var repoRoot = path.resolve(__dirname, "..", "..");
+  var hits = [];
+  function walk(dir) {
+    var entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_e) { return; }
+    for (var i = 0; i < entries.length; i += 1) {
+      var e = entries[i];
+      if (e.name === "vendor" || e.name === "node_modules" || e.name === ".git") continue;
+      var full = path.join(dir, e.name);
+      if (e.isDirectory()) { walk(full); continue; }
+      if (!e.isFile() || !/\.js$/.test(e.name)) continue;
+      var src = fs.readFileSync(full, "utf8");
+      var lines = src.split(/\r?\n/);
+      for (var j = 0; j < lines.length; j += 1) {
+        if (/^\s*(\/\/|\*|\/\*)/.test(lines[j])) continue;
+        // fs.watch(  — but NOT fs.watchFile( / fs.unwatchFile( (the char after
+        // "fs.watch" is "F", not "(", so this pattern excludes them).
+        if (/\bfs\.watch\s*\(/.test(lines[j]) && !/realpathSync\.native/.test(src)) {
+          hits.push({
+            file: path.relative(repoRoot, full).replace(/\\/g, "/"),
+            line: j + 1,
+            content: "raw fs.watch must expand the short name via fs.realpathSync.native (Windows 8.3 abort) or use fs.watchFile instead",
+          });
+        }
+      }
+    }
+  }
+  ["lib", "app"].forEach(function (d) { walk(path.join(repoRoot, d)); });
+  _report("no raw fs.watch without realpathSync.native short-name expansion (use fs.watchFile)", hits);
+}
+
 // ---- Release-named test files refused ----
 // Tests must live in per-domain files (e.g. honeytoken.test.js,
 // resource-access-lock.test.js) not release-bucket files like
@@ -5060,6 +5102,7 @@ async function run() {
   testNoStackDumpInKeyScripts();
   testGuardedKeyParse();
   testMultipartMemoryStorage();
+  testNoUnsafeFsWatch();
   testKnownAntipatterns();
 
   // Final cumulative assertion — every detector is a hard gate.

@@ -1,0 +1,30 @@
+{
+  "version": "1.13.21",
+  "date": "2026-07-25",
+  "headline": "Harden the startup HTTPS warning and directory-cleanup containment",
+  "summary": "Loopback classification for the not-HTTPS startup warning is now host-precise, and the empty-directory cleanup ascents are confined to strictly inside the upload tree.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Classify the startup HTTPS-warning's loopback exception by host, not substring",
+          "body": "The boot-time 'rpOrigin is not HTTPS' warning is suppressed for a loopback origin. It previously tested for the substring 'localhost', so a value like http://localhost.evil.com counted as loopback and silenced the warning. The origin is now parsed and its host classified with the vendored SSRF guard, so only a genuine loopback host (localhost, 127.0.0.1, ::1, and canonical spellings) suppresses the warning."
+        },
+        {
+          "title": "Confine the empty-directory cleanup ascents to inside the upload tree",
+          "body": "The orphan-file and storage-migration cleanups walk up removing now-empty parent directories. Those ascents now stop strictly inside the upload / bundles directory — the orphan cleanup checks the full path separator so a sibling directory sharing the prefix can't match, and the storage migration re-checks containment with the vendored path-containment primitive on every step and fails closed on any escape."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Correct the documented TLS certificate auto-reload cadence",
+          "body": "The docs described the Let's Encrypt certificate auto-reload as an hourly file poll; the server actually polls the certificate file every minute. The documentation now matches the implementation."
+        }
+      ]
+    }
+  ]
+}

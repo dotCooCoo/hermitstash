@@ -57,7 +57,17 @@ function run() {
   }
 
   // ---- Warning: HTTPS not configured ----
-  if (config.rpOrigin && !config.rpOrigin.startsWith("https://") && !config.rpOrigin.includes("localhost")) {
+  // Classify the configured origin's host precisely (parse + b.ssrfGuard) rather
+  // than a substring test: a bare `.includes("localhost")` would treat
+  // `http://localhost.evil.com` as loopback and suppress the not-HTTPS warning.
+  var _rpLoopback = false;
+  if (config.rpOrigin) {
+    try {
+      var _rpu = b.safeUrl.parse(config.rpOrigin, { allowedProtocols: b.safeUrl.ALLOW_HTTP_ALL });
+      _rpLoopback = !!(_rpu && _rpu.hostname && b.ssrfGuard.isLoopbackHost(_rpu.hostname));
+    } catch (_e) { _rpLoopback = false; }
+  }
+  if (config.rpOrigin && !config.rpOrigin.startsWith("https://") && !_rpLoopback) {
     warnings.push("rpOrigin is not HTTPS. Session cookies may not be secure. Use HTTPS in production.");
   }
 

@@ -127,7 +127,10 @@ function deleteLocalOrphans(orphans) {
       // Clean empty parent dirs up to bundles/
       var dir = nodePath.dirname(orphans[i].path);
       var bundlesDir = nodePath.join(uploadDir, "bundles");
-      while (dir !== bundlesDir && dir.startsWith(bundlesDir)) {
+      // Bound the empty-dir ascent to strictly INSIDE bundlesDir — startsWith with
+      // the trailing separator so a sibling like `<bundlesDir>-x` can't match the
+      // prefix and be rmdir'd.
+      while (dir !== bundlesDir && dir.startsWith(bundlesDir + nodePath.sep)) {
         try {
           if (nodeFs.readdirSync(dir).length === 0) { nodeFs.rmdirSync(dir); dir = nodePath.dirname(dir); }
           else break;

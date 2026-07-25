@@ -354,7 +354,7 @@ Built on Node.js 24.18.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - Localhost bypass for Docker health probes (127.0.0.1/::1 skip PQC check)
 - `PQC_ENFORCE=false` disables gate for transition periods (PQC preferred but not required)
 - PQC TLS -- conditional HTTPS with SecP384r1MLKEM1024 + X25519MLKEM768 + SecP256r1MLKEM768 hybrid key exchange (TLS 1.3 only, Level 5 preferred)
-- Certificate auto-reload on Let's Encrypt renewal (hourly file poll)
+- Certificate auto-reload on Let's Encrypt renewal (file poll every minute)
 - PQC outbound HTTPS agent -- all S3, SMTP, Resend, webhook, OAuth calls use PQC hybrid TLS groups
 - `PQC_OUTBOUND_ENFORCE=false` allows classical fallback for outbound connections
 - mTLS for sync clients -- server acts as its own Certificate Authority (ECDSA P-384)
@@ -582,7 +582,7 @@ Works out of the box with Coolify, Portainer, CapRover, and similar platforms:
 The server can terminate TLS itself (for PQC enforcement) or sit behind a reverse proxy:
 
 - **Behind Cloudflare/nginx (recommended):** Set `TRUST_PROXY=true`. The proxy terminates TLS; the server runs HTTP internally. PQC TLS between browser and Cloudflare is handled by Cloudflare's edge. Set `PQC_ENFORCE=false` if the proxy→server leg is plain HTTP.
-- **Direct TLS (PQC enforced):** Mount TLS certs at `/app/data/tls/fullchain.pem` and `/app/data/tls/privkey.pem` (or set `TLS_CERT` and `TLS_KEY` env vars). The PQC gate inspects ClientHello and rejects non-PQC connections. The server negotiates `SecP384r1MLKEM1024 > X25519MLKEM768 > SecP256r1MLKEM768` (strongest available hybrid group). Certificate auto-reload on Let's Encrypt renewal (hourly file poll via `fs.watchFile`).
+- **Direct TLS (PQC enforced):** Mount TLS certs at `/app/data/tls/fullchain.pem` and `/app/data/tls/privkey.pem` (or set `TLS_CERT` and `TLS_KEY` env vars). The PQC gate inspects ClientHello and rejects non-PQC connections. The server negotiates `SecP384r1MLKEM1024 > X25519MLKEM768 > SecP256r1MLKEM768` (strongest available hybrid group). Certificate auto-reload on Let's Encrypt renewal (file poll every minute via `fs.watchFile`).
 
 ### Persistent data
 
