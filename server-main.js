@@ -186,9 +186,12 @@ function serveLogoFrom(dir) {
   return function (req, res) {
     var name = String(req.params.name || "").replace(/[^A-Za-z0-9._-]/g, "");
     if (!name) { res.writeHead(404); return res.end(); }
-    var full = path.join(dir, name);
-    var resolved = path.resolve(full);
-    if (!resolved.startsWith(path.resolve(dir))) { res.writeHead(404); return res.end(); }
+    // Lexical traversal containment via the framework's audited primitive: resolves
+    // the (already charset-sanitized) name against dir and returns the confined
+    // absolute path, or null on any escape — including the sibling-prefix case a
+    // bare startsWith(dir) misses. O_NOFOLLOW below guards a post-check symlink swap.
+    var resolved = b.safePath.confineToBase(dir, name);
+    if (!resolved) { res.writeHead(404); return res.end(); }
     if (!fs.existsSync(resolved)) { res.writeHead(404); return res.end(); }
     var ext = path.extname(resolved).toLowerCase();
     var mime = ext === ".svg" ? "image/svg+xml"

@@ -60,6 +60,7 @@ var { validateEmail, validatePassword } = require("../app/shared/validate");
 var stashRepo = require("../app/data/repositories/stash.repo");
 var S3Client = require("../lib/s3-client");
 var backup = require("../lib/backup");
+var db = require("../lib/db");
 var { getQuotaCounts } = require("../lib/email");
 var scheduler = require("../lib/scheduler");
 var { sanitizeSvg } = require("../lib/sanitize-svg");
@@ -853,6 +854,12 @@ module.exports = function (app) {
       var result = await backup.runRestore(passphrase, timestamp, { dryRun: dryRun });
       res.json({ success: true, restarting: !dryRun, dryRun: dryRun, stats: result.stats });
       if (!dryRun) {
+        // The restore worker wrote a fresh, authoritative db.enc / db.key.enc to
+        // disk. Suppress the exit-time (and periodic) re-encrypt so the graceful
+        // shutdown below can't clobber those bytes with the stale in-memory tmpfs
+        // DB re-encrypted under the OLD key (which would revert the restore, or
+        // brick the next boot when db.key.enc changed).
+        db.suppressExitEncrypt();
         // Graceful shutdown — let the response flush, then exit so Docker/systemd restarts
         setTimeout(function () { process.exit(0); }, C.TIME.seconds(0.5));
       }

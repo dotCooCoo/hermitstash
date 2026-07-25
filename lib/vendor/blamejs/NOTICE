@@ -90,7 +90,7 @@ Used for:    Top-10000 most-common (breach-derived) passwords. Loaded by
              baseline.
 --------------------------------------------------------------------------------
 Component:   publicsuffix-list (Mozilla Public Suffix List)
-Version:     master snapshot (bundled 2026-07-24)
+Version:     master snapshot (bundled 2026-07-25)
 Source:      https://publicsuffix.org/list/public_suffix_list.dat
 License:     MPL-2.0
 Copyright:   Copyright (c) Mozilla Foundation and Public Suffix List contributors

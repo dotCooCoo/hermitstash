@@ -18,7 +18,7 @@
       "hashes": {
         "server": "sha256:2b30a26f728c5349f4c4b47834f862a4f77393b1224fc12b22abe3ce2cfab78f"
       },
-      "refreshedAt": "2026-07-25T04:14:23.876Z"
+      "refreshedAt": "2026-07-25T17:09:57.034Z"
     },
     "@noble/curves": {
       "version": "2.2.0",
@@ -40,7 +40,7 @@
       "hashes": {
         "server": "sha256:2880c288b1285ef51d356d057bee6f0c8a00de36638cf47b47617e8c1faf10d5"
       },
-      "refreshedAt": "2026-07-25T04:14:23.876Z"
+      "refreshedAt": "2026-07-25T17:09:57.034Z"
     },
     "@noble/post-quantum": {
       "version": "0.6.1",
@@ -71,7 +71,7 @@
       "hashes": {
         "server": "sha256:f9c94094b3c10fe73dac5343289da582454ea6053494fab2bf66099d9103d6c3"
       },
-      "refreshedAt": "2026-07-25T04:14:23.876Z"
+      "refreshedAt": "2026-07-25T17:09:57.034Z"
     },
     "@simplewebauthn/server": {
       "version": "13.3.2",
@@ -94,7 +94,7 @@
       "hashes": {
         "server": "sha256:e83195dc9f189385da9c856ef38843f4466f93ea8f3d7fc2efcb1e1b18da6f20"
       },
-      "refreshedAt": "2026-07-25T04:14:23.876Z"
+      "refreshedAt": "2026-07-25T17:09:57.034Z"
     },
     "SecLists-common-passwords-top-10000": {
       "version": "10k-most-common (master)",
@@ -114,7 +114,7 @@
       },
       "runtime_artifact": "lib/vendor/common-passwords-top-10000.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-07-25T04:14:23.876Z"
+      "refreshedAt": "2026-07-25T17:09:57.034Z"
     },
     "bimi-trust-anchors": {
       "version": "operator-managed",
@@ -139,7 +139,7 @@
       },
       "runtime_artifact": "lib/vendor/bimi-trust-anchors.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-07-25T04:14:23.876Z"
+      "refreshedAt": "2026-07-25T17:09:57.034Z"
     },
     "publicsuffix-list": {
       "version": "master",
@@ -152,14 +152,14 @@
         "data_js": "lib/vendor/public-suffix-list.data.js"
       },
       "bundler": "curl https://publicsuffix.org/list/public_suffix_list.dat",
-      "bundledAt": "2026-07-24T00:00:00Z",
+      "bundledAt": "2026-07-25T00:00:00Z",
       "hashes": {
-        "server": "sha256:1fc04fd8ebd4b77c78c38c76d832673c27b56ca154fda6339be61f38b9918701",
-        "data_js": "sha256:1d17ee3059030d1de7208d699ffdd1595c97cd3009d1f41bbfde2ba1a3315372"
+        "server": "sha256:0240b3f1e8c90ecd4af5b94597afb5ba89997ad395f292f87318caefb7e10413",
+        "data_js": "sha256:7994e24e1865f197540a988783de567fe20fb29e7f6c3a5c142766bb0cfd9bfd"
       },
       "runtime_artifact": "lib/vendor/public-suffix-list.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-07-25T04:14:23.876Z"
+      "refreshedAt": "2026-07-25T17:09:57.034Z"
     },
     "peculiar-pki": {
       "version": "2.0.0+pkijs-3.4.0",
@@ -190,7 +190,7 @@
       "hashes": {
         "server": "sha256:2307ef65e070757ffb13442b377e45efb9fa1a10432d9b39618387720ab990ed"
       },
-      "refreshedAt": "2026-07-25T04:14:23.876Z"
+      "refreshedAt": "2026-07-25T17:09:57.034Z"
     }
   }
 }

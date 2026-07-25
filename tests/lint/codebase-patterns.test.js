@@ -660,6 +660,43 @@ function testGuardedKeyParse() {
   _report("no unguarded JSON.parse of decrypted key material (vault.unseal / *KeysJson)", hits);
 }
 
+// ---- Multipart parsing must use storage:"memory" (no plaintext to disk) ----
+// b.parsers.multipart defaults to storage:"disk", which streams each uploaded
+// part to os.tmpdir() before HS encrypts it — unencrypted user content at rest.
+// HS must pass storage:"memory" so uploaded bytes stay in RAM (buffer, path:null).
+function testMultipartMemoryStorage() {
+  var fs = require("node:fs");
+  var path = require("node:path");
+  var repoRoot = path.resolve(__dirname, "..", "..");
+  var hits = [];
+  function walk(dir) {
+    var entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_e) { return; }
+    for (var i = 0; i < entries.length; i += 1) {
+      var e = entries[i];
+      if (e.name === "vendor" || e.name === "node_modules" || e.name === ".git") continue;
+      var full = path.join(dir, e.name);
+      if (e.isDirectory()) { walk(full); continue; }
+      if (!e.isFile() || !/\.js$/.test(e.name)) continue;
+      var lines = fs.readFileSync(full, "utf8").split(/\r?\n/);
+      for (var j = 0; j < lines.length; j += 1) {
+        if (/^\s*(\/\/|\*|\/\*)/.test(lines[j])) continue;
+        if (!/\bb\.parsers\.multipart\s*\(/.test(lines[j])) continue;
+        var window = lines.slice(j, j + 20).join("\n");
+        if (!/storage\s*:\s*["']memory["']/.test(window)) {
+          hits.push({
+            file: path.relative(repoRoot, full).replace(/\\/g, "/"),
+            line: j + 1,
+            content: "b.parsers.multipart must pass storage:\"memory\" — the disk default streams uploaded plaintext to os.tmpdir before HS encrypts it",
+          });
+        }
+      }
+    }
+  }
+  ["lib", "app", "routes"].forEach(function (d) { walk(path.join(repoRoot, d)); });
+  _report("b.parsers.multipart uses storage:\"memory\" (no plaintext upload at rest)", hits);
+}
+
 // ---- Release-named test files refused ----
 // Tests must live in per-domain files (e.g. honeytoken.test.js,
 // resource-access-lock.test.js) not release-bucket files like
@@ -5022,6 +5059,7 @@ async function run() {
   testNoDotsOnlyRegexEscape();
   testNoStackDumpInKeyScripts();
   testGuardedKeyParse();
+  testMultipartMemoryStorage();
   testKnownAntipatterns();
 
   // Final cumulative assertion — every detector is a hard gate.

@@ -177,6 +177,20 @@ describe("db.Collection", function () {
       db.bundles.remove({ _id: doc._id });
     });
 
+    it("$push on a sealed column preserves existing entries and stores ciphertext", function () {
+      // skippedFiles is a SEALED column. $push must unseal the current array,
+      // append, and RESEAL — not drop the existing entries or write plaintext.
+      var doc = db.bundles.insert({ shareId: "push3", skippedFiles: [{ path: "a.exe" }] });
+      db.bundles.update({ _id: doc._id }, { $push: { skippedFiles: { path: "b.exe" } } });
+      var updated = db.bundles.findOne({ _id: doc._id });
+      assert.strictEqual(updated.skippedFiles.length, 2, "existing entry must survive the push");
+      assert.strictEqual(updated.skippedFiles[0].path, "a.exe");
+      assert.strictEqual(updated.skippedFiles[1].path, "b.exe");
+      var rawRow = db.getDb().prepare("SELECT skippedFiles FROM bundles WHERE _id = ?").get(doc._id);
+      assert.ok(/^vault(\.aad)?:/.test(String(rawRow.skippedFiles)), "sealed column must remain ciphertext after $push, not plaintext JSON");
+      db.bundles.remove({ _id: doc._id });
+    });
+
     it("returns count of updated records", function () {
       db.files.insert({ _id: "uc1", shareId: "uc", status: "uploading" });
       db.files.insert({ _id: "uc2", shareId: "uc", status: "uploading" });
