@@ -105,16 +105,19 @@ describe("crypto envelope bounds (truncated 0xE1)", function () {
       u16(realKemCt.length), realKemCt,
       Buffer.alloc(24),                // full nonce, zero ciphertext bytes after it
     ]);
-    // Empty-ciphertext path: a Poly1305 tag is missing, so decrypt fails — but it
-    // must be a typed envelope error from the pos>length check or a noble auth
-    // failure, never a bare RangeError.
-    assert.throws(
-      function () { decryptBuf(buf); },
-      function (err) {
-        assert.ok(err instanceof Error);
-        assert.notStrictEqual(err.code, "ERR_OUT_OF_RANGE", "no-ciphertext must not surface ERR_OUT_OF_RANGE");
-        return true;
-      }
-    );
+    // A Poly1305 AEAD needs at least a 16-byte tag after the nonce, so this fails
+    // the length guard with the typed envelope error (previously a dead guard let
+    // it fall through to a raw cipher-library error).
+    assertTypedEnvelopeError(buf, "nonce, no ciphertext");
+  });
+
+  it("rejects a buffer whose ciphertext is shorter than the 16-byte AEAD tag", function () {
+    var buf = Buffer.concat([
+      Buffer.from([ENV_MAGIC, KEM.ML_KEM_1024, CIPHER.XCHACHA20_POLY, KDF_ALG.SHAKE256]),
+      u16(realKemCt.length), realKemCt,
+      Buffer.alloc(24),                // full nonce
+      Buffer.alloc(8),                 // only 8 ciphertext bytes — below the 16-byte Poly1305 tag
+    ]);
+    assertTypedEnvelopeError(buf, "sub-tag ciphertext");
   });
 });
