@@ -25,10 +25,13 @@ module.exports = function (app) {
       return send(res, "error", { title: "Not Configured", message: "Google OAuth is not set up. Add a Client ID in Admin Settings.", user: null }, 500);
     }
     var state = generateState();
+    // PKCE: generate a verifier now, keep it session-side, and send only its S256
+    // challenge on the authorization request (RFC 7636 / OAuth 2.1).
+    var pkce = b.auth.oauth._generatePkce();
     // Bind a creation timestamp so a captured state can't be replayed across a
     // long-lived session window (state is single-use and expires in 5 minutes).
-    req.session.oauthState = { value: state, ts: Date.now() };
-    var url = getAuthUrl(state, req);
+    req.session.oauthState = { value: state, ts: Date.now(), verifier: pkce.verifier };
+    var url = getAuthUrl(state, req, pkce.challenge);
     res.redirect(url);
   });
 
@@ -50,9 +53,10 @@ module.exports = function (app) {
         audit.log(audit.ACTIONS.AUTH_FAILED_PAGE, { details: "OAuth state mismatch or expired (CSRF protection)", req: req });
         return res.redirect("/auth/failed");
       }
+      var codeVerifier = st.verifier;
       delete req.session.oauthState;
 
-      var profile = await exchangeCode(code, req);
+      var profile = await exchangeCode(code, req, codeVerifier);
 
       var result = authService.resolveGoogleUser(profile, config.allowedDomains);
       var user = result.user;
