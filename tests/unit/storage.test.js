@@ -351,6 +351,12 @@ describe("storage", function () {
   // assembly GC.
   describe("chunk scratch caps + GC", function () {
     var bundleShareId = "scratch-" + testId;
+    // Chunks are staged as XChaCha20-Poly1305 ciphertext, so each on-disk chunk
+    // carries a fixed encryptPacked envelope+nonce+tag overhead over its plaintext.
+    // The scratch-byte accounting measures ACTUAL disk usage (ciphertext), which is
+    // what the disk-exhaustion caps must bound.
+    var bLib = require("../../lib/vendor/blamejs");
+    var CHUNK_OVERHEAD = bLib.crypto.encryptPacked(Buffer.alloc(0), bLib.crypto.generateBytes(32)).length;
 
     after(function () {
       try { storage.removeBundleChunks(bundleShareId); } catch {}
@@ -359,16 +365,31 @@ describe("storage", function () {
     it("fileScratchBytes sums a file's chunks and honors excludeIndex", function () {
       storage.saveChunk(bundleShareId, "fileA", 0, Buffer.alloc(100));
       storage.saveChunk(bundleShareId, "fileA", 1, Buffer.alloc(250));
-      assert.strictEqual(storage.fileScratchBytes(bundleShareId, "fileA"), 350, "sum of both chunks");
-      assert.strictEqual(storage.fileScratchBytes(bundleShareId, "fileA", 1), 100, "excluding index 1 drops its 250 bytes");
+      assert.strictEqual(storage.fileScratchBytes(bundleShareId, "fileA"), 350 + 2 * CHUNK_OVERHEAD, "sum of both chunks (ciphertext)");
+      assert.strictEqual(storage.fileScratchBytes(bundleShareId, "fileA", 1), 100 + CHUNK_OVERHEAD, "excluding index 1 drops its chunk");
       assert.strictEqual(storage.fileScratchBytes(bundleShareId, "missing"), 0, "absent file dir → 0");
     });
 
     it("bundleScratchBytes sums across every in-flight fileId", function () {
-      // fileA already holds 350 bytes from the previous test.
+      // fileA already holds 2 chunks (350 plaintext) from the previous test.
       storage.saveChunk(bundleShareId, "fileB", 0, Buffer.alloc(500));
-      assert.strictEqual(storage.bundleScratchBytes(bundleShareId), 850, "fileA(350) + fileB(500)");
+      assert.strictEqual(storage.bundleScratchBytes(bundleShareId), 850 + 3 * CHUNK_OVERHEAD, "fileA(2 chunks) + fileB(1 chunk), ciphertext");
       assert.strictEqual(storage.bundleScratchBytes("no-such-bundle"), 0, "absent bundle dir → 0");
+    });
+
+    it("stages chunks as ciphertext and readChunk round-trips the plaintext", function () {
+      var ctBundle = "scratch-ct-" + testId;
+      try {
+        var plain = Buffer.from("the quick brown fox — a plaintext chunk payload");
+        storage.saveChunk(ctBundle, "fileC", 0, plain);
+        // The staged file must be ciphertext — no plaintext fragment lands on disk.
+        var onDisk = fs.readFileSync(path.join(storage.scratchDir, ctBundle, "fileC", "0"));
+        assert.strictEqual(onDisk.indexOf(plain), -1, "staged chunk must be ciphertext, not plaintext");
+        // readChunk decrypts it back to the exact original bytes for reassembly.
+        assert.deepStrictEqual(storage.readChunk(ctBundle, "fileC", 0), plain, "readChunk decrypts to the original");
+      } finally {
+        try { storage.removeBundleChunks(ctBundle); } catch {}
+      }
     });
 
     it("listStaleBundleChunkDirs keys on the newest chunk mtime, not the bundle-dir mtime", function () {
