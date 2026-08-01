@@ -2,7 +2,6 @@ var b = require("../lib/vendor/blamejs");
 var config = require("../lib/config");
 var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
-var vault = require("../lib/vault");
 var usersRepo = require("../app/data/repositories/users.repo");
 var totp = require("../lib/totp");
 var requireAuth = require("../middleware/require-auth");
@@ -22,6 +21,15 @@ function algorithmFor(user) {
 function isLegacyAlgorithm(alg) {
   return alg !== totp.DEFAULT_ALGORITHM;
 }
+
+// Per-account failed-attempt ceiling for /2fa/verify. The route's per-IP rate
+// limit is evadable by rotating source IPs, so a code-guessing attacker holding
+// one pending-2FA session can keep trying from fresh addresses. This counter
+// lives on the pending session itself (independent of source IP); once it
+// crosses MAX_2FA_ATTEMPTS the pending 2FA session is torn down, forcing a fresh
+// password login. The window is the pending session's own lifetime (5 min via
+// pendingTotpExpires); start2faPending resets the counter for each new cycle.
+var MAX_2FA_ATTEMPTS = 5;
 
 module.exports = function (app) {
   // Start 2FA setup — generate secret, return URI for QR code
@@ -89,9 +97,11 @@ module.exports = function (app) {
       var body = (await b.parsers.json(req)) || {};
       var code = String(body.code || "");
 
-      // Require a valid code to disable
+      // Require a valid code to disable. totpSecret is in the users seal list
+      // (lib/field-crypto.js), so usersRepo.findById already returns it unsealed
+      // — no second vault.unseal() here (that double-unseal was a redundant no-op).
       var user = usersRepo.findById(req.user._id);
-      var secret = user.totpSecret ? vault.unseal(user.totpSecret) : null;
+      var secret = user.totpSecret || null;
       if (!secret) throw new ValidationError("2FA is not enabled.");
 
       if (!totp.verify(secret, code, 0, algorithmFor(user))) {
@@ -135,7 +145,8 @@ module.exports = function (app) {
         throw new ForbiddenError("Account suspended.");
       }
 
-      var secret = user.totpSecret ? vault.unseal(user.totpSecret) : null;
+      // totpSecret is auto-unsealed on read (users seal list) — use it directly.
+      var secret = user.totpSecret || null;
       if (!secret) throw new ValidationError("2FA not configured.");
 
       // Try TOTP code first (with replay prevention). Dispatch on the stored
@@ -204,7 +215,22 @@ module.exports = function (app) {
         return res.json({ success: true, redirect: isLegacyAlgorithm(alg) ? "/2fa/re-enroll" : "/dashboard" });
       }
 
-      audit.log(audit.ACTIONS.TOTP_FAILED, { targetId: user._id, details: "Invalid 2FA code", req: req });
+      // Per-account ceiling: count this failure on the pending session (not the
+      // source IP, which the rate limit already covers and which IP rotation
+      // evades). Once the count crosses MAX_2FA_ATTEMPTS, tear the pending 2FA
+      // session down so no further guesses land regardless of source IP — the
+      // caller must re-authenticate with their password to get a fresh pending
+      // window.
+      var failures = (Number(req.session.pendingTotpFailures) || 0) + 1;
+      req.session.pendingTotpFailures = failures;
+      if (failures >= MAX_2FA_ATTEMPTS) {
+        delete req.session.pendingTotpUserId;
+        delete req.session.pendingTotpExpires;
+        delete req.session.pendingTotpFailures;
+        audit.log(audit.ACTIONS.TOTP_FAILED, { targetId: user._id, details: "Pending 2FA session invalidated after " + failures + " failed attempts", req: req });
+        throw new AuthenticationError("Too many incorrect codes. Please log in again.");
+      }
+      audit.log(audit.ACTIONS.TOTP_FAILED, { targetId: user._id, details: "Invalid 2FA code (attempt " + failures + "/" + MAX_2FA_ATTEMPTS + ")", req: req });
       throw new AuthenticationError("Invalid 2FA code.");
     } catch (e) {
       if (e.isAppError) throw e;

@@ -18,6 +18,18 @@ async function run() {
   var apiKeysRepo = require("../data/repositories/apiKeys.repo");
   var db = require("../../lib/db");
   var scopePolicy = require("../security/scope-policy");
+
+  // Close out an expired sync-CA migration grace window on the daily sweep too,
+  // so the retained previous CA is dropped and superseded client certs revoked
+  // even if the server has not restarted since the window opened. No-op while
+  // the window is open or when no migration is in flight.
+  try {
+    await require("../../lib/mtls-migrate").closeOutGraceIfExpired({
+      log: function (m) { logger.info("[cert-expiry] " + m); },
+    });
+  } catch (e) {
+    logger.warn("[cert-expiry] mTLS grace close-out check failed", { error: e.message });
+  }
   // Select sync-capable keys by exact SCOPE, not a raw substring: an admin- or
   // "*"-scoped key carries the sync scope via parseScopes but does not contain the
   // literal "sync" token, so indexOf("sync") wrongly excluded it from expiry

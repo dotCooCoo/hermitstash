@@ -11,7 +11,7 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
 
 ---
 
-## blamejs v0.17.23
+## blamejs v0.18.3
 
 - **License:** Apache-2.0
 - **Copyright:** blamejs contributors
@@ -21,7 +21,7 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
   envelope versioning, audit chain
 - **Bundled packages (vendored under `lib/vendor/blamejs/lib/vendor/`):** see
   the `@noble/ciphers`, `@noble/curves`, `@noble/post-quantum`,
-  `@simplewebauthn/server`, `@peculiar/x509` + `pkijs`, and SecLists entries below.
+  `@simplewebauthn/server`, `@blamejs/pki`, and SecLists entries below.
 
 ## @noble/ciphers v2.2.0
 
@@ -71,16 +71,16 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
   - `tslib` — Apache-2.0, (c) Microsoft Corporation
   - `cbor-x` — MIT
 
-## @peculiar/x509 v2.0.0 + pkijs v3.4.0 (peculiar-pki bundle)
+## @blamejs/pki v0.3.27
 
-- **License:** MIT
-- **Copyright:** (c) Peculiar Ventures, LLC
-- **Source:** https://github.com/PeculiarVentures
-- **Files:** `lib/vendor/blamejs/lib/vendor/pki.cjs`
-- **Used for:** Pure-JS mTLS CA + PKCS#12 issuance (no openssl CLI at runtime)
-- **Bundled includes:** `reflect-metadata`, `pvutils`, `pvtsutils`, `asn1js`,
-  `@peculiar/asn1-schema`, `@peculiar/asn1-x509`, `@peculiar/asn1-ecc`,
-  `@peculiar/asn1-rsa`, `@peculiar/asn1-cms`, `@peculiar/asn1-pkcs9`
+- **License:** Apache-2.0
+- **Copyright:** blamejs contributors
+- **Source:** https://github.com/blamejs/pki
+- **Files:** `lib/vendor/blamejs/lib/vendor/blamejs-pki.cjs`
+- **Used for:** Pure-JS, zero-dependency X.509 toolkit backing the mTLS CA
+  engine — CA generation, client-certificate signing, PKCS#12 packaging, and
+  CRL issuance under ML-DSA-87 (FIPS 204) by default or ECDSA-P384-SHA384
+  (classical bridge), with no openssl CLI at runtime
 
 ## SecLists — common-passwords-top-10000
 

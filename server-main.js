@@ -23,6 +23,7 @@ var logger = require("./app/shared/logger");
 var { sendHtml } = require("./lib/template");
 var certUtils = require("./lib/cert-utils");
 var mtlsCa = require("./lib/mtls-ca");
+var mtlsCaBrowser = require("./lib/mtls-ca-browser");
 
 // WebSocket upgrade — handshake handled by b.websocket.handleUpgrade,
 // which writes the 101 and returns a WebSocketConnection (or null on
@@ -970,6 +971,26 @@ if (fs.existsSync(TLS_CERT) && tlsKeyAvailable()) {
     // Read from the singleton's resolved cert path — operators may have
     // overridden it via MTLS_CA_CERT to an absolute path outside DATA_DIR.
     var mtlsCaCert = mtlsCa.exists() ? fs.readFileSync(mtlsCa.paths.caCert) : null;
+    // mTLS trust bundle (dual-CA): the server trusts BOTH the sync CA (ca.crt —
+    // may be ML-DSA-87 after the PQC migration) AND the classical browser CA
+    // (ca-browser.crt), so machine sync clients and browser-imported PKCS#12 client
+    // certs both authenticate. During a sync-CA algorithm migration the superseded
+    // CA (ca.prev.crt) is trusted too, so existing sync certs keep verifying while
+    // their owners re-enroll onto the new CA. Each is read from the singleton's
+    // RESOLVED path (operators may override via MTLS_CA_CERT / MTLS_BROWSER_CA_CERT).
+    var caList = [];
+    if (mtlsCaCert) caList.push(mtlsCaCert);
+    if (mtlsCaBrowser.exists()) caList.push(fs.readFileSync(mtlsCaBrowser.paths.caCert));
+    // The retained superseded sync CA is read from the handle's own resolved
+    // path (b.mtlsCa owns ca.prev.crt — rotate()/commit({retainPrevious}) writes
+    // it, dropRetained() removes it), not a separate constant. A synchronous read
+    // is correct here: this runs once at boot, AFTER runBootMigration reconciled
+    // the handle, so there is no concurrent rotation for loadTrustBundle()'s
+    // locked snapshot to guard against.
+    if (mtlsCa.paths.caCertPrev && fs.existsSync(mtlsCa.paths.caCertPrev)) {
+      caList.push(fs.readFileSync(mtlsCa.paths.caCertPrev));
+    }
+    var haveMtlsCa = caList.length > 0;
     // Hard mTLS enforcement at the TLS layer — boot-time only.
     //   unset:  follow DB config.enforceMtls for app-layer soft enforcement
     //   "true": rejectUnauthorized: true — TLS handshake rejects non-mTLS
@@ -979,19 +1000,19 @@ if (fs.existsSync(TLS_CERT) && tlsKeyAvailable()) {
     //           ENFORCE_MTLS_STRICT on every rebuild so a settings hot-reload
     //           can't silently re-lock the operator.
     var mtlsStrict = process.env.ENFORCE_MTLS_STRICT;
-    var hardMtls = mtlsStrict === "true" && !!mtlsCaCert;
+    var hardMtls = mtlsStrict === "true" && haveMtlsCa;
     tlsOptions = {
       cert: fs.readFileSync(TLS_CERT),
       key: pemSeal.loadPemDispatch(TLS_KEY, TLS_KEY_SEALED, "TLS_KEY_SEALED"),
       groups: b.constants.TLS_GROUP_PREFERENCE,
       minVersion: "TLSv1.3",
-      requestCert: !!mtlsCaCert,
+      requestCert: haveMtlsCa,
       // Hard mode rejects non-mTLS at the TLS layer — no HTTP processing at all.
       // Soft mode keeps the handshake lenient and lets middleware/web-guard.js
       // drop at the app layer. Per-route mTLS checks (e.g. /sync/renew-cert)
       // validate socket.authorized regardless of this flag.
       rejectUnauthorized: hardMtls,
-      ca: mtlsCaCert ? [mtlsCaCert] : undefined,
+      ca: haveMtlsCa ? caList : undefined,
     };
     tlsEnabled = true;
     logger.info("[TLS] PQC TLS enabled", {

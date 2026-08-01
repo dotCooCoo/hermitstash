@@ -38,7 +38,18 @@ var db = require("../lib/db");
 function _safeLogoUrl(u) {
   u = String(u || "").trim().slice(0, 500);
   if (!u || u.startsWith("//")) return "";
-  if (u.startsWith("/") || u.startsWith("https://")) return u;
+  if (u.startsWith("/")) return u; // local logo path under the app origin
+  // An absolute URL is structurally validated through b.safeUrl.parse (https
+  // only) instead of a bare startsWith check — the parser rejects a malformed
+  // "https://…" carrying embedded control chars / newlines that would otherwise
+  // reach the page markup (CSP img-src remains the second belt).
+  if (u.startsWith("https://")) {
+    try {
+      return b.safeUrl.parse(u, { allowedProtocols: ["https:"] }).href;
+    } catch (_e) {
+      return "";
+    }
+  }
   return "";
 }
 var mtlsCa = require("../lib/mtls-ca");
@@ -92,6 +103,18 @@ function resolveStashTeam(rawTeamId) {
   var team = teamsRepo.findTeamById(String(rawTeamId));
   if (!team) throw new ValidationError("Team not found.");
   return team._id;
+}
+
+// True when the request is authenticated as this stash's sync client — a bearer
+// API key bound to the stash (boundStashId) carrying the sync scope. Only such a
+// principal may drive the shared persistent sync bundle: its uploads replace by
+// relativePath and propagate file_replaced to the owner's connected sync clients
+// (which write it to the owner's disk). A browser visitor — even one that has
+// cleared the stash's access gate — is NOT this principal and is routed to a
+// per-visitor snapshot bundle instead of the shared sync bundle.
+function isStashSyncPrincipal(req, stash) {
+  var key = req && req.apiKey;
+  return !!(key && key.boundStashId === stash._id && scopePolicy.hasScope(key, "sync"));
 }
 
 module.exports = function (app) {
@@ -226,17 +249,22 @@ module.exports = function (app) {
       return res.json({ success: true, message: genericMsg });
     }
 
-    try {
-      var result = await accessCodeService.requestCode({
-        shareId: "stash:" + stash._id,
-        email: email,
-        bundleName: stash.name || stash.title || null,
-        senderName: null,
-      });
-      if (result.sent) {
+    // Fire-and-forget the send so an ALLOWED address does not respond measurably
+    // slower than a non-allowed one (which returned immediately above). Awaiting
+    // the SMTP/Resend round-trip here leaks allow-list membership through response
+    // latency — the enumeration oracle the identical body is meant to prevent.
+    accessCodeService.requestCode({
+      shareId: "stash:" + stash._id,
+      email: email,
+      bundleName: stash.name || stash.title || null,
+      senderName: null,
+    }).then(function (result) {
+      if (result && result.sent) {
         audit.log(audit.ACTIONS.BUNDLE_ACCESS_CODE_SENT, { details: "stash: " + stash.slug, req: req });
       }
-    } catch (e) { logger.error("Stash access code email failed", { error: e.message || String(e) }); }
+    }).catch(function (e) {
+      logger.error("Stash access code email failed", { error: e.message || String(e) });
+    });
 
     res.json({ success: true, message: genericMsg });
   });
@@ -280,8 +308,20 @@ module.exports = function (app) {
     // Access check
     if (isStashLocked(stash, req.session, stashAllowedMatch(stash))) throw new ForbiddenError("Stash page is locked.");
 
-    // Sync-enabled stash: reuse persistent sync bundle
-    if (stash.syncEnabled === "true" && stash.syncBundleId) {
+    var isSyncStash = stash.syncEnabled === "true";
+    // Only a stash-bound sync client may participate in the shared persistent sync
+    // channel. A browser visitor — even one that cleared the stash gate — must
+    // never receive the shared sync bundle: the upload handler treats a matching
+    // relativePath on a sync bundle as a replace that deletes the old blob and
+    // propagates file_replaced to the owner's connected sync clients (which write
+    // it to the owner's disk), so an anonymous visitor could overwrite any synced
+    // file by guessing its relativePath. Browser uploads get a per-visitor
+    // snapshot bundle instead (below), exactly as a non-sync stash does.
+    var isSyncClient = isStashSyncPrincipal(req, stash);
+
+    // Sync-enabled stash: hand back the shared persistent sync bundle ONLY to the
+    // stash's sync client.
+    if (isSyncClient && isSyncStash && stash.syncBundleId) {
       var syncBundle = bundlesRepo.findById(stash.syncBundleId);
       if (syncBundle && syncBundle.bundleType === "sync") {
         return res.json({ bundleId: syncBundle._id, shareId: syncBundle.shareId, finalizeToken: null, syncMode: true });
@@ -290,7 +330,9 @@ module.exports = function (app) {
 
     var body = (await b.parsers.json(req)) || {};
     var expiryDays = (stash.defaultExpiry && stash.defaultExpiry > 0) ? stash.defaultExpiry : config.fileExpiryDays;
-    var isSyncStash = stash.syncEnabled === "true";
+    // The shared sync bundle is created lazily by the FIRST sync-client init; a
+    // browser visitor always gets a one-off snapshot bundle with normal expiry.
+    var asSyncBundle = isSyncStash && isSyncClient;
 
     var result = await bundleService.initBundle({
       uploaderName: stash.name || "Anonymous",
@@ -299,8 +341,8 @@ module.exports = function (app) {
       password: null,
       message: body.message || null,
       bundleName: body.bundleName || null,
-      bundleType: isSyncStash ? "sync" : "snapshot",
-      expiryDays: isSyncStash ? 0 : expiryDays,
+      bundleType: asSyncBundle ? "sync" : "snapshot",
+      expiryDays: asSyncBundle ? 0 : expiryDays,
       defaultExpiryDays: config.fileExpiryDays,
       fileCount: body.fileCount,
       skippedCount: body.skippedCount,
@@ -313,13 +355,14 @@ module.exports = function (app) {
     // Set stashId on the bundle
     bundlesRepo.update(result.bundleId, { $set: { stashId: stash._id } });
 
-    // If sync-enabled, associate this as the persistent sync bundle
-    if (isSyncStash && !stash.syncBundleId) {
+    // If this is the sync client's first init, associate the new bundle as the
+    // stash's persistent sync bundle.
+    if (asSyncBundle && !stash.syncBundleId) {
       stashRepo.update(stash._id, { $set: { syncBundleId: result.bundleId } });
     }
 
-    audit.log(audit.ACTIONS.BUNDLE_INITIALIZED, { targetId: result.bundleId, details: "stash: " + stash.slug + ", expected: " + (body.fileCount || 0) + (isSyncStash ? ", sync" : ""), req: req });
-    res.json({ bundleId: result.bundleId, shareId: result.shareId, finalizeToken: result.finalizeToken, syncMode: isSyncStash });
+    audit.log(audit.ACTIONS.BUNDLE_INITIALIZED, { targetId: result.bundleId, details: "stash: " + stash.slug + ", expected: " + (body.fileCount || 0) + (asSyncBundle ? ", sync" : ""), req: req });
+    res.json({ bundleId: result.bundleId, shareId: result.shareId, finalizeToken: result.finalizeToken, syncMode: asSyncBundle });
   });
 
   // Upload single file to stash bundle
@@ -333,6 +376,13 @@ module.exports = function (app) {
       var bundle = bundlesRepo.findById(req.params.bundleId);
       if (!bundle || (bundle.status === "complete" && bundle.bundleType !== "sync")) throw new NotFoundError("Bundle not found.");
       if (bundle.stashId !== stash._id) throw new ForbiddenError("Bundle does not belong to this stash.");
+      // Only the stash's sync client may upload to the shared sync bundle through
+      // this route — its uploads replace by relativePath and propagate to the
+      // owner's connected sync clients. A browser visitor uses the per-visitor
+      // snapshot bundle from /init; treat its attempt to reach the shared sync
+      // bundle as not-found (anti-enumeration, same shape as the completed-bundle
+      // guard above) rather than letting it drive a cross-user replace.
+      if (bundle.bundleType === "sync" && !isStashSyncPrincipal(req, stash)) throw new NotFoundError("Bundle not found.");
 
       var limits = resolveUploadConfig(stash);
       // 0 = the stash's file size is "No limit"; the parser needs a finite cap, so
@@ -367,6 +417,13 @@ module.exports = function (app) {
       var bundle = bundlesRepo.findById(req.params.bundleId);
       if (!bundle || (bundle.status === "complete" && bundle.bundleType !== "sync")) throw new NotFoundError("Bundle not found.");
       if (bundle.stashId !== stash._id) throw new ForbiddenError("Bundle does not belong to this stash.");
+      // Only the stash's sync client may upload to the shared sync bundle through
+      // this route — its uploads replace by relativePath and propagate to the
+      // owner's connected sync clients. A browser visitor uses the per-visitor
+      // snapshot bundle from /init; treat its attempt to reach the shared sync
+      // bundle as not-found (anti-enumeration, same shape as the completed-bundle
+      // guard above) rather than letting it drive a cross-user replace.
+      if (bundle.bundleType === "sync" && !isStashSyncPrincipal(req, stash)) throw new NotFoundError("Bundle not found.");
 
       var limits = resolveUploadConfig(stash);
       var parsed = await parseMultipart(req, limits.maxFileSize || UPLOAD.NO_LIMIT_CEILING_BYTES);
@@ -870,6 +927,28 @@ module.exports = function (app) {
     try {
       var stash = stashRepo.findById(req.params.id);
       if (!stash) throw new NotFoundError("Stash page not found.");
+
+      // Provision the shared persistent sync bundle at ADMIN time so /sync/enroll
+      // can resolve a bundleId for the client. A sync-enabled stash's bundle binding
+      // lives on the stash row (stash.syncBundleId), and /sync/enroll reads it to
+      // populate the client's config. The client needs that bundleId AT ENROLL —
+      // before it can authenticate as a sync principal and init anything — so the
+      // bundle must exist here, not be created lazily on the client's first init.
+      // Anonymous stash visitors still get a per-visitor snapshot bundle (POST
+      // /stash/:slug/init), never this shared sync bundle.
+      if (stash.syncEnabled === "true" && !stash.syncBundleId) {
+        try {
+          var syncBundleInit = await bundleService.initBundle({
+            uploaderName: stash.name || "Anonymous",
+            uploaderEmail: null, ownerId: null, password: null,
+            bundleType: "sync", expiryDays: 0, defaultExpiryDays: config.fileExpiryDays,
+            teamId: stash.teamId || null,
+          });
+          bundlesRepo.update(syncBundleInit.bundleId, { $set: { stashId: stash._id } });
+          stashRepo.update(stash._id, { $set: { syncBundleId: syncBundleInit.bundleId } });
+          stash.syncBundleId = syncBundleInit.bundleId;
+        } catch (_e) { /* best-effort — a client can still re-init once authenticated */ }
+      }
 
       var rawKey = "hs_" + b.crypto.generateToken(32);
       var prefix = rawKey.substring(0, 7);

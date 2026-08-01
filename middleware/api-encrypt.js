@@ -151,12 +151,18 @@ module.exports = function apiEncrypt(req, res, next) {
           collector.push(c);
         } catch (_e) {
           aborted = true;
-          req.destroy();
           // res.json (wrapped below) encrypts on this cookie session. Emit the
           // rejection through it so the body isn't shipped cleartext via
           // res.end. A throw here would escape the request-stream callback as
           // an uncaughtException — it never reaches the route error boundary —
           // so write directly, mirroring the wrapped res.json error path.
+          //
+          // Deliver the 413 BEFORE tearing down the stream: req.destroy() takes
+          // the shared socket down with it, so destroying first would make this
+          // res.json write land on a dead socket and the client would see an
+          // ECONNRESET instead of the encrypted 413. Send the response, then
+          // stop consuming the oversized upload once the response has flushed
+          // (the aborted guard already drops any further chunks meanwhile).
           res.statusCode = 413;
           res.setHeader("Cache-Control", "no-store");
           res.json({
@@ -164,6 +170,9 @@ module.exports = function apiEncrypt(req, res, next) {
             title: "Payload Too Large",
             status: 413,
             detail: "Request body too large.",
+          });
+          res.on("finish", function () {
+            try { req.destroy(); } catch (_de) { /* socket already gone */ }
           });
         }
       });

@@ -78,7 +78,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Run Hadolint (strict, all severities)
-        uses: hadolint/hadolint-action@2332a7b74a6de0dda2e2221d575162eba76ba5e5  # v3.3.0
+        uses: hadolint/hadolint-action@2a66e89f53d0771bb131a7fa31f3136336094aa6  # v3.4.0
         with:
           dockerfile: examples/wiki/Dockerfile
           config:     .hadolint.yaml
@@ -135,7 +135,7 @@ jobs:
 
       - name: Log in to GHCR
         if: ${{ !inputs.dry_run }}
-        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7  # v4.5.1
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -340,7 +340,7 @@ jobs:
       # against a public package, so this is the right shape regardless
       # of visibility.
       - name: Log in to GHCR
-        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7  # v4.5.1
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}

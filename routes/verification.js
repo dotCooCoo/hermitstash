@@ -4,7 +4,7 @@ var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
 var usersRepo = require("../app/data/repositories/users.repo");
 var verificationTokensRepo = require("../app/data/repositories/verificationTokens.repo");
-var { sendVerificationEmail } = require("../lib/email");
+var emailSvc = require("../lib/email");
 var audit = require("../lib/audit");
 var { send, host } = require("../middleware/send");
 var sessionService = require("../app/domain/auth/session.service");
@@ -155,11 +155,15 @@ module.exports = function (app) {
 
       var rawToken = createVerificationToken(user._id);
       var verifyUrl = host(null) + "/auth/verify/" + rawToken;
-      try {
-        await sendVerificationEmail({ to: user.email, displayName: user.displayName, verifyUrl: verifyUrl });
-      } catch (emailErr) {
-        logger.error("Email send failed", { error: emailErr.message });
-      }
+
+      // Fire-and-forget the verification email so response latency is identical
+      // on the account-exists and no-account branches (the latter returns
+      // immediately above). Awaiting the SMTP send here would make this branch
+      // measurably slower — an account-enumeration oracle. Send errors are
+      // logged in the rejection handler rather than awaited.
+      emailSvc.sendVerificationEmail({ to: user.email, displayName: user.displayName, verifyUrl: verifyUrl }).catch(function (emailErr) {
+        logger.error("Email send failed", { error: (emailErr && emailErr.message) || String(emailErr) });
+      });
 
       audit.log(audit.ACTIONS.EMAIL_VERIFICATION_RESENT, { targetId: user._id, targetEmail: user.email, req: req });
       res.json({ success: true, message: "If an account with that email exists and needs verification, a new link has been sent." });

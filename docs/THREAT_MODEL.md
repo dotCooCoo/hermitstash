@@ -92,14 +92,14 @@ All primitives are sourced from vendored libraries — zero npm runtime dependen
 | Hash | SHA3-512 | `node:crypto` | FIPS 202. Truncated when shorter outputs are needed. SHA-256 was rejected in favor of a SHA-3 family member to avoid length-extension concerns even where they don't technically apply |
 | HMAC | HMAC-SHA3-512 | `node:crypto` | FIPS 198-1 over FIPS 202. Used for webhook signatures |
 | Password hash | Argon2id | Node 24+ built-in `crypto.argon2` via blamejs `lib/argon2-builtin.js` | RFC 9106. Memory-hard. Default parameters: 64 MiB memory, 3 time cost, 4 parallelism. `ARGON2_FAST=1` env flag switches to 1 MiB / 1 / 1 for automated test runs only |
-| Signatures | SLH-DSA-SHAKE-256f (default) / ML-DSA-87 (legacy) | `node:crypto` (OpenSSL 3.5+) | FIPS 205 / 204. `generateSigningKeyPair()` defaults to SLH-DSA-SHAKE-256f — chosen as the conservative SHAKE-based hash-only signature, robust against future cryptanalytic findings against lattice schemes. ML-DSA-87 remains supported for callers that explicitly request it (smaller key/signature) and for verifying any legacy keys persisted in databases (algorithm auto-detected from key PEM). Used for signing vendored assets and release verification — not yet used for mTLS certificates (see §5.8) |
+| Signatures | SLH-DSA-SHAKE-256f (default) / ML-DSA-87 (legacy) | `node:crypto` (OpenSSL 3.5+) | FIPS 205 / 204. `generateSigningKeyPair()` defaults to SLH-DSA-SHAKE-256f — chosen as the conservative SHAKE-based hash-only signature, robust against future cryptanalytic findings against lattice schemes. ML-DSA-87 remains supported for callers that explicitly request it (smaller key/signature) and for verifying any legacy keys persisted in databases (algorithm auto-detected from key PEM). Used for signing vendored assets and release verification. The mTLS **sync** CA now signs client certs with ML-DSA-87; the **browser** CA stays classical (ECDSA-P384-SHA384) for keystore/handshake compatibility (see §5.8) |
 | RNG | SHAKE256(node.randomBytes, n) | `node:crypto` wrapper in `lib/crypto.js:47` | A belt-and-suspenders wrapper post-hashes `crypto.randomBytes(n)` through SHAKE256 (the FIPS 202 XOF) and returns `n` bytes. The XOF variant scales to any `n` — the older SHA3-512 implementation silently truncated to 64 bytes for `n > 64`. See §9 for the rationale |
 
 Vendored third-party libraries:
 - **@noble/ciphers** (Paul Miller) — XChaCha20-Poly1305, server + browser
 - **@noble/hashes** (Paul Miller) — SHAKE256 for the browser (server uses node:crypto)
 - **@noble/post-quantum** (Paul Miller) — ML-KEM-1024 for the browser; the server uses node:crypto
-- **@peculiar/x509 + pkijs** — pure-JS PKCS#12 generation for browser certificate issuance
+- **@blamejs/pki** — zero-dependency pure-JS X.509 toolkit backing the mTLS CA engine (CA generation, client-cert signing, PKCS#12 packaging, CRL) under ML-DSA-87 (sync CA) or ECDSA-P384-SHA384 (browser CA)
 - **Argon2id** — Node 24+'s built-in `crypto.argon2`, wrapped by blamejs's `lib/argon2-builtin.js` (no vendored native binding)
 
 ---
@@ -433,28 +433,34 @@ Decrypt inverts: `encapsulate` → server-stored ciphertext becomes `decapsulate
 - Passkey-gated mode is a pragmatic fallback for authenticators/browsers that don't support PRF (e.g. older iOS WebAuthn). It still requires the passkey to retrieve the seed, but it is **not** zero-knowledge — the server holds the seed. An operator who can read the DB can reconstruct the vault keypair in this mode
 - Vault key rotation (PRF mode): user re-registers passkey, server re-emits an encapsulation challenge, client decrypts every file with the old key and re-encrypts with the new one. Atomic — `POST /vault/rotate` in `routes/vault.js:359`
 
-### 5.8 mTLS CA and client certificate issuance
+### 5.8 mTLS CAs and client certificate issuance
 
-HermitStash acts as its own Certificate Authority for sync clients and (optionally) for enforcing browser mTLS.
+HermitStash acts as its own Certificate Authority for mTLS. It runs **two** CAs, because sync clients and browsers have incompatible capabilities:
 
-Code: `lib/mtls-ca.js` (53-line process-wide singleton over `b.mtlsCa.create`); algorithm envelope in `lib/vendor/blamejs/lib/mtls-engine-default.js`.
+- **Sync CA** (`data/ca.crt`, `lib/mtls-ca.js`) signs the client certs machine sync clients present. It is **post-quantum by default — ML-DSA-87 (FIPS 204)**. Sync clients run on Node/OpenSSL 3.5, which completes a real ML-DSA mutual-auth TLS handshake (chain verification *and* the client CertificateVerify).
+- **Browser CA** (`data/ca-browser.crt`, `lib/mtls-ca-browser.js`) signs the PKCS#12 client certs humans import into a browser / OS keystore to reach the web UI under Enforce mTLS. It is pinned **classical — ECDSA-P384-SHA384** on purpose: today's browsers and OS keystores can neither complete an ML-DSA TLS client-auth handshake nor import a post-quantum (PBMAC1, RFC 9579) PKCS#12.
 
-**Algorithm envelope (current CA generation: 2):**
+The TLS server trusts **both** CA certs in its mTLS `ca` trust bundle (`server-main.js`), so a machine sync client and a browser-imported cert both authenticate. During a sync-CA migration the superseded CA (`data/ca.prev.crt`) is trusted too (§5.8.2). Each CA has its own generation counter, on-disk files, and revocation registry, so it rotates and revokes independently.
 
-| Component | Algorithm | Rationale |
-|-----------|-----------|-----------|
-| CA signature | ECDSA P-384 with SHA-384 | Best available today on all browsers/OS cert stores. SLH-DSA-SHAKE-256f and ML-DSA-87 are supported in Node 24.18.0+ but no browser verifies PQ signatures on client certs; issuing PQ-signed certs today would break every mTLS handshake |
-| Client cert signature | Same as CA | Chain consistency |
-| PKCS#12 key bag | PBES2 + AES-256-CBC + PBKDF2-HMAC-SHA-512 | SHA-512 PRF for consistency with MAC. AES-CBC chosen over AES-GCM because Windows / macOS importers still reject PBES2-AES-GCM key bags on some OS versions (confirmed 2026-04) |
-| PKCS#12 outer MAC | HMAC-SHA-512 | Matches key bag KDF |
-| PBKDF2 iterations | 2,000,000 | 2M picked in 2026-04 as a conservative modern default, up from 600k in CAv1 |
+Code: `lib/mtls-ca.js` / `lib/mtls-ca-browser.js` (process-wide singletons over `b.mtlsCa.create`); the engine is `b.mtlsEngine`, backed by `@blamejs/pki` (`lib/vendor/blamejs-pki.cjs`) — a zero-dependency pure-JS X.509 / PKCS#12 / CRL toolkit that replaced the earlier @peculiar/x509 + pkijs bundle.
+
+**Algorithm envelope:**
+
+| Component | Sync CA | Browser CA |
+|-----------|---------|------------|
+| CA + client cert signature | ML-DSA-87 (FIPS 204) | ECDSA P-384 with SHA-384 |
+| PKCS#12 key + cert bags | — (sync certs ship as PEM) | PBES2 + AES-256-CBC + PBKDF2-HMAC-SHA-512, 2,000,000 iterations |
+| PKCS#12 outer MAC | — | RFC 7292 App. B HMAC-SHA-512 MacData (legacy-importable) |
+
+The browser CA keeps AES-CBC (not AES-GCM) key bags and the RFC 7292 MacData so the `.p12` imports on OS versions whose importers still reject PBES2-AES-GCM key bags or a PBMAC1 MacData. 2M PBKDF2 iterations is the conservative modern default (up from 600k in an earlier generation).
 
 Code entry points:
-- `lib/constants.js:141` — `CA_GENERATION = 2` (referenced via `C.CA_GENERATION` at `lib/mtls-ca.js:51`)
-- `lib/vendor/blamejs/lib/mtls-engine-default.js:166-167` — `CA_KEY_ALG` / `CA_SIG_ALG` (set at runtime from `alg.keyAlg` / `alg.sigAlg`, e.g. P-384 / SHA-384)
-- `lib/vendor/blamejs/lib/mtls-engine-default.js:172-177` — PKCS#12 parameters (content encryption AES-CBC, KDF/MAC hash SHA-512, PBKDF2 iterations `0x1E8480` = 2,000,000)
+- `lib/constants.js` — `CA_GENERATION = 3` (sync CA), `CA_BROWSER_GENERATION = 1` (browser CA)
+- `lib/mtls-ca.js` — sync CA singleton; reads the `MTLS_CA_ALGORITHM` pin (unset ⇒ the CA follows its stored algorithm and can migrate)
+- `lib/mtls-ca-browser.js` — browser CA singleton, hard-pinned `algorithm: "ECDSA-P384-SHA384"` with its own files (`ca-browser.key[.sealed]`, `ca-browser.crt`, `ca-browser-revocations.json`, `ca-browser.crl`)
+- `lib/mtls-migrate.js` — the sync-CA post-quantum migration (§5.8.2)
 
-**Flow:**
+#### 5.8.1 Issuance flow
 
 ```
  ┌────────────────────────┐         ┌────────────────────────────┐
@@ -464,7 +470,7 @@ Code entry points:
                                                   │
                                       ┌───────────▼───────────┐
                                       │ Server signs client   │
-                                      │ cert with CA (P-384)  │
+                                      │ cert with sync CA     │
                                       └───────────┬───────────┘
                                                   │
                              ┌────────────────────┴────────────────────┐
@@ -477,11 +483,30 @@ Code entry points:
                                                           └──────────────────────┘
 ```
 
-The client cert's SHA3-512 fingerprint is bound to the API key — at WebSocket upgrade time, both must match. `MTLS_REQUIRED=false` is an explicit escape hatch to let an API-key-only client connect without a cert; per-key binding is still enforced if the key was issued with a cert.
+The client cert's SHA3-512 fingerprint is bound to the API key — at WebSocket upgrade time, both must match. `MTLS_REQUIRED=false` is an explicit escape hatch to let an API-key-only client connect without a cert; per-key binding is still enforced if the key was issued with a cert. Browser certs (`routes/browser-certs.js`) are issued by the browser CA, packaged as PKCS#12, and tracked as rows in `api_keys` so the existing revoke flow cascades to `cert_revocations`; those tracking rows carry a `browser:`-prefixed `keyHash` sentinel and no scopes, so they can never function as real API keys.
 
-**CA regeneration:** Admin → General → Danger Zone → "Regenerate mTLS CA" creates a new CA and re-issues certs. Active WebSocket clients get a `ca:rotation` message and ack back; the server auto-restarts after. Browser certs must be re-downloaded; offline sync clients must re-enroll. See `lib/mtls-ca.js` `regenerate()` function.
+#### 5.8.2 Sync-CA post-quantum migration
 
-**Revocation:** `cert_revocations` table, keyed by SHA3-512 hashed fingerprint. `lib/cert-utils.js:isCertRevoked()` uses an indexed `findOne()` — not a table scan. Revocation check runs on every WebSocket upgrade and every authenticated API call using a bound cert.
+A sync CA generated by an older build is classical (ECDSA-P384). At boot, `lib/mtls-migrate.js` migrates it to the ML-DSA-87 default — but only when the runtime can VERIFY an ML-DSA client chain in a real mTLS handshake. That is a stronger gate than "can issue one": it requires OpenSSL ≥ 3.5 **and** a passing in-process TLSv1.3 loopback probe (`canVerifyMlDsaMtls()` generates an ephemeral ML-DSA-87 CA + server/client leaves and asserts the server-side `socket.authorized`). If the probe fails or times out, the classical sync CA is retained and nothing breaks.
+
+The migration is prepare-in-place:
+1. The superseded CA cert is retained at `data/ca.prev.crt` for a 30-day grace window and folded into the TLS trust bundle, so certs it issued keep verifying while their owners re-enroll onto the new CA.
+2. A marker (`data/ca-migration.json`) records the grace clock.
+3. A fresh CA is generated under the ML-DSA-87 default and committed; subsequent issuance is post-quantum.
+
+When the grace window closes, `closeOutGraceIfExpired()` drops `ca.prev.crt` and revokes — through HermitStash's own `cert_revocations` table — any sync client cert still bound to the old CA. The browser CA is never touched (its tracking rows carry a `browser:` keyHash and are excluded).
+
+The migration is a no-op unless every guard holds: a classical sync CA exists, no `MTLS_CA_ALGORITHM` pin, `MTLS_AUTO_MIGRATE` is not `false`, and the loopback probe passes.
+
+**Operator controls:**
+- `MTLS_CA_ALGORITHM=ECDSA-P384-SHA384` pins the sync CA classical and suppresses the migration — for deployments whose sync peers can't verify ML-DSA in TLS. Set it before the CA migrates; a pin that conflicts with an already-migrated CA is refused.
+- `MTLS_AUTO_MIGRATE=false` disables the migration without pinning an algorithm; an existing classical CA is left in place, and a fresh install still starts post-quantum.
+
+Browser certs are unaffected by any sync-CA migration or regeneration.
+
+**CA regeneration:** Admin → General → Danger Zone → "Regenerate mTLS CA" rolls the sync CA to the current default and opens the same grace window via `mtls-migrate.beginGrace()`, so certs from the superseded CA keep verifying while their owners re-enroll. Active WebSocket clients get a `ca:rotation` message and ack back; the server auto-restarts after. Offline sync clients must re-enroll; browser certs (signed by the separate browser CA) stay valid.
+
+**Revocation:** each CA has its own registry. The mTLS peer gate consults HermitStash's `cert_revocations` table via `lib/cert-utils.js` (`isPeerCertRevoked()` / `isCertRevoked()`, an indexed `findOne()` — not a table scan). The check runs on every WebSocket upgrade and every authenticated API call using a bound cert.
 
 ### 5.9 TLS-level PQC enforcement (pqc-gate)
 
@@ -600,9 +625,15 @@ Receivers verify with `hmac.compare_digest()` (Python) or `crypto.timingSafeEqua
   data/db.key.enc      — DB file encryption key, vault-sealed on disk
                           Protects the SQLite file at rest when the DB is paused
 
-  mTLS CA private key  — ECDSA P-384, data/ca.key (plaintext, 0o600)
-                          OR data/ca.key.sealed (vault-sealed, v1.9.4+ opt-in
-                          via CA_KEY_SEALED=required). Signs client certs.
+  mTLS sync CA priv key — ML-DSA-87 by default (classical ECDSA P-384 until
+                          the boot migration in §5.8.2 runs), data/ca.key
+                          (plaintext, 0o600) OR data/ca.key.sealed (vault-sealed,
+                          v1.9.4+ opt-in via CA_KEY_SEALED=required). Signs sync
+                          client certs.
+
+  mTLS browser CA priv  — ECDSA P-384 (classical, pinned), data/ca-browser.key
+    key                   (plaintext, 0o600) OR data/ca-browser.key.sealed
+                          (CA_KEY_SEALED=required). Signs browser PKCS#12 certs.
 
   TLS server private key — data/tls/privkey.pem (plaintext, 0o600)
                           OR data/tls/privkey.pem.sealed (vault-sealed,
@@ -626,9 +657,7 @@ Three separate version mechanisms:
 
 1. **Storage envelope** (`lib/vendor/blamejs/lib/crypto.js`) — 4-byte header identifies magic/KEM/cipher/KDF and is bound as AEAD AAD. Old blobs remain readable when new IDs are added. Current: magic `0xE2`, KEM `0x03`, cipher `0x02`, KDF `0x02` (legacy `0xE1` blobs decrypt via the migration fallback in `lib/crypto.js`)
 2. **ECIES protocol** (`middleware/api-encrypt.js`) — 1-byte version on the `_ek` field. Current: `0x01`. Unlike the envelope, sessions are ephemeral so backward-compat on decrypt is not required — both sides must agree
-3. **mTLS CA generation** (`lib/mtls-ca.js`) — CAs are tagged with `OU=CAv{N}` in the subject DN. Boot-time banner warns if the on-disk CA is older than the current generation. Migration is operator-initiated via Admin → Danger Zone
-
-Upgrade points are tagged with `TODO(pqc-certs)` and `TODO(pkcs12-upgrade)` in the source for grep-ability.
+3. **mTLS CA generation** (`lib/mtls-ca.js`, `lib/mtls-ca-browser.js`) — the sync and browser CAs each carry their own `OU=CAv{N}` generation tag in the subject DN, and a boot-time banner warns when an on-disk CA is older than its current generation. The sync CA additionally auto-migrates from classical to the ML-DSA-87 default at boot when the runtime can verify an ML-DSA chain in TLS (§5.8.2); operators pin or disable that with `MTLS_CA_ALGORITHM` / `MTLS_AUTO_MIGRATE`. Regeneration is operator-initiated via Admin → Danger Zone
 
 ---
 
@@ -688,8 +717,8 @@ Resolved by switching the post-hash from SHA3-512 to SHAKE256 (variable-length X
 ### L8 — No formal verification or symbolic model
 Nothing has been modeled in ProVerif / Tamarin / Cryptol. See N9.
 
-### L9 — mTLS CA uses classical signatures (ECDSA P-384)
-PQ signature algorithms (SLH-DSA-SHAKE-256f as the default, ML-DSA-87 as a legacy option) are implemented and available in the project but not used for the CA. Browsers and OS cert stores don't yet verify PQ signatures on client certs. Migration is tagged with `TODO(pqc-certs)` in `lib/mtls-ca.js:42`. When browsers catch up, the CA can be regenerated with a PQ signature algorithm; the CA generation mechanism (§5.8) handles this.
+### L9 — Browser mTLS CA is still classical (ECDSA P-384); sync CA is now post-quantum
+The **sync** CA now signs client certs with ML-DSA-87 (FIPS 204): machine sync clients run OpenSSL 3.5, which verifies a post-quantum client chain in the TLS handshake, and an existing classical sync CA auto-migrates to it at boot when the runtime can verify one (§5.8.2). The **browser** CA remains classical (ECDSA-P384-SHA384) because browsers and OS keystores still can't verify a PQ signature on a client cert or import a post-quantum PKCS#12 — issuing a PQ-signed browser cert today would break every browser mTLS session. It stays classical until keystores catch up, at which point it can migrate the same way; its generation mechanism is independent of the sync CA's (§5.8).
 
 ### L10 — @noble is a single point of trust for browser-side crypto
 The entire browser-side crypto stack depends on Paul Miller's @noble libraries. They are well-regarded and audited (noble-pq has been reviewed by Cure53), but a concentrated dependency. The server Argon2id path runs through Node 24+'s built-in `crypto.argon2` (OpenSSL/Node-maintained) rather than a third-party native binding, so it is no longer a separate supply-chain trust surface.
@@ -756,7 +785,7 @@ If you are a cryptographer willing to spend an hour on this, these are the quest
 
 9. **Blind-index strategy (§5.3, L6):** static prefixes plus a per-deployment keyed MAC (HMAC-SHAKE256) give deterministic indexed lookup while closing the plaintext-recompute oracle, without per-record salts (which would break indexed lookup entirely). Is keying off a single per-deployment secret the right granularity, or is there value in per-column keys?
 
-10. **PKCS#12 parameters (§5.8):** AES-256-CBC + HMAC-SHA-512 + PBKDF2 + 2M iterations. Is the ongoing AES-CBC choice (driven by OS importer compatibility) a reasonable tradeoff, or should we force AES-GCM and accept the importer breakage?
+10. **Browser-CA PKCS#12 parameters (§5.8):** AES-256-CBC + HMAC-SHA-512 (RFC 7292 MacData) + PBKDF2 + 2M iterations. The browser CA (and its `.p12` packaging) is deliberately kept classical for keystore/importer compatibility. Is the ongoing AES-CBC + legacy-MacData choice a reasonable tradeoff, or should we force AES-GCM / PBMAC1 and accept the importer breakage?
 
 ---
 

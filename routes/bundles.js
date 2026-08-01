@@ -13,6 +13,7 @@ var audit = require("../lib/audit");
 var requireAuth = require("../middleware/require-auth");
 var { canEditOwned } = require("../app/shared/authz");
 var { requireScope } = require("../app/security/scope-policy");
+var syncGuards = require("../middleware/sync-guards");
 var { AppError, ValidationError, AuthenticationError, ForbiddenError, NotFoundError, RateLimitError } = require("../app/shared/errors");
 
 var { isBundleLocked, prefersJson } = require("../middleware/require-access");
@@ -144,19 +145,22 @@ module.exports = function (app) {
       return res.json({ success: true, message: genericMsg });
     }
 
-    try {
-      var result = await accessCodeService.requestCode({
-        shareId: bundle.shareId,
-        email: email,
-        bundleName: bundle.bundleName || null,
-        senderName: bundle.uploaderName || null,
-      });
-      if (result.sent) {
+    // Fire-and-forget the send so an ALLOWED address does not respond measurably
+    // slower than a non-allowed one (which returned immediately above). Awaiting
+    // the SMTP/Resend round-trip here leaks allow-list membership through response
+    // latency — an enumeration oracle the identical body is meant to prevent.
+    accessCodeService.requestCode({
+      shareId: bundle.shareId,
+      email: email,
+      bundleName: bundle.bundleName || null,
+      senderName: bundle.uploaderName || null,
+    }).then(function (result) {
+      if (result && result.sent) {
         audit.log(audit.ACTIONS.BUNDLE_ACCESS_CODE_SENT, { targetId: bundle._id, details: "shareId: " + bundle.shareId, req: req });
       }
-    } catch (e) {
+    }).catch(function (e) {
       logger.error("Access code email failed", { error: e.message || String(e) });
-    }
+    });
 
     res.json({ success: true, message: genericMsg });
   });
@@ -289,6 +293,15 @@ module.exports = function (app) {
       res.writeHead(200, {
         "Content-Disposition": safeContentDisposition(doc.originalName, "attachment"),
         "Content-Type": doc.mimeType || "application/octet-stream",
+      });
+      // A legacy/S3 no-key read returns a LIVE stream that can error mid-pipe;
+      // pipe() does not forward source errors and the 200 headers are already
+      // sent, so an unhandled 'error' would crash the process. Tear down the
+      // response instead (the encrypted path streams from a buffer and never
+      // errors here, so this only guards the legacy/S3 branch).
+      stream.on("error", function (streamErr) {
+        logger.error("Download stream error", { error: streamErr && (streamErr.message || String(streamErr)) });
+        res.destroy();
       });
       stream.pipe(res);
     } catch (e) {
@@ -445,6 +458,7 @@ module.exports = function (app) {
     if (!requireAuth(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle) throw new NotFoundError("Not found.");
+    syncGuards.enforceApiKeyResourceBinding(req, bundle);
     if (!canEditOwned(bundle, req.user, "ownerId", req)) {
       throw new ForbiddenError("Not authorized.");
     }
@@ -462,6 +476,7 @@ module.exports = function (app) {
     if (!requireAuth(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle) throw new NotFoundError("Not found.");
+    syncGuards.enforceApiKeyResourceBinding(req, bundle);
     if (!canEditOwned(bundle, req.user, "ownerId", req)) {
       throw new ForbiddenError("Not authorized.");
     }
@@ -482,6 +497,7 @@ module.exports = function (app) {
     if (!requireAuth(req, res)) return;
     var bundle = bundlesRepo.findByShareId(req.params.shareId);
     if (!bundle) throw new NotFoundError("Not found.");
+    syncGuards.enforceApiKeyResourceBinding(req, bundle);
     if (!canEditOwned(bundle, req.user, "ownerId", req)) {
       throw new ForbiddenError("Not authorized.");
     }
@@ -498,6 +514,7 @@ module.exports = function (app) {
     // Only owner or admin can delete — and an admin-minted narrow API key
     // (req.apiKey present without admin scope) does NOT inherit the admin
     // ownership override; it must own the bundle. Interactive admin sessions do.
+    syncGuards.enforceApiKeyResourceBinding(req, bundle);
     if (!canEditOwned(bundle, req.user, "ownerId", req)) {
       throw new ForbiddenError("Not authorized.");
     }

@@ -30,6 +30,7 @@
 var b = require("../lib/vendor/blamejs");
 var nodeFs = require("node:fs");
 var nodePath = require("node:path");
+var nodeCrypto = require("node:crypto");
 var { certFingerprintSha3 } = require("../lib/cert-utils");
 var audit = require("../lib/audit");
 var C = require("../lib/constants");
@@ -47,6 +48,8 @@ var webhooksRepo = require("../app/data/repositories/webhooks.repo");
 var teamsRepo = require("../app/data/repositories/teams.repo");
 var { parseMultipart } = require("../lib/multipart");
 var mtlsCa = require("../lib/mtls-ca");
+var mtlsCaBrowser = require("../lib/mtls-ca-browser");
+var mtlsMigrate = require("../lib/mtls-migrate");
 var pemSeal = require("../lib/pem-seal");
 var syncRegistry = require("../lib/sync-registry");
 var storage = require("../lib/storage");
@@ -1088,12 +1091,47 @@ module.exports = function (app) {
     }
   });
 
-  // CA status — exposes whether the on-disk CA is current-generation or
-  // legacy. The Danger Zone card reads this to conditionally surface the
-  // "regeneration recommended" banner.
+  // Resolve the actual public-key algorithm of a CA instance's on-disk cert.
+  // status() reports the generation tag, not the algorithm, so the admin UI
+  // reads this to distinguish an ML-DSA-87 sync CA from a classical one.
+  function _caCertAlgorithm(caInstance) {
+    try {
+      var pub = new nodeCrypto.X509Certificate(caInstance.loadCert()).publicKey;
+      var type = String(pub.asymmetricKeyType || "").toLowerCase();
+      if (type === "ec") {
+        return "ec:" + String((pub.asymmetricKeyDetails && pub.asymmetricKeyDetails.namedCurve) || "").toLowerCase();
+      }
+      return type || null;
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  // CA status — exposes whether the on-disk CA is current-generation or legacy,
+  // the resolved sync-CA algorithm label (mtlsCa.status().algorithm: "ML-DSA-87"
+  // after the PQC migration, "ECDSA-P384-SHA384" before), any in-flight migration
+  // grace window, and the separate classical browser CA's status — so the Danger
+  // Zone card can show "sync CA: ML-DSA-87 / browser CA: ECDSA-P384" and
+  // conditionally surface the "regeneration recommended" banner.
   app.get("/admin/api/mtls-ca/status", (req, res) => {
     if (!requireAdmin(req, res)) return;
-    res.json(mtlsCa.status());
+    // status() already carries `algorithm` + `keyType` (the b.mtlsCa canonical
+    // labels); only the grace flag is HS policy.
+    var status = mtlsCa.status();
+    status.migrationGraceActive = mtlsMigrate.graceActive();
+    if (mtlsCaBrowser.exists()) {
+      var bs = mtlsCaBrowser.status();
+      status.browser = {
+        exists: true,
+        generation: bs.generation,
+        isLegacy: bs.isLegacy,
+        current: bs.current,
+        algorithm: bs.algorithm,
+      };
+    } else {
+      status.browser = { exists: false };
+    }
+    res.json(status);
   });
 
   // Regenerate the mTLS CA. Used when the algorithm envelope in lib/mtls-ca.js
@@ -1106,8 +1144,9 @@ module.exports = function (app) {
   //      window, so clients can persist new credentials without reconnecting.
   //   3. Wait up to ACK_TIMEOUT_MS for clients to confirm via `ca:rotation-ack`
   //   4. Commit the new CA to disk (atomic rename)
-  //   5. Delete orphaned browser cert api_keys (they were issued by the old
-  //      CA — no longer trusted post-restart; admin redownloads from panel)
+  //   5. Browser certs are signed by the SEPARATE classical browser CA
+  //      (ca-browser.crt), so a sync-CA regeneration leaves them valid — they
+  //      are reported as unaffected, not deleted (pre-split, one CA signed both).
   //   6. Write a regen flag so post-restart admin UI can surface a banner
   //   7. process.exit(0) so Docker/systemd restarts us with the new CA loaded
   // Offline sync clients miss the rotation — their certs become invalid and
@@ -1132,13 +1171,34 @@ module.exports = function (app) {
       //      the commit + restart themselves via a separate mechanism.
       var skipRestart = body.skipRestart === true;
 
+      // Grace-window anchor, captured BEFORE any client cert is re-issued below,
+      // so certs re-issued to live clients during this rotation (certIssuedAt >
+      // this instant) are NOT mistaken for superseded old-CA certs when the
+      // grace window later closes out.
+      var caMigrationStartedAt = Date.now();
+
       var ACK_TIMEOUT_MS = C.TIME.seconds(15);
       var RESTART_DELAY_MS = C.TIME.seconds(1); // gap between ack-window close and process.exit
 
       // Generate the new CA in memory — not yet written to disk.
       // Bypass the singleton so the staging PEMs are isolated from the
       // live instance's loaded state until commit lands.
-      var fresh = await b.mtlsEngine.generateCa({ generation: C.CA_GENERATION });
+      // Preserve the CURRENT CA's algorithm on a routine regeneration — a rotation
+      // must not silently flip a classical (ECDSA-P384) CA to the ML-DSA-87 default
+      // and strand sync clients that can't yet complete an ML-DSA mutual-TLS
+      // handshake. The post-quantum upgrade is the separate boot auto-migration
+      // (lib/mtls-migrate); an explicit MTLS_CA_ALGORITHM pin still wins here.
+      var regenAlgorithm = process.env.MTLS_CA_ALGORITHM;
+      // Preserve a classical CA on a routine regen (status().keyType === "ec")
+      // rather than silently flipping it to the ML-DSA-87 default — that flip is
+      // the separate boot auto-migration (lib/mtls-migrate). An explicit
+      // MTLS_CA_ALGORITHM pin still wins.
+      if (!regenAlgorithm && mtlsCa.status().keyType === "ec") {
+        regenAlgorithm = "ECDSA-P384-SHA384";
+      }
+      var caGenArgs = { generation: C.CA_GENERATION };
+      if (regenAlgorithm) caGenArgs.algorithm = regenAlgorithm;
+      var fresh = await b.mtlsEngine.generateCa(caGenArgs);
 
       // Categorize existing cert-bound api_keys
       var allCertKeys = apiKeysRepo.findAll().filter(function (k) { return !!k.certFingerprint; });
@@ -1162,14 +1222,14 @@ module.exports = function (app) {
         syncClientsConnected: liveByKeyId.size,
         syncClientsAcked: 0,
         syncClientsOffline: Math.max(syncCerts.length - liveByKeyId.size, 0),
-        browserCertsRevoked: browserCerts.length,
+        browserCertsUnaffected: browserCerts.length,
         restartInMs: 0,
       };
 
-      function finalize(note) {
+      async function finalize(note) {
         if (skipRestart) {
-          // Dry-run mode: skip commit, skip browser cert revocation, skip
-          // exit. The in-memory new CA and the pre-signed client certs are
+          // Dry-run mode: skip commit and skip exit. The in-memory new CA and
+          // the pre-signed client certs are
           // discarded. The DB-side fingerprint updates on connected clients
           // still happened (already issued above) — callers using skipRestart
           // should understand this mutates api_keys.certFingerprint.
@@ -1188,12 +1248,27 @@ module.exports = function (app) {
             byUser: req.session && req.session.userId ? req.session.userId : null,
           })), { fileMode: 0o600 });
         } catch (_e) { /* regen flag file is best-effort — startup banner only */ }
-        // Commit CA files atomically
-        mtlsCa.commit({ caCertPem: fresh.caCertPem, caKeyPem: fresh.caKeyPem });
-        // Delete browser cert api_keys — their cert was issued by the old CA
-        for (var bc = 0; bc < browserCerts.length; bc++) {
-          try { apiKeysRepo.remove(browserCerts[bc]._id); } catch (_e) {} // allow:silent-catch — best-effort cert-record cleanup
-        }
+        // End any still-open prior grace window first: 0.18.3 refuses a second
+        // retained rotation (mtls-ca/retained-root-exists), and one retained
+        // generation at a time is the model — the prior superseded certs are
+        // already locked out (their CA leaves the trust bundle) and re-enroll
+        // onto the newest CA; the new window's close-out still sweeps them.
+        try { await mtlsCa.dropRetained(); } catch (_e) { /* no prior retained root */ }
+        // Write the grace CLOCK marker (from the outgoing CA) BEFORE committing,
+        // so existing sync certs keep verifying through the grace window and
+        // close-out revokes the stragglers — the same grace the boot
+        // auto-migration establishes.
+        try {
+          mtlsMigrate.beginGrace({ now: caMigrationStartedAt });
+        } catch (_e) { /* grace marker best-effort — commit + trust bundle still apply */ }
+        // Commit the new CA atomically, retaining the outgoing CA at ca.prev.crt
+        // (commit({retainPrevious:true}) snapshots it under the CA lock — the
+        // retention the server-main trust bundle serves). 0.18.3 commit is async.
+        await mtlsCa.commit({ caCertPem: fresh.caCertPem, caKeyPem: fresh.caKeyPem, retainPrevious: true });
+        // Browser certs are signed by the SEPARATE classical browser CA
+        // (ca-browser.crt), not this sync CA — a sync-CA regeneration leaves them
+        // valid and importable, so they are NOT deleted here (they were, pre-split,
+        // when a single CA signed both sync and browser certs).
         audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "mTLS CA regenerated: " + JSON.stringify(summary), req: req });
         logger.info("[mTLS] CA regenerated — exiting for restart", { summary: summary, note: note });
         // Give the HTTP response time to flush before exit
@@ -1204,7 +1279,7 @@ module.exports = function (app) {
       if (liveByKeyId.size === 0) {
         summary.restartInMs = RESTART_DELAY_MS;
         res.json({ ok: true, summary: summary, note: "No active sync clients — committing new CA and restarting." });
-        finalize("fast-path");
+        await finalize("fast-path");
         return;
       }
 
@@ -1219,11 +1294,13 @@ module.exports = function (app) {
         var apiKey = apiKeysRepo.findOne({ _id: keyId });
         if (!apiKey) continue;
         var cn = apiKey.prefix || "client";
-        var newCert = await b.mtlsEngine.signClientCert({
-          cn: cn,
-          caCertPem: fresh.caCertPem,
-          caKeyPem: fresh.caKeyPem,
-        });
+        // A direct b.mtlsEngine.signClientCert (bypassing the singleton's pin)
+        // defaults the LEAF to the ML-DSA-87 process default even under an ECDSA
+        // CA, which would hand a live classical client a leaf it can't present.
+        // Match the leaf to the regenerated CA's algorithm (resolved above).
+        var leafArgs = { cn: cn, caCertPem: fresh.caCertPem, caKeyPem: fresh.caKeyPem };
+        if (regenAlgorithm) leafArgs.algorithm = regenAlgorithm;
+        var newCert = await b.mtlsEngine.signClientCert(leafArgs);
         if (!newCert) continue;
         // Update fingerprint binding — any subsequent request with the old
         // cert will fail per-key binding check, but the existing WS stays
@@ -1259,6 +1336,13 @@ module.exports = function (app) {
             newKeyPem: newCert.key,
             restartInMs: ACK_TIMEOUT_MS + RESTART_DELAY_MS,
             dryRun: skipRestart,
+            // Advisory label of the new CA's signature algorithm, derived from
+            // the freshly-generated cert (never a hardcoded default). The client
+            // uses it only to name the algorithm in a capability-decline log if
+            // its TLS runtime is too old to handshake it; it is not control-flow
+            // input, and a client that predates this field derives the label
+            // from the cert itself.
+            caAlgorithm: _caCertAlgorithm({ loadCert: function () { return fresh.caCertPem; } }) || regenAlgorithm || undefined,
           }));
         } catch (_e) { /* WS send failure — client will reconnect with new cert after restart */ }
       }
@@ -1284,7 +1368,7 @@ module.exports = function (app) {
       // Respond with the summary BEFORE committing + exiting so the admin UI
       // sees the ack count and knows which clients will need manual recovery.
       res.json({ ok: true, summary: summary, note: "CA rotation pushed to " + liveByKeyId.size + " client(s); " + ackCount + " acked. Committing and restarting." });
-      finalize("rotation-path");
+      await finalize("rotation-path");
     } catch (e) {
       if (e.isAppError) throw e;
       logger.error("CA regeneration failed", { error: e.message || String(e), stack: e.stack });

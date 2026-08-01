@@ -23,6 +23,10 @@
  *   - raw === for hash/token/sig comparisons
  *   - new URL(...) without safeUrl.parse() guard
  *   - bare JSON.parse on operator-supplied input
+ *   - <stream>.pipe(res) with no preceding source 'error' listener
+ *     (an error mid-pipe after headers crash the process)
+ *   - parseInt(v, 10) || default in lib/config.js apply paths
+ *     (a negative value is truthy and sticks — use pnum())
  *   - process.exit() in lib/
  *   - empty catch (_e) {} silent swallows
  *   - new RegExp(...) dynamic compilation from operator input
@@ -1253,17 +1257,114 @@ function testRawNewURL() {
 
 function testNoBareJsonParse() {
   // `JSON.parse(operatorInput)` lacks the maxBytes / depth / proto
-  // pollution defenses that `safeJson.parse` adds. Internal JSON
-  // (vendor manifest, tests, internal state) is fine with bare parse.
+  // pollution defenses that `b.safeJson.parse` / `b.safeJson.parseOrDefault`
+  // add, and a SyntaxError from secret-bearing input echoes raw bytes into
+  // the thrown message (CWE-532). Internal JSON (vendor manifest, tests,
+  // internal state) is fine with bare parse. Scope: lib/ + app/ + routes/ +
+  // middleware/ + server-main.js (appScope) plus the server.js boot entry.
   var matches = _scan(/\bJSON\.parse\(/, { skipComments: true, appScope: true });
+  // server.js is the boot entry point, outside lib/ and _appFiles(); scan it
+  // explicitly so a bare parse there is caught by the same gate.
+  var serverJs = path.join(path.resolve(__dirname, "..", ".."), "server.js");
+  try {
+    var sLines = fs.readFileSync(serverJs, "utf8").split(/\r?\n/);
+    for (var si = 0; si < sLines.length; si++) {
+      if (/^\s*(\/\/|\*|\/\*)/.test(sLines[si])) continue;
+      if (/\bJSON\.parse\(/.test(sLines[si])) {
+        matches.push({ file: "server.js", line: si + 1, content: sLines[si].trim() });
+      }
+    }
+  } catch (_e) { /* server.js absent — nothing to scan */ }
   // safe-json.js IS the safe wrapper; the bare JSON.parse call lives
-  // there by definition (it's what safe-json wraps with maxBytes /
+  // there by definition (it's what safeJson wraps with maxBytes /
   // depth / proto-pollution defenses).
   matches = matches.filter(function (m) { return m.file !== "lib/safe-json.js"; });
   matches = _filterMarkers(matches, "bare-json-parse");
-  _report("JSON.parse on operator input routes through safeJson.parse " +
+  _report("JSON.parse on operator input routes through b.safeJson.parse " +
           "(or has allow marker)",
     matches);
+}
+
+// ---- Pattern: <stream>.pipe(res) with no preceding source error listener ----
+
+function testNoUnguardedStreamPipe() {
+  // class: unguarded-stream-pipe
+  // `<stream>.pipe(res)` does not forward a source 'error'. Once the 200
+  // headers are written, an 'error' on a live (legacy/S3) source stream with
+  // no listener is unhandled and crashes the process. Every pipe(res) must be
+  // preceded by a `<stream>.on("error", ...)` on the SAME receiver that tears
+  // the response down (res.destroy() / res.end()). Scans the HS-owned trees
+  // (lib/ app/ middleware/ routes/ scripts/ + server.js / server-main.js);
+  // vendored code is out of scope.
+  var repoRoot = path.resolve(__dirname, "..", "..");
+  var files = _libFiles().concat(_appFiles());
+  // scripts/ and server.js sit outside lib/ and _appFiles(); add them.
+  (function walkScripts(dir) {
+    var entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_e) { return; }
+    entries.forEach(function (e) {
+      if (e.name === "vendor" || e.name === "node_modules") return;
+      var full = path.join(dir, e.name);
+      if (e.isDirectory()) walkScripts(full);
+      else if (e.isFile() && /\.js$/.test(e.name)) files.push(full);
+    });
+  })(path.join(repoRoot, "scripts"));
+  var serverJs = path.join(repoRoot, "server.js");
+  if (fs.existsSync(serverJs)) files.push(serverJs);
+
+  var pipeRe = /([\w$]+(?:\.[\w$]+)*)\.pipe\(\s*res\b/;
+  var WINDOW = 8;   // observed guard-to-pipe gaps run 1..4 lines; 8 is slack
+  var bad = [];
+  for (var fi = 0; fi < files.length; fi++) {
+    var lines;
+    try { lines = fs.readFileSync(files[fi], "utf8").split(/\r?\n/); } catch (_e) { continue; }
+    for (var li = 0; li < lines.length; li++) {
+      var line = lines[li];
+      if (/^\s*(\/\/|\*|\/\*)/.test(line)) continue;
+      var m = pipeRe.exec(line);
+      if (!m) continue;
+      var receiver = m[1];
+      // Look back a few lines for a same-receiver 'error' listener.
+      var guardRe = new RegExp(receiver.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
+                               "\\.on\\(\\s*['\"]error['\"]");
+      var guarded = false;
+      for (var k = li - 1; k >= 0 && k >= li - WINDOW; k--) {
+        if (guardRe.test(lines[k])) { guarded = true; break; }
+      }
+      if (!guarded) {
+        bad.push({ file: _relPath(files[fi]), line: li + 1, content: line.trim() });
+      }
+    }
+  }
+  bad = _filterMarkers(bad, "unguarded-stream-pipe");
+  _report("stream.pipe(res) is preceded by a same-receiver .on(\"error\") teardown " +
+          "(or has allow marker)",
+    bad);
+}
+
+// ---- Pattern: parseInt(v, 10) || default in lib/config.js apply paths ----
+
+function testNoConfigParseIntOrDefault() {
+  // class: config-parseint-or-default
+  // In lib/config.js, `parseInt(raw, 10) || <default>` lets a NEGATIVE
+  // operator value stick (a negative is truthy), which then disables the
+  // upload/vault surface downstream (a non-positive maxBytes throws). Every
+  // numeric setting must coerce through pnum(raw, def) — parse a
+  // strictly-positive int, else fall back to the default.
+  var configPath = path.join(path.resolve(__dirname, "..", ".."), "lib", "config.js");
+  var bad = [];
+  var lines;
+  try { lines = fs.readFileSync(configPath, "utf8").split(/\r?\n/); } catch (_e) { lines = []; }
+  for (var li = 0; li < lines.length; li++) {
+    var line = lines[li];
+    if (/^\s*(\/\/|\*|\/\*)/.test(line)) continue;
+    if (/parseInt\(\s*v\s*,\s*10\s*\)\s*\|\|/.test(line)) {
+      bad.push({ file: "lib/config.js", line: li + 1, content: line.trim() });
+    }
+  }
+  bad = _filterMarkers(bad, "config-parseint-or-default");
+  _report("lib/config.js numeric settings use pnum(v, def) not parseInt(v, 10) || default",
+    bad);
 }
 
 // ---- Pattern 15: Object.keys(...).sort() canonicalize walks ----
@@ -5045,6 +5146,8 @@ async function run() {
   testNoRawHashCompare();
   testRawNewURL();
   testNoBareJsonParse();
+  testNoUnguardedStreamPipe();
+  testNoConfigParseIntOrDefault();
   testNoBareCanonicalizeWalks();
   testFormatValidatorLengthCap();
   testNoProcessExitInLib();

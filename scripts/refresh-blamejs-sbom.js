@@ -3,7 +3,7 @@
 // manifest into the top-level SBOM so Trivy / Grype scan an accurate inventory.
 //
 // blamejs bundles its own crypto / identity dependencies (the noble suite,
-// @simplewebauthn/server, peculiar-pki, the SecLists password set, the public
+// @simplewebauthn/server, @blamejs/pki, the SecLists password set, the public
 // suffix list, the BIMI trust anchors) and ships a manifest enumerating them at
 // lib/vendor/blamejs/lib/vendor/MANIFEST.json. The top-level
 // lib/vendor/MANIFEST.json mirrors that inventory under
@@ -182,8 +182,8 @@ function syncDocs(version, components, check) {
       var src = components[name] && components[name].source;
       // Version-header sync. Plain-semver versions whose package name is the
       // THIRD_PARTY header (`## @noble/ciphers v2.2.0`) are rewritten in place.
-      // Compound / non-semver versions (a git ref like "master", peculiar-pki's
-      // "2.0.0+pkijs-3.4.0") have no single clean token to rewrite, so each
+      // Compound / non-semver versions (a git ref like "master", or a bundled
+      // pair's "a.b.c+lib-x.y.z") have no single clean token to rewrite, so each
       // numeric token they DO carry is staleness-checked and surfaced for a
       // hand edit rather than auto-rewritten.
       if (ver && /^\d+\.\d+\.\d+$/.test(ver)) {

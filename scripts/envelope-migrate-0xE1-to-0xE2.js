@@ -26,6 +26,7 @@
 "use strict";
 
 var safeLog = require("../lib/safe-log");
+var b = require("../lib/vendor/blamejs");
 var args = process.argv.slice(2);
 var DRY_RUN = !args.includes("--apply");
 var VERBOSE = args.includes("--verbose") || args.includes("-v");
@@ -42,7 +43,7 @@ console.log("=== HermitStash envelope migration 0xE1 → 0xE2 (" + (DRY_RUN ? "D
   // (CWE-532). getKeysJson() is our own in-memory serialization so this is
   // defence-in-depth, but the leak class is the same as the on-disk readers.
   var keys;
-  try { keys = JSON.parse(hermitstashVault.getKeysJson()); }
+  try { keys = b.safeJson.parse(hermitstashVault.getKeysJson(), { maxBytes: b.constants.BYTES.mib(1) }); }
   catch (_e) { console.error("[fatal] in-memory vault keypair did not serialize to valid JSON (parser detail suppressed to avoid logging key material)."); process.exit(1); }
 
   var result = migrate.run({

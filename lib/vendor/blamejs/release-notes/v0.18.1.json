@@ -1,0 +1,18 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.18.1",
+  "date": "2026-07-30",
+  "headline": "The error and adversarial paths of nine more primitives -- pagination, CloudEvents, JSONPath, structured fields, the CSV guard, async control, schema validation, incident reporting, and the S3 SigV4 signer -- are now under test",
+  "summary": "This release adds no behaviour change. The fail-closed error paths, boundary conditions, and adversarial-input handling of b.pagination, b.cloudEvents, b.jsonPath, b.structuredFields, b.guardCsv, b.safeAsync, b.safeSchema, b.incident.report, and the object-store S3 SigV4 request signer -- previously exercised mostly on their happy paths -- are now asserted, verifying that each rejects malformed input, hostile payloads, and the edge cases the documented contract already promised. No defects were found; the primitives behaved as specified. Genuinely-unreachable defensive fallbacks (a base64 decode Node never throws on, a String method always present on the supported Node LTS, exhaustive switch defaults over a fixed token set) are documented rather than contorted into coverage.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Verified error-path behaviour for pagination, CloudEvents, JSONPath, structured fields, the CSV guard, async control, schema validation, incident reporting, and S3 SigV4",
+          "body": "b.pagination's cursor tamper/overflow/legacy-shape decode and orderBy validation; b.cloudEvents' envelope, spec-version, data-conflict, and HTTP binary-mode decode branches; b.jsonPath's filter-expression parser, function-argument literals, slice bounds, and node-cap guards; b.structuredFields' RFC 8941/9651 parse and serialize error branches; b.guardCsv's formula-injection, homoglyph, BOM, schema-validation, and serialize size-cap branches; b.safeAsync's bad-argument, abort-signal, and release-on-unheld paths across withTimeout / Mutex / Semaphore / the batching sinks; b.safeSchema's construction-time misuse throws and validation-failure arms across every builder; b.incident.report's deadline math, drop-silent persist/notify catches, and validation throws; and the S3 SigV4 signer's config validation, presigned-URL and POST-policy generation, and key-sanitization branches now have explicit tests for their failure and boundary behaviour. Behaviour is unchanged -- these assert guarantees the primitives already met -- so no migration is needed; the value is regression protection for the fail-closed paths of security-relevant primitives."
+        }
+      ]
+    }
+  ]
+}

@@ -70,11 +70,10 @@ await app.listen({ port: 3000 });</code></pre>
 </ul>
 
 <h2 id="thanks">Special thanks <a class="anchor" href="#thanks">#</a></h2>
-<p>blamejs vendors a small set of exceptional third-party libraries. Their work is the foundation the framework is built on — every cryptographic operation, passkey handshake, and certificate the framework signs runs through their code. All MIT-licensed; full attribution lives in <a href="https://github.com/blamejs/blamejs/blob/main/NOTICE">NOTICE</a>.</p>
+<p>blamejs vendors a small set of exceptional third-party libraries. Their work is the foundation the framework is built on — every cryptographic operation and passkey handshake in the framework runs through their code. All MIT-licensed; full attribution (including the framework's own Apache-2.0 <a href="https://github.com/blamejs/pki">@blamejs/pki</a> toolkit that now backs <code>b.mtlsCa</code>) lives in <a href="https://github.com/blamejs/blamejs/blob/main/NOTICE">NOTICE</a>.</p>
 <ul>
   <li><a href="https://github.com/paulmillr">Paul Miller</a> &mdash; <a href="https://github.com/paulmillr/noble-ciphers">@noble/ciphers</a> (XChaCha20-Poly1305 AEAD) and <a href="https://github.com/paulmillr/noble-post-quantum">@noble/post-quantum</a> (FIPS 203 ML-KEM, FIPS 204 ML-DSA, FIPS 205 SLH-DSA &mdash; the pure-JS PQC suite behind <code>b.pqcSoftware</code>)</li>
   <li><a href="https://github.com/MasterKale">Matthew Miller</a> &mdash; <a href="https://github.com/MasterKale/SimpleWebAuthn">@simplewebauthn/server</a> (WebAuthn / passkey verification)</li>
-  <li><a href="https://github.com/PeculiarVentures">Peculiar Ventures</a> &mdash; <a href="https://github.com/PeculiarVentures/x509">@peculiar/x509</a> + <a href="https://github.com/PeculiarVentures/PKI.js">pkijs</a> (pure-JS X.509 + PKCS#12 stack behind <code>b.mtlsCa</code>)</li>
   <li><a href="https://github.com/PrismJS/prism">Lea Verou + contributors</a> &mdash; <a href="https://prismjs.com/">Prism</a> (syntax highlighting in the wiki you're reading)</li>
 </ul>
 

@@ -27,7 +27,7 @@ module.exports = function (app) {
     var state = generateState();
     // PKCE: generate a verifier now, keep it session-side, and send only its S256
     // challenge on the authorization request (RFC 7636 / OAuth 2.1).
-    var pkce = b.auth.oauth._generatePkce();
+    var pkce = b.auth.oauth.generatePkce();
     // Bind a creation timestamp so a captured state can't be replayed across a
     // long-lived session window (state is single-use and expires in 5 minutes).
     req.session.oauthState = { value: state, ts: Date.now(), verifier: pkce.verifier };

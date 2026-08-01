@@ -10,14 +10,38 @@ var { clearSessionsForUser, clearAllSessions, clearSessionById, secureLogout } =
 var { TIME } = require("../../../lib/constants");
 var authService = require("./auth.service");
 
+// Pre-login ("pending") auth state. req.regenerateSession copies session.data
+// forward wholesale (session.js), so without an explicit wipe a fully-logged-in
+// session would carry another auth attempt's half-finished 2FA / re-enroll state
+// (a stale pendingTotpUserId could even point at a DIFFERENT user). Clear every
+// pending-auth key whenever a session crosses into a fully-authenticated (or a
+// fresh pending) state.
+var PENDING_AUTH_KEYS = [
+  "pendingTotpUserId",
+  "pendingTotpExpires",
+  "pendingTotpFailures",
+  "pendingTotpSecret",
+  "pendingReEnrollSecret",
+  "requiresTotpReEnroll",
+];
+
+function clearPendingAuth(session) {
+  if (!session) return;
+  for (var i = 0; i < PENDING_AUTH_KEYS.length; i++) delete session[PENDING_AUTH_KEYS[i]];
+}
+
 /**
  * Login: rotate the session sid (defeats fixation) and bind the new
  * row to `userId` at the storage layer (so destroyAllForUser keys on
  * it). Caller-side req.session.userId is also set so existing HS code
  * that reads it without dereferencing the b.session row keeps working.
+ * Pending-auth keys are cleared so a completed login never carries
+ * stale (or another user's) pending 2FA / re-enroll state forward.
  */
 async function loginUser(req, userId) {
+  clearPendingAuth(req.session);
   await req.regenerateSession({ userId: userId });
+  clearPendingAuth(req.session);
   req.session.userId = userId;
 }
 
@@ -29,6 +53,9 @@ async function loginUser(req, userId) {
  */
 async function start2faPending(req, userId) {
   await req.regenerateSession();
+  // Fresh pending cycle: drop any stale pending-auth state (incl. a prior
+  // cycle's failed-attempt count) before stamping the new pending user.
+  clearPendingAuth(req.session);
   req.session.pendingTotpUserId = userId;
   req.session.pendingTotpExpires = Date.now() + TIME.minutes(5);
 }
@@ -39,9 +66,11 @@ async function start2faPending(req, userId) {
  */
 async function complete2fa(req) {
   var userId = req.session.pendingTotpUserId;
-  delete req.session.pendingTotpUserId;
-  delete req.session.pendingTotpExpires;
+  // Read the pending userId first, then drop every pending-auth key so the
+  // now-authenticated session carries none of it forward.
+  clearPendingAuth(req.session);
   await req.regenerateSession({ userId: userId });
+  clearPendingAuth(req.session);
   req.session.userId = userId;
   return userId;
 }

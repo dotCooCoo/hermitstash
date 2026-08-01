@@ -164,51 +164,71 @@ module.exports = function (app) {
         }
       }
 
-      if (!matchedCred) {
-        audit.log(audit.ACTIONS.PASSKEY_LOGIN_FAILED, { details: "Unknown credential", req: req });
+      // Account state (suspended / pending) MUST NOT be consulted before a
+      // cryptographically-verified assertion: doing so leaks account state — and
+      // credential existence — to a caller who knows a credentialId but holds no
+      // private key (a distinct "Account suspended" / "Unknown passkey" response
+      // is a status/enumeration oracle). Verify possession FIRST; whether the
+      // credential is unknown, its user is missing, or the assertion fails to
+      // verify, return one indistinguishable failure. Only AFTER verification do
+      // we apply the suspended / pending gate.
+      var user = matchedCred ? usersRepo.findById(matchedCred.userId) : null;
+
+      var verification = null;
+      if (matchedCred && user) {
+        try {
+          // counter passed verbatim — the wrapper refuses undefined / null
+          // explicitly (clone-detection-bypass defense) so a legacy row with a
+          // dropped counter column fails closed (login refused) instead of
+          // silently coercing to 0 and disabling clone detection. Such a refusal
+          // throws; it is caught here and folded into the uniform failure below.
+          verification = await b.auth.passkey.verifyAuthentication({
+            response: body,
+            expectedChallenge: expectedChallenge,
+            expectedOrigin: config.rpOrigin,
+            expectedRPID: config.rpId,
+            credential: {
+              id: incomingCredId,
+              publicKey: Buffer.from(matchedCred.publicKey, "base64"),
+              counter: matchedCred.counter,
+              transports: typeof matchedCred.transports === "string"
+                ? b.safeJson.parseOrDefault(matchedCred.transports, [])
+                : (matchedCred.transports || []),
+            },
+            requireUserVerification: false,
+          });
+        } catch (verifyErr) {
+          // A malformed / unverifiable assertion (or the counter fail-closed
+          // refusal above) is an authentication failure, not a 500 — treat it as
+          // an unverified result so it joins the uniform failure path.
+          logger.error("Passkey verifyAuthentication rejected", { error: verifyErr && (verifyErr.message || String(verifyErr)) });
+          verification = null;
+        }
+      }
+
+      if (!verification || !verification.verified) {
+        // Uniform failure — one identical status + message whether the
+        // credential was unknown, its user was missing, or the assertion did not
+        // verify. The audit detail differs (server-side only) but the
+        // caller-visible response never distinguishes the three, closing both
+        // the credential-existence and account-state oracles.
+        audit.log(audit.ACTIONS.PASSKEY_LOGIN_FAILED, {
+          targetId: user ? user._id : undefined,
+          targetEmail: user ? user.email : undefined,
+          details: !matchedCred ? "Unknown credential" : (!user ? "User not found for credential" : "Verification failed"),
+          req: req,
+        });
         throw new AuthenticationError("Unknown passkey.");
       }
 
-      var user = usersRepo.findById(matchedCred.userId);
-      if (!user) {
-        audit.log(audit.ACTIONS.PASSKEY_LOGIN_FAILED, { details: "User not found for credential", req: req });
-        throw new AuthenticationError("Account not found.");
-      }
-
+      // Cryptographic proof of possession established — now it is safe to reveal
+      // account state to the verified owner.
       if (user.status === "suspended") {
+        audit.log(audit.ACTIONS.PASSKEY_LOGIN_FAILED, { targetId: user._id, targetEmail: user.email, details: "Account suspended", req: req });
         throw new ForbiddenError("Account suspended.");
       }
       if (user.status === "pending") {
         throw new ForbiddenError("Please verify your email first.").withExtras({ pending: true, email: user.email });
-      }
-
-      // counter passed verbatim — the wrapper refuses undefined / null
-      // explicitly (audit-2026-05-11 clone-detection bypass fix) so a
-      // legacy row with a dropped counter column surfaces as a refusal
-      // instead of silently coercing to 0.
-      var verification = await b.auth.passkey.verifyAuthentication({
-        response: body,
-        expectedChallenge: expectedChallenge,
-        expectedOrigin: config.rpOrigin,
-        expectedRPID: config.rpId,
-        credential: {
-          id: incomingCredId,
-          publicKey: Buffer.from(matchedCred.publicKey, "base64"),
-          // Pass the stored counter verbatim. The wrapper refuses undefined / null
-          // explicitly (clone-detection-bypass defense), so a legacy row with a
-          // dropped counter fails closed (login refused) instead of silently
-          // coercing to 0 and disabling clone detection for that credential.
-          counter: matchedCred.counter,
-          transports: typeof matchedCred.transports === "string"
-            ? b.safeJson.parseOrDefault(matchedCred.transports, [])
-            : (matchedCred.transports || []),
-        },
-        requireUserVerification: false,
-      });
-
-      if (!verification.verified) {
-        audit.log(audit.ACTIONS.PASSKEY_LOGIN_FAILED, { targetId: user._id, targetEmail: user.email, details: "Verification failed", req: req });
-        throw new AuthenticationError("Passkey verification failed.");
       }
 
       // Update counter

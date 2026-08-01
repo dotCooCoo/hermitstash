@@ -1,0 +1,27 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.18.2",
+  "date": "2026-07-30",
+  "headline": "`b.sql` andWhere() now accepts the 2-argument andWhere(field, value) shorthand it previously rejected; the SQL builder, i18n, and static file server also gain error/adversarial-path tests",
+  "summary": "b.sql query builders support two call shapes for their WHERE helpers -- where(field, value) and where(field, op, value), distinguished by argument count. orWhere honoured both, but andWhere re-passed three fixed positional arguments internally, so a two-argument andWhere(field, value) was misread as three: the value became the operator and the call threw sql-builder/bad-operator. andWhere now forwards its arguments like where/orWhere, so andWhere(\"col\", value) appends `AND \"col\" = ?` as documented. The three- and object-argument forms are unchanged. Alongside the fix, the error, boundary, and adversarial branches of the SQL builder, the i18n primitive, and the static file server are brought under test; no other defects surfaced.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "b.sql andWhere() honours the 2-argument andWhere(field, value) shorthand",
+          "body": "A chained builder call such as b.sql.select(\"t\").where(\"a\", 1).andWhere(\"b\", 2) previously threw sql-builder/bad-operator because andWhere forwarded three fixed positional parameters to where(), defeating where()'s argument-count check for the two-argument shorthand (the value was interpreted as the operator). andWhere now forwards its arguments verbatim, matching where() and orWhere(); andWhere(\"b\", 2) emits `AND \"b\" = ?`. The three-argument andWhere(field, op, value) and object andWhere({ field: value }) forms are unaffected."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Error-path tests for the SQL builder, i18n, and the static file server",
+          "body": "The b.sql builder's dialect / cast / raw-SQL guards, its emitted-SQL size and encoding guards, and the full set of chained WHERE / HAVING / JOIN delegators now have explicit tests; b.i18n's option-validation and interpolation error contracts are pinned to their exact typed error codes; and b.staticServe's path-traversal, symlink-escape, reserved-name, content-disposition, conditional-request, and HEAD-sanitize branches are asserted through the wired middleware. Behaviour is unchanged -- these assert guarantees the primitives already met (a served-traversal or wrong content-type would be a real defect; none were found) -- so no migration is needed."
+        }
+      ]
+    }
+  ]
+}

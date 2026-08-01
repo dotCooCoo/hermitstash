@@ -128,7 +128,7 @@
       console.log("[envelope-migrate] detected 0xE1 sealed data — converting to 0xE2 before server start...");
       var keys;
       try {
-        keys = JSON.parse(vault.getKeysJson());
+        keys = b.safeJson.parse(vault.getKeysJson(), { maxBytes: b.constants.BYTES.mib(1) });
       } catch (_e) {
         // getKeysJson() returns JSON.stringify(keys) so this normally cannot
         // throw; guard anyway so a future change or in-memory corruption can't
@@ -172,6 +172,20 @@
   } catch (e) {
     console.warn("[derived-hash] backfill deferred (non-fatal): " + (e && e.message) +
       " — dual-read keeps lookups working; will retry next boot.");
+  }
+
+  // mTLS sync-CA PQC auto-migration + grace close-out. Runs HERE in the async
+  // boot — BEFORE server-main builds its TLS trust bundle — so a migrated
+  // ML-DSA-87 CA (and the retained previous CA) are committed to disk before the
+  // live `ca` bundle is read: new PQC client certs verify in the SAME process,
+  // and existing sync certs keep working via ca.prev.crt during the grace window.
+  // Non-fatal — a capability-probe / commit failure degrades to a logged warning.
+  try {
+    await require("./lib/mtls-migrate").runBootMigration({
+      log: function (m) { console.log("  " + m); },
+    });
+  } catch (e) {
+    console.warn("[mtls-migrate] boot migration deferred (non-fatal): " + (e && e.message));
   }
 
   require("./server-main");

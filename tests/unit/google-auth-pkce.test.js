@@ -14,7 +14,7 @@ before(async function () {
 
 describe("google-auth PKCE (RFC 7636 / OAuth 2.1)", function () {
   it("getAuthUrl includes code_challenge + S256 when a challenge is passed", function () {
-    var pkce = b.auth.oauth._generatePkce();
+    var pkce = b.auth.oauth.generatePkce();
     var u = new URL(googleAuth.getAuthUrl("state123", {}, pkce.challenge));
     assert.strictEqual(u.searchParams.get("code_challenge"), pkce.challenge, "challenge is forwarded");
     assert.strictEqual(u.searchParams.get("code_challenge_method"), "S256", "method is S256");

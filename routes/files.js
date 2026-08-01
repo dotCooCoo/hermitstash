@@ -51,6 +51,14 @@ module.exports = function (app) {
       });
       var stream = result.stream;
       req.on("close", function () { if (stream.destroy) stream.destroy(); });
+      // A legacy/S3 no-key read returns a live stream that can error mid-pipe;
+      // pipe() doesn't forward source errors and the 200 headers are already
+      // sent, so an unhandled 'error' would crash the process. Destroy the
+      // response instead (the encrypted path streams from a buffer, never errors).
+      stream.on("error", function (streamErr) {
+        logger.error("Download stream error", { error: streamErr && (streamErr.message || String(streamErr)) });
+        res.destroy();
+      });
       stream.pipe(res);
     } catch (e) {
       logger.error("Download error", { error: e.message || String(e) });
@@ -80,6 +88,10 @@ module.exports = function (app) {
             "Content-Type": "application/octet-stream",
           });
           req.on("close", function () { if (dlResult.stream && dlResult.stream.destroy) dlResult.stream.destroy(); });
+          dlResult.stream.on("error", function (streamErr) {
+            logger.error("Preview stream error", { error: streamErr && (streamErr.message || String(streamErr)) });
+            res.destroy();
+          });
           dlResult.stream.pipe(res);
           return;
         }
@@ -93,6 +105,10 @@ module.exports = function (app) {
         var inlineResult = await fileService.getInlinePreviewStream(doc);
         res.writeHead(200, inlineResult.headers);
         req.on("close", function () { if (inlineResult.stream && inlineResult.stream.destroy) inlineResult.stream.destroy(); });
+        inlineResult.stream.on("error", function (streamErr) {
+          logger.error("Preview stream error", { error: streamErr && (streamErr.message || String(streamErr)) });
+          res.destroy();
+        });
         inlineResult.stream.pipe(res);
         return;
       }
@@ -104,6 +120,10 @@ module.exports = function (app) {
         "Content-Type": "application/octet-stream",
       });
       req.on("close", function () { if (forceResult.stream && forceResult.stream.destroy) forceResult.stream.destroy(); });
+      forceResult.stream.on("error", function (streamErr) {
+        logger.error("Preview stream error", { error: streamErr && (streamErr.message || String(streamErr)) });
+        res.destroy();
+      });
       forceResult.stream.pipe(res);
     } catch (err) {
       // Storage backend (local fs or S3) or stream decrypt failed. Log so
@@ -121,6 +141,11 @@ module.exports = function (app) {
     if (!requireAuth(req, res)) return;
     var doc = filesRepo.findAll({ shareId: req.params.shareId, status: "complete" })[0];
     if (!doc) throw new NotFoundError("Not found.");
+    // An API-key principal must satisfy its mTLS cert-binding + stash/bundle
+    // confinement here too — a bare Bearer on a cert-/stash-bound sync key must
+    // not reach the key-owner's resources through this cookie-UI route.
+    var renameBundle = doc.bundleShareId ? bundlesRepo.findByShareId(doc.bundleShareId) : null;
+    syncGuards.enforceApiKeyResourceBinding(req, renameBundle);
     if (!canEditOwned(doc, req.user, "uploadedBy", req)) {
       throw new ForbiddenError("Not authorized.");
     }
@@ -142,6 +167,10 @@ module.exports = function (app) {
     } catch (_e) {
       throw new NotFoundError("Not found.");
     }
+    // API-key principals must satisfy their cert-binding + stash/bundle
+    // confinement before the ownership check (see the rename route above).
+    var deleteBundle = doc.bundleShareId ? bundlesRepo.findByShareId(doc.bundleShareId) : null;
+    syncGuards.enforceApiKeyResourceBinding(req, deleteBundle);
     try {
       fileService.assertCanDelete(doc, req.user, req);
     } catch (authErr) {
@@ -208,6 +237,10 @@ module.exports = function (app) {
         });
         var stream = result.stream;
         req.on("close", function () { if (stream.destroy) stream.destroy(); });
+        stream.on("error", function (streamErr) {
+          logger.error("Sync download stream error", { error: streamErr && (streamErr.message || String(streamErr)) });
+          res.destroy();
+        });
         stream.pipe(res);
       } catch (err) {
         // Auth/lookup guards throw AppError subclasses — let the centralized

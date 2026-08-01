@@ -65,10 +65,12 @@ describe("regression", function () {
       assert.strictEqual(typeof mod.generateAuthenticationOptions, "function");
     });
 
-    it("peculiar-pki exports x509 + pkijs", function () {
-      var mod = require(path.join(projectRoot, "lib/vendor/blamejs/lib/vendor/pki.cjs"));
+    it("@blamejs/pki exports the x509 + pkcs12 + crl + key toolkits", function () {
+      var mod = require(path.join(projectRoot, "lib/vendor/blamejs/lib/vendor/blamejs-pki.cjs"));
       assert.strictEqual(typeof mod.x509, "object");
-      assert.strictEqual(typeof mod.pkijs, "object");
+      assert.strictEqual(typeof mod.pkcs12, "object");
+      assert.strictEqual(typeof mod.crl, "object");
+      assert.strictEqual(typeof mod.key, "object");
     });
 
     it("argon2-builtin exports hash and verify", function () {
@@ -206,7 +208,7 @@ describe("regression", function () {
     });
 
     it("sectionContaining scopes a version-token check to one package's own section", function () {
-      // A compound-version package (e.g. peculiar-pki "a+pkijs-b") is staleness-
+      // A compound-version package (e.g. a bundled "a+inner-b" pair) is staleness-
       // checked token-by-token. The check must be scoped to the package's OWN
       // `## ` section — a document-wide search would false-negative when the
       // stale token coincidentally appears in another package's section.
@@ -215,17 +217,17 @@ describe("regression", function () {
         "## @noble/ciphers v2.2.0",
         "- Source: https://example.com/ciphers",
         "",
-        "## @peculiar/x509 v2.0.0 + pkijs v3.4.0 (peculiar-pki bundle)",
-        "- Source: https://github.com/PeculiarVentures",
+        "## @example/bundle v2.0.0 + inner v3.4.0 (compound bundle)",
+        "- Source: https://example.com/compound-bundle",
         "",
         "## tail v1.0.0",
         "- Source: https://example.com/tail",
         "",
       ].join("\n");
-      var section = sbom.sectionContaining(doc, "https://github.com/PeculiarVentures");
-      // Scoped to the peculiar section only — the colliding "2.2.0" in the
-      // noble-ciphers header is NOT in scope, so a stale x509 header is caught.
-      assert.ok(section.indexOf("@peculiar/x509 v2.0.0") !== -1, "returns the peculiar section");
+      var section = sbom.sectionContaining(doc, "https://example.com/compound-bundle");
+      // Scoped to the compound-bundle section only — the colliding "2.2.0" in the
+      // noble-ciphers header is NOT in scope, so a stale header token is caught.
+      assert.ok(section.indexOf("@example/bundle v2.0.0") !== -1, "returns the compound-bundle section");
       assert.strictEqual(section.indexOf("2.2.0"), -1, "does not leak the colliding token from another section");
       assert.strictEqual(section.indexOf("tail v1.0.0"), -1, "stops at the next ## header");
       // Absent needle falls back to the whole document (never throws).

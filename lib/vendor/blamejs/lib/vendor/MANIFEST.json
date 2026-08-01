@@ -18,7 +18,7 @@
       "hashes": {
         "server": "sha256:2b30a26f728c5349f4c4b47834f862a4f77393b1224fc12b22abe3ce2cfab78f"
       },
-      "refreshedAt": "2026-07-25T17:09:57.034Z"
+      "refreshedAt": "2026-08-01T16:08:02.316Z"
     },
     "@noble/curves": {
       "version": "2.2.0",
@@ -40,7 +40,7 @@
       "hashes": {
         "server": "sha256:2880c288b1285ef51d356d057bee6f0c8a00de36638cf47b47617e8c1faf10d5"
       },
-      "refreshedAt": "2026-07-25T17:09:57.034Z"
+      "refreshedAt": "2026-08-01T16:08:02.316Z"
     },
     "@noble/post-quantum": {
       "version": "0.6.1",
@@ -71,7 +71,7 @@
       "hashes": {
         "server": "sha256:f9c94094b3c10fe73dac5343289da582454ea6053494fab2bf66099d9103d6c3"
       },
-      "refreshedAt": "2026-07-25T17:09:57.034Z"
+      "refreshedAt": "2026-08-01T16:08:02.316Z"
     },
     "@simplewebauthn/server": {
       "version": "13.3.2",
@@ -94,7 +94,7 @@
       "hashes": {
         "server": "sha256:e83195dc9f189385da9c856ef38843f4466f93ea8f3d7fc2efcb1e1b18da6f20"
       },
-      "refreshedAt": "2026-07-25T17:09:57.034Z"
+      "refreshedAt": "2026-08-01T16:08:02.316Z"
     },
     "SecLists-common-passwords-top-10000": {
       "version": "10k-most-common (master)",
@@ -114,7 +114,7 @@
       },
       "runtime_artifact": "lib/vendor/common-passwords-top-10000.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-07-25T17:09:57.034Z"
+      "refreshedAt": "2026-08-01T16:08:02.316Z"
     },
     "bimi-trust-anchors": {
       "version": "operator-managed",
@@ -139,7 +139,7 @@
       },
       "runtime_artifact": "lib/vendor/bimi-trust-anchors.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-07-25T17:09:57.034Z"
+      "refreshedAt": "2026-08-01T16:08:02.316Z"
     },
     "publicsuffix-list": {
       "version": "master",
@@ -159,38 +159,35 @@
       },
       "runtime_artifact": "lib/vendor/public-suffix-list.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-07-25T17:09:57.034Z"
+      "refreshedAt": "2026-08-01T16:08:02.316Z"
     },
-    "peculiar-pki": {
-      "version": "2.0.0+pkijs-3.4.0",
-      "license": "MIT",
-      "author": "Peculiar Ventures",
-      "source": "https://github.com/PeculiarVentures",
-      "_about": "Meta-bundle of @peculiar/x509 + pkijs + reflect-metadata + every transitive ASN.1 schema package. Used by lib/mtls-engine-default.js as the pure-JS CA + PKCS#12 engine wired into b.mtlsCa.",
-      "components": {
-        "@peculiar/x509": {
-          "url": "https://github.com/PeculiarVentures/x509",
-          "version": "2.0.0"
-        },
-        "pkijs": {
-          "url": "https://github.com/PeculiarVentures/PKI.js",
-          "version": "3.4.0"
-        }
-      },
+    "@blamejs/pki": {
+      "version": "0.3.27",
+      "license": "Apache-2.0",
+      "author": "blamejs",
+      "source": "https://github.com/blamejs/pki",
       "exports": [
         "x509",
-        "pkijs",
-        "crypto"
+        "crl",
+        "pkcs12",
+        "key",
+        "webcrypto",
+        "schema",
+        "csr",
+        "cms",
+        "ocsp",
+        "tsp"
       ],
       "files": {
-        "server": "lib/vendor/pki.cjs"
+        "server": "lib/vendor/blamejs-pki.cjs"
       },
-      "bundler": "esbuild --format=cjs --platform=node --alias:reflect-metadata=reflect-metadata/lite --external:node:crypto --external:crypto",
-      "bundledAt": "2026-07-13T00:00:00Z",
+      "bundler": "esbuild --format=cjs --platform=node --external:crypto --external:node:crypto",
+      "bundledAt": "2026-08-01T00:00:00Z",
+      "cpe": "cpe:2.3:a:blamejs:pki:0.3.27:*:*:*:*:node.js:*:*",
       "hashes": {
-        "server": "sha256:2307ef65e070757ffb13442b377e45efb9fa1a10432d9b39618387720ab990ed"
+        "server": "sha256:28b53546b062fef30e9fe5569036fcf51b6669cbd0a910542a52064eb4814e81"
       },
-      "refreshedAt": "2026-07-25T17:09:57.034Z"
+      "refreshedAt": "2026-08-01T16:08:02.316Z"
     }
   }
 }

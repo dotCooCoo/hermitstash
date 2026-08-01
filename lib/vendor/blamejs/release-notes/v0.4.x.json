@@ -536,7 +536,7 @@
           "items": [
             {
               "title": "`package.json` keywords expanded",
-              "body": "The `keywords` array now lists the security / PQC / server-framework terms operators actually search for. Tarball contents unchanged; this is a metadata-only release."
+              "body": "The `keywords` array now lists the security / PQC / server-framework terms operators actually search for. This is a package-metadata-only release; no library or runtime code changed."
             }
           ]
         }

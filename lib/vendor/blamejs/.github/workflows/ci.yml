@@ -42,15 +42,20 @@ jobs:
     runs-on: ${{ matrix.os }}
     # Backstop against a hung child no watchdog reaped (and against the
     # watchdog logic itself regressing): without this a stuck job rides
-    # GitHub's 6-hour default. The job budget is sized to the suite plus
-    # the per-file watchdog allowance below; the 3-core macOS runner is
-    # the long pole (codebase-patterns alone scans the whole lib/ corpus),
-    # so the ceiling sits above the per-file watchdog with reporting slack.
+    # GitHub's 6-hour default. Sized to the suite plus the per-file watchdog
+    # allowance below, with generous reporting slack.
     timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # Framework smoke runs on ubuntu only. macOS was excluded for a
+        # chronic fork-starvation stall on its 3-core runner (the pattern-
+        # catalog file's own worker pool thrashed as the lib/ corpus grew —
+        # not a real hang). windows is excluded because the suite is already
+        # run on Windows during local development before every push, so the
+        # windows runner duplicated that signal for the job's cost. Both
+        # platforms still run the lighter Wiki e2e leg below.
+        os: [ubuntu-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -103,9 +108,8 @@ jobs:
           # timeout — an unref'd in-process watchdog cannot fire while the
           # event loop is blocked by a synchronous native call. Forking
           # also hands each file a fresh process, so per-file memory does
-          # not accumulate toward the heap ceiling. 4 keeps the 3-core
-          # macOS runner from thrashing the pattern-catalog's own worker
-          # pool; the publish gate uses 8 on its ubuntu-only runner.
+          # not accumulate toward the heap ceiling. 4 parallel forks on the
+          # ubuntu runner; the publish gate uses 8 on its ubuntu-only runner.
           SMOKE_PARALLEL: "4"
           # Defensive libuv threadpool headroom: under parallel smoke
           # several async Argon2id key-stretch calls can queue onto the
@@ -116,18 +120,13 @@ jobs:
           # is cleared by re-running the job, not by sizing the pool.
           UV_THREADPOOL_SIZE: "16"
           # Per-file watchdog budget. codebase-patterns scans the whole
-          # lib/ corpus across eight shingle sizes; on the 3-core
-          # macos-latest runner that legitimately takes ~20-30 min under
-          # the parallel forks (vs ~2.5 min on ubuntu), and that runtime
-          # tracks the lib/ corpus, which keeps growing. The budget must
-          # clear the macOS worst case with headroom while still failing
-          # a genuinely stuck file. 25 min sat right at the grown macOS
-          # high-water and began flaking (the heaviest file is starved by
-          # the parallel forks, not hung); 35 min restores headroom and
-          # stays below the 50-min job ceiling. (Earlier: 600s guillotined
-          # a slow-but-passing macOS run; 25 min then held until the
-          # corpus outgrew it.)
-          SMOKE_FILE_TIMEOUT_MS: "2100000"
+          # lib/ corpus across eight shingle sizes — the heaviest file, ~2.5 min
+          # on ubuntu under the parallel forks, and it grows with the corpus.
+          # 15 min is generous headroom over that worst case while still
+          # failing a genuinely stuck file well inside the 50-min job ceiling.
+          # (The former 35-min budget existed only for the since-removed
+          # 3-core macOS runner, where the same scan took ~20-30 min.)
+          SMOKE_FILE_TIMEOUT_MS: "900000"
         run: node test/smoke.js
 
   wiki-e2e:
@@ -195,11 +194,14 @@ jobs:
         with:
           node-version: 24.18.0
       - name: Run vendor-currency check
-        # Hits registry.npmjs.org/<pkg>/latest for each npm-mapped entry
-        # (vendored bundles plus per-component versions on meta-bundles
-        # like peculiar-pki). Fails on any "stale" finding. Registry
-        # errors stay advisory unless BLAMEJS_VENDOR_CURRENCY_STRICT=1
-        # so a transient registry hang doesn't block unrelated releases.
+        # Hits registry.npmjs.org/<pkg>/latest for each npm-mapped
+        # vendored entry. Fails on any "stale" finding. Registry errors
+        # stay advisory unless BLAMEJS_VENDOR_CURRENCY_STRICT=1 so a
+        # transient registry hang doesn't block unrelated releases --
+        # EXCEPT @blamejs/pki, which is always strict (a registry error
+        # for it also hard-fails), because it is the fast-moving sibling
+        # toolkit the mTLS engine depends on and the vendored copy must
+        # never lag the latest release.
         run: node scripts/check-vendor-currency.js
 
   actions-currency:
@@ -312,7 +314,7 @@ jobs:
       - name: Build vendored-deps CycloneDX SBOM
         # The framework ships ZERO npm runtime deps — its security-critical
         # crypto (@noble/ciphers, @noble/curves, @noble/post-quantum,
-        # @simplewebauthn/server, peculiar-pki) is VENDORED under
+        # @simplewebauthn/server, @blamejs/pki) is VENDORED under
         # lib/vendor/, so `npm audit` / Dependabot / Socket never see it.
         # check-vendor-currency.js tracks whether the vendored copies are
         # up to date, but currency is not the same as "no known CVE". This
@@ -516,7 +518,7 @@ jobs:
         # that conflict with our intentional patterns.
         if: always()
         id: hadolint
-        uses: hadolint/hadolint-action@2332a7b74a6de0dda2e2221d575162eba76ba5e5  # v3.3.0
+        uses: hadolint/hadolint-action@2a66e89f53d0771bb131a7fa31f3136336094aa6  # v3.4.0
         with:
           dockerfile: examples/wiki/Dockerfile
           config:     .hadolint.yaml

@@ -4,8 +4,12 @@
  * When config.enforceMtls is true, drops connections that are neither:
  *   - mTLS-authorized (socket.authorized === true) — a browser or proxy
  *     presenting a valid client cert signed by our CA
- *   - Bearer-authenticated (Authorization: Bearer hs_xxx) — programmatic
- *     sync tooling, scripts, webhooks
+ *   - Bearer-authenticated with a VALID API key (Authorization: Bearer
+ *     hs_xxx that resolves to a live key owned by an active user) —
+ *     programmatic sync tooling, scripts, webhooks. A bearer prefix alone
+ *     is NOT sufficient; the token is validated here the same way
+ *     middleware/api-auth.js validates it downstream, because web-guard runs
+ *     before api-auth in the pipeline (req.apiKey is not populated yet).
  *   - hitting /sync/* (sync clients, including /sync/enroll before the cert
  *     is issued)
  *   - hitting /health (container orchestration probes)
@@ -24,12 +28,25 @@
  * that's in effect, this middleware never sees a non-mTLS request because
  * the TLS handshake already rejected it.
  */
+var b = require("../lib/vendor/blamejs");
 var config = require("../lib/config");
 var certUtils = require("../lib/cert-utils");
+var { apiKeys, users } = require("../lib/db");
+var { validateBearerToken } = require("../app/shared/validate");
 
-function isBearerAuth(req) {
-  var h = req.headers && req.headers.authorization;
-  return !!(h && typeof h === "string" && h.startsWith("Bearer "));
+// A bearer token satisfies the soft-mTLS gate ONLY when it resolves to a live
+// API key owned by an active user — mirroring middleware/api-auth.js. web-guard
+// runs BEFORE api-auth in the request pipeline (pre-session, position 6), so
+// req.apiKey is not populated yet; the token must be validated here. Treating
+// the mere presence of an "Authorization: Bearer " prefix as authenticated let
+// any caller past the gate with a bogus token and no client cert.
+function isValidBearer(req) {
+  var token = b.requestHelpers.extractBearer(req);
+  if (!token || !validateBearerToken(token)) return false; // absent / malformed — skip the DB hit
+  var key = apiKeys.findOne({ keyHash: b.crypto.sha3Hash(token) });
+  if (!key || !key.userId) return false;
+  var user = users.findOne({ _id: key.userId });
+  return !!(user && user.status === "active");
 }
 
 function isAlwaysAllowed(pathname) {
@@ -61,7 +78,7 @@ module.exports = function webGuard(req, res, next) {
   if (!config.enforceMtls) return next();
 
   if (isAlwaysAllowed(req.pathname)) return next();
-  if (isBearerAuth(req)) return next();
+  if (isValidBearer(req)) return next();
   if (req.socket && req.socket.authorized === true) return next();
 
   // No mTLS, no Bearer, not an always-allowed path → drop the connection.

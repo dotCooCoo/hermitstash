@@ -123,6 +123,39 @@ function enforceBundleOwnership(apiKey, bundle) {
 }
 
 /**
+ * Enforce an API-key principal's mTLS cert-binding + stash/bundle confinement
+ * on a cookie-UI mutation route (POST /files/:shareId/rename|delete,
+ * /bundles/:shareId/... ) that also serves session callers. These routes gate
+ * with requireScope + canEditOwned only; without this, a cert- or stash-bound
+ * SYNC key presented as a bare Bearer token — WITHOUT its client certificate —
+ * reaches the key-owner's resources through the cookie path, defeating both the
+ * certFingerprint binding and the boundStashId/boundBundleId confinement (the
+ * same copy-paste class as the v1.8.12/v1.8.13 /sync/rename regressions).
+ *
+ * Session callers (no req.apiKey) are a deliberate no-op — their authorization
+ * is the route's own role/ownership check. For an API-key caller this throws an
+ * AppError subclass on any binding failure; returns void on pass. `bundle` is
+ * the resource's owning bundle (null for a standalone file with no bundle).
+ */
+function enforceApiKeyResourceBinding(req, bundle) {
+  var apiKey = req && req.apiKey;
+  if (!apiKey) return; // session caller — route ownership check governs
+  // A cert-bound key MUST present the matching client certificate.
+  var certErr = enforceCertBinding(apiKey, req.socket);
+  if (certErr) throw new ForbiddenError(certErr.error);
+  // A bundle-bound key can only touch its bound bundle.
+  var bindErr = enforceBundleBinding(apiKey, bundle && bundle._id);
+  if (bindErr) throw new ForbiddenError(bindErr.error);
+  // A stash-bound key is confined to its stash: a resource with no bundle, or a
+  // bundle in a different stash, is out of scope. (Mirrors enforceBundleOwnership's
+  // stash branch, but without 404-ing an UNbound key operating on a standalone
+  // file, which the route's own canEditOwned check legitimately governs.)
+  if (apiKey.boundStashId && (!bundle || bundle.stashId !== apiKey.boundStashId)) {
+    throw new ForbiddenError("Forbidden.");
+  }
+}
+
+/**
  * Express-style 3-arg middleware composing the above gates.
  *
  * Options:
@@ -196,6 +229,7 @@ module.exports = {
   enforceBundleBinding: enforceBundleBinding,
   enforceCertBinding: enforceCertBinding,
   enforceBundleOwnership: enforceBundleOwnership,
+  enforceApiKeyResourceBinding: enforceApiKeyResourceBinding,
   peerCertFingerprintSha3: peerCertFingerprintSha3,
   requireSyncAuth: requireSyncAuth,
 };

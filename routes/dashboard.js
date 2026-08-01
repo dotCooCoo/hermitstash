@@ -1,3 +1,4 @@
+var b = require("../lib/vendor/blamejs");
 var config = require("../lib/config");
 var filesRepo = require("../app/data/repositories/files.repo");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
@@ -5,6 +6,24 @@ var stashRepo = require("../app/data/repositories/stash.repo");
 var requireAuth = require("../middleware/require-auth");
 var { send, host } = require("../middleware/send");
 var { emailIsVerified } = require("../app/domain/auth/auth.service");
+
+// Legal-policy bodies are admin-authored HTML rendered raw (unescaped) into the
+// public /privacy /terms /cookies pages, so an admin who pastes policy markup
+// containing <script> would otherwise get it executed in every visitor's browser
+// (stored XSS). Run the body through the HTML sanitizer first: the "balanced"
+// profile keeps legitimate formatting (headings, lists, tables, links, inline
+// emphasis) while dropping <script>/<style>, event-handler attributes, and
+// dangerous URL schemes. Empty/absent stays null so the built-in default page
+// still renders. Oversized/unparseable input falls back to escaped text —
+// visible but inert.
+function sanitizePolicy(content) {
+  if (!content || typeof content !== "string") return null;
+  try {
+    return b.guardHtml.sanitize(content, { profile: "balanced" });
+  } catch (_e) {
+    return b.guardHtml.escapeText(content);
+  }
+}
 
 module.exports = function (app) {
   // Landing
@@ -104,12 +123,12 @@ module.exports = function (app) {
 
   // Legal pages — configurable via admin settings, sensible defaults
   app.get("/privacy", (req, res) => {
-    send(res, "legal", { user: req.user || null, pageTitle: "Privacy Policy", content: config.privacyPolicy || null, defaultPage: "privacy" });
+    send(res, "legal", { user: req.user || null, pageTitle: "Privacy Policy", content: sanitizePolicy(config.privacyPolicy), defaultPage: "privacy" });
   });
   app.get("/terms", (req, res) => {
-    send(res, "legal", { user: req.user || null, pageTitle: "Terms of Service", content: config.termsOfService || null, defaultPage: "terms" });
+    send(res, "legal", { user: req.user || null, pageTitle: "Terms of Service", content: sanitizePolicy(config.termsOfService), defaultPage: "terms" });
   });
   app.get("/cookies", (req, res) => {
-    send(res, "legal", { user: req.user || null, pageTitle: "Cookie Policy", content: config.cookiePolicy || null, defaultPage: "cookies" });
+    send(res, "legal", { user: req.user || null, pageTitle: "Cookie Policy", content: sanitizePolicy(config.cookiePolicy), defaultPage: "cookies" });
   });
 };

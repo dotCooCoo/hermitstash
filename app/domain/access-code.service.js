@@ -86,17 +86,33 @@ function verifyCode(opts) {
     return { success: false, error: "Invalid or expired code.", status: 401 };
   }
 
+  // Fast-path a clearly-locked code so a persistently-attacked record doesn't
+  // spend an atomic increment on every probe (the stale read is safe — a locked
+  // code stays locked; the race-safe gate is the atomic increment+cap below).
   if (codeRecord.attempts >= 5) {
     // Surface the current attempt count so the lockout itself becomes auditable
     // (callers gate the BUNDLE_ACCESS_CODE_FAILED audit on a truthy `attempts`).
     return { success: false, error: "Too many attempts. Request a new code.", status: 429, attempts: codeRecord.attempts };
   }
 
+  // Atomically RESERVE this attempt BEFORE comparing. Concurrent wrong-code
+  // submissions must not each read the same stale count and write count+1 — a
+  // lost-update (CWE-362) that let the 5-attempt cap be brute-forced past. The
+  // RETURNING value is authoritative, so even a concurrent burst gets distinct
+  // counts and everything past the cap is refused before a compare is spent.
+  var attempts = accessCodesRepo.incrementAttempts(codeRecord._id);
+  if (attempts == null) {
+    // Row vanished (expired / cleaned up between find and increment).
+    return { success: false, error: "Invalid or expired code.", status: 401 };
+  }
+  if (attempts > 5) {
+    return { success: false, error: "Too many attempts. Request a new code.", status: 429, attempts: attempts };
+  }
+
   if (!b.crypto.timingSafeEqual(submittedHash, codeRecord.codeHash)) {
-    accessCodesRepo.update(codeRecord._id, { $set: { attempts: codeRecord.attempts + 1 } });
-    // Return the post-increment count (matching what was just written) so the
-    // caller's `if (result.attempts)` brute-force audit gate fires.
-    return { success: false, error: "Invalid or expired code.", status: 401, attempts: codeRecord.attempts + 1 };
+    // The attempt was already counted above; return the authoritative count so
+    // the caller's `if (result.attempts)` brute-force audit gate fires.
+    return { success: false, error: "Invalid or expired code.", status: 401, attempts: attempts };
   }
 
   // Consume the code with an ATOMIC compare-and-set (pending→used) so two

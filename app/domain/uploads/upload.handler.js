@@ -408,6 +408,16 @@ async function handleFileUpload(ctx) {
   return { success: true, replaced: replaced, received: counters ? counters.receivedFiles : (bundle.receivedFiles + fileCountChange), total: bundle.expectedFiles };
 }
 
+// Module-level ceiling on concurrent in-memory chunk reassemblies. The final
+// chunk of a chunked upload triggers a Buffer.concat of the whole plaintext file,
+// then holds it across the re-encryption await in saveAndCreateFileRecord;
+// unbounded concurrency multiplies peak memory by the per-file ceiling. An
+// attacker can pre-stage many uploads (every chunk but the last) and release the
+// final chunks together for a synchronized reassembly burst the per-subnet rate
+// limit does not bound. This counter caps simultaneous reassemblies; the excess
+// is refused with a retryable 503 and its chunks are left staged for retry.
+var _activeReassemblies = 0;
+
 /**
  * Handle chunked upload.
  * @param {object} ctx - { bundle, chunk, fields, limits, uploadedBy, uploaderEmail, expiresAt, auditSuffix, req }
@@ -497,9 +507,18 @@ async function handleChunkUpload(ctx) {
     }
     estimatedSize += cs.size;
   }
-  // Hard size cap BEFORE allocating the reassembly buffer (validateFile re-checks
-  // post-concat, but the concat itself is the memory-exhaustion point).
-  if (limits.maxFileSize && estimatedSize > limits.maxFileSize) {
+  // statChunk sizes are CIPHERTEXT (each chunk carries the encryptPacked envelope
+  // overhead); recover the plaintext total so the cap compares plaintext bytes
+  // against the plaintext maxFileSize — otherwise a legitimate file within the
+  // limit but within overhead*totalChunks of it is wrongly rejected (E-4).
+  var plaintextEstimate = Math.max(0, estimatedSize - C.UPLOAD.CHUNK_ENVELOPE_OVERHEAD_BYTES * totalChunks);
+  // Hard size cap BEFORE the Buffer.concat below (which holds the whole file in
+  // memory — the exhaustion point). Cap it EVEN when the operator set "No limit"
+  // (maxFileSize = 0): use the same absolute ceiling the single-file path applies
+  // (NO_LIMIT_CEILING_BYTES). Skipping this when maxFileSize was 0 let a single
+  // fileId stage up to the 8 GiB scratch bound and OOM on concat (E-1).
+  var reassemblyCeiling = limits.maxFileSize > 0 ? limits.maxFileSize : C.UPLOAD.NO_LIMIT_CEILING_BYTES;
+  if (plaintextEstimate > reassemblyCeiling) {
     storage.removeChunkAssembly(bundle.shareId, fileId);
     return { error: "Assembled file exceeds the maximum allowed size." };
   }
@@ -509,90 +528,105 @@ async function handleChunkUpload(ctx) {
     return { error: quota.error };
   }
 
-  // Reassemble
-  var reassembled = [];
-  for (var ci = 0; ci < totalChunks; ci++) {
-    reassembled.push(storage.readChunk(bundle.shareId, fileId, ci));
-  }
-  var fullData = Buffer.concat(reassembled);
-
-  // Clean up — remove the per-file assembly directory entirely.
-  storage.removeChunkAssembly(bundle.shareId, fileId);
-
-  // Validate reassembled file
-  var filename = fields.filename || "file";
-  var relativePath = fields.relativePath || filename;
-  var fileCheck = uploadValidator.validateFile(filename, fullData.length, limits.allowedExtensions, limits.maxFileSize);
-  if (!fileCheck.valid) {
-    // Release the per-IP byte reservation made on estimatedSize above.
+  // E-1: bound concurrent in-memory reassemblies before the Buffer.concat below.
+  // Each in-flight reassembly holds the whole plaintext file across the
+  // re-encryption await, so a synchronized burst of pre-staged final chunks can
+  // drive peak memory past what the per-subnet rate limit bounds. Over the cap,
+  // refuse with a retryable 503 — release the per-IP byte reservation made just
+  // above and leave the staged chunks in place so the client can retry.
+  if (_activeReassemblies >= C.UPLOAD.MAX_CONCURRENT_REASSEMBLY) {
     _refundIpQuota(ctx.req, quota.ipReserved);
-    return { error: fileCheck.reason };
+    return { error: "Server is busy assembling uploads; please retry.", status: 503 };
   }
-
+  _activeReassemblies++;
   try {
-    var magicCheck = uploadValidator.validateMagicBytes(filename, fullData);
-    if (!magicCheck.valid) {
+    // Reassemble
+    var reassembled = [];
+    for (var ci = 0; ci < totalChunks; ci++) {
+      reassembled.push(storage.readChunk(bundle.shareId, fileId, ci));
+    }
+    var fullData = Buffer.concat(reassembled);
+
+    // Clean up — remove the per-file assembly directory entirely.
+    storage.removeChunkAssembly(bundle.shareId, fileId);
+
+    // Validate reassembled file
+    var filename = fields.filename || "file";
+    var relativePath = fields.relativePath || filename;
+    var fileCheck = uploadValidator.validateFile(filename, fullData.length, limits.allowedExtensions, limits.maxFileSize);
+    if (!fileCheck.valid) {
+      // Release the per-IP byte reservation made on estimatedSize above.
       _refundIpQuota(ctx.req, quota.ipReserved);
-      audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + magicCheck.reason + " (chunked)" + suffix, req: ctx.req });
-      return { error: magicCheck.reason };
+      return { error: fileCheck.reason };
     }
-  } catch (_e) {
-    // Fail closed (chunked path): reject on an internal validation error and
-    // release the per-IP byte reservation made on estimatedSize above, mirroring
-    // the !magicCheck.valid branch — never fall through to the save.
-    logger.error("Magic byte validation error (chunked)", { file: filename, error: _e.message });
-    _refundIpQuota(ctx.req, quota.ipReserved);
-    audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: Could not validate file content. (chunked)" + suffix, req: ctx.req });
-    return { error: "Could not validate file content." };
-  }
 
-  // Bind the stored MIME to the sniffed content (parity with the non-chunked
-  // path): a spoofed inline Content-Type is downgraded to a forced download.
-  var chunkServeMime = uploadValidator.safeServeMime(fields.mimeType, fullData);
-
-  // Save file and create DB record
-  var chunkResult = await fileService.saveAndCreateFileRecord(fullData, {
-    bundleShareId: bundle.shareId, bundleId: bundle._id,
-    filename: filename, relativePath: relativePath,
-    mimeType: chunkServeMime, uploadedBy: ctx.uploadedBy,
-    uploaderEmail: ctx.uploaderEmail, expiresAt: ctx.expiresAt,
-    // Inherit the bundle's team so chunked uploads to a team-scoped stash also
-    // land in the team's file list (parity with the non-chunked path above).
-    teamId: bundle.teamId || null,
-  });
-  var checksum = chunkResult.checksum;
-
-  // The per-IP byte quota was reserved on estimatedSize at checkAllQuotas above
-  // (reserve-then-confirm); no post-save record here. estimatedSize is the sum
-  // of the chunk sizes and equals fullData.length, but if they diverge, refund
-  // the difference so the debit matches the bytes actually stored.
-  if (quota.ipReserved && fullData.length !== quota.ipReserved) {
-    _refundIpQuota(ctx.req, quota.ipReserved - fullData.length);
-  }
-
-  var chunkCounters = bundlesRepo.incrementCounters(bundle._id, 1, fullData.length);
-
-  // Authoritative POST-write limit enforcement — same TOCTOU close as the
-  // single-file path. The reassembly-time checkAllQuotas + size cap above gate
-  // on the stale pre-write bundle snapshot, so concurrent chunked finalizations
-  // can each pass and overshoot maxFiles/maxBundleSize. Re-check the committed
-  // receivedFiles/totalSize and roll this write back if it breached a cap.
-  if (chunkCounters) {
-    var chunkPostCheck = uploadValidator.validateBundleLimits(chunkCounters.receivedFiles, limits.maxFiles, chunkCounters.totalSize, limits.maxBundleSize);
-    var chunkReason = chunkPostCheck.valid ? _postWriteQuotaReason(bundle) : chunkPostCheck.reason;
-    if (chunkReason) {
-      bundlesRepo.incrementCounters(bundle._id, -1, -fullData.length);
-      try { if (chunkResult.saved && chunkResult.saved.path) { await storage.deleteFile(chunkResult.saved.path); } } catch (_e) { /* cleanup — blob may already be gone on S3 */ }
-      try { if (chunkResult.doc && chunkResult.doc._id) { filesRepo.remove(chunkResult.doc._id); } } catch (_e) { /* cleanup — record removal best-effort */ }
-      // Release the per-IP byte reservation (reconciled above to fullData.length).
-      _refundIpQuota(ctx.req, fullData.length);
-      audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + chunkReason + " (chunked, post-write)" + suffix, req: ctx.req });
-      return { error: chunkReason };
+    try {
+      var magicCheck = uploadValidator.validateMagicBytes(filename, fullData);
+      if (!magicCheck.valid) {
+        _refundIpQuota(ctx.req, quota.ipReserved);
+        audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + magicCheck.reason + " (chunked)" + suffix, req: ctx.req });
+        return { error: magicCheck.reason };
+      }
+    } catch (_e) {
+      // Fail closed (chunked path): reject on an internal validation error and
+      // release the per-IP byte reservation made on estimatedSize above, mirroring
+      // the !magicCheck.valid branch — never fall through to the save.
+      logger.error("Magic byte validation error (chunked)", { file: filename, error: _e.message });
+      _refundIpQuota(ctx.req, quota.ipReserved);
+      audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: Could not validate file content. (chunked)" + suffix, req: ctx.req });
+      return { error: "Could not validate file content." };
     }
-  }
 
-  audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: bundle._id, details: auditDetail({ action: "file_added", bundleId: bundle._id, file: filename, size: fullData.length, chunks: totalChunks, checksum: checksum }), req: ctx.req });
-  return { success: true, assembled: true, received: chunkCounters ? chunkCounters.receivedFiles : (bundle.receivedFiles + 1) };
+    // Bind the stored MIME to the sniffed content (parity with the non-chunked
+    // path): a spoofed inline Content-Type is downgraded to a forced download.
+    var chunkServeMime = uploadValidator.safeServeMime(fields.mimeType, fullData);
+
+    // Save file and create DB record
+    var chunkResult = await fileService.saveAndCreateFileRecord(fullData, {
+      bundleShareId: bundle.shareId, bundleId: bundle._id,
+      filename: filename, relativePath: relativePath,
+      mimeType: chunkServeMime, uploadedBy: ctx.uploadedBy,
+      uploaderEmail: ctx.uploaderEmail, expiresAt: ctx.expiresAt,
+      // Inherit the bundle's team so chunked uploads to a team-scoped stash also
+      // land in the team's file list (parity with the non-chunked path above).
+      teamId: bundle.teamId || null,
+    });
+    var checksum = chunkResult.checksum;
+
+    // The per-IP byte quota was reserved on estimatedSize at checkAllQuotas above
+    // (reserve-then-confirm); no post-save record here. estimatedSize is the sum
+    // of the chunk sizes and equals fullData.length, but if they diverge, refund
+    // the difference so the debit matches the bytes actually stored.
+    if (quota.ipReserved && fullData.length !== quota.ipReserved) {
+      _refundIpQuota(ctx.req, quota.ipReserved - fullData.length);
+    }
+
+    var chunkCounters = bundlesRepo.incrementCounters(bundle._id, 1, fullData.length);
+
+    // Authoritative POST-write limit enforcement — same TOCTOU close as the
+    // single-file path. The reassembly-time checkAllQuotas + size cap above gate
+    // on the stale pre-write bundle snapshot, so concurrent chunked finalizations
+    // can each pass and overshoot maxFiles/maxBundleSize. Re-check the committed
+    // receivedFiles/totalSize and roll this write back if it breached a cap.
+    if (chunkCounters) {
+      var chunkPostCheck = uploadValidator.validateBundleLimits(chunkCounters.receivedFiles, limits.maxFiles, chunkCounters.totalSize, limits.maxBundleSize);
+      var chunkReason = chunkPostCheck.valid ? _postWriteQuotaReason(bundle) : chunkPostCheck.reason;
+      if (chunkReason) {
+        bundlesRepo.incrementCounters(bundle._id, -1, -fullData.length);
+        try { if (chunkResult.saved && chunkResult.saved.path) { await storage.deleteFile(chunkResult.saved.path); } } catch (_e) { /* cleanup — blob may already be gone on S3 */ }
+        try { if (chunkResult.doc && chunkResult.doc._id) { filesRepo.remove(chunkResult.doc._id); } } catch (_e) { /* cleanup — record removal best-effort */ }
+        // Release the per-IP byte reservation (reconciled above to fullData.length).
+        _refundIpQuota(ctx.req, fullData.length);
+        audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + chunkReason + " (chunked, post-write)" + suffix, req: ctx.req });
+        return { error: chunkReason };
+      }
+    }
+
+    audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: bundle._id, details: auditDetail({ action: "file_added", bundleId: bundle._id, file: filename, size: fullData.length, chunks: totalChunks, checksum: checksum }), req: ctx.req });
+    return { success: true, assembled: true, received: chunkCounters ? chunkCounters.receivedFiles : (bundle.receivedFiles + 1) };
+  } finally {
+    _activeReassemblies--;
+  }
 }
 
 /**

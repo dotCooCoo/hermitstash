@@ -5,7 +5,7 @@ var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
 var usersRepo = require("../app/data/repositories/users.repo");
 var verificationTokensRepo = require("../app/data/repositories/verificationTokens.repo");
-var { sendPasswordResetEmail } = require("../lib/email");
+var emailSvc = require("../lib/email");
 var { validateEmail, validatePassword } = require("../app/shared/validate");
 var audit = require("../lib/audit");
 var { send, host } = require("../middleware/send");
@@ -64,11 +64,19 @@ module.exports = function (app) {
         createdAt: new Date().toISOString(),
       });
 
-      // Send reset email
+      // Fire-and-forget the reset email so response latency does not depend on
+      // account existence: awaiting the SMTP send here makes the account-exists
+      // branch measurably slower than the no-account branch (which returns
+      // immediately), turning response time into an account-enumeration oracle.
+      // The audit entry and any send error are logged in the promise callbacks
+      // so neither is dropped by decoupling the send from the response.
       var resetUrl = host(req) + "/auth/reset-password/" + rawToken;
-      await sendPasswordResetEmail({ to: user.email, resetUrl: resetUrl });
+      emailSvc.sendPasswordResetEmail({ to: user.email, resetUrl: resetUrl }).then(function () {
+        audit.log(audit.ACTIONS.PASSWORD_RESET_REQUESTED, { targetId: user._id, targetEmail: user.email, details: "Reset email sent", req: req });
+      }, function (err) {
+        logger.error("Password reset email send failed", { error: (err && err.message) || String(err) });
+      });
 
-      audit.log(audit.ACTIONS.PASSWORD_RESET_REQUESTED, { targetId: user._id, targetEmail: user.email, details: "Reset email sent", req: req });
       res.json({ success: true });
     } catch (e) {
       logger.error("Password reset request error", { error: e.message || String(e) });

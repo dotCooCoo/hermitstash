@@ -309,7 +309,7 @@ async function loadOldKeys(mode, oldPw) {
     var plainJson = fs.readFileSync(PLAINTEXT_PATH, "utf8");
     // Guard the parse: a SyntaxError of the plaintext keypair echoes private-key
     // bytes, which the top-level catch would write via e.message/e.stack (CWE-532).
-    try { return JSON.parse(plainJson); }
+    try { return b.safeJson.parse(plainJson, { maxBytes: b.constants.BYTES.mib(1) }); }
     catch (_e) { console.error("FATAL: vault.key is not valid JSON (parser detail suppressed to avoid logging key material). Restore from backup."); process.exit(1); }
   }
   var sealedBytes = fs.readFileSync(SEALED_PATH);
@@ -321,7 +321,7 @@ async function loadOldKeys(mode, oldPw) {
     console.error("  The sealed vault.key is unchanged. No rotation was attempted.");
     process.exit(1);
   }
-  try { return JSON.parse(plainBuf.toString("utf8")); }
+  try { return b.safeJson.parse(plainBuf.toString("utf8"), { maxBytes: b.constants.BYTES.mib(1) }); }
   catch (_e) { console.error("FATAL: unsealed vault key is not valid JSON (parser detail suppressed to avoid logging key material). The sealed file may be corrupt."); process.exit(1); }
 }
 

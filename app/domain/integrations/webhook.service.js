@@ -136,7 +136,21 @@ function dispatchSingle(hookId, eventName, payload, attempt) {
   }
 
   var body = JSON.stringify({ event: eventName, data: payload, timestamp: new Date().toISOString() });
-  var signature = hook.secret ? b.crypto.hmacSha3(hook.secret, body) : "";
+
+  // Sign the delivery with StandardWebhooks (standardwebhooks.com): the HMAC
+  // covers `<webhook-id>.<webhook-timestamp>.<body>` and ships as the versioned
+  // `v1,<base64>` signature alongside the webhook-id / webhook-timestamp headers.
+  // A receiver gets replay protection (bounded timestamp skew) and algorithm
+  // agility (the version prefix) instead of a bare, unversioned body HMAC that
+  // could be replayed indefinitely. The stored secret is a 64-char hex token —
+  // its UTF-8 bytes are the shared secret and clear the primitive's 32-byte floor.
+  var signatureHeaders = {};
+  if (hook.secret) {
+    signatureHeaders = b.standardWebhooks.sign({
+      body: body,
+      secret: Buffer.from(hook.secret, "utf8"),
+    }).headers;
+  }
 
   // Deliver through the framework HTTP client. It runs its OWN SSRF gate
   // (allowInternal:false), so a separate isPrivateHost() pre-resolution here would
@@ -145,18 +159,15 @@ function dispatchSingle(hookId, eventName, payload, attempt) {
   // the failure handler below. The client also pins the TCP connect to the validated
   // address (closing the DNS-rebinding TOCTOU window), enforces HTTPS-only, and caps
   // both wall-clock and idle time. maxRedirects is pinned to 0 — a receiver must not
-  // be able to 302 the signed body + X-Webhook-Signature to another origin, and the
-  // client does not strip that custom header on a cross-origin redirect. responseMode
-  // "always-resolve" keeps a non-2xx as a resolved response so the delivery log
-  // records the real status code rather than collapsing it to 0; network / SSRF /
-  // timeout failures still reject.
+  // be able to 302 the signed body + StandardWebhooks signature headers to another
+  // origin, and the client does not strip those custom headers on a cross-origin
+  // redirect. responseMode "always-resolve" keeps a non-2xx as a resolved response
+  // so the delivery log records the real status code rather than collapsing it to 0;
+  // network / SSRF / timeout failures still reject.
   return b.httpClient.request({
     method: "POST",
     url: hook.url,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Webhook-Signature": signature,
-    },
+    headers: Object.assign({ "Content-Type": "application/json" }, signatureHeaders),
     body: body,
     timeoutMs: 5000,
     idleTimeoutMs: 5000,

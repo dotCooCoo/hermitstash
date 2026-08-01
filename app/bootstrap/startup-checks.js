@@ -12,7 +12,8 @@
 var nodeFs = require("node:fs");
 var b = require("../../lib/vendor/blamejs");
 var config = require("../../lib/config");
-var { PATHS } = require("../../lib/constants");
+var C = require("../../lib/constants");
+var { PATHS } = C;
 
 function run() {
   var warnings = [];
@@ -101,18 +102,9 @@ function run() {
     }
   } catch (_e) { /* flag corrupted or unreadable — non-fatal */ }
 
-  // ---- Warning: mTLS CA is a legacy generation ----
-  // When the algorithm envelope in lib/mtls-ca.js is bumped (CA_GENERATION),
-  // any CA issued by a previous version becomes "legacy". The CA still works,
-  // but regenerating it picks up the newer signature/KDF/cipher primitives.
-  // The admin Danger Zone exposes a one-click regeneration flow.
-  try {
-    var mtlsCa = require("../../lib/mtls-ca");
-    var caStatus = mtlsCa.status();
-    if (caStatus.exists && caStatus.isLegacy) {
-      warnings.push("mTLS CA is a legacy generation (v" + caStatus.generation + " → current v" + caStatus.current + "). Regenerate via Admin → General → Danger Zone to pick up the upgraded algorithm envelope. All existing client certificates will be re-issued to active sync clients; offline clients will need to re-enroll.");
-    }
-  } catch (_e) { /* mtls-ca not loaded — non-fatal */ }
+  // The mTLS sync-CA legacy-generation warning + the PQC auto-migration are
+  // handled together below (after the synchronous fatal gate), because the
+  // migration can clear the legacy state and its capability probe is async.
 
   // ---- Warning: email features enabled without a working backend ----
   // Admin endpoints (invite create/resend, /admin/users/:id/resend-verification,
@@ -158,14 +150,10 @@ function run() {
     } catch (_e) { /* platform probe — stat/mode not available on this OS */ }
   }
 
-  // ---- Print results ----
-  if (warnings.length > 0) {
-    console.log("\n  Startup warnings:");
-    for (var i = 0; i < warnings.length; i++) {
-      console.log("  ⚠ " + warnings[i]);
-    }
-  }
-
+  // ---- Fail fast on FATAL errors ----
+  // The mTLS sync-CA PQC auto-migration runs earlier, in server.js's async
+  // boot() (before server-main builds the TLS trust bundle) — see
+  // lib/mtls-migrate.runBootMigration. This module stays synchronous.
   if (errors.length > 0) {
     console.error("\n  FATAL startup errors:");
     for (var j = 0; j < errors.length; j++) {
@@ -173,6 +161,14 @@ function run() {
     }
     console.error("\n  Fix these issues and restart.\n");
     process.exit(1);
+  }
+
+  // ---- Print warnings ----
+  if (warnings.length > 0) {
+    console.log("\n  Startup warnings:");
+    for (var i = 0; i < warnings.length; i++) {
+      console.log("  ⚠ " + warnings[i]);
+    }
   }
 
   return { warnings: warnings, errors: errors };

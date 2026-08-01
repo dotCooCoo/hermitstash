@@ -1,10 +1,28 @@
 /**
  * Bundle Access Codes Repository — one-time email verification codes for email-gated bundles.
  */
-var { bundleAccessCodes } = require("../../../lib/db");
+var db = require("../../../lib/db");
+var { bundleAccessCodes } = db;
 var { TIME } = require("../../../lib/constants");
 
 function create(doc) { return bundleAccessCodes.insert(doc); }
+
+/**
+ * Atomically increment the wrong-attempt counter and return the new value.
+ * Uses SQLite `UPDATE ... RETURNING` (same idiom as bundles.repo incrementSeq)
+ * so concurrent wrong-code submissions can't each read the same stale `attempts`
+ * and write count+1 — a lost-update that let the 5-attempt cap be brute-forced
+ * past under parallelism (CWE-362). `attempts` is a raw (non-sealed) counter
+ * column, so raw SQL is safe here.
+ * @returns {number|null} post-increment attempts, or null if the row is gone
+ */
+function incrementAttempts(id) {
+  var row = db.rawGet(
+    "UPDATE bundle_access_codes SET attempts = COALESCE(attempts, 0) + 1 WHERE _id = ? RETURNING attempts",
+    id
+  );
+  return row ? row.attempts : null;
+}
 
 function findPendingCode(bundleShareId, emailHash) {
   return bundleAccessCodes.find({ bundleShareId: bundleShareId, status: "pending", emailHash: emailHash })
@@ -42,4 +60,4 @@ function cleanupExpired() {
   return old.length;
 }
 
-module.exports = { create, findPendingCode, countRecentCodes, update, claimPending, invalidatePending, cleanupExpired };
+module.exports = { create, findPendingCode, countRecentCodes, update, incrementAttempts, claimPending, invalidatePending, cleanupExpired };
