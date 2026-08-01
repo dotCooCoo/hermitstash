@@ -44,9 +44,10 @@ FROM ${RUNTIME_BASE}
 # dropping privs. Hadolint DL3002 ("last USER should not be root") flags this
 # because it can't see the runtime privilege drop; the `docker-entrypoint.sh`
 # execution ends with `setpriv --reuid=hermit --regid=hermit` so the node
-# process never runs as root.
+# process never runs as root. USER is the numeric UID 0 (not the name "root")
+# so hadolint DL3066 can resolve it; the entrypoint still drops to `hermit`.
 # hadolint ignore=DL3002
-USER root
+USER 0
 
 # Build-time args for OCI labels (injected by CI)
 ARG VERSION=dev
@@ -122,7 +123,7 @@ STOPSIGNAL SIGTERM
 # Coolify accepts any healthcheck tool — see docker-compose.coolify.yml for the
 # matching compose-level form.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/health',function(r){process.exit(r.statusCode===200?0:1)}).on('error',function(){process.exit(1)})"
+  CMD ["node", "-e", "require('http').get('http://localhost:3000/health',function(r){process.exit(r.statusCode===200?0:1)}).on('error',function(){process.exit(1)})"]
 
 # Start as root, entrypoint fixes volume permissions then drops to hermit
 ENTRYPOINT ["./docker-entrypoint.sh"]

@@ -1,0 +1,14 @@
+{
+  "version": "1.14.1",
+  "date": "2026-08-01",
+  "headline": "Restore the container image build",
+  "summary": "This patch corrects the Dockerfile so the container image builds under stricter linting. It carries the post-quantum certificate migration and security hardening from v1.14.0 unchanged.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        { "title": "Build the container image under stricter Dockerfile linting", "body": "The runtime user is declared by its numeric UID and the container healthcheck uses JSON-form command arguments, so the image build passes Dockerfile linting. There is no change to the running image's behavior." }
+      ]
+    }
+  ]
+}
