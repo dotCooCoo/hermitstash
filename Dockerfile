@@ -16,9 +16,9 @@
 # deterministic). Resolve the current digest with:
 #   docker pull cgr.dev/chainguard/node:latest-dev && \
 #   docker inspect --format '{{index .RepoDigests 0}}' cgr.dev/chainguard/node:latest-dev
-# Pinned 2026-07-18 — glibc 2.43-r11; picks up npm's node-tar 12.0.0-r1 (fixes
-# CVE-2026-59871 / -59873 / -59874, node-tar DoS).
-ARG RUNTIME_BASE=cgr.dev/chainguard/node:latest-dev@sha256:7f240e0b8a76496e6128948e4cfb0c3c145f629ac2b9d3cee3d554b746e82ca3
+# Pinned 2026-08-01 — Chainguard rebuild carrying npm 12.0.1-r2 (fixes
+# CVE-2026-14257, brace-expansion DoS bundled in npm).
+ARG RUNTIME_BASE=cgr.dev/chainguard/node:latest-dev@sha256:cc042990cd69f48bf2dde48390b7d01e8d615b285e0c7d3deeb8390e382a6c4c
 FROM ${RUNTIME_BASE}
 # Chainguard wolfi-based Node image — glibc-dynamic (not musl), continuously
 # rebuilt when upstream CVE fixes land. CVE count at any given digest is
