@@ -1,6 +1,6 @@
 # HermitStash — Cryptographic Design & Threat Model
 
-**Status:** Draft, unaudited. Last updated against v1.8.25 source.
+**Status:** Draft, unaudited. Last updated against v1.14.x source.
 
 This document describes the cryptographic constructions HermitStash uses, the threats they are intended to defend against, and the limits of what that protection actually means. It is written for security reviewers, cryptographers willing to spend 30 minutes poking holes, and self-hosted operators who want to understand what they are trusting.
 
@@ -106,7 +106,7 @@ Vendored third-party libraries:
 
 ## 5. Protocols
 
-Each subsection describes one cryptographic construction. Code references are to v1.8.25.
+Each subsection describes one cryptographic construction. Code references are to v1.14.x.
 
 ### 5.1 Storage envelope format
 
@@ -442,7 +442,7 @@ HermitStash acts as its own Certificate Authority for mTLS. It runs **two** CAs,
 
 The TLS server trusts **both** CA certs in its mTLS `ca` trust bundle (`server-main.js`), so a machine sync client and a browser-imported cert both authenticate. During a sync-CA migration the superseded CA (`data/ca.prev.crt`) is trusted too (§5.8.2). Each CA has its own generation counter, on-disk files, and revocation registry, so it rotates and revokes independently.
 
-Code: `lib/mtls-ca.js` / `lib/mtls-ca-browser.js` (process-wide singletons over `b.mtlsCa.create`); the engine is `b.mtlsEngine`, backed by `@blamejs/pki` (`lib/vendor/blamejs-pki.cjs`) — a zero-dependency pure-JS X.509 / PKCS#12 / CRL toolkit that replaced the earlier @peculiar/x509 + pkijs bundle.
+Code: `lib/mtls-ca.js` / `lib/mtls-ca-browser.js` (process-wide singletons over `b.mtlsCa.create`); the engine is `b.mtlsEngine`, backed by `@blamejs/pki` (`lib/vendor/blamejs/lib/vendor/blamejs-pki.cjs`) — a zero-dependency pure-JS X.509 / PKCS#12 / CRL toolkit.
 
 **Algorithm envelope:**
 
@@ -798,3 +798,4 @@ Security reports: **see [SECURITY.md](../SECURITY.md)** for the coordinated-disc
 | Date | Version | Change |
 |------|---------|--------|
 | 2026-04-21 | v1.8.25 | Initial draft against v1.8.25 |
+| 2026-08-01 | v1.14.0 | Sync CA moved to ML-DSA-87 (FIPS 204) with a classical-to-post-quantum boot auto-migration and a 30-day grace window; separate classical ECDSA-P384-SHA384 browser CA; certificate engine on the @blamejs/pki toolkit |

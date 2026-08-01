@@ -242,7 +242,7 @@ Built on Node.js 24.18.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - Password reset flow with single-use, 1-hour-expiry tokens and anti-enumeration (always returns success)
 - User invitation system -- admin invites by email with role assignment, 48-hour expiry
 - Configurable session idle timeout (default 30 minutes, server-side enforcement)
-- OAuth CSRF state validation on Google callback
+- OAuth 2.0 PKCE + CSRF state validation on the Google sign-in callback
 - Password change automatically revokes all other sessions
 
 **File Management**
