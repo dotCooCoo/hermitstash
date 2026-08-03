@@ -359,9 +359,9 @@ describe("regression", function () {
   // ---- HMAC uses SHA3-512 (not SHA3-256) ----
 
   describe("HMAC algorithm", function () {
-    it("hmacSha3 produces 128-char hex (SHA3-512)", function () {
+    it("hmac produces 128-char hex (SHA3-512 default)", function () {
       var b = require(path.join(projectRoot, "lib/vendor/blamejs"));
-      var result = b.crypto.hmacSha3("key", "data");
+      var result = b.crypto.hmac("key", "data");
       assert.strictEqual(result.length, 128, "HMAC-SHA3-512 should be 128 hex chars");
     });
   });

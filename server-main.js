@@ -135,6 +135,12 @@ app.use(b.middleware.composePipeline([
   // requests that will be dropped. No-op when config.enforceMtls is false
   // (default), so existing deployments see zero behavior change.
   { name: "webGuard",         mw: require("./middleware/web-guard"),       position: 6 },
+  // Peer-gate the `tailscale serve` identity family to the loopback serve proxy
+  // and strip any forged copy from every other peer BEFORE any handler reads it
+  // (position 7: after webGuard, before securityHeaders/botGuard/routes). No-op
+  // (still strips defensively) when Tailscale is disabled. Sets
+  // req.tailscaleIdentity for the /auth/tailscale sign-in route.
+  { name: "tailscaleIdentity", mw: require("./lib/tailscale").middleware, position: 7 },
   { name: "securityHeaders",  mw: require("./middleware/security-headers") },
   // Restrictive CSP override for user-uploaded content (custom logos) —
   // defense in depth against SVG XSS. Runs AFTER securityHeaders (position
@@ -1025,6 +1031,16 @@ if (fs.existsSync(TLS_CERT) && tlsKeyAvailable()) {
 } else {
   logger.warn("[TLS] No certificate found — starting in HTTP mode (no PQC protection)", { certPath: TLS_CERT });
 }
+
+// Tailnet hostname auto-config (best-effort, non-blocking). When Tailscale is
+// enabled with no explicit RP_ORIGIN, derive the WebAuthn origin + rpId from this
+// node's MagicDNS name. Fire-and-forget: it resolves in ms once tailscaled is up
+// and mutates the live config; a failure logs and leaves the defaults in place.
+try {
+  require("./lib/tailscale").applyHostnameAutoConfig().catch(function (e) {
+    logger.warn("[tailscale] hostname auto-config failed", { error: e && e.message });
+  });
+} catch (_e) { /* tailscale disabled / module load — never blocks boot */ }
 
 // Start — with PQC gate if TLS enabled and enforcement is on
 var protocol = tlsEnabled ? "https" : "http";

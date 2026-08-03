@@ -1,0 +1,36 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.18.7",
+  "date": "2026-08-02",
+  "headline": "STARTTLS idle-timeout no longer injects plaintext into the encrypted channel; broader mail-server test coverage",
+  "summary": "A STARTTLS upgrade on the POP3 / IMAP / ManageSieve / SMTP-submission / MX servers left the pre-upgrade plain-socket idle-timeout handler armed, so a post-handshake idle wrote a plaintext timeout reply into the now-encrypted stream (the peer saw a TLS decode error / reset). The shared socket-upgrade path now strips that handler so the idle timeout is delivered encrypted. Alongside the fix, error and edge branches of b.mail.server.pop3, b.mail.server.imap, and b.mail.auth are now under test. Except for the fix, behaviour is unchanged.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "STARTTLS idle timeout is delivered over the encrypted channel, not injected as plaintext",
+          "body": "The POP3, IMAP, ManageSieve, SMTP-submission, and MX servers arm a plain-socket idle timer whose handler writes a plaintext idle-timeout reply and closes the connection. After a STARTTLS upgrade the shared socket-upgrade path stripped only the plain socket's data listeners, so that plaintext handler survived the wrap and, on a post-handshake idle, injected cleartext into the now-encrypted stream — the peer observed a TLS decode error or connection reset instead of a clean encrypted timeout reply. The upgrade path now strips the plain socket's timeout listeners and disarms its idle timer, so the upgraded TLS socket owns the idle timeout and replies over the encrypted channel."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Error- and edge-path tests for the POP3, IMAP, and mail-authentication primitives",
+          "body": "b.mail.server.pop3 (the STLS upgrade and post-handshake idle timeout, pipelined-command draining, AUTH / APOP / USER-PASS branches, and store-fallback and tenant-refusal shapes), b.mail.server.imap (APPEND / CATENATE literal handling, command-dispatch and guard-error branches, and the LOGIN / NOTIFY paths), and b.mail.auth (SPF macro expansion and record parsing, iprev forward-confirm, and dual-CIDR a/mx parsing) now have explicit tests for their boundary paths."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "STARTTLS upgrade strips the plaintext idle-timeout handler",
+          "body": "A source guard keeps the shared socket-upgrade path stripping the plain socket's timeout listeners alongside its data listeners, so a plaintext idle-timeout reply cannot survive into the encrypted channel."
+        }
+      ]
+    }
+  ]
+}

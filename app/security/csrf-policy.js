@@ -55,6 +55,7 @@ function canonicalOrigin(raw) {
 var EXEMPT_PREFIXES = [
   "/drop/",           // public uploads (init, file, chunk, finalize)
   "/auth/google",     // OAuth redirect/callback
+  "/auth/tailscale",  // Sign in with Tailscale — GET, identity is the visitor's own peer-gated tailnet identity (login-CSRF has no leverage)
   "/passkey/login",   // WebAuthn challenge-response (has its own CSRF via challenge)
 ];
 var EXEMPT_EXACT = [

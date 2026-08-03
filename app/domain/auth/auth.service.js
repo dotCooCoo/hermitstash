@@ -4,6 +4,7 @@
  */
 var b = require("../../../lib/vendor/blamejs");
 var config = require("../../../lib/config");
+var tailscale = require("../../../lib/tailscale");
 var usersRepo = require("../../data/repositories/users.repo");
 var filesRepo = require("../../data/repositories/files.repo");
 var { validateEmail, validatePassword, validateDisplayName } = require("../../shared/validate");
@@ -198,6 +199,71 @@ function resolveGoogleUser(profile, allowedDomains) {
 }
 
 /**
+ * Resolve a Sign-in-with-Tailscale identity to an existing or new user.
+ * `identity` is the normalized, already-peer-gated tailnet identity from
+ * lib/tailscale (login/displayName/profilePicUrl/caps) — the trust boundary is
+ * the caller's; this layer only maps identity → account.
+ * Returns { user, isNew }.
+ */
+function resolveTailscaleUser(identity) {
+  if (!identity || !identity.login) throw new ValidationError("Tailscale returned no identity.");
+  var tsId = tailscale.tailscaleId(identity.login);
+
+  // Returning user: bound to the stable tailnet login (sealed tailscaleId, looked
+  // up via its blind index) — a distinct namespace from email, so a tailnet login
+  // that coincides with some account's email address never cross-matches.
+  var user = usersRepo.findByTailscaleId(tsId);
+  if (user) {
+    // A row carrying this tailscaleId must be a Tailscale account. Refuse if it
+    // somehow uses another method (defensive against a cross-provider takeover).
+    if (user.authType && user.authType !== "tailscale") {
+      throw new ForbiddenError("This account uses a different sign-in method.");
+    }
+    if (user.status === "suspended") throw new ForbiddenError("Account suspended.");
+    usersRepo.update(user._id, { $set: { lastLogin: new Date().toISOString() } });
+    return { user: user, isNew: false };
+  }
+
+  // No existing Tailscale account → admin-gated auto-provisioning. Create ONLY
+  // when the identity carries the required capability grant or is on the
+  // allowlist; otherwise refuse (never silently create an account for any tailnet
+  // member).
+  var decision = tailscale.provisioningDecision(identity);
+  if (!decision.allowed) {
+    throw new ForbiddenError("Your tailnet account is not permitted to sign in here. Ask an administrator to grant access.");
+  }
+
+  // Populate email only when the tailnet login is a real address AND no other
+  // account already owns it — never silently merge with or take over an existing
+  // local/Google account that shares the address (CWE-287). A non-email login
+  // (e.g. alice@github) provisions with no email; tailscaleId carries identity.
+  var emailToStore = null;
+  var addrCheck = b.guardEmail.validateAddress(identity.login);
+  if (addrCheck && addrCheck.ok) {
+    if (usersRepo.findByEmail(identity.login)) {
+      throw new ForbiddenError("An account with this email already exists. Sign in with its existing method.");
+    }
+    emailToStore = identity.login;
+  }
+
+  var isAdmin = usersRepo.count({}) === 0;
+  var doc = {
+    tailscaleId: tsId,
+    displayName: identity.displayName || identity.login,
+    authType: "tailscale",
+    role: isAdmin ? "admin" : "user",
+    status: "active",
+    createdAt: new Date().toISOString(),
+    lastLogin: new Date().toISOString(),
+  };
+  if (emailToStore) doc.email = emailToStore;
+  if (identity.profilePicUrl) doc.avatar = identity.profilePicUrl;
+
+  var created = usersRepo.create(doc);
+  return { user: created, isNew: true };
+}
+
+/**
  * Check if a user has 2FA enabled.
  */
 function requires2fa(userId) {
@@ -212,4 +278,4 @@ function touchLogin(userId) {
   usersRepo.update(userId, { $set: { lastLogin: new Date().toISOString() } });
 }
 
-module.exports = { registerLocal, authenticateLocal, resolveGoogleUser, requires2fa, touchLogin, emailIsVerified };
+module.exports = { registerLocal, authenticateLocal, resolveGoogleUser, resolveTailscaleUser, requires2fa, touchLogin, emailIsVerified };

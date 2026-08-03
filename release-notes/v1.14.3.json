@@ -1,0 +1,29 @@
+{
+  "version": "1.14.3",
+  "date": "2026-08-03",
+  "headline": "Sign in with Tailscale and an opt-in tailnet sidecar",
+  "summary": "HermitStash can now expose itself over a Tailscale tailnet and let tailnet members sign in with their Tailscale identity. The whole feature is opt-in and off by default — nothing about Tailscale runs, and nothing is installed, unless you enable it.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "Sign in with Tailscale",
+          "body": "Tailnet members can authenticate with their Tailscale identity, read from the tailscale serve headers and trusted only from the loopback serve proxy — a forged copy from any other peer is stripped. Account creation is admin-gated: a tailnet user is auto-provisioned only when they carry a required capability grant or are on an allowlist, and an enabled TOTP second factor is still enforced. Under Funnel a public visitor carries no identity and falls back to the other sign-in methods."
+        },
+        {
+          "title": "Opt-in tailnet sidecar",
+          "body": "When enabled, the container installs and starts Tailscale at boot from the signature-verified Wolfi package repository, runs tailscaled in userspace-networking mode with no extra capabilities, and fronts the app with tailscale serve or funnel. Nothing is installed unless the feature is turned on, and every step is non-fatal — the app starts even if the tailnet front does not."
+        },
+        {
+          "title": "Tailnet hostname auto-config",
+          "body": "With Tailscale enabled and no explicit origin set, the WebAuthn relying-party origin and share-URL base are derived from the node's MagicDNS name. An operator-set RP_ORIGIN is never overridden."
+        },
+        {
+          "title": "Tailscale settings in the admin panel",
+          "body": "The Auth tab exposes the Tailscale switches — enable, sign-in, the provisioning allowlist and capability grant, hostname auto-config, and the tailscaled socket path — so the integration can be configured without environment variables."
+        }
+      ]
+    }
+  ]
+}

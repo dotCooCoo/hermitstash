@@ -462,6 +462,7 @@ var PATTERNS_NA = {
   "applydefaults-dropped-opt": "blamejs opts-factory shape (an option read from applyDefaults(opts,DEFAULTS) absent from DEFAULTS); HS authors no framework primitives and calls applyDefaults nowhere in owned code (0 sites), so there is no defaults-bag read to guard",
   "silent-catch-stream-teardown": "rename of silent-catch; HS covers via that detector, now app-scope-widened (best-effort teardown/cleanup catches in routes/, middleware/, server-main.js are allow-markered)",
   "timer-no-unref-unrefed-below": "rename of timer-no-unref; HS covers via that detector (setInterval handle must .unref() within the window)",
+  "timer-no-unref-process-pinning": "sibling rename of timer-no-unref; blamejs split its exception marker into -unrefed-below + -process-pinning, HS's single timer-no-unref detector covers both (all lib timers .unref(); no HS timer deliberately pins the process)",
 };
 
 // Extract the detector class-id set from a codebase-patterns gate file.

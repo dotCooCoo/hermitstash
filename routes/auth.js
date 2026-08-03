@@ -12,6 +12,7 @@ var { emitError } = require("../middleware/respond-error");
 var audit = require("../lib/audit");
 var authService = require("../app/domain/auth/auth.service");
 var sessionService = require("../app/domain/auth/session.service");
+var tailscale = require("../lib/tailscale");
 var { validateLoginInput, validateRegisterInput } = require("../app/http/validators/auth.validator");
 var { createVerificationToken } = require("./verification");
 var { validateToken } = require("../app/security/csrf-policy");
@@ -83,13 +84,53 @@ module.exports = function (app) {
     }
   });
 
+  // Sign in with Tailscale. Like the Google callback, the identity arrives from
+  // outside the credential form — here as the peer-gated `tailscale serve` header
+  // family (set + forged-copies-stripped by tailscale.middleware). It is a GET
+  // (a link, not a form) and CSRF-exempt because login-CSRF has no leverage: the
+  // identity is the visitor's OWN tailnet identity, bound by tailscaled/serve and
+  // never attacker-forgeable, so it can only ever sign a user into their own
+  // account. Under Funnel a public visitor carries no identity header, so the
+  // request fails closed to /auth/failed and the visitor uses another method.
+  app.get("/auth/tailscale", rateLimit.guard({ max: 20, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
+    try {
+      if (!config.tailscale.enabled || !config.tailscale.ssoEnabled) {
+        audit.log(audit.ACTIONS.AUTH_FAILED_PAGE, { details: "Tailscale sign-in not enabled", req: req });
+        return res.redirect("/auth/login");
+      }
+      var identity = tailscale.identityFrom(req);
+      if (!identity) {
+        audit.log(audit.ACTIONS.AUTH_FAILED_PAGE, { details: "Tailscale sign-in: no tailnet identity on request (direct client / Funnel)", req: req });
+        return res.redirect("/auth/failed");
+      }
+      var result = authService.resolveTailscaleUser(identity);
+      var user = result.user;
+      if (result.isNew) {
+        audit.log(audit.ACTIONS.USER_REGISTERED, { targetId: user._id, targetEmail: user.email, details: "authType: tailscale, role: " + user.role, req: req });
+      }
+      // Shared login chokepoint — the same one the Google callback + local login
+      // use, so an enabled TOTP is enforced on the Tailscale path too.
+      var outcome = await sessionService.completeLogin(req, user._id);
+      if (outcome.requires2fa) return res.redirect("/2fa");
+      audit.log(audit.ACTIONS.LOGIN_SUCCESS, { targetId: user._id, targetEmail: user.email, details: "authType: tailscale", req: req });
+      res.redirect("/dashboard");
+    } catch (err) {
+      // Gate-closed / cross-provider / suspended (ForbiddenError) and any other
+      // failure land on the generic failure page; the specific reason is audited.
+      logger.error("Tailscale auth error", { error: err.message || String(err) });
+      audit.log(audit.ACTIONS.AUTH_FAILED_PAGE, { details: "Tailscale sign-in error: " + (err.message || String(err)), req: req });
+      res.redirect("/auth/failed");
+    }
+  });
+
   // Login page — always accessible (shows available auth methods)
   app.get("/auth/login", (req, res) => {
     if (req.user) return res.redirect("/dashboard");
+    var tailscaleAuth = !!(config.tailscale.enabled && config.tailscale.ssoEnabled);
     // Must have at least one auth method enabled
-    var hasAnyAuth = config.localAuth || config.passkeyEnabled || !!config.google.clientID;
+    var hasAnyAuth = config.localAuth || config.passkeyEnabled || !!config.google.clientID || tailscaleAuth;
     if (!hasAnyAuth) return send(res, "error", { title: "No Auth Methods", message: "No authentication methods are configured. Contact the administrator.", user: null }, 503);
-    send(res, "login", { user: null, error: null, localAuth: config.localAuth, googleAuth: !!config.google.clientID, registrationOpen: config.registrationOpen && config.localAuth, passkeyEnabled: config.passkeyEnabled });
+    send(res, "login", { user: null, error: null, localAuth: config.localAuth, googleAuth: !!config.google.clientID, tailscaleAuth: tailscaleAuth, registrationOpen: config.registrationOpen && config.localAuth, passkeyEnabled: config.passkeyEnabled });
   });
 
   var loginLimiter = rateLimit.guard({ max: 15, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" });

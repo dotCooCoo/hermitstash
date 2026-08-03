@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frameworkVersion": "0.18.3",
-  "createdAt": "2026-08-01T16:10:18.526Z",
+  "frameworkVersion": "0.18.9",
+  "createdAt": "2026-08-02T12:52:01.756Z",
   "exports": {
     "a2a": {
       "type": "object",
@@ -14600,9 +14600,9 @@
           "type": "function",
           "arity": 2
         },
-        "hmacSha3": {
+        "hmac": {
           "type": "function",
-          "arity": 2
+          "arity": 3
         },
         "hpke": {
           "type": "object",
@@ -40706,6 +40706,23 @@
         }
       }
     },
+    "localHttp": {
+      "type": "object",
+      "members": {
+        "LocalHttpError": {
+          "type": "function",
+          "arity": 4
+        },
+        "create": {
+          "type": "function",
+          "arity": 1
+        },
+        "request": {
+          "type": "function",
+          "arity": 1
+        }
+      }
+    },
     "log": {
       "type": "object",
       "members": {
@@ -49642,6 +49659,10 @@
           "type": "function",
           "arity": 1
         },
+        "trustedIdentityHeaders": {
+          "type": "function",
+          "arity": 1
+        },
         "trustedProtocol": {
           "type": "function",
           "arity": 1
@@ -54311,6 +54332,62 @@
         "verifier": {
           "type": "function",
           "arity": 1
+        },
+        "verify": {
+          "type": "function",
+          "arity": 1
+        }
+      }
+    },
+    "webhookHmac": {
+      "type": "object",
+      "members": {
+        "DEFAULT_TOLERANCE_SEC": {
+          "type": "primitive",
+          "valueType": "number"
+        },
+        "PROFILES": {
+          "type": "object",
+          "members": {
+            "stripe": {
+              "type": "object",
+              "members": {
+                "alg": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "sigField": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "tsField": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            },
+            "tailscale": {
+              "type": "object",
+              "members": {
+                "alg": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "sigField": {
+                  "type": "primitive",
+                  "valueType": "string"
+                },
+                "tsField": {
+                  "type": "primitive",
+                  "valueType": "string"
+                }
+              }
+            }
+          }
+        },
+        "WebhookHmacError": {
+          "type": "function",
+          "arity": 4
         },
         "verify": {
           "type": "function",

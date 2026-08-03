@@ -442,6 +442,31 @@
           </div>
           <div class="settings-divider"></div>
           <div class="settings-field">
+            <label class="settings-label">Tailscale <span class="settings-hint">expose over your tailnet and let tailnet members sign in. The container installs the Tailscale sidecar at boot ONLY when this is on (set TAILSCALE_ENABLED + TAILSCALE_AUTHKEY + TAILSCALE_SERVE_MODE as env). Bind the app to loopback so only the serve proxy can present identity.</span></label>
+            <label class="toggle"><input type="checkbox" id="s-tailscaleEnabled" data-key="tailscaleEnabled"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Sign in with Tailscale <span class="settings-hint">show the Tailscale sign-in option; identity comes from the tailscale serve headers</span></label>
+            <label class="toggle"><input type="checkbox" id="s-tailscaleSso" data-key="tailscaleSso"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Tailscale Allowlist <span class="settings-hint">tailnet logins auto-provisioned on first sign-in (comma-separated). Empty grant + empty allowlist = sign-in for existing accounts only</span></label>
+            <input type="text" class="text-input" id="s-tailscaleSsoAllowlist" data-key="tailscaleSsoAllowlist" placeholder="alice@example.com, bob@example.com">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Tailscale Grant <span class="settings-hint">capability that permits auto-provisioning (a tailnet ACL app-capability, e.g. example.com/cap/hermitstash)</span></label>
+            <input type="text" class="text-input" id="s-tailscaleSsoGrant" data-key="tailscaleSsoGrant" placeholder="example.com/cap/hermitstash">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Tailscale Hostname Auto-config <span class="settings-hint">derive the WebAuthn origin + share URLs from this node's MagicDNS name when no RP Origin is set</span></label>
+            <label class="toggle"><input type="checkbox" id="s-tailscaleHostnameAutoConfig" data-key="tailscaleHostnameAutoConfig"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Tailscale Socket <span class="settings-hint">tailscaled LocalAPI socket (default /run/tailscale/tailscaled.sock)</span></label>
+            <input type="text" class="text-input" id="s-tailscaleSocket" data-key="tailscaleSocket" placeholder="/run/tailscale/tailscaled.sock">
+          </div>
+          <div class="settings-divider"></div>
+          <div class="settings-field">
             <label class="settings-label">Email Verification</label>
             <label class="toggle"><input type="checkbox" id="s-emailVerification" data-key="emailVerification"><span class="toggle-slider"></span></label>
           </div>
@@ -1681,7 +1706,7 @@ function loadBundles(page){
 var tabFields={
   branding:['siteName','customLogo','landingEnabled','heroTitle','heroSubtitle','dropTitle','dropSubtitle','showMaintainerSupport','maintenanceMode','announcementBanner','analyticsScript','analyticsCspDomains'],
   general:['port','sessionSecret'],
-  auth:['localAuth','registrationOpen','enforceMtls','googleClientID','googleClientSecret','allowedDomains','emailVerification','passkeyEnabled','rpName','rpId','rpOrigin'],
+  auth:['localAuth','registrationOpen','enforceMtls','googleClientID','googleClientSecret','allowedDomains','tailscaleEnabled','tailscaleSso','tailscaleSsoAllowlist','tailscaleSsoGrant','tailscaleHostnameAutoConfig','tailscaleSocket','emailVerification','passkeyEnabled','rpName','rpId','rpOrigin'],
   uploads:['publicUpload','maxFileSize','publicMaxFiles','publicMaxBundleSize','perUserQuotaBytes','publicIpQuotaBytes','uploadTimeout','uploadConcurrency','uploadRetries','allowedExtensions'],
   storage:['storageBackend','uploadDir','s3Bucket','s3Region','s3AccessKey','s3SecretKey','s3Endpoint'],
   theme:['themeAccentColor','themeBgColor','themeFont'],

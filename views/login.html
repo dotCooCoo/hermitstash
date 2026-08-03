@@ -48,6 +48,18 @@
         <span class="google-signin-text">Sign in with Google</span>
       </a>
     {% } %}
+
+    {% if (tailscaleAuth) { %}
+      {% if (passkeyEnabled || (typeof localAuth === 'undefined' || localAuth) || googleAuth) { %}<div class="auth-divider"><span>or</span></div>{% } %}
+      <a href="/auth/tailscale" class="butn butn-bord butn-full radius-30" style="gap:10px;display:flex;align-items:center;justify-content:center">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <circle cx="5" cy="5" r="2" opacity=".35"/><circle cx="12" cy="5" r="2"/><circle cx="19" cy="5" r="2" opacity=".35"/>
+          <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
+          <circle cx="5" cy="19" r="2" opacity=".35"/><circle cx="12" cy="19" r="2"/><circle cx="19" cy="19" r="2" opacity=".35"/>
+        </svg>
+        <span>Sign in with Tailscale</span>
+      </a>
+    {% } %}
   </div>
 </div>
 

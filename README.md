@@ -231,7 +231,7 @@ Built on Node.js 24.18.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 ## Features
 
 **Authentication**
-- Argon2id local auth, Google OAuth, WebAuthn passkeys -- all simultaneous
+- Argon2id local auth, Google OAuth, Sign in with Tailscale, WebAuthn passkeys -- all simultaneous
 - TOTP 2FA with single-use backup codes — HMAC-SHA-512, 128-byte secret, 8-digit codes (legacy SHA-1 enrollments are forced through a one-time re-pair on next login)
 - Email verification with SHA3-hashed tokens
 - Hybrid KEM encrypted session cookies
@@ -243,6 +243,7 @@ Built on Node.js 24.18.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - User invitation system -- admin invites by email with role assignment, 48-hour expiry
 - Configurable session idle timeout (default 30 minutes, server-side enforcement)
 - OAuth 2.0 PKCE + CSRF state validation on the Google sign-in callback
+- Sign in with Tailscale (opt-in) -- tailnet members authenticate via the `tailscale serve` identity headers (`Tailscale-User-*` / `Tailscale-App-Capabilities`), trusted only from the loopback serve proxy and stripped from every other peer. Account creation is admin-gated: a tailnet user is auto-provisioned only when they carry a required capability grant or are on an allowlist. Under Funnel a public visitor carries no identity and falls back to the other sign-in methods
 - Password change automatically revokes all other sessions
 
 **File Management**
@@ -468,6 +469,29 @@ When the migration runs, the superseded CA cert is retained at `data/ca.prev.crt
 | `MTLS_BROWSER_CA_KEY` / `MTLS_BROWSER_CA_CERT` | under `data/` | Point the browser CA private key / cert at absolute paths. |
 
 Browser certs are unaffected by any sync-CA migration, pin, or regeneration.
+
+## Sign in with Tailscale
+
+Expose HermitStash over your tailnet and let tailnet members sign in with their Tailscale identity. The whole feature is **opt-in and off by default** — nothing about Tailscale runs, and nothing is installed, unless you enable it.
+
+Configure it in **Admin → Settings → Auth**, or with environment variables:
+
+| Env var | Default | Effect |
+|---|---|---|
+| `TAILSCALE_ENABLED` | `false` | Master switch. When `true`, the container installs and starts the Tailscale sidecar at boot (see below) and the app reads the tailnet identity headers. |
+| `TAILSCALE_SSO` | `false` | Show the "Sign in with Tailscale" option and accept tailnet sign-ins. |
+| `TAILSCALE_SSO_ALLOWLIST` | empty | Comma-separated tailnet logins auto-provisioned on first sign-in. |
+| `TAILSCALE_SSO_GRANT` | empty | A tailnet ACL app-capability (e.g. `example.com/cap/hermitstash`) that permits auto-provisioning. With both the allowlist and grant empty, SSO signs in existing accounts only and never creates one. |
+| `TAILSCALE_HOSTNAME_AUTOCONFIG` | `true` | Derive the WebAuthn origin + share-URL base from this node's MagicDNS name when no `RP_ORIGIN` is set. Never overrides an operator-set origin. |
+| `TAILSCALE_SOCKET` | `/run/tailscale/tailscaled.sock` | tailscaled LocalAPI socket. |
+| `TAILSCALE_SERVE_MODE` | `off` | `serve` (tailnet-only, injects identity headers), `funnel` (public internet, **no** identity), or `off` (you run your own tailscaled). |
+| `TAILSCALE_AUTHKEY` | unset | Ephemeral, tagged auth key for the boot-time node registration. |
+| `TAILSCALE_HOSTNAME` / `TAILSCALE_TAGS` | `hermitstash` / `tag:hermitstash` | Node hostname + ACL tags for the sidecar. |
+| `TAILSCALE_SERVE_ARGS` / `TAILSCALE_UP_ARGS` | unset | Override the exact `tailscale serve` / `tailscale up` invocation for your Tailscale version. |
+
+**How the sidecar works.** When `TAILSCALE_ENABLED=true`, the container entrypoint installs `tailscale` at boot from the signature-verified Wolfi package repository, starts `tailscaled` in userspace-networking mode (no `/dev/net/tun`, no extra capabilities), brings the node up as an ephemeral `tag:hermitstash` node with your auth key, and fronts the app with `tailscale serve` (or `funnel`). Every step is non-fatal — a failure logs and the app still starts, just without the tailnet front. The sidecar needs root at entry, so a Tailscale-enabled container must start as root (the entrypoint still drops to the unprivileged app user afterward); if it starts non-root, the entrypoint warns and skips the sidecar. Operators who already run a Tailscale sidecar can leave `TAILSCALE_SERVE_MODE=off` and just bind the app on the tailnet themselves.
+
+**Identity trust.** Under `tailscale serve`, the proxy injects `Tailscale-User-Login`, `Tailscale-User-Name`, `Tailscale-User-Profile-Pic`, and `Tailscale-App-Capabilities`. HermitStash trusts these **only** from the loopback serve proxy and strips any forged copy from every other peer — so bind the app to loopback when Tailscale is enabled. Under Funnel a public visitor carries no identity header, so no-header always means unauthenticated and the visitor falls back to the other sign-in methods. Over a Tailscale connection the transport is WireGuard (Curve25519); the app's own post-quantum TLS handshake applies when you reach it over HTTPS.
 
 ## Installing a browser certificate
 
@@ -1388,7 +1412,7 @@ Managed via `scripts/vendor-update.sh`:
 
 | Vendored | Version | Author | Purpose |
 |----------|---------|--------|---------|
-| [`blamejs`](https://github.com/blamejs/blamejs) | 0.18.3 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, etc. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
+| [`blamejs`](https://github.com/blamejs/blamejs) | 0.18.9 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, etc. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
 | [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) (browser only) | 2.2.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | XChaCha20-Poly1305 in the browser vault + outbox flows |
 | [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (browser only) | 2.2.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | SHAKE256 KDF in the browser |
 | [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) (browser only) | 0.6.1 | [Paul Miller](https://github.com/paulmillr) (MIT) | ML-KEM-1024 in the browser vault flow |

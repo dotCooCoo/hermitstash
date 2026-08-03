@@ -8,6 +8,9 @@ var b = require("../../../lib/vendor/blamejs");
 
 function findById(id) { return users.findOne({ _id: id }); }
 function findByEmail(email) { return users.findOne({ email: String(email).toLowerCase() }); }
+// Indexed lookup on the sealed tailscaleId via its tailscaleIdHash blind index
+// (field-crypto rewrites the sealed-field predicate to the hash column).
+function findByTailscaleId(tailscaleId) { return users.findOne({ tailscaleId: String(tailscaleId).toLowerCase() }); }
 function findAll(query) { return users.find(query || {}); }
 function count(query) { return users.count(query || {}); }
 
@@ -95,4 +98,4 @@ function deleteUser(userId, reassignTo) {
 
 function remove(id) { return users.remove({ _id: id }); }
 
-module.exports = { findById, findByEmail, findAll, count, findPaginated, create, update, remove, deleteUser, incrementFailedAttempts, consumeBackupCode };
+module.exports = { findById, findByEmail, findByTailscaleId, findAll, count, findPaginated, create, update, remove, deleteUser, incrementFailedAttempts, consumeBackupCode };
