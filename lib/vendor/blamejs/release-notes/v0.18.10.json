@@ -1,0 +1,40 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.18.10",
+  "date": "2026-08-03",
+  "headline": "Encrypted-at-rest boot fails closed on a truncated db.enc instead of silently starting fresh over it; broader SAML and database test coverage",
+  "summary": "A database running encrypted at rest whose db.enc snapshot is truncated below a valid envelope (an interrupted external copy or backup restore, a full tmpfs, filesystem corruption) no longer boots onto a fresh empty database that the next flush would persist over the corrupt copy — it now fails closed so the operator can restore from backup. Alongside the fix, adversarial and edge branches of b.auth.saml and b.db come under explicit test, and the vendored @blamejs/pki toolkit is refreshed.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Encrypted boot fails closed on a truncated db.enc rather than starting fresh over it",
+          "body": "When a database is encrypted at rest and its durable db.enc snapshot exists but is too short to be a valid AEAD envelope — a truncation from an interrupted external copy or backup restore, a full tmpfs, or filesystem corruption — boot silently opened a fresh empty database. The next flush or close then persisted that empty database over the corrupt-but-present snapshot, masking the corruption and destroying the operator's chance to recover. Boot now fails closed with db/enc-truncated; restore db.enc from backup, or remove it to intentionally start empty. A valid snapshot is always written atomically and is never this short, so no healthy deployment is affected."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Verification- and edge-path tests for the SAML SP and database primitives",
+          "body": "b.auth.saml (the XML-signature Reference handling with no URI or no Transforms, a foreign-namespace Conditions element failing closed to no-audience-restriction, RSA-OAEP SHA-384/SHA-512 key transport with AES-128-GCM assertion decryption, ed25519 sign/verify dispatch, and the single-logout build/parse paths) and b.db (encrypted-boot key and envelope fallbacks, the truncated-snapshot refusal above, flush-to-disk after close, the audit-chain rollback check against a non-empty log, and the boot-time NTP check thresholds) now have explicit tests for their boundary branches."
+        },
+        {
+          "title": "Vendored @blamejs/pki refreshed to 0.3.29",
+          "body": "The vendored @blamejs/pki toolkit that backs the mutual-TLS CA engine (X.509 / CRL / PKCS#12 signing) is refreshed from 0.3.28 to 0.3.29. The upstream change is in that toolkit's ACME client and Retry-After parser, which the CA engine does not call, so there is no behaviour change to the certificate-authority surface — this is a supply-chain currency refresh."
+        }
+      ]
+    },
+    {
+      "heading": "Detectors",
+      "items": [
+        {
+          "title": "Truncated db.enc must fail closed, not start fresh",
+          "body": "A source guard keeps the encrypted-boot path throwing on an under-length db.enc rather than returning to open a fresh database — so a truncated durable snapshot can never again be silently overwritten by the next flush."
+        }
+      ]
+    }
+  ]
+}

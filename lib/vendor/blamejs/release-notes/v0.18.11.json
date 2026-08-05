@@ -1,0 +1,27 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.18.11",
+  "date": "2026-08-03",
+  "headline": "A static file that is a symlink at the final path component now fails closed with a clean 404 instead of an uncaught error; broader DNS, field-crypto, and static-server coverage",
+  "summary": "The static server refuses a symlink at the final path component (its O_NOFOLLOW TOCTOU defense) — but that refusal now falls back to a clean 404 / NOT_FOUND rather than propagating an uncaught error that hung the request or surfaced a raw ELOOP from staticServe.integrity(). Alongside the fix, error and edge branches of b.network.dns, b.cryptoField, and b.staticServe come under explicit test.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "A final-component symlink (or a mid-hash read error) on a static file fails closed with a clean 404",
+          "body": "When computing a served file's SRI and ETag, the static server opens it with O_NOFOLLOW so a symlink swapped in at the final path component after the in-root check cannot be followed (a TOCTOU / CWE-22 / CWE-367 defense). On POSIX that open raises ELOOP for a symlinked target — the common atomic-deploy pattern where a stable name links to a hashed file (latest.js pointing at app.<hash>.js). That error, and any read error mid-hash, previously propagated uncaught: the middleware request hung with no response, and staticServe.integrity() threw a raw ELOOP instead of its documented NOT_FOUND. It now falls back exactly as a read error does — the middleware returns 404 (falls through) and integrity() throws NOT_FOUND. The symlink is still not served; the refusal is just clean. Windows is unaffected (O_NOFOLLOW is a no-op there)."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Error- and edge-path tests for the DNS, field-crypto, and static-server primitives",
+          "body": "b.network.dns (DoH oversized-body handling, DoT mid-query connection reset and socket reuse, cache expiry, system-resolver error paths), b.cryptoField (tampered / relocated / downgraded cell fail-closed nulling, key-row AAD and rowId resolution, unseal rate-cap configuration, on-read upgrade branches), and b.staticServe (integrity and confinement edge cases, idle-timeout teardown, the final-component symlink refusal above) now have explicit tests for their boundary branches. An unused internal date-formatting helper was removed."
+        }
+      ]
+    }
+  ]
+}
