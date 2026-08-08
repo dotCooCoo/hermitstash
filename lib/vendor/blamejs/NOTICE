@@ -26,7 +26,7 @@ Used for:    XChaCha20-Poly1305 authenticated encryption (lib/crypto.js,
              Thank you to Paul Miller for the audited noble-ciphers suite.
 --------------------------------------------------------------------------------
 Component:   @noble/curves
-Version:     2.2.0
+Version:     2.3.0
 Source:      https://github.com/paulmillr/noble-curves
 License:     MIT
 Copyright:   Copyright (c) 2022 Paul Miller (https://paulmillr.com)
@@ -60,7 +60,7 @@ Used for:    WebAuthn / passkey registration + authentication response
              server.cjs).
 --------------------------------------------------------------------------------
 Component:   @blamejs/pki
-Version:     0.3.29
+Version:     0.4.0
 Source:      https://github.com/blamejs/pki
 License:     Apache-2.0
 Copyright:   Copyright (c) blamejs contributors

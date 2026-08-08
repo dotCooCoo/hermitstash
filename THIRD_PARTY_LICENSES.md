@@ -11,7 +11,7 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
 
 ---
 
-## blamejs v0.18.11
+## blamejs v0.18.15
 
 - **License:** Apache-2.0
 - **Copyright:** blamejs contributors
@@ -31,7 +31,7 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
 - **Files:** `lib/vendor/blamejs/lib/vendor/noble-ciphers.cjs` (server, via blamejs), `public/js/noble-ciphers.js` (browser)
 - **Used for:** XChaCha20-Poly1305 symmetric encryption
 
-## @noble/curves v2.2.0
+## @noble/curves v2.3.0
 
 - **License:** MIT
 - **Copyright:** (c) 2022 Paul Miller (paulmillr.com)
@@ -71,7 +71,7 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
   - `tslib` — Apache-2.0, (c) Microsoft Corporation
   - `cbor-x` — MIT
 
-## @blamejs/pki v0.3.29
+## @blamejs/pki v0.4.0
 
 - **License:** Apache-2.0
 - **Copyright:** blamejs contributors

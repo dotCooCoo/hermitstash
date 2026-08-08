@@ -35,6 +35,21 @@ get_vendored_ver() {
   node -e "var m=require('./$MANIFEST'); var p=m.packages['$1']; console.log(p?p.version:'?')"
 }
 
+# ---- Helper: packages this script can check against the npm registry ----
+# Derived from MANIFEST.json rather than hardcoded, so the list cannot drift
+# away from what is actually vendored. blamejs is excluded: it is pinned to a
+# GitHub release tag, not an npm version, and has its own currency gate
+# (`node scripts/release.js vendor`).
+#
+# The previous hardcoded list had drifted badly — it still named argon2 (now
+# Node's built-in crypto.argon2, not vendored at all) and @simplewebauthn/server
+# (now nested inside blamejs, not a top-level package), while omitting the three
+# browser bundles that ARE vendored here. Every row it printed for them read "?",
+# so the one genuinely stale bundle was indistinguishable from the noise.
+npm_checkable_pkgs() {
+  node -e "var m=require('./$MANIFEST'); console.log(Object.keys(m.packages||{}).filter(function (k) { return k !== 'blamejs'; }).join('\n'))"
+}
+
 # ---- Helper: show changelog/diff between vendored and latest for one package ----
 show_pkg_diff() {
   local pkg="$1"
@@ -87,7 +102,7 @@ if [ "${1:-}" = "--check" ]; then
   echo ""
   printf "%-30s %-12s %-12s %-14s %s\n" "Package" "Vendored" "Latest" "Bundled" "Status"
   printf "%-30s %-12s %-12s %-14s %s\n" "-------" "--------" "------" "-------" "------"
-  for pkg in "@noble/ciphers" "@noble/hashes" "@noble/post-quantum" "@simplewebauthn/server" "argon2"; do
+  for pkg in $(npm_checkable_pkgs); do
     vendored=$(get_vendored_ver "$pkg")
     bundled=$(node -e "var m=require('./$MANIFEST'); var p=m.packages['$pkg']; console.log(p&&p.bundledAt?p.bundledAt:'?')")
     latest=$(npm view "$pkg" version 2>/dev/null || echo "?")
@@ -111,7 +126,7 @@ fi
 # ---- Diff-all mode: show changelog for all outdated packages ----
 if [ "${1:-}" = "--diff-all" ]; then
   any_outdated=false
-  for pkg in "@noble/ciphers" "@noble/hashes" "@noble/post-quantum" "@simplewebauthn/server" "argon2"; do
+  for pkg in $(npm_checkable_pkgs); do
     vendored=$(get_vendored_ver "$pkg")
     latest=$(npm view "$pkg" version 2>/dev/null || echo "?")
     if [ "$vendored" != "$latest" ]; then
@@ -141,12 +156,15 @@ fi
 
 case "$PKG" in
   "@noble/ciphers")
+    # Browser ESM bundle only. The server side consumes blamejs's own
+    # lib/vendor/noble-ciphers.cjs, so emitting a second CommonJS copy here
+    # produced an orphan that nothing required and that showed up as a phantom
+    # vendored artifact in the SBOM.
     echo 'export { xchacha20poly1305 } from "@noble/ciphers/chacha.js";' > _entry.mjs
     npx esbuild _entry.mjs --bundle --format=esm --minify --outfile=public/js/noble-ciphers.js --platform=browser
-    npx esbuild _entry.mjs --bundle --format=cjs --minify --outfile=lib/vendor/noble-ciphers.cjs --platform=node
     rm _entry.mjs
-    # Add headers
-    sed -i "1s|^|// XChaCha20-Poly1305 — vendored from @noble/ciphers v${INSTALLED_VER} by Paul Miller\n// License: MIT — https://github.com/paulmillr/noble-ciphers\n// Bundled with esbuild. Exports: xchacha20poly1305\n|" public/js/noble-ciphers.js lib/vendor/noble-ciphers.cjs
+    # Add header
+    sed -i "1s|^|// XChaCha20-Poly1305 — vendored from @noble/ciphers v${INSTALLED_VER} by Paul Miller\n// License: MIT — https://github.com/paulmillr/noble-ciphers\n// Bundled with esbuild. Exports: xchacha20poly1305\n|" public/js/noble-ciphers.js
     ;;
 
   "@noble/hashes")
@@ -306,15 +324,37 @@ esac
 # Update MANIFEST.json
 # Pass the resolved values through the environment, never spliced into the JS
 # source — a quote- or newline-bearing tag is then inert data, not code.
-INSTALLED_VER="$INSTALLED_VER" PKG="$PKG" TAG="$TAG" DATE="$DATE" MANIFEST="$MANIFEST" node -e '
+#
+# TAG defaults to empty: it is only set on the blamejs path (a GitHub release
+# tag). Under `set -u` the bare "$TAG" aborted this step for every other
+# package, so a browser-bundle refresh rebuilt the artifact and then died
+# BEFORE recording the new version — leaving the manifest permanently claiming
+# the old one. That is silent drift by construction, and it is why the vendored
+# browser bundles sat unrecorded.
+INSTALLED_VER="$INSTALLED_VER" PKG="$PKG" TAG="${TAG:-}" DATE="$DATE" MANIFEST="$MANIFEST" node -e '
 var fs = require("fs");
 var manifestPath = process.env.MANIFEST;
 var m = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 var pkg = process.env.PKG;
 if (m.packages[pkg]) {
-  m.packages[pkg].version = process.env.INSTALLED_VER;
-  m.packages[pkg].bundledAt = process.env.DATE;
-  if (pkg === "blamejs" && process.env.TAG) m.packages[pkg].tag = process.env.TAG;
+  var entry = m.packages[pkg];
+  var prev = entry.version;
+  entry.version = process.env.INSTALLED_VER;
+  entry.bundledAt = process.env.DATE;
+  if (pkg === "blamejs" && process.env.TAG) entry.tag = process.env.TAG;
+  // Re-stamp the CPE version field. Trivy / Grype match CVEs against the CPE,
+  // so leaving it at the previous version silently scans the wrong release —
+  // the bump would look applied while vulnerability matching still targeted
+  // the version that was just replaced. Only the version component is
+  // rewritten; the rest of the CPE is left exactly as authored.
+  if (typeof entry.cpe === "string" && prev) {
+    var parts = entry.cpe.split(":");
+    // cpe:2.3:a:<vendor>:<product>:<version>:...  -> index 5 is the version
+    if (parts.length > 5 && parts[5] === prev) {
+      parts[5] = process.env.INSTALLED_VER;
+      entry.cpe = parts.join(":");
+    }
+  }
   fs.writeFileSync(manifestPath, JSON.stringify(m, null, 2) + "\n");
   console.log("Updated MANIFEST.json: " + pkg + " → " + process.env.INSTALLED_VER);
 } else {

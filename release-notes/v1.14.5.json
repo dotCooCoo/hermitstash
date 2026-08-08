@@ -1,0 +1,42 @@
+{
+  "version": "1.14.5",
+  "date": "2026-08-07",
+  "headline": "Refresh the vendored dependencies and record the browser bundles",
+  "summary": "A maintenance release that brings the vendored framework and the browser-side crypto bundles to their current versions, and closes the gap that let one of those bundles fall behind unnoticed.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Refreshed the vendored blamejs framework to 0.18.15",
+          "body": "Brings the vendored framework current, including its refreshed elliptic-curve and certificate-authority bundles."
+        },
+        {
+          "title": "Refreshed the browser SHAKE256 bundle to @noble/hashes 2.3.0",
+          "body": "The browser half of the vault key derivation was still on 2.2.0. The refreshed bundle produces identical digests — it was verified against the platform's own SHAKE256 — so there is no change to stored or shared data."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Vendoring a browser bundle now records the version it installed",
+          "body": "Updating any bundle other than the framework rebuilt the file and then aborted before writing the new version to the vendor manifest, because it referenced a value only the framework path sets. The manifest kept reporting the previous version indefinitely, so an update looked un-applied and the currency report stayed wrong no matter how often it was run."
+        },
+        {
+          "title": "The vendored-dependency report covers what is actually vendored",
+          "body": "The report worked from a hardcoded list written before the crypto dependencies were consolidated into the framework. It still named a native password-hashing binding that is now the platform's built-in and a package that now ships inside the framework, while omitting the three browser bundles entirely — printing a question mark for their versions, which made a genuinely outdated bundle indistinguishable from the noise. The list is now derived from the vendor manifest, and the browser bundles are recorded there in their own right."
+        },
+        {
+          "title": "A refreshed dependency's platform identifier is re-stamped with its new version",
+          "body": "The vendor manifest records a CPE identifier for each dependency, which is what vulnerability scanners match advisories against. Refreshing a dependency updated its version but left that identifier naming the previous one, so scanning silently evaluated the release that had just been replaced."
+        },
+        {
+          "title": "Refreshing the browser cipher bundle no longer emits an unused server copy",
+          "body": "It also wrote a CommonJS build that nothing loads — the server side uses the framework's own copy — leaving an orphaned file that appeared in the dependency inventory as a component the release does not actually ship."
+        }
+      ]
+    }
+  ]
+}
