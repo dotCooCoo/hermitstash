@@ -1,4 +1,7 @@
-FROM node:25-alpine
+# Pinned to the same Node the runtime image and package.json engines.node declare
+# (24.19.0 "Krypton", the current Active LTS). Tests must not run on a different
+# major than production ships — and 25/26 are Current releases, not LTS.
+FROM node:24.19.0-alpine
 
 WORKDIR /app
 

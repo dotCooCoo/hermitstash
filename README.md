@@ -569,14 +569,14 @@ cd hermitstash
 docker compose up -d
 ```
 
-Uses `cgr.dev/chainguard/node:latest-dev` — a wolfi-based, glibc-dynamic Node image rebuilt continuously by Chainguard when upstream CVE fixes land, so the image's CVE count at any given digest is typically near zero. Node 24.19.0+ is still required for PQC (OpenSSL 3.5) plus cumulative 24.x security patches. No config files needed — all dependencies vendored, no `npm install`. Starts with defaults and generates the vault keypair on first run. Configure everything from the admin panel at `/admin` once running.
+Uses `cgr.dev/chainguard/wolfi-base` with Node installed from the `nodejs-24` package — glibc-dynamic, rebuilt continuously by Chainguard when upstream CVE fixes land, so the image's CVE count at any given digest is typically near zero. Pinning the Node *major* keeps the runtime on 24.x "Krypton", the current Active LTS, rather than following whichever major is newest; Current (non-LTS) releases stop receiving security updates months after they ship. Node 24.19.0+ is required for PQC (OpenSSL 3.5) plus cumulative 24.x security patches. The image ships no `npm`, so npm's bundled-dependency CVEs don't apply to it. No config files needed — all dependencies vendored, no `npm install`. Starts with defaults and generates the vault keypair on first run. Configure everything from the admin panel at `/admin` once running.
 
 ### Image details
 
 | | |
 |---|---|
-| **Base image** | `cgr.dev/chainguard/node:latest-dev` (wolfi, glibc — continuously rebuilt for CVE fixes) |
-| **Node.js** | 24.19.0+ (required for ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87 via OpenSSL 3.5 + cumulative 24.x security patches) |
+| **Base image** | `cgr.dev/chainguard/wolfi-base` (glibc — continuously rebuilt for CVE fixes), digest-pinned; no `npm` in the image |
+| **Node.js** | 24.19.0+ from the `nodejs-24` package — major pinned to the Active LTS line (required for ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87 via OpenSSL 3.5 + cumulative 24.x security patches) |
 | **User** | Runs as `hermit` (non-root) via `su-exec` (installed at build time) — PUID/PGID env vars remap UID/GID at runtime (default 99:100, standard Linux 1000:1000) |
 | **Tmpfs** | `HERMITSTASH_TMPDIR=/dev/shm` — plaintext DB held in memory, never on disk. Set `shm_size: 256m` in compose. Also consider `CHUNK_SCRATCH_DIR=/dev/shm/hermitstash-chunks` for RAM-backed chunked-upload staging. |
 | **Volumes** | `/app/data` (encrypted DB, vault keys, TLS certs), `/app/uploads` (files if using local storage) |

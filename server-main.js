@@ -1243,6 +1243,32 @@ function wsUpgradeOverLimit(req) {
   return req._wsUpgradeThrottled === true;
 }
 
+// Header a sync client uses to identify ITSELF across reconnects, so the server
+// can drop that client's own stale connection instead of counting it against
+// the per-key ceiling. See supersedeSameInstance in lib/sync-registry.js.
+var SYNC_INSTANCE_HEADER = "x-hermitstash-instance";
+var SYNC_INSTANCE_MAX_LEN = 64;
+
+/**
+ * The client instance id from the upgrade request, or null.
+ *
+ * This value only ever selects which of the SAME key's own connections to
+ * close, so it grants no authority — the bearer key and cert checks above are
+ * what authenticate. It is nonetheless bounded and charset-restricted before
+ * use: it is attacker-supplied, and it is compared against ids the server is
+ * holding. A malformed value returns null (treated as "not sent"), which is the
+ * request-shape-reader policy — the network sends what it sends, and rejecting
+ * the whole upgrade over a cosmetic header would be worse than ignoring it.
+ */
+function clientInstanceId(req) {
+  var raw = req && req.headers && req.headers[SYNC_INSTANCE_HEADER];
+  if (typeof raw !== "string") return null;
+  var v = raw.trim();
+  if (!v || v.length > SYNC_INSTANCE_MAX_LEN) return null;
+  if (!/^[A-Za-z0-9_-]+$/.test(v)) return null;
+  return v;
+}
+
 server.on("upgrade", function (req, socket, head) {
   // Parse the request-target. req.url is a relative path ("/sync/ws?..."),
   // which the WHATWG parser behind b.safeUrl rejects — supply a synthetic
@@ -1373,8 +1399,17 @@ server.on("upgrade", function (req, socket, head) {
     return rejectUpgrade(socket, 403, "Forbidden");
   }
 
-  // Connection limit per API key
+  // Connection limit per API key. First let a reconnecting client reclaim the
+  // slot held by its OWN previous connection: the count is only decremented in
+  // the close handler, and an unclean drop is not noticed until the pong-timeout
+  // a heartbeat or two later, so a client returning inside that window would
+  // otherwise be refused on account of its own ghost. Matching is by the
+  // instance id the client sent, never by (key, bundle) — one key legitimately
+  // holds several concurrent connections to a bundle, and matching more broadly
+  // would close a different subscriber's live socket.
   var keyId = apiKey._id;
+  var instanceId = clientInstanceId(req);
+  if (instanceId) syncRegistry.supersedeSameInstance(bundleId, keyId, instanceId);
   var keyCount = apiKeyConnectionCount.get(keyId) || 0;
   if (keyCount >= SYNC_MAX_CONNECTIONS_PER_KEY) {
     return rejectUpgrade(socket, 429, "Too Many Requests");
@@ -1399,9 +1434,13 @@ server.on("upgrade", function (req, socket, head) {
     try { ws.send(data); } catch (_e) { /* connection closed mid-write */ }
   }
 
-  // Register connection
+  // Register connection. `counted: true` marks this entry as contributing to
+  // apiKeyConnectionCount; supersedeSameInstance clears it when it reclaims a
+  // slot early, so the close handler below never double-decrements. instanceId
+  // is null for a client that sends no header — such an entry is simply never
+  // superseded.
   if (!syncConnections.has(bundleId)) syncConnections.set(bundleId, new Set());
-  var connEntry = { ws: ws, apiKeyId: keyId };
+  var connEntry = { ws: ws, apiKeyId: keyId, instanceId: instanceId, counted: true };
   syncConnections.get(bundleId).add(connEntry);
   apiKeyConnectionCount.set(keyId, keyCount + 1);
 
@@ -1542,6 +1581,10 @@ server.on("upgrade", function (req, socket, head) {
       syncConnections.get(bundleId).delete(connEntry);
       if (syncConnections.get(bundleId).size === 0) syncConnections.delete(bundleId);
     }
+    // Skip when supersedeSameInstance already reclaimed this entry's slot
+    // (it clears `counted`), so the same slot is never released twice.
+    if (!connEntry.counted) return;
+    connEntry.counted = false;
     var currentCount = apiKeyConnectionCount.get(keyId) || 0;
     if (currentCount > 1) apiKeyConnectionCount.set(keyId, currentCount - 1);
     else apiKeyConnectionCount.delete(keyId);

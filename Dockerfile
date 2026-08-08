@@ -6,36 +6,40 @@
 # secrets (vault passphrase, SMTP credentials, OAuth secrets) continue to
 # be delivered at runtime via env / Docker secrets / mounted files — never
 # baked into the image.
-# Runtime base — DIGEST-PINNED for reproducible, byte-identical builds. Chainguard's
-# wolfi Node image is rebuilt continuously as upstream CVE fixes land; we pin a
-# specific rebuild by digest rather than the floating :latest-dev tag so every build
-# is reproducible and the release Trivy gate has a stable target. When the gate flags
-# a fixable base-image CVE, bump this ONE digest to the newer Chainguard rebuild that
-# carries the fix and update the date below — that digest bump IS the intended
-# CVE-response path (no in-image apk upgrade, which would make the build non-
-# deterministic). Resolve the current digest with:
-#   docker pull cgr.dev/chainguard/node:latest-dev && \
-#   docker inspect --format '{{index .RepoDigests 0}}' cgr.dev/chainguard/node:latest-dev
-# Pinned 2026-08-01 — Chainguard rebuild carrying npm 12.0.1-r2 (fixes
-# CVE-2026-14257, brace-expansion DoS bundled in npm).
-ARG RUNTIME_BASE=cgr.dev/chainguard/node:latest-dev@sha256:cc042990cd69f48bf2dde48390b7d01e8d615b285e0c7d3deeb8390e382a6c4c
+# Runtime base — DIGEST-PINNED so the base layer is reproducible and the release
+# Trivy gate has a stable target. When the gate flags a fixable base-image CVE, bump
+# this ONE digest to the newer Chainguard rebuild that carries the fix and update the
+# date below — that digest bump IS the intended CVE-response path. Resolve the current
+# digest with:
+#   docker buildx imagetools inspect cgr.dev/chainguard/wolfi-base:latest
+ARG RUNTIME_BASE=cgr.dev/chainguard/wolfi-base@sha256:e161445c05b19e668cb5cc44df2f0403329fd4f0ac892794255e328e760612a1  # wolfi-base 2026-06-21
 FROM ${RUNTIME_BASE}
-# Chainguard wolfi-based Node image — glibc-dynamic (not musl), continuously
-# rebuilt when upstream CVE fixes land. CVE count at any given digest is
-# typically near-zero; chosen over debian-slim to eliminate the unfixed
-# systemd/ncurses/util-linux/glibc base-image noise previously flagged by
-# Trivy (debian:trixie-slim surfaced ~100 findings of which almost none were
-# fixable).
+# Chainguard wolfi-base — glibc-dynamic (not musl), continuously rebuilt when
+# upstream CVE fixes land. CVE count at any given digest is typically near-zero;
+# chosen over debian-slim to eliminate the unfixed systemd/ncurses/util-linux/glibc
+# base-image noise previously flagged by Trivy (debian:trixie-slim surfaced ~100
+# findings of which almost none were fixable).
 #
-# Wolfi uses apk-tools (like Alpine) but stays on glibc. There are no
-# vendored native bindings whose libc linkage matters: Argon2id runs through
-# Node's built-in crypto.argon2, so there is no prebuild to match against the
-# base image's libc and the Alpine musl trap doesn't apply here.
+# Wolfi uses apk-tools (like Alpine) but stays on glibc. There are no vendored
+# native bindings whose libc linkage matters: Argon2id runs through Node's built-in
+# crypto.argon2, so there is no prebuild to match against the base image's libc and
+# the Alpine musl trap doesn't apply here.
 #
-# Requires Node 24.19.0+ for PQC: ML-KEM-1024, SLH-DSA-SHAKE-256f,
-# ML-DSA-87 (OpenSSL 3.5) plus cumulative 24.x security patches.
-# `:latest-dev` tracks the current Node major and includes apk-tools
-# + shell needed by docker-entrypoint.sh.
+# Node comes from the `nodejs-24` apk package rather than a prebuilt Node image so
+# the runtime stays on the SAME major this project declares in package.json
+# (engines.node) — Node 24 "Krypton", the current Active LTS. A latest-tracking Node
+# image silently follows the newest major instead, which puts a Current (non-LTS)
+# release into production: those lines stop receiving security updates months after
+# release. The major is pinned; the patch level is deliberately not, so a wolfi
+# rebuild carrying a 24.x security fix is picked up without a Dockerfile edit. An
+# exact `=24.19.0-r0` pin is NOT used because wolfi's apk repository prunes
+# superseded versions, which would break rebuilds once that revision ages out.
+#
+# Node 24.19.0+ is required for PQC: ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87
+# (OpenSSL 3.5) plus cumulative 24.x security patches.
+#
+# wolfi-base also ships no npm, which the prebuilt Node image did — removing npm
+# removes its bundled-dependency CVE stream from this image entirely.
 
 # Chainguard images default to a non-root USER; override for the build so
 # we can install packages and create the hermit user. Runtime privilege drop
@@ -66,7 +70,9 @@ LABEL org.opencontainers.image.title="HermitStash" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later" \
       org.opencontainers.image.vendor="dotCooCoo"
 
-# Runtime tooling required by docker-entrypoint.sh:
+# Runtime packages:
+#   - nodejs-24: the Node runtime itself (see the base-image notes above for why
+#     the major is pinned to the Active LTS line and the patch level is not)
 #   - su-exec: drops privileges to hermit and direct-execs node — node
 #     becomes PID 1's successor, signals reach it natively. We originally
 #     used util-linux's setpriv, but wolfi ships BusyBox which provides
@@ -76,12 +82,13 @@ LABEL org.opencontainers.image.title="HermitStash" \
 #     images for this exact workflow.
 #   - shadow: groupmod / usermod / groupadd / useradd for PUID/PGID remap
 #     at container start (Unraid/Synology integration — see entrypoint)
-# --no-cache keeps the layer small. Intentionally NOT pinning package versions
-# (hadolint DL3018): the patched-package posture is owned by the RUNTIME_BASE digest
-# pin above (bump the digest to pick up a base-image CVE fix), so these tooling
-# packages track whatever that pinned rebuild ships.
+# --no-cache keeps the layer small. Intentionally NOT pinning exact package versions
+# (hadolint DL3018): wolfi's apk repository prunes superseded revisions, so an exact
+# pin turns into a broken build rather than a reproducible one. `nodejs-24` pins the
+# major, which is the part that has to agree with package.json engines.node; the
+# release Trivy gate is what catches a package that has aged into a known CVE.
 # hadolint ignore=DL3018
-RUN apk add --no-cache shadow su-exec
+RUN apk add --no-cache nodejs-24 shadow su-exec
 
 # Security: non-root user for runtime. PUID/PGID env vars remap UID/GID at
 # runtime via groupmod/usermod (installed above); setpriv then drops privs.

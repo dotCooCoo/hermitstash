@@ -1,0 +1,30 @@
+{
+  "version": "1.14.7",
+  "date": "2026-08-08",
+  "headline": "Hold the container runtime on the long-term-support Node line",
+  "summary": "The image took its Node from a base that tracked whichever major version was newest, which had moved the runtime onto a release outside long-term support. It now installs Node from the 24 package and holds there.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "The container image holds Node on the 24 long-term-support line",
+          "body": "The image previously used a Node base image that follows whichever major version is current, which had put the runtime on a release outside long-term support. Those releases stop receiving security updates within months of shipping. Node now comes from the nodejs-24 package on the same continuously-rebuilt wolfi base, so the runtime stays on 24.x — the version this project already requires — while still picking up that line's security patches. The published image is a drop-in replacement and needs no operator action."
+        },
+        {
+          "title": "The container image no longer contains npm",
+          "body": "Nothing in the image used it: every dependency is vendored and there is no install step at build or run time. Removing it takes npm's bundled-dependency advisories out of any scan of this image, which is where several of its recent base-image findings came from."
+        }
+      ]
+    },
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "Sync clients can reconnect without waiting for their previous connection to be reaped",
+          "body": "A sync client may now identify its installation when it opens the sync WebSocket. When it does, the server closes that same installation's earlier connection before applying the per-key connection limit, so a client reconnecting after a network drop or a restart is no longer refused because its own stale socket has not yet expired. Connections belonging to other installations that share an API key are left alone, and a client that sends no identifier behaves exactly as it did before."
+        }
+      ]
+    }
+  ]
+}

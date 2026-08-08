@@ -677,6 +677,12 @@ function cmdPreflight() {
     + nodeGate("release-notes rollup", ["scripts/consolidate-release-notes.js", "--check"])
     + nodeGate("changelog extract", ["scripts/check-changelog-extract.js"])
     + nodeGate("codebase patterns", ["tests/lint/codebase-patterns.test.js"])
+    // Catches a vendored-dependency bump that left a stale version stranded in
+    // the operator-facing prose. The vendoring script syncs the few references
+    // it knows about; every other mention was previously unguarded, which is how
+    // a refreshed browser bundle shipped with the README still naming the old
+    // version. Fix with `node scripts/check-doc-versions.js --fix`.
+    + nodeGate("doc versions", ["scripts/check-doc-versions.js"])
     + eslintGate();
 
   var actionsCode = actionsGate();
