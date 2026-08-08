@@ -1,0 +1,18 @@
+scripts/sync-to-public.sh export-ignore
+
+# This file is deliberately NOT export-ignored. It is not build tooling — it
+# decides what a checkout puts on disk, and the vendored tree's recorded digest
+# only describes the bytes it produces. Excluding it would give a clone
+# different contents than the tree the digest was computed over, on any machine
+# configured to translate line endings.
+
+# The vendored framework is unpacked from a published package whose sha512 is
+# recorded in lib/vendor/MANIFEST.json. That record is only worth anything if
+# the files on disk are still the bytes it covers, so line endings must survive
+# a checkout unchanged — on a machine with core.autocrlf=true they otherwise
+# become CRLF and no longer hash to the published value.
+#
+# text=auto rather than a blanket text: git still detects and leaves alone
+# anything genuinely binary, so a future release adding a compiled artifact
+# cannot be silently corrupted by end-of-line conversion.
+lib/vendor/blamejs/** text=auto eol=lf
