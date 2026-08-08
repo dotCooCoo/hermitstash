@@ -90,7 +90,11 @@ var CONSTANTS_JS = path.join(REPO, "lib", "constants.js");
 var PACKAGE_JSON = path.join(REPO, "package.json");
 var RELEASE_NOTES_DIR = path.join(REPO, "release-notes");
 var HS_PATTERNS_GATE = path.join(REPO, "tests", "lint", "codebase-patterns.test.js");
-var BJ_PATTERNS_GATE = path.join(REPO, "lib", "vendor", "blamejs", "test", "layer-0-primitives", "codebase-patterns.test.js");
+// Upstream's lint gate is not part of the published package, so it is
+// snapshotted alongside our own by scripts/vendor-update.sh, pinned to the same
+// release tag as the vendored tree. It lives outside lib/vendor/ because that
+// directory holds exactly the bytes covered by the package integrity check.
+var BJ_PATTERNS_GATE = path.join(REPO, "tests", "lint", "blamejs-codebase-patterns.snapshot.js");
 
 var PRIVATE_SLUG = "dotCooCoo/hermitstash-private";
 var PUBLIC_SLUG = "dotCooCoo/hermitstash";
@@ -396,13 +400,33 @@ function vendorGate() {
     console.log(red("  ✗ blamejs SBOM components are stale — run: node scripts/refresh-blamejs-sbom.js"));
   }
 
-  if (!ghAvailable()) {
-    console.log(red("  ✗ `gh` CLI unavailable — cannot verify blamejs currency"));
+  // Currency is measured against the npm registry because that is where the
+  // vendored tree now comes from. Asking GitHub instead would compare against a
+  // different publication event: a tagged release with no corresponding publish
+  // (or a publish without a tag) would read as staleness that no vendor refresh
+  // could clear, or hide staleness that one could. The gate has to ask the same
+  // source scripts/vendor-update.sh fetches from.
+  var vendoredTag = bj.tag || ("v" + bj.version);
+  // Run through a shell rather than execFile: npm is npm.cmd on Windows, and
+  // Node refuses to spawn a .cmd directly without one. The command is a fixed
+  // literal with nothing interpolated into it, so there is no argument to
+  // escape — which is also why it is a single string instead of an args array
+  // (passing args alongside shell:true is deprecated precisely because those
+  // args are concatenated unescaped).
+  var latestVersion = null;
+  try {
+    latestVersion = cp.execSync("npm view @blamejs/core version", {
+      cwd: REPO,
+      stdio: ["ignore", "pipe", "ignore"],
+      encoding: "utf8",
+    }).trim();
+  } catch (_e) { latestVersion = null; }
+  if (!latestVersion) {
+    console.log(red("  ✗ could not resolve the latest @blamejs/core version from the registry"));
+    console.log(dim("    failing rather than passing — an unverified pin is an unchecked pin"));
     return 1;
   }
-  var vendoredTag = bj.tag || ("v" + bj.version);
-  var latestTag = ghApi("repos/blamejs/blamejs/releases/latest", ".tag_name");
-  if (!latestTag) { console.log(red("  ✗ could not resolve the latest blamejs release")); return 1; }
+  var latestTag = "v" + latestVersion.trim();
   console.log(dim("  blamejs vendored " + vendoredTag + ", latest " + latestTag));
   var cmp = semverCmp(vendoredTag, latestTag);
   if (cmp === 0) { console.log(green("  OK — vendored blamejs is at the latest release")); return sbomRc; }
@@ -412,7 +436,7 @@ function vendorGate() {
   }
   console.log(red("\n  ✗ blamejs is stale: vendored " + vendoredTag + " → latest " + latestTag));
   console.log(yellow("    paste-ready pin:"));
-  console.log("      " + green("blamejs/blamejs@" + latestTag) + dim("   (refresh: bash scripts/vendor-update.sh blamejs)"));
+  console.log("      " + green("@blamejs/core@" + latestTag.replace(/^v/, "")) + dim("   (refresh: bash scripts/vendor-update.sh blamejs)"));
   console.log(dim("    pinned at: lib/vendor/MANIFEST.json  (packages.blamejs.tag / .version)"));
   console.log(dim("    note: blamejs.components mirror the vendored tree's manifest — vendor-update.sh refreshes them via scripts/refresh-blamejs-sbom.js"));
   return 1;

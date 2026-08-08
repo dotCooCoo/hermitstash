@@ -1,1 +1,0 @@
-<a href="javascript:alert(1)">x</a>

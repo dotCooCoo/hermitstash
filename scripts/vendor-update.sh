@@ -219,44 +219,41 @@ console.log("Created lib/vendor/noble-pq.cjs");
     ;;
 
   "blamejs")
-    # Sourced from GitHub at github.com/blamejs/blamejs (npm name is
-    # taken by an unrelated package — vendor from source). Mirrors the
-    # hermitstash-sync pattern: shallow clone of the release tag,
-    # then drop .git so the vendored tree is a plain snapshot.
+    # Sourced from the npm registry as @blamejs/core.
     #
-    # VER may be "latest" (resolves to the latest GitHub Release tag)
-    # or a specific tag like "v0.8.52" / "0.8.52".
-    REPO_URL="https://github.com/blamejs/blamejs"
+    # The bare name `blamejs` on npm belongs to an UNRELATED package — never
+    # install it. Only the scoped @blamejs/core is this framework.
+    #
+    # Why the registry rather than a git clone of the release tag: the tarball
+    # carries a published sha512 integrity value, a registry signature, and a
+    # SLSA provenance attestation, so the bytes that land in lib/vendor/ can be
+    # checked against something. A shallow clone verifies nothing at all — it
+    # trusts whatever the tag points at, at the moment it is fetched. For a
+    # project that publishes provenance for its own artifacts, its single most
+    # security-critical dependency should not arrive unverified.
+    #
+    # The tarball is also byte-for-byte what upstream published. Cloning on a
+    # machine with core.autocrlf=true rewrites every line ending on checkout,
+    # so the vendored tree could never be compared against upstream.
+    #
+    # VER may be "latest" (resolves to the current published version) or an
+    # explicit version, with or without a leading v ("0.18.16" / "v0.18.16").
+    NPM_NAME="@blamejs/core"
     if [ "$VER" = "latest" ]; then
-      # Match check-blamejs-version.js: GitHub Releases API. GITHUB_TOKEN
-      # used opportunistically for higher rate limits in CI (consumed
-      # inside the inline node script below via process.env).
-      TAG=$(node -e "
-        var https = require('node:https');
-        var opts = {
-          headers: {
-            'User-Agent': 'hermitstash-vendor-update',
-            'Accept':     'application/vnd.github+json',
-          },
-        };
-        if (process.env.GITHUB_TOKEN) opts.headers.Authorization = 'Bearer ' + process.env.GITHUB_TOKEN;
-        https.get('https://api.github.com/repos/blamejs/blamejs/releases/latest', opts, function(res) {
-          var c = [];
-          res.on('data', function(b){ c.push(b); });
-          res.on('end', function() {
-            if (res.statusCode !== 200) { process.stderr.write('GitHub API HTTP ' + res.statusCode + '\n'); process.exit(2); }
-            var p; try { p = JSON.parse(Buffer.concat(c).toString('utf8')); } catch (e) { process.stderr.write('bad JSON\n'); process.exit(2); }
-            if (typeof p.tag_name !== 'string') { process.stderr.write('no tag_name\n'); process.exit(2); }
-            process.stdout.write(p.tag_name);
-          });
-        }).on('error', function(e) { process.stderr.write(String(e) + '\n'); process.exit(2); });
-      ")
+      INSTALLED_VER=$(npm view "$NPM_NAME" version 2>/dev/null)
+      if [ -z "$INSTALLED_VER" ]; then
+        echo "ERROR: could not resolve the latest $NPM_NAME version from the registry."
+        exit 1
+      fi
     else
-      # Allow user to pass either "0.8.52" or "v0.8.52".
-      case "$VER" in v*) TAG="$VER" ;; *) TAG="v$VER" ;; esac
+      INSTALLED_VER="${VER#v}"
     fi
-    INSTALLED_VER="${TAG#v}"
-    echo "Resolved tag: $TAG (v$INSTALLED_VER)"
+    # The git tag is still recorded in MANIFEST: it is the handle the release
+    # runner's freshness gate uses, and the handle for fetching the few files
+    # the published tarball does not carry (upstream's own lint gate, which the
+    # patterns advisory reads).
+    TAG="v$INSTALLED_VER"
+    echo "Resolved $NPM_NAME@$INSTALLED_VER (tag $TAG)"
 
     DEST="lib/vendor/blamejs"
     # Empty $DEST's CONTENTS rather than removing $DEST itself. On Windows+Dropbox
@@ -270,29 +267,93 @@ console.log("Created lib/vendor/noble-pq.cjs");
     # (U+F03A); a no-op-safe wipe on a clean checkout (empty dir → nothing to do).
     node -e "var fs=require('fs'),p=require('path');fs.mkdirSync('$DEST',{recursive:true});for(var e of fs.readdirSync('$DEST')){fs.rmSync(p.join('$DEST',e),{recursive:true,force:true,maxRetries:60,retryDelay:300});}"
 
-    # Shallow clone of the tag, then snapshot the working tree into
-    # $DEST while filtering paths we never want vendored:
-    #   - CLAUDE.md / .claude/   (project instructions / session settings)
-    #   - examples/wiki/C\357\200\272/...   (Windows-mangled `C:` test artifact paths)
-    TMPCLONE=".vendor-blamejs.tmp"
+    # Fetch the published tarball, verify its bytes against the integrity value
+    # the registry advertises, then unpack it into $DEST.
+    #
+    # The published package contains only what is actually consumed — index.js,
+    # lib/ (including the nested vendor bundles and their MANIFEST), bin/ and
+    # the licence files. The repository's examples/, docs/, bench/, fuzz/ and
+    # test/ trees are not published, so the exclusion list the clone needed is
+    # gone with them: there is no CLAUDE.md, no .claude/, no oss-fuzz/, and none
+    # of the Windows-mangled `examples/wiki/C:` paths to filter out. The
+    # leaked-path guard below still runs, so their return would be caught rather
+    # than assumed impossible.
+    TMPPACK=".vendor-blamejs.tmp"
     # Clean up on ANY exit — including an early `exit 1` and the Windows+Dropbox
     # "Device or resource busy" lock that has aborted a run mid-script, leaving
     # MANIFEST un-updated. node's rmSync retries on EBUSY and the trap guarantees
-    # the temp clone can't leak or abort the run before MANIFEST is written.
-    _cleanup_tmpclone() { node -e "try{require('fs').rmSync('$TMPCLONE',{recursive:true,force:true,maxRetries:10,retryDelay:200})}catch(_e){}" 2>/dev/null || true; }
-    trap _cleanup_tmpclone EXIT
-    _cleanup_tmpclone
-    git clone --depth 1 --branch "$TAG" "$REPO_URL" "$TMPCLONE"
-    git -C "$TMPCLONE" archive HEAD | tar -x -C "$DEST" \
-      --exclude='CLAUDE.md' \
-      --exclude='.claude' \
-      --exclude='.claude/*' \
-      --exclude='examples/wiki/C*' \
-      --exclude='.clusterfuzzlite' \
-      --exclude='.clusterfuzzlite/*' \
-      --exclude='oss-fuzz' \
-      --exclude='oss-fuzz/*'
-    _cleanup_tmpclone
+    # the temp directory can't leak or abort the run before MANIFEST is written.
+    _cleanup_tmppack() { node -e "try{require('fs').rmSync('$TMPPACK',{recursive:true,force:true,maxRetries:10,retryDelay:200})}catch(_e){}" 2>/dev/null || true; }
+    trap _cleanup_tmppack EXIT
+    _cleanup_tmppack
+    mkdir -p "$TMPPACK"
+
+    # The integrity value is read BEFORE the download so the comparison is
+    # against what the registry publishes, not against the file just received.
+    INTEGRITY=$(npm view "$NPM_NAME@$INSTALLED_VER" dist.integrity 2>/dev/null)
+    if [ -z "$INTEGRITY" ]; then
+      echo "ERROR: registry published no integrity value for $NPM_NAME@$INSTALLED_VER."
+      echo "       Refusing to vendor bytes that cannot be checked."
+      exit 1
+    fi
+
+    npm pack "$NPM_NAME@$INSTALLED_VER" --pack-destination "$TMPPACK" --silent >/dev/null 2>&1
+    TARBALL=$(node -e "
+      var fs=require('fs'),p=require('path');
+      var d=process.argv[1];
+      var f=fs.readdirSync(d).filter(function(n){return /\.tgz\$/.test(n);});
+      if(f.length!==1){process.stderr.write('expected exactly one tarball, found '+f.length+'\n');process.exit(1);}
+      process.stdout.write(p.join(d,f[0]));
+    " "$TMPPACK")
+    if [ -z "$TARBALL" ] || [ ! -f "$TARBALL" ]; then
+      echo "ERROR: npm pack produced no tarball for $NPM_NAME@$INSTALLED_VER."
+      exit 1
+    fi
+
+    # Recompute the digest over the received bytes and compare. A mismatch means
+    # the tarball is not what the registry says it published, so the run stops
+    # here rather than unpacking it.
+    INTEGRITY="$INTEGRITY" TARBALL="$TARBALL" node -e '
+      var fs = require("fs"), crypto = require("crypto");
+      var want = process.env.INTEGRITY.trim();
+      var m = /^sha(256|384|512)-(.+)$/.exec(want);
+      if (!m) { console.error("unrecognized integrity format: " + want); process.exit(1); }
+      var got = "sha" + m[1] + "-" + crypto.createHash("sha" + m[1])
+        .update(fs.readFileSync(process.env.TARBALL)).digest("base64");
+      if (got !== want) {
+        console.error("INTEGRITY MISMATCH");
+        console.error("  published: " + want);
+        console.error("  received:  " + got);
+        process.exit(1);
+      }
+      console.log("Integrity verified: " + want.slice(0, 24) + "…");
+    '
+
+    # --strip-components=1 drops the tarball's leading package/ directory.
+    tar -xzf "$TARBALL" -C "$DEST" --strip-components=1
+    _cleanup_tmppack
+
+    # Upstream's own codebase-patterns lint gate lives in its test tree, which
+    # is not part of the published package. The release runner's patterns
+    # advisory compares our gate against it to surface detector classes worth
+    # adopting, so it is fetched separately and kept OUTSIDE lib/vendor/ — that
+    # directory holds exactly the bytes the integrity check above covered, and
+    # mixing in a file from a different source would make that claim untrue.
+    #
+    # Pinned to the same tag as the package, so the snapshot and the vendored
+    # tree always describe the same release. Failing here rather than skipping:
+    # a silently missing snapshot turns the advisory into a check that reports
+    # nothing while looking like it passed.
+    PATTERNS_SNAPSHOT="tests/lint/blamejs-codebase-patterns.snapshot.js"
+    PATTERNS_URL="https://raw.githubusercontent.com/blamejs/blamejs/$TAG/test/layer-0-primitives/codebase-patterns.test.js"
+    mkdir -p "$(dirname "$PATTERNS_SNAPSHOT")"
+    if ! curl -fsSL --retry 3 --max-time 60 "$PATTERNS_URL" -o "$PATTERNS_SNAPSHOT"; then
+      echo "ERROR: could not fetch upstream's codebase-patterns gate for $TAG."
+      echo "       URL: $PATTERNS_URL"
+      echo "       The patterns advisory reads this; refusing to leave it stale."
+      exit 1
+    fi
+    echo "Snapshotted upstream patterns gate for $TAG ($(wc -c < "$PATTERNS_SNAPSHOT") bytes)"
 
     if [ ! -f "$DEST/package.json" ]; then
       echo "ERROR: extract failed — $DEST/package.json missing."
@@ -331,7 +392,7 @@ esac
 # BEFORE recording the new version — leaving the manifest permanently claiming
 # the old one. That is silent drift by construction, and it is why the vendored
 # browser bundles sat unrecorded.
-INSTALLED_VER="$INSTALLED_VER" PKG="$PKG" TAG="${TAG:-}" DATE="$DATE" MANIFEST="$MANIFEST" node -e '
+INSTALLED_VER="$INSTALLED_VER" PKG="$PKG" TAG="${TAG:-}" DATE="$DATE" MANIFEST="$MANIFEST" INTEGRITY="${INTEGRITY:-}" node -e '
 var fs = require("fs");
 var manifestPath = process.env.MANIFEST;
 var m = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
@@ -342,6 +403,11 @@ if (m.packages[pkg]) {
   entry.version = process.env.INSTALLED_VER;
   entry.bundledAt = process.env.DATE;
   if (pkg === "blamejs" && process.env.TAG) entry.tag = process.env.TAG;
+  // The registry-published digest of the exact tarball this tree was unpacked
+  // from. Recorded so the vendored bytes stay traceable to something after the
+  // fact — the tree itself carries no proof of where it came from, and a plain
+  // version string is a claim rather than evidence.
+  if (process.env.INTEGRITY) entry.integrity = process.env.INTEGRITY.trim();
   // Re-stamp the CPE version field. Trivy / Grype match CVEs against the CPE,
   // so leaving it at the previous version silently scans the wrong release —
   // the bump would look applied while vulnerability matching still targeted

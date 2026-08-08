@@ -1,1 +1,0 @@
-http://user:pass@example.com:8080/path?q=1#f
