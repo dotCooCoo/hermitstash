@@ -963,6 +963,36 @@ var TLS_KEY_SEALED = TLS_KEY + ".sealed";
 var pemSeal = require("./lib/pem-seal");
 var PQC_ENFORCE = process.env.PQC_ENFORCE !== "false"; // default: true
 var INTERNAL_TLS_PORT = parseInt(process.env.INTERNAL_TLS_PORT, 10) || 3001;
+
+/**
+ * The key-exchange group list for the inbound TLS listener, as the
+ * colon-separated string `ecdhCurve` expects.
+ *
+ * It MUST be `ecdhCurve`. Node has no `groups` TLS option — configSecureContext
+ * never reads one — so a `groups:` key is accepted and silently discarded, and
+ * the listener falls back to OpenSSL's defaults. That default excludes the
+ * ML-KEM hybrids, which inverted the intended posture: a client offering only a
+ * hybrid was refused outright, and a client offering both negotiated classical
+ * X25519 — while the boot banner reported PQC as enforced. `ecdhCurve` is
+ * validated (a bad value throws), so a future typo fails loudly at boot instead
+ * of degrading in silence. The framework ships the list pre-joined as
+ * `TLS_GROUP_CURVE_STR` precisely because `ecdhCurve` takes a string; the
+ * `TLS_GROUP_PREFERENCE` array is for display and cannot be passed directly.
+ *
+ * With enforcement on, the classical last-resort is dropped so the negotiated
+ * group is guaranteed post-quantum: TLS picks from the mutual set, so leaving
+ * X25519 in would let a client that lists classical first negotiate classical
+ * even though it offered a hybrid. Nothing new is refused by this — the
+ * ClientHello gate below already rejects any client that does not offer a PQC
+ * group before TLS begins. With enforcement off, the framework's full list
+ * keeps the classical fallback for compatibility.
+ */
+function listenerGroupList() {
+  if (!PQC_ENFORCE) return b.constants.TLS_GROUP_CURVE_STR;
+  return b.constants.TLS_GROUP_PREFERENCE
+    .filter(function (g) { return /MLKEM/i.test(g); })
+    .join(":");
+}
 var tlsOptions = null;
 var tlsEnabled = false;
 
@@ -1010,7 +1040,7 @@ if (fs.existsSync(TLS_CERT) && tlsKeyAvailable()) {
     tlsOptions = {
       cert: fs.readFileSync(TLS_CERT),
       key: pemSeal.loadPemDispatch(TLS_KEY, TLS_KEY_SEALED, "TLS_KEY_SEALED"),
-      groups: b.constants.TLS_GROUP_PREFERENCE,
+      ecdhCurve: listenerGroupList(),
       minVersion: "TLSv1.3",
       requestCert: haveMtlsCa,
       // Hard mode rejects non-mTLS at the TLS layer — no HTTP processing at all.
@@ -1021,8 +1051,12 @@ if (fs.existsSync(TLS_CERT) && tlsKeyAvailable()) {
       ca: haveMtlsCa ? caList : undefined,
     };
     tlsEnabled = true;
+    // Report the list actually handed to the listener, not the framework's full
+    // preference — under enforcement the classical last-resort is dropped, and a
+    // banner naming a group the listener will not negotiate is how the previous
+    // posture went unnoticed.
     logger.info("[TLS] PQC TLS enabled", {
-      groups: b.constants.TLS_GROUP_PREFERENCE.join(" + "),
+      groups: listenerGroupList().split(":").join(" + "),
       keySealed: fs.existsSync(TLS_KEY_SEALED),
     });
   } catch (e) {
@@ -1057,7 +1091,7 @@ if (tlsEnabled && PQC_ENFORCE) {
   gateServer.listen(config.port, function () {
     logger.info("HermitStash is running", {
       url: protocol + "://localhost:" + config.port,
-      tls: "PQC enforced (" + b.constants.TLS_GROUP_PREFERENCE[0] + ")",
+      tls: "PQC enforced (" + listenerGroupList().split(":")[0] + ")",
       pqcGate: "active on port " + config.port + " → 127.0.0.1:" + INTERNAL_TLS_PORT,
       storage: config.storage.backend + " -> " + storage.uploadDir,
       email: config.email.host || "disabled",
@@ -1127,7 +1161,7 @@ function reloadTlsContext() {
     var newContext = {
       cert: fs.readFileSync(TLS_CERT),
       key: pemSeal.loadPemDispatch(TLS_KEY, TLS_KEY_SEALED, "TLS_KEY_SEALED"),
-      groups: b.constants.TLS_GROUP_PREFERENCE,
+      ecdhCurve: listenerGroupList(),
       minVersion: "TLSv1.3",
     };
     server.setSecureContext(newContext);

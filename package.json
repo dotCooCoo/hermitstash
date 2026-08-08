@@ -1,6 +1,6 @@
 {
   "name": "hermitstash",
-  "version": "1.14.5",
+  "version": "1.14.6",
   "description": "Stash it quietly. Share it instantly. Post-quantum encrypted, self-hosted file upload server.",
   "main": "server.js",
   "scripts": {
@@ -8,7 +8,7 @@
     "dev": "node --watch server.js"
   },
   "engines": {
-    "node": ">=24.18.0"
+    "node": ">=24.19.0"
   },
   "keywords": [
     "file-upload",

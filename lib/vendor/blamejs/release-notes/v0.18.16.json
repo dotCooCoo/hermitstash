@@ -1,0 +1,51 @@
+{
+  "$schema": "../scripts/release-notes-schema.json",
+  "version": "0.18.16",
+  "date": "2026-08-07",
+  "headline": "A resolver-list typo could abort the process, virtual-hosted S3 addressing could silently drop the bucket, and duplicate request headers were signed in a form S3 rejects",
+  "summary": "Six fixes across the DNS resolver configuration, the S3 SigV4 backend, and the Redis client, each found by putting a previously unexercised path under test. The most serious is unrecoverable: a resolver entry whose port is zero did not fail configuration, it aborted the process. Two more are silent rather than loud — a bucket that disappears from every request, and a request body that is stored as nothing while the write reports success. Operators using path-style S3 addressing, DNS resolvers without an explicit port, or an unauthenticated Redis are unaffected by all of them.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "b.network.dns.setServers no longer aborts the process on a resolver whose port is zero",
+          "body": "A resolver entry of the form \"1.2.3.4:0\" did not throw — it failed a native assertion inside node:dns and terminated the process (exit 134), which no caller could catch. An operator resolver list built from configuration, where a port is templated in and renders as 0, was therefore an unrecoverable crash at startup rather than a configuration error. setServers now validates the port of any entry that carries one, in both the \"IPv4:port\" and \"[IPv6]:port\" forms, against the wire-valid range and refuses it with a typed DnsError (dns/bad-server-port). A port above 65535 was previously accepted in silence and reached the resolver layer; it is now refused at the same point. Entries without an explicit port are unaffected."
+        },
+        {
+          "title": "A refused resolver list no longer replaces the configured resolvers",
+          "body": "setServers recorded the new list before asking the platform to apply it and did not restore the previous value when the platform refused. b.network.dns.getServers() then reported resolvers that were never in effect, and the system-resolver path parsed those rejected entries as if they were configured. The list is now published only after it has been accepted, so a rejected call leaves the previous resolvers in place — including when one entry of a multi-entry list is bad, which now applies none of it."
+        },
+        {
+          "title": "Virtual-hosted S3 addressing no longer drops the bucket against an IP-literal endpoint",
+          "body": "With virtual-hosted addressing (the default, pathStyle: false) the bucket is carried in the host as <bucket>.<endpoint-host>. That composition is not possible when the endpoint is an IP literal, and the URL host assignment fails silently rather than raising, so the bucket vanished from the request: keys were addressed at the server root and the request signature covered that wrong path. b.objectStore.presignedDownloadUrl handed back a URL that looked valid and pointed at the wrong place. The composition is now verified, and an endpoint that cannot carry the bucket is refused with INVALID_ENDPOINT naming pathStyle: true as the remedy. Operators pointing at MinIO, LocalStack, or any S3-compatible store by IP address should set pathStyle: true. Endpoints addressed by DNS name are unchanged."
+        },
+        {
+          "title": "Duplicate request headers are canonicalized and transmitted in the form S3 verifies against",
+          "body": "Header names that differ only in case are the same header. SigV4 requires them to be merged into one canonical entry with their values comma-joined and the name listed once in SignedHeaders; the signer instead emitted the name once per occurrence. A receiver recombines repeated field lines into a single comma-separated value, so it canonicalized different bytes than were signed and rejected the request as a signature mismatch. Duplicates are now merged for the signature, and signRequest returns headers carrying those same merged names for the caller to transmit — returning the original keys would have put both spellings on the wire, where the HTTP client keeps only the last, so the peer would still have received a value the signature did not cover. A value's internal spacing reaches the wire unaltered, so a header whose spacing is significant — a multipart boundary, for instance — is transmitted and stored byte for byte rather than collapsed; only the signed form collapses whitespace, which is what the peer reconstructs. Padding around a value is dropped from both forms: it carries no meaning in a field value, and leaving it in place would turn one value's padding into internal whitespace once duplicates are comma-joined, which the peer preserves rather than trims. A request carrying only distinct header names signs and transmits exactly as before."
+        },
+        {
+          "title": "An object-store body that cannot be uploaded is refused instead of stored as nothing",
+          "body": "put() accepted a Buffer, a string, or a stream, and quietly turned anything else into an empty buffer. Passing a plain object — a caller intending to store a record without serializing it first — uploaded a zero-byte object and reported success, so the data was gone and nothing indicated it. A body that is not a Buffer, string, or stream is now refused with INVALID_BODY and nothing is sent. Writing an explicitly empty object with \"\" or an empty Buffer still works."
+        },
+        {
+          "title": "The Redis connect handshake no longer leaves a timer holding the event loop open",
+          "body": "The AUTH and SELECT commands issued during connect used a send path that never cleared their command timeout when the reply arrived, and the timer did not release the event loop. Every connection to a password-protected Redis, or to any database other than 0, left one armed timer behind, so a short-lived process kept running for the length of the command timeout after its work was finished. That path now shares the ordinary command implementation, which clears the timer on both the reply and a failed write."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Response-shape and refusal coverage for the S3 backend and the DNS resolver setter",
+          "body": "b.objectStore's SigV4 backend gains tests for the listing shapes an S3-compatible store may legitimately return but the live suite cannot produce — a listing whose root element is absent, entries omitting Size, LastModified, ETag or VersionId, and delete-marker tombstones — asserting in each case that the fields which ARE present survive rather than only that the absent one becomes null. Pagination inputs are pinned as reaching the wire and surviving canonicalization, and the live suite gains a versioned-listing walk against a real object store: two versions of one key, reads resolving a superseded version by id, a delete marker leaving both data versions intact, and paged list and listVersions walks that visit every entry exactly once. b.network.dns.setServers gains its own test file covering the port and shape refusals and the atomicity of a rejected list; the zero-port case runs in a child process so a regression reports a failure instead of terminating the run."
+        },
+        {
+          "title": "Vendored @blamejs/pki refreshed to 0.4.1",
+          "body": "The vendored @blamejs/pki bundle behind the mutual-TLS CA engine is refreshed from 0.4.0 to 0.4.1. The release is additive: the ASN.1 codec learns to read NumericString — the X.520 syntax of the x121Address and internationalISDNNumber directory attributes — validating it strictly so a value outside the digits-and-space set the type permits is rejected rather than decoded, and the OID registry gains the subjectDirectoryAttributes extension identifier. Its remaining change is to the C509 (CBOR-encoded certificate) schema, which the certificate-authority surface does not use. No behaviour change to that surface — this is a supply-chain currency refresh."
+        }
+      ]
+    }
+  ]
+}

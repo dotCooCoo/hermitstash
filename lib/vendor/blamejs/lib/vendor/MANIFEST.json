@@ -18,7 +18,7 @@
       "hashes": {
         "server": "sha256:2b30a26f728c5349f4c4b47834f862a4f77393b1224fc12b22abe3ce2cfab78f"
       },
-      "refreshedAt": "2026-08-07T00:15:06.175Z"
+      "refreshedAt": "2026-08-08T02:55:48.414Z"
     },
     "@noble/curves": {
       "version": "2.3.0",
@@ -40,7 +40,7 @@
       "hashes": {
         "server": "sha256:b5fe88d1ea780d0581dee6145d666f89d46fc9531b5db35db2e5b16627840890"
       },
-      "refreshedAt": "2026-08-07T00:15:06.175Z"
+      "refreshedAt": "2026-08-08T02:55:48.414Z"
     },
     "@noble/post-quantum": {
       "version": "0.6.1",
@@ -71,7 +71,7 @@
       "hashes": {
         "server": "sha256:f9c94094b3c10fe73dac5343289da582454ea6053494fab2bf66099d9103d6c3"
       },
-      "refreshedAt": "2026-08-07T00:15:06.175Z"
+      "refreshedAt": "2026-08-08T02:55:48.414Z"
     },
     "@simplewebauthn/server": {
       "version": "13.3.2",
@@ -94,7 +94,7 @@
       "hashes": {
         "server": "sha256:e83195dc9f189385da9c856ef38843f4466f93ea8f3d7fc2efcb1e1b18da6f20"
       },
-      "refreshedAt": "2026-08-07T00:15:06.175Z"
+      "refreshedAt": "2026-08-08T02:55:48.414Z"
     },
     "SecLists-common-passwords-top-10000": {
       "version": "10k-most-common (master)",
@@ -114,7 +114,7 @@
       },
       "runtime_artifact": "lib/vendor/common-passwords-top-10000.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-08-07T00:15:06.175Z"
+      "refreshedAt": "2026-08-08T02:55:48.414Z"
     },
     "bimi-trust-anchors": {
       "version": "operator-managed",
@@ -139,7 +139,7 @@
       },
       "runtime_artifact": "lib/vendor/bimi-trust-anchors.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-08-07T00:15:06.175Z"
+      "refreshedAt": "2026-08-08T02:55:48.414Z"
     },
     "publicsuffix-list": {
       "version": "master",
@@ -159,10 +159,10 @@
       },
       "runtime_artifact": "lib/vendor/public-suffix-list.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-08-07T00:15:06.175Z"
+      "refreshedAt": "2026-08-08T02:55:48.414Z"
     },
     "@blamejs/pki": {
-      "version": "0.4.0",
+      "version": "0.4.1",
       "license": "Apache-2.0",
       "author": "blamejs",
       "source": "https://github.com/blamejs/pki",
@@ -182,12 +182,12 @@
         "server": "lib/vendor/blamejs-pki.cjs"
       },
       "bundler": "esbuild --format=cjs --platform=node --external:crypto --external:node:crypto",
-      "bundledAt": "2026-08-06T00:00:00Z",
-      "cpe": "cpe:2.3:a:blamejs:pki:0.4.0:*:*:*:*:node.js:*:*",
+      "bundledAt": "2026-08-07T00:00:00Z",
+      "cpe": "cpe:2.3:a:blamejs:pki:0.4.1:*:*:*:*:node.js:*:*",
       "hashes": {
-        "server": "sha256:07acf69f09e6f87f939343d49c23438f56a0a6f0b135ba2880eaa0e712192fd4"
+        "server": "sha256:32241b4cb9744ddb43a3ae66d796331d2a77e02037ed1828f39e8c358bfef66e"
       },
-      "refreshedAt": "2026-08-07T00:15:06.175Z"
+      "refreshedAt": "2026-08-08T02:55:48.414Z"
     }
   }
 }
