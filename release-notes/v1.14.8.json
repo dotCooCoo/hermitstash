@@ -1,0 +1,26 @@
+{
+  "version": "1.14.8",
+  "date": "2026-08-08",
+  "headline": "Refresh the container base image for upstream glibc fixes",
+  "summary": "The base image was pinned to a rebuild from seven weeks earlier and had missed the glibc updates published since. The pin now points at a current rebuild.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Refreshed the container base image",
+          "body": "The image is pinned to an immutable base digest so builds stay reproducible and a republished tag cannot swap the base underneath a signed image. The cost of that guarantee is that a pin does not pick up upstream rebuilds on its own, and this one had fallen seven weeks behind — long enough to miss several glibc updates, including CVE-2026-6791. The pin now points at a current rebuild carrying glibc 2.43-r12. Pull the new image to take the fix; nothing else changes."
+        }
+      ]
+    },
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "The release checks whether base-image pins have gone stale",
+          "body": "Each pinned base image is compared against the digest its tag resolves to now, and drift is reported with the replacement digest ready to paste. Drift is a warning rather than a failure: these bases rebuild continuously, so failing on drift would block nearly every release and encourage bumping the pin blindly to quiet the check. What does fail is a pin that no longer resolves, a base image carrying no digest at all, or a file the check cannot read — each means either the build is already broken or the check is not actually running. This is the gap that let the pin above age unnoticed."
+        }
+      ]
+    }
+  ]
+}

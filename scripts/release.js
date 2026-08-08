@@ -53,6 +53,11 @@
  *              gate against the vendored blamejs gate and lists detector classes
  *              blamejs has that HS hasn't adopted (= candidate new checks /
  *              features to implement). Surfaces drift; never blocks the cut.
+ *   base       base-currency — every pinned base-image digest vs the digest its
+ *              tag resolves to now. Drift WARNS (these bases rebuild daily, so
+ *              failing on drift would block nearly every cut and invite blind
+ *              repinning); a pin that no longer resolves, an unpinned base, or
+ *              an unparsable Dockerfile FAILS.
  *
  * Flags:
  *   --minor    bump minor instead of patch (bump / all)
@@ -513,6 +518,30 @@ function patternsGate() {
   return 0;
 }
 
+// ---- base-image currency ------------------------------------------------
+
+// Compares every pinned base-image digest against the digest its tag resolves
+// to now. Runs as a child process because the resolver is asynchronous (it
+// talks to the registries over HTTPS) while this runner is synchronous
+// throughout — the same shape vendorGate uses for the SBOM sub-gate.
+//
+// Its own exit code carries the severity: drift is reported and returns 0,
+// while a broken or unparsable pin returns 1. That split lives in the script so
+// the CI step and this gate cannot disagree about what blocks a release.
+function baseGate() {
+  var res = cp.spawnSync("node", [path.join("scripts", "check-base-currency.js")], {
+    cwd: REPO,
+    stdio: ["ignore", "inherit", "inherit"],
+  });
+  if (res.error) {
+    console.log(red("\n== base-currency =="));
+    console.log(red("  ✗ could not run the base-currency check: " + res.error.message));
+    console.log(dim("    failing rather than passing — an unrun check is not a passed one"));
+    return 1;
+  }
+  return res.status === 0 ? 0 : 1;
+}
+
 // ---- local gate runner --------------------------------------------------
 
 // Run a node script as a gate; print pass/fail, return 0/1.
@@ -688,8 +717,14 @@ function cmdPreflight() {
   var actionsCode = actionsGate();
   var vendorCode = vendorGate();
   patternsGate(); // advisory — surfaces new blamejs codebase-patterns detectors; never blocks
+  // Digest drift on a base image only WARNS — these bases rebuild continuously, so
+  // failing on drift would block nearly every cut and the pressure would be to bump
+  // the pin blindly. A non-zero here means the check itself could not run, or the
+  // reproducibility guarantee is already broken (a pin that no longer resolves, an
+  // unpinned base, an unparsable Dockerfile) — those do block.
+  var baseCode = baseGate();
 
-  if (fails || actionsCode || vendorCode) {
+  if (fails || actionsCode || vendorCode || baseCode) {
     console.log(red("\n  ✗ preflight failed — resolve the above before cutting"));
     if (driftFail) console.log(dim("  changelog drift → run `node scripts/release.js changelog`, then re-stage"));
     return 1;
@@ -985,6 +1020,7 @@ function cmdHelp() {
     "    actions    actions-currency gate only (paste-ready owner/repo@<sha> # vX.Y.Z)",
     "    vendor     vendor-currency gate only (blamejs)",
     "    patterns   patterns-currency advisory — new blamejs codebase-patterns detectors to adopt",
+    "    base       base-currency — pinned base-image digests vs their tags (drift warns; broken pin fails)",
     "    e2e        full suite from ../hermitstash-sync",
     "    watch      follow the tag's public Docker run + confirm the GitHub Release",
     "    trivy      point at the tag's post-release Trivy scan",
@@ -1016,7 +1052,7 @@ function main() {
 
   var stages = {
     status: cmdStatus, bump: cmdBump, changelog: cmdChangelog, preflight: cmdPreflight, e2e: cmdE2e,
-    actions: actionsGate, vendor: vendorGate, patterns: patternsGate, commit: cmdCommit, sync: cmdSync,
+    actions: actionsGate, vendor: vendorGate, patterns: patternsGate, base: baseGate, commit: cmdCommit, sync: cmdSync,
     tag: cmdTag, watch: cmdWatch, trivy: cmdTrivy, all: cmdAll, help: cmdHelp,
   };
   var fn = stages[sub];
