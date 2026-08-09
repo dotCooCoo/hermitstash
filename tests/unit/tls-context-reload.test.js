@@ -84,10 +84,16 @@ describe("TLS certificate reload preserves the mTLS trust bundle", function () {
       key: serverCert.key,
       ca: [ca.caCertPem],
       requestCert: true,
-      rejectUnauthorized: false,   // observe the verdict rather than dropping
+      // Refuse rather than flag. Accepting the connection and reporting
+      // socket.authorized would test the same thing one step earlier, but it
+      // asks a listener to keep talking to a peer it could not verify — the
+      // posture this file exists to defend. Refusing means the dropped-trust
+      // case arrives as a handshake failure, which is also what an operator
+      // would actually see.
+      rejectUnauthorized: true,
       minVersion: "TLSv1.3",
     }, function (s) {
-      s.end(s.authorized ? "authorized" : "unauthorized");
+      s.end("authorized");
     });
 
     await new Promise(function (r) { server.listen(0, "127.0.0.1", r); });
@@ -104,9 +110,14 @@ describe("TLS certificate reload preserves the mTLS trust bundle", function () {
         key: serverCert.key,
         minVersion: "TLSv1.3",
       });
+      // "authorized" is written only from the connection handler, which a
+      // refused peer never reaches. Refusal shows up two ways depending on how
+      // far the handshake got — a client-side alert, or a socket closed with no
+      // response — so the assertion is that the client did not get authorized,
+      // rather than one particular shape of failure.
       var dropped = await probeAuthorized(port, clientCert.cert, clientCert.key, ca.caCertPem);
-      assert.equal(dropped, "unauthorized",
-        "omitting ca on reload must be observable — if this now says authorized, Node changed and the hazard comment is stale");
+      assert.notEqual(dropped, "authorized",
+        "omitting ca on reload must stop the client being authorized — if it still is, Node changed and the hazard comment is stale");
 
       // The PRODUCTION builder, not a copy of it. Asserting against a
       // hand-written object here would pass just as happily after the fix was
