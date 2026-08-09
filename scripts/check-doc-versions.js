@@ -64,12 +64,29 @@ function sourcesOfTruth(repoRoot) {
     throw new Error('package.json engines.node ("' + nodeRange + '") is not a plain floor like ">=24.19.0"');
   }
 
+  // MANIFEST states that a primitive's browser bundle and the copy blamejs
+  // vendors for the server must track the same upstream release. Nothing
+  // enforced it, so a framework bump that moved only the nested half left the
+  // browser half behind with every doc reference still agreeing with whichever
+  // half it happened to name. Compare the two directly; a mismatch is reported
+  // rather than thrown so --fix can still correct the plain version references.
+  var nested = (pkgs.blamejs && pkgs.blamejs.components) || {};
+  var skew = [];
+  ["@noble/ciphers", "@noble/post-quantum"].forEach(function (name) {
+    var server = nested[name] && nested[name].version;
+    var browser = pkgs[name] && pkgs[name].version;
+    if (server && browser && server !== browser) {
+      skew.push(name + ": browser bundle is " + browser + ", blamejs vendors " + server);
+    }
+  });
+
   return {
     blamejs:     version("blamejs"),
     nobleCiphers: version("@noble/ciphers"),
     nobleHashes:  version("@noble/hashes"),
     noblePq:      version("@noble/post-quantum"),
     nodeFloor:    nodeFloor,
+    skew:         skew,
   };
 }
 
@@ -89,6 +106,14 @@ function rulesFor(s) {
     { label: "@noble/ciphers (browser)",  re: /noble-ciphers\) \(browser only\) \| (\d+\.\d+\.\d+)/g,                     expect: s.nobleCiphers },
     { label: "@noble/hashes (browser)",   re: /noble-hashes\) \(browser only\) \| (\d+\.\d+\.\d+)/g,                      expect: s.nobleHashes },
     { label: "@noble/post-quantum (browser)", re: /noble-post-quantum\) \(browser only\) \| (\d+\.\d+\.\d+)/g,            expect: s.noblePq },
+    // Attribution headings. Only blamejs was anchored, so a nested bump moved
+    // the manifest and left these stating the previous release.
+    { label: "@noble/ciphers licence heading",      re: /## @noble\/ciphers v(\d+\.\d+\.\d+)/g,      expect: s.nobleCiphers },
+    { label: "@noble/hashes licence heading",       re: /## @noble\/hashes v(\d+\.\d+\.\d+)/g,       expect: s.nobleHashes },
+    { label: "@noble/post-quantum licence heading", re: /## @noble\/post-quantum v(\d+\.\d+\.\d+)/g, expect: s.noblePq },
+    // The threat model's primitive table names the same versions in prose.
+    { label: "@noble/ciphers (threat model)", re: /`@noble\/ciphers` (\d+\.\d+\.\d+)/g, expect: s.nobleCiphers },
+    { label: "@noble/hashes (threat model)",  re: /`@noble\/hashes` (\d+\.\d+\.\d+)/g,  expect: s.nobleHashes },
     // Node floor, stated several ways across the docs.
     { label: "Node.js runtime floor",     re: /Node\.js (\d+\.\d+\.\d+)\+/g,                                              expect: s.nodeFloor },
   ];
@@ -115,6 +140,11 @@ function checkDocs(repoRoot) {
   repoRoot = repoRoot || REPO_ROOT;
   var s = sourcesOfTruth(repoRoot);
   var problems = [];
+  s.skew.forEach(function (line) {
+    problems.push("  ~ lib/vendor/MANIFEST.json: " + line +
+      " — the two halves of one primitive must track the same upstream release." +
+      " Refresh the browser bundle: scripts/vendor-update.sh <package> <version>");
+  });
   rulesFor(s).forEach(function (rule) {
     var r = evalRule(repoRoot, rule);
     if (r.matches === 0) {

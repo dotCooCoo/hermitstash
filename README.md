@@ -91,7 +91,7 @@ All cryptographic operations use NIST-standardized post-quantum algorithms:
 | **Symmetric** | XChaCha20-Poly1305 | RFC 8439 extended | Data encryption (192-bit nonce, constant-time) |
 | **KDF** | SHAKE256 | FIPS 202 (XOF) | Key derivation from KEM shared secrets |
 | **Hash** | SHA3-512 | FIPS 202 | Integrity, email/IP hashing, checksums |
-| **HMAC** | HMAC-SHA3-512 | FIPS 202 | Webhook signing, token verification |
+| **Webhook MAC** | HMAC-SHA256 (Standard Webhooks) | RFC 2104 | Webhook delivery signatures |
 | **Password** | Argon2id | RFC 9106 | Memory-hard password hashing |
 | **Signatures** | SLH-DSA-SHAKE-256f (default) / ML-DSA-87 (legacy) | FIPS 205 / 204 | Digital signatures. New keys default to SLH-DSA-SHAKE-256f; existing ML-DSA-87 keys continue to verify (algorithm auto-detected from key PEM) |
 | **mTLS certificates** | ML-DSA-87 (sync CA) / ECDSA-P384-SHA384 (browser CA) | FIPS 204 / NIST P-384 | Sync/machine client certs are signed by a post-quantum CA; browser-import certs are signed by a separate classical CA that browsers and OS keystores can actually verify and import |
@@ -315,7 +315,7 @@ Built on Node.js 24.19.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - Audit Log settings -- retention period (or keep indefinitely), record full IP addresses for investigations (off by default, where the source IP is stored as a one-way hash the operator cannot reverse), capture the client user-agent, and the tamper-evidence chain + encrypted archival. IP and user-agent changes apply to new entries only
 - Settings panel -- 11 tabs (Branding, General, Auth, Uploads, Storage, Theme, Email, Security, Environment, Backup, Audit Log)
 - API keys with scoped permissions (upload, read, admin) validated against a canonical enum and enforced on read and mutating routes
-- Webhooks with HMAC-SHA3-512 signed payloads, per-hook delivery log, enable/disable toggle
+- Webhooks signed with the Standard Webhooks scheme (timestamped, replay-bounded), per-hook delivery log, enable/disable toggle
 - IP blocklist
 - Database backup (serves encrypted-at-rest copy), CSV exports (with formula injection protection)
 - Automated off-site backup to S3-compatible storage (AWS, R2, MinIO, B2, DO Spaces) with passphrase-encrypted vault key, incremental file manifests, configurable retention, and manual trigger from admin UI. Full-scope backups include all storage objects (bundles and vault files)
@@ -357,8 +357,7 @@ Built on Node.js 24.19.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - `PQC_ENFORCE=false` disables gate for transition periods (PQC preferred but not required)
 - PQC TLS -- conditional HTTPS with SecP384r1MLKEM1024 + X25519MLKEM768 + SecP256r1MLKEM768 hybrid key exchange (TLS 1.3 only, Level 5 preferred)
 - Certificate auto-reload on Let's Encrypt renewal (file poll every minute)
-- PQC outbound HTTPS agent -- all S3, SMTP, Resend, webhook, OAuth calls use PQC hybrid TLS groups
-- `PQC_OUTBOUND_ENFORCE=false` allows classical fallback for outbound connections
+- PQC outbound HTTPS agent -- S3, SMTP, Resend, webhook and OAuth calls offer the hybrid groups ahead of classical X25519 at a TLS 1.3 floor, so a hybrid is used whenever the upstream supports one. There is no outbound equivalent of the inbound gate: an upstream that offers no hybrid still connects, and each such handshake is recorded as a `tls.classical_downgrade` audit event naming the group and host
 - mTLS for sync clients -- server runs its own Certificate Authority. Two CAs sign under different algorithms: a **sync CA** (post-quantum ML-DSA-87) for machine/sync client certs, and a separate **browser CA** (classical ECDSA-P384-SHA384) for the certs humans import into a browser/OS keystore. The TLS server trusts both, and each rotates and revokes independently. See "mTLS certificate authorities" below
 - Client certificate generation on sync token creation with one-click PEM bundle download
 - Certificate revocation table with SHA3-512 hashed fingerprint lookups
@@ -1346,36 +1345,62 @@ Event filter: set to `*` for all events, or a specific event name. Additional ev
 
 ### Signature verification
 
-Every webhook request includes an `X-Webhook-Signature` header containing an HMAC-SHA3-512 hex digest of the raw JSON body, signed with the webhook secret:
+Every webhook request is signed with the [Standard Webhooks](https://www.standardwebhooks.com/) scheme and carries three headers:
 
 ```
-X-Webhook-Signature: a1b2c3d4e5f6...
+webhook-id: msg_<token>
+webhook-timestamp: <unix seconds>
+webhook-signature: v1,<base64>
 ```
+
+The signature is `base64(HMAC-SHA256(secret, "<webhook-id>.<webhook-timestamp>.<raw body>"))`. The secret is the 64-character hex token shown once when the webhook is created; its UTF-8 bytes are the key. Reject any delivery whose `webhook-timestamp` is outside your tolerated clock skew — that is what stops a captured request being replayed. The `v1,` prefix is a version tag, and the header may carry several space-separated signatures during a secret rotation, so accept the delivery if any one of them matches.
 
 Verify in your handler:
 
 ```javascript
 const crypto = require("crypto");
 
-function verifyWebhook(body, signature, secret) {
+function verifyWebhook(headers, body, secret) {
+  const id = headers["webhook-id"];
+  const ts = headers["webhook-timestamp"];
+  const sig = headers["webhook-signature"];
+  if (!id || !ts || !sig) return false;
+  if (Math.abs(Math.floor(Date.now() / 1000) - Number(ts)) > 300) return false;
   const expected = crypto
-    .createHmac("sha3-512", secret)
-    .update(body)
-    .digest("hex");
-  return crypto.timingSafeEqual(
-    Buffer.from(signature, "hex"),
-    Buffer.from(expected, "hex")
-  );
+    .createHmac("sha256", Buffer.from(secret, "utf8"))
+    .update(`${id}.${ts}.${body}`)
+    .digest("base64");
+  return sig.split(" ").some(function (part) {
+    const [version, value] = part.split(",");
+    if (version !== "v1" || !value || value.length !== expected.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(value), Buffer.from(expected));
+  });
 }
 ```
 
 ```python
-import hmac, hashlib
+import base64, hashlib, hmac, time
 
-def verify_webhook(body: bytes, signature: str, secret: str) -> bool:
-    expected = hmac.new(secret.encode(), body, hashlib.sha3_512).hexdigest()
-    return hmac.compare_digest(signature, expected)
+def verify_webhook(headers: dict, body: bytes, secret: str) -> bool:
+    wid = headers.get("webhook-id")
+    ts = headers.get("webhook-timestamp")
+    sig = headers.get("webhook-signature")
+    if not (wid and ts and sig):
+        return False
+    if abs(int(time.time()) - int(ts)) > 300:
+        return False
+    signed = f"{wid}.{ts}.".encode() + body
+    expected = base64.b64encode(
+        hmac.new(secret.encode(), signed, hashlib.sha256).digest()
+    ).decode()
+    for part in sig.split(" "):
+        version, _, value = part.partition(",")
+        if version == "v1" and hmac.compare_digest(value, expected):
+            return True
+    return False
 ```
+
+The body must be the raw bytes as received. Parsing and re-serialising the JSON changes the signed input and the signature will not match.
 
 ### SSRF protection
 
@@ -1412,10 +1437,10 @@ Managed via `scripts/vendor-update.sh`:
 
 | Vendored | Version | Author | Purpose |
 |----------|---------|--------|---------|
-| [`blamejs`](https://github.com/blamejs/blamejs) | 0.18.16 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, etc. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
-| [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) (browser only) | 2.2.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | XChaCha20-Poly1305 in the browser vault + outbox flows |
+| [`blamejs`](https://github.com/blamejs/blamejs) | 0.18.18 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, etc. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
+| [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) (browser only) | 2.3.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | XChaCha20-Poly1305 in the browser vault + outbox flows |
 | [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (browser only) | 2.3.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | SHAKE256 KDF in the browser |
-| [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) (browser only) | 0.6.1 | [Paul Miller](https://github.com/paulmillr) (MIT) | ML-KEM-1024 in the browser vault flow |
+| [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) (browser only) | 0.7.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | ML-KEM-1024 in the browser vault flow |
 
 blamejs internally vendors @noble/ciphers, @noble/post-quantum, @simplewebauthn/server,
 @blamejs/pki (the zero-dependency X.509 toolkit backing the mTLS CA engine), and the

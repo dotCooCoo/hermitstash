@@ -23,7 +23,6 @@ var logger = require("./app/shared/logger");
 var { sendHtml } = require("./lib/template");
 var certUtils = require("./lib/cert-utils");
 var mtlsCa = require("./lib/mtls-ca");
-var mtlsCaBrowser = require("./lib/mtls-ca-browser");
 
 // WebSocket upgrade — handshake handled by b.websocket.handleUpgrade,
 // which writes the 101 and returns a WebSocketConnection (or null on
@@ -987,12 +986,21 @@ var INTERNAL_TLS_PORT = parseInt(process.env.INTERNAL_TLS_PORT, 10) || 3001;
  * group before TLS begins. With enforcement off, the framework's full list
  * keeps the classical fallback for compatibility.
  */
+// C.TLS_GROUP_PREFERENCE is already in this project's order — strongest hybrid
+// first — rather than the framework's, which leads with the 768 hybrid for
+// interoperability. See lib/constants.js for why that ordering is overridden
+// and what it costs. Under enforcement the classical groups are dropped, so
+// only hybrids remain.
 function listenerGroupList() {
-  if (!PQC_ENFORCE) return b.constants.TLS_GROUP_CURVE_STR;
-  return b.constants.TLS_GROUP_PREFERENCE
-    .filter(function (g) { return /MLKEM/i.test(g); })
-    .join(":");
+  var groups = C.TLS_GROUP_PREFERENCE;
+  if (PQC_ENFORCE) groups = groups.filter(function (g) { return /MLKEM/i.test(g); });
+  return groups.join(":");
 }
+
+// Trust bundle + reload-context assembly live in lib/tls-context.js so the
+// renewal path and its regression test build the same object; see there for why
+// that matters.
+var tlsContext = require("./lib/tls-context");
 var tlsOptions = null;
 var tlsEnabled = false;
 
@@ -1006,26 +1014,10 @@ if (fs.existsSync(TLS_CERT) && tlsKeyAvailable()) {
   try {
     // Read from the singleton's resolved cert path — operators may have
     // overridden it via MTLS_CA_CERT to an absolute path outside DATA_DIR.
+    // The WebSocket upgrade guard below uses this as its "is mTLS configured
+    // at all" signal, so it stays a separate binding from the trust bundle.
     var mtlsCaCert = mtlsCa.exists() ? fs.readFileSync(mtlsCa.paths.caCert) : null;
-    // mTLS trust bundle (dual-CA): the server trusts BOTH the sync CA (ca.crt —
-    // may be ML-DSA-87 after the PQC migration) AND the classical browser CA
-    // (ca-browser.crt), so machine sync clients and browser-imported PKCS#12 client
-    // certs both authenticate. During a sync-CA algorithm migration the superseded
-    // CA (ca.prev.crt) is trusted too, so existing sync certs keep verifying while
-    // their owners re-enroll onto the new CA. Each is read from the singleton's
-    // RESOLVED path (operators may override via MTLS_CA_CERT / MTLS_BROWSER_CA_CERT).
-    var caList = [];
-    if (mtlsCaCert) caList.push(mtlsCaCert);
-    if (mtlsCaBrowser.exists()) caList.push(fs.readFileSync(mtlsCaBrowser.paths.caCert));
-    // The retained superseded sync CA is read from the handle's own resolved
-    // path (b.mtlsCa owns ca.prev.crt — rotate()/commit({retainPrevious}) writes
-    // it, dropRetained() removes it), not a separate constant. A synchronous read
-    // is correct here: this runs once at boot, AFTER runBootMigration reconciled
-    // the handle, so there is no concurrent rotation for loadTrustBundle()'s
-    // locked snapshot to guard against.
-    if (mtlsCa.paths.caCertPrev && fs.existsSync(mtlsCa.paths.caCertPrev)) {
-      caList.push(fs.readFileSync(mtlsCa.paths.caCertPrev));
-    }
+    var caList = tlsContext.caListSync();
     var haveMtlsCa = caList.length > 0;
     // Hard mTLS enforcement at the TLS layer — boot-time only.
     //   unset:  follow DB config.enforceMtls for app-layer soft enforcement
@@ -1128,7 +1120,11 @@ server.timeout = config.uploadTimeout;
 // deletes the plaintext, and reloads. This means certbot/acme.sh hooks
 // don't need to know about the sealing — they keep writing plaintext as
 // they always have, and the watcher converts on the fly.
-function reloadTlsContext() {
+// async because the trust bundle is read through each authority's locked
+// snapshot — a reload can land mid-rotation, where independent file reads see a
+// torn state. Callers are a file watcher and a signal handler, neither of which
+// awaits, so every failure path has to be caught in here.
+async function reloadTlsContext() {
   // ACME reconcile: if we're in sealed-required mode and a plaintext
   // privkey.pem exists, that's a freshly-renewed key from ACME. Seal it.
   var modeRequired = (process.env.TLS_KEY_SEALED || "auto").toLowerCase() === "required";
@@ -1158,14 +1154,20 @@ function reloadTlsContext() {
   }
 
   try {
-    var newContext = {
+    // setSecureContext REPLACES the context wholesale — every option the caller
+    // omits is assigned undefined rather than carried over. So the trust bundle
+    // and the certificate-compression list have to be supplied again here, or
+    // the first renewal silently turns client-certificate verification off and
+    // stops compressing the (large, ML-DSA-87) chain for the rest of the
+    // process. requestCert / rejectUnauthorized are server-level, not part of
+    // the secure context, and do survive.
+    var newContext = await tlsContext.reloadContext({
       cert: fs.readFileSync(TLS_CERT),
       key: pemSeal.loadPemDispatch(TLS_KEY, TLS_KEY_SEALED, "TLS_KEY_SEALED"),
       ecdhCurve: listenerGroupList(),
-      minVersion: "TLSv1.3",
-    };
+    });
     server.setSecureContext(newContext);
-    logger.info("[TLS] Certificate reloaded");
+    logger.info("[TLS] Certificate reloaded", { trustAnchors: newContext.ca ? newContext.ca.length : 0 });
   } catch (e) {
     logger.error("[TLS] Certificate reload failed", { error: e.message });
   }
@@ -1174,12 +1176,22 @@ function reloadTlsContext() {
 if (tlsEnabled) {
   // Poll cadence: 1 minute (was 1 hour pre-v1.9.4). Spec §12.Q2 — cheap
   // polling is fine and shortens the ACME-renewal-to-active-key window.
-  fs.watchFile(TLS_CERT, { interval: C.TIME.minutes(1) }, reloadTlsContext);
+  // reloadTlsContext is async and neither caller awaits it, so each attaches a
+  // rejection handler. Without one, a throw on a path its internal try does not
+  // cover becomes an unhandled rejection, which on this runtime terminates the
+  // process — a failed certificate reload must degrade to a logged error and a
+  // listener still serving the previous certificate, never to an exit.
+  function runTlsReload(reason) {
+    reloadTlsContext().catch(function (e) {
+      logger.error("[TLS] Certificate reload failed", { reason: reason, error: e.message });
+    });
+  }
+  fs.watchFile(TLS_CERT, { interval: C.TIME.minutes(1) }, function () { runTlsReload("cert-file-changed"); });
   // SIGHUP triggers an immediate reload — used by scripts/tls-key-seal.js
   // --reload after manually sealing a freshly-rotated key.
   process.on("SIGHUP", function () {
     logger.info("[TLS] SIGHUP received — reloading TLS context");
-    reloadTlsContext();
+    runTlsReload("sighup");
   });
 }
 

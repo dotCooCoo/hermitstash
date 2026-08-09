@@ -63,6 +63,14 @@ module.exports = [
       // noone bounced on. Prefix intentionally unused vars with `_` to
       // skip the check (argsIgnorePattern + caughtErrorsIgnorePattern).
       "no-unused-vars": ["error", { argsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" }],
+      // Flat config does not enable this by default, and nothing else here was
+      // catching a read of a name that is never declared. A refactor that
+      // deletes a `var` still referenced further down produces code that parses,
+      // lints clean, boots, and then throws ReferenceError the first time that
+      // path runs — which for a request handler means the first request of that
+      // shape, not startup. `no-unused-vars` only sees the other half of that
+      // mistake (a binding left behind), so it cannot substitute.
+      "no-undef": "error",
       "no-console": "off",
       "no-eval": "error",
       "no-implied-eval": "error",

@@ -321,6 +321,8 @@ var VALID_ALLOW_CLASSES = {
   "archive-wrap-partial-recipient": 1,
   "backup-adapter-storage-without-posture-check": 1,
   "bare-canonicalize-walk": 1,
+  "outbound-tls-posture": 1,
+  "secure-context-cert-compression": 1,
   "bare-error-throw": 1,
   "bare-split-on-quoted-header-token-grammar": 1,
   "console-direct": 1,
@@ -1868,7 +1870,13 @@ function testFormatValidatorLengthCap() {
       // anything over the cap just as `.length` does.
       var window = (lines[li-2] || "") + (lines[li-1] || "") +
                    line + (lines[li+1] || "") + (lines[li+2] || "");
-      if (/\.length\s*[><=!]/.test(window) || /byteLength/.test(window)) continue;
+      // A literal `.slice(0, N)` on the tested expression bounds it outright,
+      // which is a stronger guarantee than comparing a length and branching:
+      // there is no path on which the regex sees more than N characters. Only
+      // counted on the test line itself, so a slice of some OTHER value
+      // nearby cannot vouch for this one.
+      if (/\.length\s*[><=!]/.test(window) || /byteLength/.test(window) ||
+          /\.slice\(\s*0\s*,\s*\d+\s*\)/.test(line)) continue;
       bad.push({
         file:    _relPath(files[fi]),
         line:    li + 1,
@@ -3689,6 +3697,26 @@ async function testNoDuplicateCodeBlocks() {
   // so the audit trail records exactly which body of code shares the
   // shape.
   var KNOWN_CLUSTERS = [
+    {
+      // Single-expression accessors in three unrelated domains. The shingle is
+      // a run of `function name() { return <field>; }` bodies sitting next to
+      // each other, not shared behaviour: step-up-policy's acr / acrAny read a
+      // parsed authentication-context claim, safe-schema's _tupleWithRest /
+      // chain return schema builders, and network-tls's postureGeneration
+      // reads the TLS group-preference counter. Nothing is extractable — the
+      // only thing in common is the shape JavaScript gives every getter, and
+      // collapsing them would couple an OIDC claim reader to a schema builder.
+      // The cluster appeared when postureGeneration was added, which shifted
+      // the token window rather than introducing duplication.
+      mode:  "family-subset",
+      files: [
+        "lib/auth/step-up-policy.js:acr",
+        "lib/auth/step-up-policy.js:acrAny",
+        "lib/network-tls.js:postureGeneration",
+        "lib/safe-schema.js:_tupleWithRest",
+        "lib/safe-schema.js:chain",
+      ],
+    },
     {
       // Own-property lookup guard — a JS language idiom, not shared behaviour.
       // `if (!Object.prototype.hasOwnProperty.call(TABLE, key)) throw XError(
@@ -6213,6 +6241,229 @@ function testVendorComponentsAttributedInNotice() {
   _report("NOTICE attributes every vendored MANIFEST component", bad);
 }
 
+// ---- Pattern 48b: outbound TLS constructions merge the shared posture ----
+
+function testSecureContextsAdvertiseCertificateCompression() {
+  // class: secure-context-cert-compression
+  //
+  // A SecureContext built by hand REPLACES whatever the server was configured
+  // with for handshakes that use it, so certificate compression set on the
+  // server does not reach it. That is not obvious, and it has already been got
+  // wrong twice on the inbound side: the mail listeners built their context
+  // without it (and a first fix set the option on the wrapping socket, where
+  // it is silently inert), and the SNI callback served framework-managed
+  // certificates uncompressed while the default vhost compressed. Both send
+  // the same ML-DSA-87 chain, which is the largest thing in the handshake.
+  //
+  // So: a createSecureContext call that builds a context for SERVING must name
+  // the algorithms, or carry a marker saying why it does not.
+  var files = _libFiles();
+  var bad = [];
+  for (var fi = 0; fi < files.length; fi++) {
+    var rel = _relPath(files[fi]);
+    var content;
+    try { content = fs.readFileSync(files[fi], "utf8"); }
+    catch (_e) { continue; }
+    var re = /createSecureContext\s*\(/g;
+    var m;
+    while ((m = re.exec(content)) !== null) {
+      var lineStart = content.lastIndexOf("\n", m.index) + 1;
+      var beforeOnLine = content.slice(lineStart, m.index);
+      if (/\/\//.test(beforeOnLine) || /^\s*\*/.test(beforeOnLine)) continue;   // prose
+      var lineNum = content.slice(0, m.index).split("\n").length;
+      // The options object, plus the few lines above it where a prepared
+      // options variable is usually assembled.
+      var from = content.lastIndexOf("\n", content.lastIndexOf("\n", m.index) - 1);
+      var region = content.slice(from === -1 ? 0 : from, m.index + 600);
+      if (/certificateCompression/.test(region)) continue;
+      bad.push({ file: rel, line: lineNum,
+        content: "createSecureContext does not set certificateCompression — a " +
+                 "context built here replaces the server's, so handshakes using " +
+                 "it send the full uncompressed certificate chain" });
+    }
+  }
+  bad = _filterMarkers(bad, "secure-context-cert-compression");
+  _report("secure contexts advertise RFC 8879 certificate compression", bad);
+}
+
+function testOutboundTlsMergesSharedPosture() {
+  // class: outbound-tls-posture
+  //
+  // The framework's outbound TLS posture — TLS-1.3 floor, hybrid group order,
+  // certificate compression — lives in b.network.tls.outboundPosture(), and
+  // the whole point of having one object is that raising the posture is one
+  // edit rather than N. That only holds if every client actually merges it,
+  // and repeatedly it did not: the Redis client and the syslog sink shipped
+  // with no group preference at all, the WebSocket client set an option
+  // node:tls ignores, the ECH and OCSP paths pinned no groups, the mail
+  // listeners and outbound SMTP were missed entirely, and the OTLP/gRPC sink
+  // negotiated on Node's defaults. Each was found one at a time by review.
+  //
+  // So: a construction that opens an outbound TLS connection must name the
+  // posture inside its own call, or carry an allow marker saying why it is
+  // exempt. Anchored on the call expression rather than the file, because a
+  // file can hold both a posture-carrying dial and a bare one.
+  var files = _libFiles();
+  var CONSTRUCTORS = /(?:\bnodeTls(?:\(\))?\.connect|\btls(?:\(\))?\.connect|new\s+https\.Agent|\bhttps(?:\(\))?\.request|\bhttp2(?:\(\))?\.connect)\s*\(/g;
+  var bad = [];
+  for (var fi = 0; fi < files.length; fi++) {
+    var rel = _relPath(files[fi]);
+    var content;
+    try { content = fs.readFileSync(files[fi], "utf8"); }
+    catch (_e) { continue; }
+    CONSTRUCTORS.lastIndex = 0;
+    var m;
+    while ((m = CONSTRUCTORS.exec(content)) !== null) {
+      // The call expression: from the constructor to the end of its argument
+      // list, bounded so an unterminated call cannot run away to EOF.
+      var region = content.slice(m.index, m.index + 1200);
+      var lineNum = content.slice(0, m.index).split("\n").length;
+      // Skip prose. The header comments describe these constructors by name
+      // ("suitable for tls.connect / new https.Agent(...)"), and flagging a
+      // sentence teaches people to distrust the gate.
+      var lineStart = content.lastIndexOf("\n", m.index) + 1;
+      var beforeOnLine = content.slice(lineStart, m.index);
+      if (/\/\//.test(beforeOnLine) || /^\s*\*/.test(beforeOnLine)) continue;
+      if (/outboundPosture\s*\(/.test(region)) continue;
+      // A session/socket options object built earlier and passed by name is
+      // still fine as long as the posture reached it in the same function.
+      var fnStart = content.lastIndexOf("\nfunction ", m.index);
+      var enclosing = content.slice(fnStart === -1 ? 0 : fnStart, m.index);
+      if (/outboundPosture\s*\(/.test(enclosing)) continue;
+      bad.push({ file: rel, line: lineNum,
+        content: "outbound TLS construction does not merge " +
+                 "networkTls().outboundPosture() — it will negotiate on Node's " +
+                 "defaults and ignore b.network.tls.preferredGroups.set(...)" });
+    }
+  }
+  bad = _filterMarkers(bad, "outbound-tls-posture");
+  _report("outbound TLS constructions merge b.network.tls.outboundPosture()", bad);
+}
+
+// ---- Pattern 48a: README's vendored table states the shipped versions ----
+
+function testReadmeNodeRequirementMatchesEngines() {
+  // README's requirements line is where someone decides which Node to install.
+  // Nothing derived it from package.json, so raising engines.node left the
+  // README advertising the previous floor — install guidance that produces an
+  // npm engine mismatch, on a runtime missing the TLS behaviour the release
+  // depends on. Same shape as the vendored-table drift above: a published
+  // claim that must track a manifest value, with no gate holding it there.
+  var root = path.resolve(__dirname, "..", "..");
+  var bad = [];
+  var pkg, readme;
+  try { pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")); }
+  catch (_e) { _report("README states the supported Node version",
+    [{ file: "package.json", line: 1, content: "unreadable / not JSON" }]); return; }
+  try { readme = fs.readFileSync(path.join(root, "README.md"), "utf8"); }
+  catch (_e) { _report("README states the supported Node version",
+    [{ file: "README.md", line: 1, content: "README.md missing" }]); return; }
+
+  var engines = (pkg.engines && pkg.engines.node) || "";
+  var floor = (engines.match(/(\d+\.\d+\.\d+)/) || [])[1];
+  var line = readme.split("\n").findIndex(function (l) {
+    return l.indexOf("**Requirements:**") === 0;
+  });
+  if (!floor) {
+    bad.push({ file: "package.json", line: 1,
+      content: "engines.node '" + engines + "' has no x.y.z floor to compare against" });
+  } else if (line === -1) {
+    bad.push({ file: "README.md", line: 1,
+      content: "no '**Requirements:**' line naming the supported Node version" });
+  } else {
+    // The line reads "Node.js 24.19+ (...)". Compare on major.minor: the
+    // README states the supported line, not every patch of it.
+    var stated = (readme.split("\n")[line].match(/Node\.js\s+(\d+\.\d+)/) || [])[1];
+    var wanted = floor.split(".").slice(0, 2).join(".");
+    if (stated !== wanted) {
+      bad.push({ file: "README.md", line: line + 1,
+        content: "README advertises Node.js " + stated + "+ but package.json " +
+                 "engines.node requires " + engines + " — anyone following the " +
+                 "README installs a runtime npm will reject" });
+    }
+  }
+  _report("README states the supported Node version", bad);
+}
+
+function testReadmeVendorTableMatchesManifest() {
+  // README carries a per-package table of what blamejs vendors, and operators
+  // read it to decide whether a published advisory applies to them. Nothing
+  // derives it from lib/vendor/MANIFEST.json, so a `vendor-update.sh` run
+  // moves the shipped bundle while the table keeps naming the old version —
+  // exactly how the table came to advertise @blamejs/pki 0.3.25 while 0.4.1
+  // shipped, and @simplewebauthn/server 13.3.0 while 13.3.2 shipped. A row
+  // that is simply MISSING is the same failure one step earlier: @noble/curves
+  // shipped for releases without appearing in the table at all.
+  //
+  // Data entries (the password list, the Public Suffix List, the BIMI
+  // anchors) carry a snapshot date rather than a semver, and the table says
+  // so in its own words; they are matched by presence, not by version string.
+  var root = path.resolve(__dirname, "..", "..");
+  var manifest, readme;
+  try { manifest = JSON.parse(fs.readFileSync(path.join(root, "lib", "vendor", "MANIFEST.json"), "utf8")); }
+  catch (_e) { _report("README vendored table states the shipped versions",
+    [{ file: "lib/vendor/MANIFEST.json", line: 1, content: "unreadable / not JSON" }]); return; }
+  try { readme = fs.readFileSync(path.join(root, "README.md"), "utf8"); }
+  catch (_e) { _report("README vendored table states the shipped versions",
+    [{ file: "README.md", line: 1, content: "README.md missing" }]); return; }
+
+  // Entries whose manifest "version" is a snapshot marker, not a semver the
+  // table can quote verbatim. Each states why in its own words.
+  var SNAPSHOT_ENTRIES = {
+    "SecLists-common-passwords-top-10000":
+      "bundled as a dated master snapshot; the table quotes 'master snapshot' because upstream publishes no versioned release",
+    "publicsuffix-list":
+      "bundled as a dated master snapshot; upstream is a continuously-updated .dat with a timestamp header, not a semver",
+    "bimi-trust-anchors":
+      "operator-managed trust anchors; the shipped default carries no third-party content and no upstream version",
+  };
+
+  var lines = readme.split("\n");
+  var bad = [];
+  Object.keys(manifest.packages || {}).forEach(function (key) {
+    if (SNAPSHOT_ENTRIES[key]) return;
+    var entry = manifest.packages[key];
+    var declared = entry.version;
+    var rowIdx = -1;
+    for (var i = 0; i < lines.length; i += 1) {
+      if (lines[i].indexOf("| [`" + key + "`]") === 0) { rowIdx = i; break; }
+    }
+    if (rowIdx === -1) {
+      bad.push({ file: "README.md", line: 1,
+        content: "vendored package '" + key + "' (v" + declared +
+                 ") has no row in the README vendored-dependency table" });
+      return;
+    }
+    // `| [`pkg`](url) | VERSION | author | purpose |` — cell 2 is the version.
+    var shown = lines[rowIdx].split("|").map(function (c) { return c.trim(); })[2];
+
+    // A bundle that EMBEDS other packages ships more versions than its own,
+    // and an operator reading this table to decide whether an advisory applies
+    // must see all of them. noble-post-quantum embeds @noble/ciphers and
+    // @noble/curves at 2.2.0 while the table's own rows for those packages
+    // show the 2.3.0 standalone copies — so checking a 2.2.0 advisory against
+    // the table alone answers "not shipped", wrongly. Every embedded version
+    // must appear in the parent's version cell.
+    var wanted = [declared];
+    var comps = entry.components;
+    if (comps && typeof comps === "object") {
+      Object.keys(comps).forEach(function (subName) {
+        var sub = comps[subName];
+        var subVer = (sub && typeof sub === "object" && sub.version) || declared;
+        if (wanted.indexOf(subVer) === -1) wanted.push(subVer);
+      });
+    }
+    var absent = wanted.filter(function (v) { return shown.indexOf(v) === -1; });
+    if (absent.length > 0) {
+      bad.push({ file: "README.md", line: rowIdx + 1,
+        content: "README's version cell for " + key + " reads '" + shown +
+                 "' but lib/vendor/MANIFEST.json ships " + wanted.join(" + ") +
+                 " (missing: " + absent.join(", ") + ")" });
+    }
+  });
+  _report("README vendored table states the shipped versions", bad);
+}
+
 // ---- Pattern 47: documented script flags must exist in the script ----
 
 function testDocumentedScriptFlagsExist() {
@@ -6360,6 +6611,15 @@ var KNOWN_ANTIPATTERNS = [
     regex: /ruleId\s*\|\|\s*['"][a-zA-Z0-9_-]+\.refused['"]/,
     allowlist: ["lib/guard-auth.js"],
     reason: "v0.15.0 #103 — the guard sanitize/parse refuse-on-critical|high throw (err(issue.ruleId || '<x>.refused', 'guard<Name>.<op>: ' + issue.snippet)) is owned by gateContract.throwOnRefusalSeverity; 18 guards reuse it (this was the failing STRONG-DUP fp:f349a8d1f51b before extraction). A hand-rolled `issues[i].ruleId || '<x>.refused'` throw re-implements it. lib/guard-auth.js is the one genuine holdout (its message embeds issues[i].source: 'guardAuth.sanitize [<source>]:') pending task #104; the primitive itself uses a `fallback` variable (no .refused literal) so it does not match. Any other lib file with this shape must call gateContract.throwOnRefusalSeverity (the severities / op options cover the critical-only + parse variants).",
+  },
+  {
+    id: "client-address-must-compose-trustedClientIp",
+    primitive: "b.requestHelpers.trustedClientIp",
+    scanScope: "lib",
+    skipCommentLines: true,
+    regex: /headers\s*\[\s*["']x-forwarded-for["']\s*\]/,
+    allowlist: [],
+    reason: "Reading X-Forwarded-For straight off the request headers has no peer gate, and the header is set by anyone who can reach the listener. Whatever the value keys — a rate-limit bucket, an IP-bound grant, an anonymous rollout bucket — the caller then chooses it for themselves by resending with a different value. b.requestHelpers.trustedClientIp owns this: it honours the header only when the immediate TCP peer is one of the operator's declared trustedProxies, folds an IPv4-mapped IPv6 peer so a dual-stack listener still matches, walks a multi-hop chain right-to-left to the first untrusted address, and reports peerGated so a gate can refuse to run ungated. Its forwardedHeaders opt covers deployments where the address arrives as CF-Connecting-IP or X-Real-IP instead, so needing a different header is not a reason to hand-roll the read. This shipped once in flag-evaluation-context's anonymous targeting key, where a client could pick their own flag variant. Empty allowlist: request-helpers.js reads the family through a variable, so the primitive's own home does not match this shape either.",
   },
   {
     id: "byte-cap-must-vet-type-before-measuring",
@@ -11798,6 +12058,29 @@ var KNOWN_ANTIPATTERNS = [
     reason: "A db-handle primitive that hand-rolls DML by concatenating a SQL string literal into db.prepare/runSql re-implements b.sql's identifier quoting + sealed-field rewrite and drifts from db.from() — the tenant-quota storage query accrued reserved-word, schema-qualified and sealed-column parity defects across six review rounds doing exactly this. Compose `sql.select/insert/update/delete(table, { dialect: 'sqlite', quoteName: true }).….toSql()` and `db.prepare(built.sql)` instead (skip the unseal loop when you need raw on-disk bytes). Matches an inline SELECT/INSERT/UPDATE/DELETE literal passed to db.prepare/runSql (optionally wrapped in one helper call such as safeSql.assertSingleStatement); a db.prepare(<variable>) built by b.sql does not match, and DDL/PRAGMA is out of scope. See lib/tenant-quota.js and lib/dsr.js for the composed shape.",
   },
 
+
+  {
+    id: "tls-group-preference-under-an-inert-key",
+    primitive: "b.network.tls",
+    scanScope: "lib",
+    skipCommentLines: true,
+    // node:tls reads the TLS 1.3 named-group preference as `ecdhCurve` and
+    // nothing else. A key it does not implement is accepted and silently
+    // ignored -- tls.createSecureContext({ groups }) and { curves } both
+    // return a context that negotiates on the runtime defaults, while a
+    // malformed ecdhCurve throws. Routing the group list through one of those
+    // names therefore produces code that reads as though it pins the
+    // preference and pins nothing: the WebSocket client shipped `curves` that
+    // way, and the shared context filler emitted `groups`, so an operator
+    // narrowing the list had it apply to neither. Matches only an assignment
+    // whose value is visibly the group preference (an ecdhCurve, a key-share
+    // list, an ML-KEM group name, the shared constant), which is what makes
+    // this a preference routed through a dead name rather than an unrelated
+    // property that happens to be spelled `groups`.
+    regex: /\b(?:groups|curves|namedCurves)\s*[:=]\s*[^;\r\n]*(?:ecdhCurve|[Kk]eyShares|MLKEM|TLS_GROUP)/,
+    allowlist: [],
+    reason: "The TLS named-group preference must be assigned to `ecdhCurve` -- the only spelling node:tls reads. `groups` / `curves` / `namedCurves` are accepted and ignored by tls.connect and tls.createSecureContext, so a preference assigned to one of them never reaches the handshake while looking like it does: b.wsClient shipped a `curves` list that was inert for several releases, and network-tls.applyToContext filled `groups`, leaving every operator https.Server built through it negotiating on Node's defaults instead of the configured key shares. Assign the resolved list to `ecdhCurve` and emit nothing under a second name -- a duplicate key reads as a second handle on the preference that an operator can narrow to no effect. Matches only where the assigned value is visibly the group preference.",
+  },
 ];
 
 // @example placeholder detection lives in
@@ -12122,7 +12405,15 @@ function testHostnameCompareTrailingDotNormalize() {
                    /while[\s\S]{0,80}length\s*>\s*0[\s\S]{0,80}charAt[\s\S]{0,80}===\s*"\."/.test(content) ||
                    // end-anchored regex strip of one-or-more trailing dots:
                    // .replace(/\.$/, ...) / .replace(/\.+$/, ...) / .replace(/\.*$/, ...)
-                   /\.replace\(\s*\/\\\.[+*]?\$\//.test(content);
+                   /\.replace\(\s*\/\\\.[+*]?\$\//.test(content) ||
+                   // Label-list normalize: the name is split into labels, the
+                   // ROOT label dropped, and the rest rejoined — the same
+                   // normalization done positionally rather than lexically, and
+                   // stricter, since it removes exactly the root label and never
+                   // a run of dots that would rewrite a malformed name into a
+                   // valid one. Anchored on the rejoin, so merely calling a
+                   // splitter somewhere in the file is not enough.
+                   /=\s*_labelsOf\([^)]*\)\.join\("\."\)/.test(content);
     if (hasStrip) continue;
     var m = content.match(reservedHostLiteralRe);
     var lineNum = content.slice(0, m.index).split("\n").length;
@@ -16470,6 +16761,10 @@ async function run() {
   testVendorBundlesReviewable();
   testScannerPolicyCoversVendorDataCarriers();
   testVendorComponentsAttributedInNotice();
+  testReadmeVendorTableMatchesManifest();
+  testReadmeNodeRequirementMatchesEngines();
+  testOutboundTlsMergesSharedPosture();
+  testSecureContextsAdvertiseCertificateCompression();
   testDocumentedScriptFlagsExist();
   // v0.8.91 bug-class detectors — derived from the
   // mail-require-tls / fal.meets / cdn-cache-control / SRS fix-ups.

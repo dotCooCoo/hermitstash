@@ -180,24 +180,15 @@ case "$PKG" in
     npx esbuild _entry.mjs --bundle --format=esm --minify --outfile=public/js/noble-pq.js --platform=browser
     rm _entry.mjs
     sed -i "1s|^|// ML-KEM — vendored from @noble/post-quantum v${INSTALLED_VER} by Paul Miller\n// License: MIT — https://github.com/paulmillr/noble-post-quantum\n// Bundled with esbuild. Exports: ml_kem512, ml_kem768, ml_kem1024\n|" public/js/noble-pq.js
-    # Server CJS bundle — convert ESM to CJS by replacing export statement.
-    # INSTALLED_VER reaches the program via the environment so a version string
-    # can never break out of the JS header literal.
-    INSTALLED_VER="$INSTALLED_VER" node -e '
-var fs = require("fs");
-var src = fs.readFileSync("public/js/noble-pq.js", "utf8");
-var exportMatch = src.match(/export\{([^}]+)\}/);
-if (!exportMatch) { console.error("No export statement found"); process.exit(1); }
-var mappings = exportMatch[1].split(",").map(function(s) {
-  var parts = s.trim().split(" as ");
-  return { local: parts[0].trim(), exported: parts[1].trim() };
-});
-var code = src.replace(/export\{[^}]+\};?\s*/, "");
-var header = "// ML-KEM (FIPS 203) — vendored from @noble/post-quantum v" + process.env.INSTALLED_VER + " by Paul Miller\n// License: MIT — https://github.com/paulmillr/noble-post-quantum\n// Converted from ESM to CJS for server-side use (hybrid ECIES key exchange)\n// Exports: ml_kem512, ml_kem768, ml_kem1024\n";
-var exports = mappings.filter(function(m) { return m.exported.startsWith("ml_kem"); }).map(function(m) { return "  " + m.exported + ": " + m.local; }).join(",\n");
-fs.writeFileSync("lib/vendor/noble-pq.cjs", header + code + "\nmodule.exports = {\n" + exports + "\n};\n");
-console.log("Created lib/vendor/noble-pq.cjs");
-'
+    # Browser bundle only. This step also emitted a CommonJS conversion at
+    # lib/vendor/noble-pq.cjs back when the server had its own copy of ML-KEM;
+    # the server has read blamejs's vendored copy since the framework was
+    # adopted, and nothing has imported the CJS file since. It kept being
+    # recreated on every refresh, shipping an unreferenced bundle in the tarball
+    # and the image for a supply-chain scanner to find and an operator to wonder
+    # about. If a server-side copy is ever needed again, take it from
+    # lib/vendor/blamejs/lib/vendor/noble-post-quantum.cjs rather than
+    # reintroducing a second one here.
     ;;
 
   "@simplewebauthn/server")

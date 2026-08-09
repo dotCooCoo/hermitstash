@@ -11,7 +11,7 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
 
 ---
 
-## blamejs v0.18.16
+## blamejs v0.18.18
 
 - **License:** Apache-2.0
 - **Copyright:** blamejs contributors
@@ -23,7 +23,7 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
   the `@noble/ciphers`, `@noble/curves`, `@noble/post-quantum`,
   `@simplewebauthn/server`, `@blamejs/pki`, and SecLists entries below.
 
-## @noble/ciphers v2.2.0
+## @noble/ciphers v2.3.0
 
 - **License:** MIT
 - **Copyright:** (c) 2023 Paul Miller (paulmillr.com)
@@ -39,7 +39,7 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
 - **Files:** `lib/vendor/blamejs/lib/vendor/noble-curves.cjs` (server, via blamejs)
 - **Used for:** Oblivious-pseudorandom-function (OPRF) primitives over P-256 / P-384 / P-521 and ristretto255, used internally by blamejs
 
-## @noble/hashes v2.2.0
+## @noble/hashes v2.3.0
 
 - **License:** MIT
 - **Copyright:** (c) 2022 Paul Miller (paulmillr.com)
@@ -47,7 +47,7 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
 - **Files:** `public/js/noble-hashes.js`
 - **Used for:** SHAKE256 (FIPS 202 XOF) in browser
 
-## @noble/post-quantum v0.6.1
+## @noble/post-quantum v0.7.0
 
 - **License:** MIT
 - **Copyright:** (c) 2024 Paul Miller (paulmillr.com)
@@ -71,7 +71,7 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
   - `tslib` — Apache-2.0, (c) Microsoft Corporation
   - `cbor-x` — MIT
 
-## @blamejs/pki v0.4.1
+## @blamejs/pki v0.4.11
 
 - **License:** Apache-2.0
 - **Copyright:** blamejs contributors

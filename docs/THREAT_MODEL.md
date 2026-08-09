@@ -87,10 +87,10 @@ All primitives are sourced from vendored libraries — zero npm runtime dependen
 |-----------|-----------|--------|-----------|
 | KEM (post-quantum) | ML-KEM-1024 | `node:crypto` (OpenSSL 3.5+) | NIST FIPS 203. Level 5 parameters (highest available). Level 5 chosen over 768/Level 3 because the performance cost is acceptable for the low request volume of a self-hosted server and the security margin is preferred |
 | KEM (classical) | ECDH on NIST P-384 | `node:crypto` | FIPS-approved curve. P-384 over P-256 for 192-bit classical security matching ML-KEM-1024's post-quantum level. X25519 was considered but rejected so that node:crypto's single ECDH path can be used on both the server and in mTLS certificates (P-384 signatures) without two ECC stacks |
-| Symmetric AEAD | XChaCha20-Poly1305 | `@noble/ciphers` 2.2.0 | RFC 8439 extended. 192-bit nonce (vs 96-bit for plain ChaCha20-Poly1305) allows random nonces without birthday risk. Constant-time in software, no AES-NI dependency |
-| KDF / XOF | SHAKE256 | `node:crypto` (server), `@noble/hashes` 2.2.0 (browser bundle) | FIPS 202. Chosen over HKDF-SHA3 for the storage envelope because it is a single-call extendable-output function with no salt/info complexity — the inputs are already high-entropy KEM shared secrets. HKDF-SHA3-512 is still used inside the hybrid ECIES path where domain separation is needed (see §5.6) |
+| Symmetric AEAD | XChaCha20-Poly1305 | `@noble/ciphers` 2.3.0 | RFC 8439 extended. 192-bit nonce (vs 96-bit for plain ChaCha20-Poly1305) allows random nonces without birthday risk. Constant-time in software, no AES-NI dependency |
+| KDF / XOF | SHAKE256 | `node:crypto` (server), `@noble/hashes` 2.3.0 (browser bundle) | FIPS 202. Chosen over HKDF-SHA3 for the storage envelope because it is a single-call extendable-output function with no salt/info complexity — the inputs are already high-entropy KEM shared secrets. HKDF-SHA3-512 is still used inside the hybrid ECIES path where domain separation is needed (see §5.6) |
 | Hash | SHA3-512 | `node:crypto` | FIPS 202. Truncated when shorter outputs are needed. SHA-256 was rejected in favor of a SHA-3 family member to avoid length-extension concerns even where they don't technically apply |
-| HMAC | HMAC-SHA3-512 | `node:crypto` | FIPS 198-1 over FIPS 202. Used for webhook signatures |
+| Webhook MAC | HMAC-SHA256 (Standard Webhooks) | `node:crypto` | RFC 2104. The scheme's specified construction, for receiver-library interoperability. Symmetric authenticator to an operator-registered endpoint — see §5.10 for why it sits outside the post-quantum requirement |
 | Password hash | Argon2id | Node 24+ built-in `crypto.argon2` via blamejs `lib/argon2-builtin.js` | RFC 9106. Memory-hard. Default parameters: 64 MiB memory, 3 time cost, 4 parallelism. `ARGON2_FAST=1` env flag switches to 1 MiB / 1 / 1 for automated test runs only |
 | Signatures | SLH-DSA-SHAKE-256f (default) / ML-DSA-87 (legacy) | `node:crypto` (OpenSSL 3.5+) | FIPS 205 / 204. `generateSigningKeyPair()` defaults to SLH-DSA-SHAKE-256f — chosen as the conservative SHAKE-based hash-only signature, robust against future cryptanalytic findings against lattice schemes. ML-DSA-87 remains supported for callers that explicitly request it (smaller key/signature) and for verifying any legacy keys persisted in databases (algorithm auto-detected from key PEM). Used for signing vendored assets and release verification. The mTLS **sync** CA now signs client certs with ML-DSA-87; the **browser** CA stays classical (ECDSA-P384-SHA384) for keystore/handshake compatibility (see §5.8) |
 | RNG | SHAKE256(node.randomBytes, n) | `node:crypto` wrapper in `lib/crypto.js:47` | A belt-and-suspenders wrapper post-hashes `crypto.randomBytes(n)` through SHAKE256 (the FIPS 202 XOF) and returns `n` bytes. The XOF variant scales to any `n` — the older SHA3-512 implementation silently truncated to 64 bytes for `n > 64`. See §9 for the rationale |
@@ -512,12 +512,13 @@ Browser certs are unaffected by any sync-CA migration or regeneration.
 
 When HermitStash terminates TLS directly (no reverse proxy), a TCP-level gate inspects each incoming connection's ClientHello **before** the TLS handshake completes. If the ClientHello does not offer at least one PQC hybrid group, the connection is rejected with `handshake_failure`.
 
-Code: HermitStash no longer ships this file — the gate is provided by blamejs (`lib/vendor/blamejs/lib/pqc-gate.js`) and wired at `server-main.js:758` via `b.pqcGate.create({ internalPort, log })`.
+Code: HermitStash no longer ships this file — the gate is provided by blamejs (`lib/vendor/blamejs/lib/pqc-gate.js`) and wired in `server-main.js` via `b.pqcGate.create({ internalPort, log })`.
 
-**Recognized PQC groups (`lib/vendor/blamejs/lib/constants.js:155-156`; HermitStash re-exports them via `lib/constants.js`):**
+**Recognized PQC groups (`PQC_GROUPS` in `lib/vendor/blamejs/lib/constants.js`; HermitStash re-exports them via `lib/constants.js`):**
 
 | Group | IANA ID |
 |-------|---------|
+| SecP256r1MLKEM768 | 0x11EB |
 | X25519MLKEM768 | 0x11EC |
 | SecP384r1MLKEM1024 | 0x11ED |
 
@@ -561,19 +562,25 @@ Code: HermitStash no longer ships this file — the gate is provided by blamejs 
 - Localhost (`127.0.0.1`, `::1`) requests bypass the gate so Docker health checks don't fail
 - `PQC_ENFORCE=false` env var disables the gate for transition periods
 
-**Outbound:** `b.pqcAgent` (`lib/vendor/blamejs/lib/pqc-agent.js`) implements a PQC-only HTTPS agent, used transparently by `b.httpClient` for all outbound HTTPS (S3, SMTP over TLS, Resend, webhooks, OAuth). Outbound PQC enforcement is unconditional.
+**Outbound:** `b.pqcAgent` (`lib/vendor/blamejs/lib/pqc-agent.js`) backs every outbound HTTPS dial made through `b.httpClient` — S3, SMTP over TLS, Resend, webhooks, OAuth. It offers the three ML-KEM hybrids ahead of classical X25519 at a TLS 1.3 floor, so a hybrid is preferred on every handshake. Unlike the inbound gate there is no outbound refusal: a peer that offers no hybrid still connects over X25519. Each such connection is recorded as a `tls.classical_downgrade` audit event carrying the negotiated group and peer host, so the audit log is where to see which upstreams are still classical.
 
 ### 5.10 Webhook HMAC signatures
 
-Outbound webhook POSTs carry an `X-Webhook-Signature` header with an HMAC-SHA3-512 hex digest of the raw JSON body, keyed with the webhook's registered secret.
+Outbound webhook POSTs are signed with the [Standard Webhooks](https://www.standardwebhooks.com/) scheme, which binds a delivery identifier and a timestamp into the MAC rather than covering the body alone.
 
 ```
-X-Webhook-Signature = hex(HMAC-SHA3-512(secret, body))
+webhook-id:        msg_<token>
+webhook-timestamp: <unix seconds>
+webhook-signature: v1,base64(HMAC-SHA256(secret, "<webhook-id>.<webhook-timestamp>.<body>"))
 ```
 
-The secret is generated with 256 bits of entropy (`generateBytes(32)`) and shown to the admin once on creation — never retrievable afterward, only rotatable.
+A bare body HMAC is replayable forever: the same bytes and the same signature stay valid indefinitely, so an attacker who captures one delivery can resend it. Binding the timestamp lets a receiver bound how old a delivery may be, and the `v1,` prefix leaves room to change algorithm without breaking receivers. The header may carry several space-separated signatures during a secret rotation, so a receiver accepts the delivery if any one of them matches.
 
-Code: `lib/webhook.js` and `lib/crypto.js:75` for `hmacSha3`.
+HMAC-SHA256 is the scheme's specified construction, chosen here for interoperability with off-the-shelf receiver libraries. This is a symmetric authenticator between the server and an operator-registered endpoint — it protects neither stored data nor anything a quantum adversary could act on retroactively, so it sits outside the post-quantum requirement that governs the rest of the stack.
+
+The secret is generated with 256 bits of entropy (`generateBytes(32)`), shown to the admin once on creation — never retrievable afterward, only rotatable — and its UTF-8 bytes are the MAC key.
+
+Code: `app/domain/integrations/webhook.service.js`, signing via `b.standardWebhooks.sign`.
 
 Receivers verify with `hmac.compare_digest()` (Python) or `crypto.timingSafeEqual` (Node) — sample code in the README.
 
@@ -643,7 +650,7 @@ Receivers verify with `hmac.compare_digest()` (Python) or `crypto.timingSafeEqua
                           Zero-knowledge: server never sees seed in PRF mode
 
   Webhook secrets      — per-webhook random 32 bytes, vault-sealed
-                          HMAC-SHA3-512 of outbound bodies
+                          Standard Webhooks signature (timestamped)
 
   Argon2id password     — per-user, stored in users.passwordHash
     hashes               (Argon2id PHC format, $argon2id$v=19$...)
