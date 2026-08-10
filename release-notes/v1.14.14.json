@@ -1,0 +1,34 @@
+{
+  "version": "1.14.14",
+  "date": "2026-08-10",
+  "headline": "Ship the browser-asset consolidation that v1.14.13 could not publish",
+  "summary": "v1.14.13 was tagged but produced no image and no release page: a shell-script check that only runs during the build rejected a note-level finding in the vendoring script, and that check gates everything after it. Use this version instead — it carries the same changes plus the fix. The v1.14.13 tag exists and has nothing attached to it.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "The vendoring script passes the shell-script check again",
+          "body": "A short program embedded in the script referred to a regular-expression capture group in a way the checker reads as a shell variable that will silently not expand. It was harmless — the program runs under a quoting style where nothing expands, which is the point — but the check runs at its strictest setting and treats the note as a failure, and it gates the image build. Rewritten so there is no such reference."
+        },
+        {
+          "title": "That check now runs before a tag is pushed",
+          "body": "It only ran during the build, so a shell edit could pass every local gate and fail after tagging — and a tag cannot be moved, so the whole release has to be re-cut under a new number. It now runs in the pre-release checks at the same strictness. It reads each script from the git index rather than the working copy, because on a Windows checkout the working copies carry different line endings than the committed bytes and the checker reports on every line of them; linting what will actually be built avoids both the noise and the temptation to filter it."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "The browser crypto assets come from the vendored framework",
+          "body": "`/js/noble-ciphers.js`, `/js/noble-hashes.js` and `/js/noble-pq.js` were each bundled here from their own package install, alongside the copy the framework vendors for the server: two builds of one package, resolved separately, versioned separately, and listed separately in the inventory. That drifted in the obvious way — the browser halves sat on @noble/ciphers 2.2.0 and @noble/post-quantum 0.6.1 while the server halves had moved to 2.3.0 and 0.7.0. The framework now publishes browser builds of the same primitives, so those three assets are copied from it and their recorded versions written from its manifest on every refresh rather than restated here. Exported names, algorithms and the URLs the pages load are unchanged, and encapsulation, sealing and key derivation were checked against the server halves in both directions. The files are larger — roughly 50 KB more across the three, uncompressed and cached after first load — because the framework's builds carry more of each package than this project calls."
+        },
+        {
+          "title": "The vendored framework moves to 0.18.20",
+          "body": "Beyond the browser builds above, a response that had already committed its status line no longer has a second status written over it, and the streaming helper stopped replacing a content type the route had set. Neither is reachable here: this server registers its own error handler and none of its routes stream a response in parts."
+        }
+      ]
+    }
+  ]
+}

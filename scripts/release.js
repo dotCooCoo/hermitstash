@@ -611,6 +611,84 @@ function eslintGate() {
   }
 }
 
+// ShellCheck gate — the same invocation the Docker lint job runs, at the same
+// --severity=style. It lives here because a shell edit could previously pass
+// every local gate and only fail AFTER the tag was pushed, which is not a
+// recoverable position: tags are immutable, so the whole release has to be
+// re-cut. v1.14.13 was lost that way to a single SC2016 note.
+//
+// Line endings are the reason this was not already here. Only the vendored
+// tree is pinned to LF, so on a Windows checkout every other .sh arrives with
+// CRLF and shellcheck reports SC1017 on all of them — noise CI never sees,
+// because CI checks out the committed LF bytes. Rather than filter the noise
+// and risk filtering a real finding with it, the scripts are read from the git
+// index, which is byte-for-byte what CI will lint.
+function shellcheckGate() {
+  process.stdout.write("  shellcheck … ");
+  try {
+    cp.execFileSync("shellcheck", ["--version"], { stdio: "ignore" });
+  } catch (_e) {
+    console.log(yellow("skipped (shellcheck not installed)"));
+    return 0;
+  }
+  // Lint what the release will COMMIT, which is the working tree: the commit
+  // stage runs `git add -A`. Reading the index instead would lint stale bytes
+  // whenever a script has unstaged edits, and would miss an untracked script
+  // altogether — either of which lands the unchecked content in the tag anyway,
+  // which is the failure this gate exists to stop.
+  var listed = "";
+  var untracked = "";
+  try {
+    listed = cp.execFileSync("git", ["ls-files", "*.sh"], { cwd: REPO, encoding: "utf8" });
+    untracked = cp.execFileSync("git", ["ls-files", "--others", "--exclude-standard", "*.sh"],
+      { cwd: REPO, encoding: "utf8" });
+  } catch (e) {
+    console.log(red("FAIL") + " — could not list shell scripts: " + e.message);
+    return 1;
+  }
+  var seen = {};
+  var scripts = (listed + "\n" + untracked).split("\n").map(function (s) { return s.trim(); })
+    .filter(function (s) {
+      if (!s || s.indexOf("tests/") === 0 || s.indexOf("node_modules/") === 0) return false;
+      if (seen[s]) return false;
+      seen[s] = 1;
+      return true;
+    });
+  if (scripts.length === 0) { console.log(yellow("skipped (no shell scripts)")); return 0; }
+
+  var fsLocal = require("node:fs");
+  var findings = [];
+  scripts.forEach(function (rel) {
+    var text;
+    try {
+      text = fsLocal.readFileSync(path.join(REPO, rel), "utf8");
+    } catch (_e) {
+      return; // deleted between listing and reading — the commit will not carry it
+    }
+    // Carriage returns are stripped before linting because git stores these
+    // files with them removed, so this is the byte sequence CI will check. On a
+    // Windows checkout the working copy has CRLF and shellcheck would otherwise
+    // report SC1017 on every line of every script — noise that would push
+    // someone to filter the output and lose real findings with it.
+    try {
+      cp.execFileSync("shellcheck", ["--severity=style", "--format=gcc", "-"], {
+        input: Buffer.from(text.replace(/\r\n/g, "\n"), "utf8"),
+        cwd: REPO,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    } catch (e2) {
+      var out = ((e2.stdout || "") + (e2.stderr || "")).toString().trim();
+      if (out) findings.push(out.split("\n").map(function (l) { return l.replace(/^-:/, rel + ":"); }).join("\n"));
+    }
+  });
+
+  if (findings.length === 0) { console.log(green("ok")); return 0; }
+  console.log(red("FAIL"));
+  console.log(dim(findings.join("\n").split("\n").slice(0, 30)
+    .map(function (l) { return "      " + l; }).join("\n")));
+  return 1;
+}
+
 // ---- stages -------------------------------------------------------------
 
 // Newest Docker-workflow run (any trigger) — used only for informational status.
@@ -736,7 +814,8 @@ function cmdPreflight() {
     // a refreshed browser bundle shipped with the README still naming the old
     // version. Fix with `node scripts/check-doc-versions.js --fix`.
     + nodeGate("doc versions", ["scripts/check-doc-versions.js"])
-    + eslintGate();
+    + eslintGate()
+    + shellcheckGate();
 
   var actionsCode = actionsGate();
   var vendorCode = vendorGate();

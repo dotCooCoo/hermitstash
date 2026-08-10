@@ -378,7 +378,13 @@ case "$PKG" in
         }
         ours.version = theirs.version;
         if (typeof ours.cpe === "string") {
-          ours.cpe = ours.cpe.replace(/^(cpe:2\.3:a:[^:]+:[^:]+:)[^:]+/, "$1" + theirs.version);
+          // Replacement function rather than a capture-group template: this
+          // program is embedded in a single-quoted shell string, where anything
+          // written as a dollar reference reads to shellcheck as an expansion
+          // that will silently not expand.
+          ours.cpe = ours.cpe.replace(/^(cpe:2\.3:a:[^:]+:[^:]+:)[^:]+/, function (whole, prefix) {
+            return prefix + theirs.version;
+          });
         }
         ours.bundledAt = today;
       });
