@@ -626,6 +626,11 @@ function testNoRawTimeLiterals() {
   var bad = [];
   for (var fi = 0; fi < files.length; fi++) {
     if (_relPath(files[fi]) === "lib/constants.js") continue;
+    // A generated table of Unicode code points. Some of them divide by 60 —
+    // U+03C0 is 960 — and none of them is a duration. It is rewritten by
+    // scripts/gen-case-fold-classes.js, so there is nothing here to route
+    // through C.TIME even in principle.
+    if (_relPath(files[fi]) === "lib/case-fold-classes.js") continue;
     var content;
     try { content = fs.readFileSync(files[fi], "utf8"); }
     catch (_e) { continue; }
@@ -2019,11 +2024,121 @@ function testNoDynamicRegexFromOperatorInput() {
 // same. This is the structural guard the operator-regex-ReDoS class (a Codex
 // finding) earns so it can't be reintroduced. The ALLOW map covers files whose
 // accepted RegExp is matched against a TRUSTED value, not attacker request data.
+// A status written as a number is a number the reader has to recognise; written
+// as its name it says what it means, and the set of them lives in one place
+// where the protocol's own rules can be asked rather than restated. `C.TIME`
+// earns its rule the same way.
+//
+// Only the forms that are unmistakably an HTTP status: a comparison against
+// `statusCode`, a `writeHead(...)`, a `status:` field. A bare three-digit
+// number is left alone deliberately — SMTP and DNS speak in those too, and 421
+// is both an HTTP Misdirected Request and an SMTP service-unavailable.
+function testHttpStatusesGoThroughConstants() {
+  // Protocols that borrow HTTP's numbers without being HTTP. An ICAP status
+  // line (RFC 3507) has its own 200/204/403; naming those through C.HTTP would
+  // assert something untrue about the wire.
+  var NOT_HTTP = {
+    "lib/safe-icap.js": "ICAP status line (RFC 3507) — its own codes, which merely look like HTTP's",
+    "lib/mail-scan.js": "reads an ICAP response (RFC 3507), not an HTTP one",
+  };
+  var files = _libFiles();
+  var bad = [];
+  var FORMS = [
+    { re: /\bstatus(?:Code)?\s*(?:===|!==|==)\s*(\d{3})\b/, why: "compared against a raw status" },
+    { re: /\bwriteHead\s*\(\s*(\d{3})\b/,                   why: "writeHead with a raw status" },
+    { re: /\bstatus(?:Code)?\s*:\s*(\d{3})\b/,              why: "a raw status field" },
+  ];
+  for (var fi = 0; fi < files.length; fi++) {
+    var rel = _relPath(files[fi]);
+    if (rel === "lib/constants.js") continue;              // where the names are defined
+    if (NOT_HTTP[rel]) continue;
+    var content;
+    try { content = fs.readFileSync(files[fi], "utf8"); }
+    catch (_e) { continue; }
+    var lines = content.split(/\r?\n/);
+    var inBlock = false;
+    for (var li = 0; li < lines.length; li++) {
+      var line = lines[li];
+      var trimmed = line.replace(/^\s+/, "");
+      if (inBlock) { if (trimmed.indexOf("*/") !== -1) inBlock = false; continue; }
+      if (trimmed.indexOf("/*") === 0) { inBlock = trimmed.indexOf("*/") === -1; continue; }
+      if (trimmed.indexOf("//") === 0 || trimmed.indexOf("*") === 0) continue;
+      var code = line.replace(/"(?:[^"\\]|\\.)*"/g, "").replace(/'(?:[^'\\]|\\.)*'/g, "");
+      for (var f = 0; f < FORMS.length; f++) {
+        var hit = FORMS[f].re.exec(code);
+        if (hit === null) continue;
+        bad.push({
+          file:    rel,
+          line:    li + 1,
+          content: FORMS[f].why + " (" + hit[1] + ") — use C.HTTP.STATUS.<NAME>, or " +
+                   "C.HTTP.bodiless / .success / .redirect / .clientError / .serverError " +
+                   "where the question is which CLASS it is",
+        });
+        break;
+      }
+    }
+  }
+  _report("HTTP statuses are named through C.HTTP.STATUS rather than written as numbers", bad);
+}
+
+// A guard must not be built out of the construct it guards, or it carries the
+// failure it exists to refuse. `b.guardRegex` screens operator patterns for
+// catastrophic backtracking and used to do it WITH regexes applied to those
+// patterns — and had its own runaway scan (2,177 ms on 1 KiB) while it did.
+// `b.regexLinear` exists so a pattern can be matched without a backtracking
+// engine at all, which a regex inside it would put straight back.
+//
+// Both read their input a character at a time. This keeps them that way: no
+// regex literal, no `new RegExp`, and no `.slice(pos)` per position either —
+// re-copying the tail at every offset is the same quadratic scan in miniature.
+function testRegexModulesContainNoRegexes() {
+  var REPO_ROOT = path.resolve(__dirname, "..", "..");
+  var FILES = ["lib/guard-regex.js", "lib/regex-linear.js"];
+  var bad = [];
+  for (var fi = 0; fi < FILES.length; fi++) {
+    var full = path.join(REPO_ROOT, FILES[fi]);
+    var content;
+    try { content = fs.readFileSync(full, "utf8"); }
+    catch (_e) { bad.push({ file: FILES[fi], line: 1, content: "unreadable" }); continue; }
+    var lines = content.split(/\r?\n/);
+    var inBlockComment = false;
+    for (var li = 0; li < lines.length; li++) {
+      var line = lines[li];
+      var trimmed = line.replace(/^\s+/, "");
+      if (inBlockComment) {
+        if (trimmed.indexOf("*/") !== -1) inBlockComment = false;
+        continue;
+      }
+      if (trimmed.indexOf("/*") === 0) { inBlockComment = trimmed.indexOf("*/") === -1; continue; }
+      if (trimmed.indexOf("//") === 0 || trimmed.indexOf("*") === 0) continue;
+      var why = null;
+      if (/\bnew RegExp\s*\(/.test(line)) why = "builds a RegExp";
+      else if (/\.(?:test|exec|match|matchAll|search)\s*\(\s*\//.test(line) ||
+               /\/[^/\s][^\n]*\/[dgimsuvy]*\s*\.\s*(?:test|exec)\s*\(/.test(line)) {
+        why = "runs a regex literal";
+      } else if (/\.(?:replace|replaceAll|split)\s*\(\s*\//.test(line)) {
+        why = "replaces or splits with a regex";
+      } else if (/\.slice\s*\(\s*pos\s*\)/.test(line)) {
+        why = "re-copies the tail at a position — the quadratic scan these modules exist to avoid";
+      }
+      if (why === null) continue;
+      bad.push({
+        file:    FILES[fi],
+        line:    li + 1,
+        content: why + " — read the input a character at a time instead; a guard built " +
+                 "from the construct it guards inherits that construct's failure mode",
+      });
+    }
+  }
+  _report("the regex screen and the linear matcher contain no regexes", bad);
+}
+
 function testOperatorRegexScreenedForReDoS() {
   var ALLOW = {
     "lib/dev.js": "ignore RegExp matched against an fs.watch filename in the operator's local source tree; dev-loop only, hard-refused under NODE_ENV=production",
     "lib/parsers/safe-env.js": "keyShape RegExp matched against env-var keys parsed from the operator's .env config at boot, not request input",
     "lib/safe-json.js": "JSON Schema `pattern` is part of the operator-owned schema (the documented trust boundary), not request data — same stance as the dynamic-regex detector's safe-json exclusion",
+    "lib/regex-linear.js": "the inverse case, not a trusted-input one: the RegExp handed in is READ (its .source and .flags) and never executed — this module exists so an operator pattern can run WITHOUT the backtracking engine, and screening it with assertSafe would refuse the very shapes it is built to run safely, such as (a+)+$",
   };
   var files = _libFiles();
   var bad = [];
@@ -16712,6 +16827,8 @@ async function run() {
   testBuildProfileWrongKey();
   testNoSilentCatchSwallow();
   testNoDynamicRegexFromOperatorInput();
+  testHttpStatusesGoThroughConstants();
+  testRegexModulesContainNoRegexes();
   testOperatorRegexScreenedForReDoS();
   testModuleLoadListMatchesNativeModuleNaming();
   testCompetingConsumerClaimUsesSkipLocked();
