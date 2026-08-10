@@ -36,17 +36,21 @@ Used for:    RFC 9497 Oblivious Pseudo-Random Function (OPRF / VOPRF / POPRF)
              audited noble-curves suite.
 --------------------------------------------------------------------------------
 Component:   @noble/hashes
-Version:     2.3.0 (bundled inside noble-curves.cjs),
-             2.3.0 (bundled inside noble-post-quantum.cjs)
+Version:     2.3.0
 Source:      https://github.com/paulmillr/noble-hashes
 License:     MIT
 Copyright:   Copyright (c) 2022 Paul Miller (https://paulmillr.com)
-Used for:    The hash and extendable-output primitives that noble-curves.cjs
-             and noble-post-quantum.cjs build on — SHA-3 / SHAKE, HMAC, HKDF.
-             It is not vendored as a file of its own; each of those bundles
-             carries the version it was built against, so both copies are
-             listed even when they agree. Thank you to Paul Miller for the
-             audited noble-hashes suite.
+Used for:    The client half of a hybrid exchange, as a browser build
+             (lib/vendor/browser/noble-hashes.mjs) — SHAKE256 as a KDF,
+             SHA-3, SHA-2, HMAC and HKDF. There is no server bundle: the
+             server side reaches all of these through node:crypto, so a
+             .cjs here would be a file nothing requires.
+             The same version is also carried INSIDE noble-curves.cjs and
+             noble-post-quantum.cjs, which bundle the parts of it they use
+             (SHA-2 in the first; SHA-3, SHAKE and HMAC in the second).
+             One version covers all three, so the hash a browser runs is
+             the hash inside the server's PQC bundle. Thank you to Paul
+             Miller for the audited noble-hashes suite.
 --------------------------------------------------------------------------------
 Component:   @noble/post-quantum
 Version:     0.7.0

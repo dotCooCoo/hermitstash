@@ -2081,6 +2081,105 @@ function testHttpStatusesGoThroughConstants() {
   _report("HTTP statuses are named through C.HTTP.STATUS rather than written as numbers", bad);
 }
 
+// `b.safeSql.quoteIdentifier` refuses a SQL reserved word by default, and the
+// query builder opts out with `{ allowReserved: true }` — because quoting is
+// exactly what makes a keyword-named identifier safe in identifier position. So
+// a path that quotes a name WITHOUT it is stricter than `b.db.from()`, and a
+// table legitimately named `order` is queryable through the builder and refused
+// through that path. It is a parity gap rather than a security one:
+// `allowReserved` still enforces the SHAPE of an identifier — a quote, a
+// semicolon, a null byte are refused either way — it only permits the name.
+//
+// The question a reader can answer is where the name CAME FROM, which no
+// matcher can see. So the rule is drawn where it is decidable: a name written
+// as a string literal is the framework's own and needs nothing, and one built
+// by appending a literal suffix — `tableRaw + "_email_idx"` — cannot be a bare
+// keyword either. Every other spelling is a name that arrived from somewhere,
+// and answers to the builder's rule.
+function testQuotedIdentifiersMatchTheQueryBuilder() {
+  // Both quoting entry points, because they are the same rule and skipping the
+  // qualified one left it the stricter sibling: a view in a schema named after
+  // a keyword was accepted by `b.db.from()` and refused by `quoteQualified`.
+  var CALLS = ["quoteIdentifier(", "quoteQualified("];
+  var files = _libFiles();
+  var bad = [];
+
+  // Read from the opening paren to the paren that closes the CALL, across as
+  // many lines as it spans. A line-at-a-time reader could not see an argument
+  // that wrapped, and could not tell a call's own `allowReserved` from one
+  // belonging to a different call that happened to share the line — so it was
+  // blind in one direction and cried wolf in the other.
+  function callText(source, openParen) {
+    var depth = 0;
+    var out = "";
+    for (var i = openParen; i < source.length; i += 1) {
+      var c = source.charAt(i);
+      out += c;
+      if (c === "(") depth += 1;
+      else if (c === ")") {
+        depth -= 1;
+        if (depth === 0) return out;
+      }
+    }
+    return out;                                            // unbalanced — read what there is
+  }
+
+  // The first argument of that call, to the comma that ends it at depth zero.
+  function firstArgument(call) {
+    var depth = 0;
+    var arg = "";
+    for (var i = 1; i < call.length; i += 1) {             // past the `(`
+      var c = call.charAt(i);
+      if (c === "(" || c === "[" || c === "{") depth += 1;
+      else if (c === ")" || c === "]" || c === "}") {
+        if (depth === 0) break;
+        depth -= 1;
+      } else if (c === "," && depth === 0) break;
+      arg += c;
+    }
+    return arg.replace(/\s+/g, " ").replace(/^ /, "").replace(/ $/, "");
+  }
+
+  for (var fi = 0; fi < files.length; fi++) {
+    var rel = _relPath(files[fi]);
+    if (rel === "lib/safe-sql.js") continue;               // where the rule is defined
+    var content;
+    try { content = fs.readFileSync(files[fi], "utf8"); }
+    catch (_e) { continue; }
+    for (var ci = 0; ci < CALLS.length; ci += 1) {
+      var CALL = CALLS[ci];
+      var from = 0;
+      for (;;) {
+        var at = content.indexOf(CALL, from);
+        if (at === -1) break;
+        from = at + CALL.length;
+        var lineNo = content.slice(0, at).split("\n").length;
+        var lineStart = content.lastIndexOf("\n", at) + 1;
+        var before = content.slice(lineStart, at).replace(/^\s+/, "");
+        if (before.indexOf("//") === 0 || before.indexOf("*") === 0) continue;
+        var call = callText(content, at + CALL.length - 1);
+        var arg = firstArgument(call);
+        if (arg === "") continue;
+        var isLiteral = arg.charAt(0) === '"' || arg.charAt(0) === "'";
+        // A qualified name is written as an ARRAY, and one built entirely from
+        // string literals is as framework-owned as a bare literal is.
+        var isLiteralArray = /^\[\s*(?:"[^"]*"|'[^']*')(?:\s*,\s*(?:"[^"]*"|'[^']*'))*\s*\]$/.test(arg);
+        var isSuffixed = /\+\s*["'][A-Za-z0-9_]+["']\s*$/.test(arg);
+        if (isLiteral || isLiteralArray || isSuffixed) continue;
+        if (call.indexOf("allowReserved") !== -1) continue;
+        bad.push({
+          file:    rel,
+          line:    lineNo,
+          content: "quotes `" + arg + "` — a name that did not come from a literal here — " +
+                   "without { allowReserved: true }, which is stricter than b.db.from() " +
+                   "for a schema-valid identifier whose name is a SQL keyword",
+        });
+      }
+    }
+  }
+  _report("quoted identifiers answer to the same reserved-word rule as b.db.from()", bad);
+}
+
 // A guard must not be built out of the construct it guards, or it carries the
 // failure it exists to refuse. `b.guardRegex` screens operator patterns for
 // catastrophic backtracking and used to do it WITH regexes applied to those
@@ -6219,7 +6318,17 @@ function testVendorBundlesReviewable() {
   // dynamic-exec leg on top of their four-layer load-time verification.
   var vendorDir = path.join(__dirname, "..", "..", "lib", "vendor");
   var bad = [];
-  var names = fs.readdirSync(vendorDir).sort();
+  // Every vendored JS artifact, including the browser builds a directory down.
+  // A flat read left those out of both legs — the one class of artifact an
+  // operator is most likely to serve to a browser was the one nothing scanned.
+  var names = [];
+  (function walk(dir, prefix) {
+    fs.readdirSync(dir).sort().forEach(function (entry) {
+      var full = path.join(dir, entry);
+      if (fs.statSync(full).isDirectory()) { walk(full, prefix + entry + "/"); return; }
+      names.push(prefix + entry);
+    });
+  })(vendorDir, "");
   for (var i = 0; i < names.length; i++) {
     var name = names[i];
     if (!/\.(cjs|js|mjs)$/.test(name)) continue;
@@ -6239,7 +6348,10 @@ function testVendorBundlesReviewable() {
         });
       }
     }
-    if (/\.cjs$/.test(name)) {
+    // A browser build is read by operators for exactly the same reason a server
+    // one is, and is built by the same script without `--minify`, so it answers
+    // to the same statistic.
+    if (/\.(cjs|mjs)$/.test(name)) {
       var avg = lines.length ? total / lines.length : 0;
       if (avg > 200) {
         bad.push({
@@ -16828,6 +16940,7 @@ async function run() {
   testNoSilentCatchSwallow();
   testNoDynamicRegexFromOperatorInput();
   testHttpStatusesGoThroughConstants();
+  testQuotedIdentifiersMatchTheQueryBuilder();
   testRegexModulesContainNoRegexes();
   testOperatorRegexScreenedForReDoS();
   testModuleLoadListMatchesNativeModuleNaming();

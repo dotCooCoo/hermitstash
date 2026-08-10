@@ -316,15 +316,26 @@ All runtime dependencies are committed to the repo — no transitive npm install
 
 | Package | Version | Author | Purpose |
 |---|---|---|---|
-| [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) | 2.3.0 | [Paul Miller](https://github.com/paulmillr) | XChaCha20-Poly1305 AEAD |
+| [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) | 2.3.0 | [Paul Miller](https://github.com/paulmillr) | XChaCha20-Poly1305 AEAD. Ships a browser (ESM) build beside the server one, built from the same install |
+| [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) | 2.3.0 | [Paul Miller](https://github.com/paulmillr) | Browser (ESM) build only — SHAKE256 / SHA-3 / SHA-2 / HMAC / HKDF for the client half of a hybrid exchange. The server side reaches all of these through `node:crypto`, so there is no server bundle |
 | [`@noble/curves`](https://github.com/paulmillr/noble-curves) | 2.3.0 (bundles @noble/hashes 2.3.0) | [Paul Miller](https://github.com/paulmillr) | RFC 9497 Oblivious Pseudo-Random Function (OPRF / VOPRF / POPRF) over ristretto255 / P-256 / P-384 / P-521, behind `b.crypto.oprf` |
-| [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) | 0.7.0 (bundles @noble/hashes, @noble/curves, @noble/ciphers 2.3.0) | [Paul Miller](https://github.com/paulmillr) | Pure-JS FIPS 203 ML-KEM (`ml_kem_512` / `ml_kem_768` / `ml_kem_1024`), FIPS 204 ML-DSA (`ml_dsa_44/65/87`), FIPS 205 SLH-DSA (`slh_dsa_*`). First-class on both server-side and client-side via `b.pqcSoftware` — security-first defaults pin to the highest cat-5 levels (ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f); interoperable with Node's built-in WebCrypto ML-KEM that `b.crypto.encrypt` / `b.middleware.apiEncrypt` use. |
+| [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) | 0.7.0 (bundles @noble/hashes, @noble/curves, @noble/ciphers 2.3.0) | [Paul Miller](https://github.com/paulmillr) | Pure-JS FIPS 203 ML-KEM (`ml_kem_512` / `ml_kem_768` / `ml_kem_1024`), FIPS 204 ML-DSA (`ml_dsa_44/65/87`), FIPS 205 SLH-DSA (`slh_dsa_*`). First-class on both server-side and client-side via `b.pqcSoftware` — security-first defaults pin to the highest cat-5 levels (ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f); interoperable with Node's built-in WebCrypto ML-KEM that `b.crypto.encrypt` / `b.middleware.apiEncrypt` use. A browser (ESM) build ships beside it carrying the KEM suites only — a client half encapsulates and does not sign |
 | [`@simplewebauthn/server`](https://github.com/MasterKale/SimpleWebAuthn) | 13.3.2 | [Matthew Miller](https://github.com/MasterKale) | WebAuthn / passkey verification |
 | [`@blamejs/pki`](https://github.com/blamejs/pki) | 0.4.13 | [blamejs](https://github.com/blamejs) | Zero-dependency pure-JS X.509 / CRL / PKCS#12 / CSR / CMS toolkit backing `b.mtlsCa` — ML-DSA-87 (FIPS 204) post-quantum + ECDSA-P384 cert signing, PBMAC1 PKCS#12 packaging, chain validation (no openssl CLI) |
 | [`SecLists` 10k-most-common.txt](https://github.com/danielmiessler/SecLists/blob/master/Passwords/Common-Credentials/10k-most-common.txt) | master snapshot | [Daniel Miessler / SecLists contributors](https://github.com/danielmiessler/SecLists) (CC-BY-3.0) | Top-10000 common-password dictionary read by `b.auth.password.policy()` for the NIST 800-63B §5.1.1.2 "previously breached" check |
 | [`prismjs`](https://prismjs.com/) | 1.30.0 | [Lea Verou + contributors](https://github.com/PrismJS/prism) | Syntax highlighting in the example wiki's code blocks (browser-side) |
 
 These libraries are exceptional work — blamejs wouldn't exist without them. All are MIT licensed, except `@blamejs/pki` (Apache-2.0) and the SecLists password list (CC-BY-3.0). Per-package version, license, and provenance live in two manifests: [`lib/vendor/MANIFEST.json`](lib/vendor/MANIFEST.json) for the framework's server-side bundles and [`examples/wiki/public/vendor/MANIFEST.json`](examples/wiki/public/vendor/MANIFEST.json) for the wiki app's browser-side bundle. The framework's [`NOTICE`](NOTICE) file carries the upstream attributions.
+
+A product with a browser surface can serve the ESM builds under [`lib/vendor/browser/`](lib/vendor/browser/) directly rather than vendoring the same upstream packages a second time:
+
+```js
+import { ml_kem1024 }        from "/vendor/blamejs/noble-post-quantum.mjs";
+import { xchacha20poly1305 } from "/vendor/blamejs/noble-ciphers.mjs";
+import { shake256 }          from "/vendor/blamejs/noble-hashes.mjs";
+```
+
+They are built from the same npm install as the server bundles in one `scripts/vendor-update.sh` run, and each pair shares one `version` field in the manifest — so the two halves of a hybrid exchange cannot be pinned to different releases of the same algorithm. They carry per-file SHA-256 hashes, are covered by the vendor-currency gate, and appear in the SBOM exactly as the server bundles do.
 
 ## Why "blamejs"
 

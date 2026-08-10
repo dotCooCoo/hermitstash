@@ -64,19 +64,21 @@ function sourcesOfTruth(repoRoot) {
     throw new Error('package.json engines.node ("' + nodeRange + '") is not a plain floor like ">=24.19.0"');
   }
 
-  // MANIFEST states that a primitive's browser bundle and the copy blamejs
-  // vendors for the server must track the same upstream release. Nothing
-  // enforced it, so a framework bump that moved only the nested half left the
-  // browser half behind with every doc reference still agreeing with whichever
-  // half it happened to name. Compare the two directly; a mismatch is reported
-  // rather than thrown so --fix can still correct the plain version references.
+  // A primitive's browser asset and the copy blamejs vendors for the server
+  // must name the same upstream release. They used to be built separately and
+  // drifted; the browser asset is now copied out of the framework and its
+  // recorded version written from the framework manifest, so this should be
+  // impossible rather than merely unlikely. The check stays as the thing that
+  // notices if that wiring breaks — a silent mismatch here is what let the
+  // previous split run for two refreshes. A mismatch is reported rather than
+  // thrown so --fix can still correct the plain version references.
   var nested = (pkgs.blamejs && pkgs.blamejs.components) || {};
   var skew = [];
-  ["@noble/ciphers", "@noble/post-quantum"].forEach(function (name) {
+  ["@noble/ciphers", "@noble/hashes", "@noble/post-quantum"].forEach(function (name) {
     var server = nested[name] && nested[name].version;
     var browser = pkgs[name] && pkgs[name].version;
     if (server && browser && server !== browser) {
-      skew.push(name + ": browser bundle is " + browser + ", blamejs vendors " + server);
+      skew.push(name + ": browser asset is " + browser + ", blamejs vendors " + server);
     }
   });
 

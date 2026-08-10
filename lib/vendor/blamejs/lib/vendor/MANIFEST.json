@@ -6,19 +6,49 @@
       "license": "MIT",
       "author": "Paul Miller",
       "source": "https://github.com/paulmillr/noble-ciphers",
+      "_about": "The server and browser bundles are built from ONE npm install in a single vendor-update run, so the two halves of a hybrid exchange cannot be different versions of the same cipher. One `version` field covers both files.",
       "exports": [
         "xchacha20poly1305"
       ],
       "files": {
-        "server": "lib/vendor/noble-ciphers.cjs"
+        "server": "lib/vendor/noble-ciphers.cjs",
+        "browser": "lib/vendor/browser/noble-ciphers.mjs"
       },
-      "bundler": "esbuild --format=cjs --platform=node",
-      "bundledAt": "2026-08-08T00:00:00Z",
+      "bundler": "esbuild --format=cjs --platform=node (server), esbuild --format=esm --platform=browser (browser)",
+      "bundledAt": "2026-08-10T00:00:00Z",
       "cpe": "cpe:2.3:a:paulmillr:noble-ciphers:2.3.0:*:*:*:*:node.js:*:*",
       "hashes": {
-        "server": "sha256:f3325f480cb8eb814fcb0baaa19336cbbf2b993f48624c6aa9600ffd69d0be5e"
+        "server": "sha256:f3325f480cb8eb814fcb0baaa19336cbbf2b993f48624c6aa9600ffd69d0be5e",
+        "browser": "sha256:0ffd91540bcb586a29b56e52ee1c29df69097b50776beb4036a07558f7a4e12e"
       },
-      "refreshedAt": "2026-08-10T11:50:14.985Z"
+      "refreshedAt": "2026-08-10T18:39:35.028Z"
+    },
+    "@noble/hashes": {
+      "version": "2.3.0",
+      "license": "MIT",
+      "author": "Paul Miller",
+      "source": "https://github.com/paulmillr/noble-hashes",
+      "_about": "Browser build only. The server side reaches SHAKE256, SHA3-512, HMAC and HKDF through node:crypto, which has carried all four since the Node floor — a .cjs here would be a bundle nothing requires. A browser has no node:crypto, so the client half of a hybrid exchange needs its own copy, and this is the one blamejs owns, hashes, currency-checks and lists in its SBOM rather than a second vendoring path maintained consumer-side. The version matches the copy that @noble/curves and @noble/post-quantum already inline, so the browser hash and the hash inside the server's PQC bundle are the same code.",
+      "exports": [
+        "shake128",
+        "shake256",
+        "sha3_256",
+        "sha3_512",
+        "sha256",
+        "sha512",
+        "hmac",
+        "hkdf"
+      ],
+      "files": {
+        "browser": "lib/vendor/browser/noble-hashes.mjs"
+      },
+      "bundler": "esbuild --format=esm --platform=browser (browser only)",
+      "bundledAt": "2026-08-10T00:00:00Z",
+      "cpe": "cpe:2.3:a:paulmillr:noble-hashes:2.3.0:*:*:*:*:node.js:*:*",
+      "hashes": {
+        "browser": "sha256:dfe4b7ae3c9880e388c8da4b68f44742b229b53afacd1e674179527e33da62b0"
+      },
+      "refreshedAt": "2026-08-10T18:39:35.028Z"
     },
     "@noble/curves": {
       "version": "2.3.0",
@@ -40,7 +70,7 @@
       "hashes": {
         "server": "sha256:b5fe88d1ea780d0581dee6145d666f89d46fc9531b5db35db2e5b16627840890"
       },
-      "refreshedAt": "2026-08-10T11:50:14.985Z",
+      "refreshedAt": "2026-08-10T18:39:35.028Z",
       "components": {
         "@noble/hashes": {
           "url": "https://github.com/paulmillr/noble-hashes",
@@ -68,16 +98,23 @@
         "slh_dsa_shake_192f",
         "slh_dsa_shake_256f"
       ],
+      "browser_exports": [
+        "ml_kem512",
+        "ml_kem768",
+        "ml_kem1024"
+      ],
       "files": {
-        "server": "lib/vendor/noble-post-quantum.cjs"
+        "server": "lib/vendor/noble-post-quantum.cjs",
+        "browser": "lib/vendor/browser/noble-post-quantum.mjs"
       },
-      "bundler": "esbuild --format=cjs --platform=node",
-      "bundledAt": "2026-08-08T00:00:00Z",
+      "bundler": "esbuild --format=cjs --platform=node (server), esbuild --format=esm --platform=browser (browser)",
+      "bundledAt": "2026-08-10T00:00:00Z",
       "cpe": "cpe:2.3:a:paulmillr:noble-post-quantum:0.7.0:*:*:*:*:node.js:*:*",
       "hashes": {
-        "server": "sha256:fab7ebe5737793862c473444f4ee5912f79dd1edec86683acbb4eecbca0f5892"
+        "server": "sha256:fab7ebe5737793862c473444f4ee5912f79dd1edec86683acbb4eecbca0f5892",
+        "browser": "sha256:cae1d5bbdc7184b202b6ca68df6e1db7b0d0f668c77809ded189ca7f271accc9"
       },
-      "refreshedAt": "2026-08-10T11:50:14.985Z",
+      "refreshedAt": "2026-08-10T18:39:35.028Z",
       "components": {
         "@noble/hashes": {
           "url": "https://github.com/paulmillr/noble-hashes",
@@ -114,7 +151,7 @@
       "hashes": {
         "server": "sha256:e83195dc9f189385da9c856ef38843f4466f93ea8f3d7fc2efcb1e1b18da6f20"
       },
-      "refreshedAt": "2026-08-10T11:50:14.985Z"
+      "refreshedAt": "2026-08-10T18:39:35.028Z"
     },
     "SecLists-common-passwords-top-10000": {
       "version": "10k-most-common (master)",
@@ -134,7 +171,7 @@
       },
       "runtime_artifact": "lib/vendor/common-passwords-top-10000.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-08-10T11:50:14.985Z"
+      "refreshedAt": "2026-08-10T18:39:35.028Z"
     },
     "bimi-trust-anchors": {
       "version": "operator-managed",
@@ -159,7 +196,7 @@
       },
       "runtime_artifact": "lib/vendor/bimi-trust-anchors.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-08-10T11:50:14.985Z"
+      "refreshedAt": "2026-08-10T18:39:35.028Z"
     },
     "publicsuffix-list": {
       "version": "master",
@@ -179,7 +216,7 @@
       },
       "runtime_artifact": "lib/vendor/public-suffix-list.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-08-10T11:50:14.985Z"
+      "refreshedAt": "2026-08-10T18:39:35.028Z"
     },
     "@blamejs/pki": {
       "version": "0.4.13",
@@ -207,7 +244,7 @@
       "hashes": {
         "server": "sha256:067ac05899ef04f7851a8d010dc4289e7a01706d5fd2cdc1ce59860631bba284"
       },
-      "refreshedAt": "2026-08-10T11:50:14.985Z"
+      "refreshedAt": "2026-08-10T18:39:35.028Z"
     }
   }
 }

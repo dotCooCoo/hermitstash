@@ -155,41 +155,19 @@ if [ "$PKG" != "blamejs" ]; then
 fi
 
 case "$PKG" in
-  "@noble/ciphers")
-    # Browser ESM bundle only. The server side consumes blamejs's own
-    # lib/vendor/noble-ciphers.cjs, so emitting a second CommonJS copy here
-    # produced an orphan that nothing required and that showed up as a phantom
-    # vendored artifact in the SBOM.
-    echo 'export { xchacha20poly1305 } from "@noble/ciphers/chacha.js";' > _entry.mjs
-    npx esbuild _entry.mjs --bundle --format=esm --minify --outfile=public/js/noble-ciphers.js --platform=browser
-    rm _entry.mjs
-    # Add header
-    sed -i "1s|^|// XChaCha20-Poly1305 — vendored from @noble/ciphers v${INSTALLED_VER} by Paul Miller\n// License: MIT — https://github.com/paulmillr/noble-ciphers\n// Bundled with esbuild. Exports: xchacha20poly1305\n|" public/js/noble-ciphers.js
-    ;;
-
-  "@noble/hashes")
-    echo 'export { shake256 } from "@noble/hashes/sha3.js";' > _entry.mjs
-    npx esbuild _entry.mjs --bundle --format=esm --minify --outfile=public/js/noble-hashes.js --platform=browser
-    rm _entry.mjs
-    sed -i "1s|^|// SHAKE256 — vendored from @noble/hashes v${INSTALLED_VER} by Paul Miller\n// License: MIT — https://github.com/paulmillr/noble-hashes\n// Bundled with esbuild. Exports: shake256\n|" public/js/noble-hashes.js
-    ;;
-
-  "@noble/post-quantum")
-    # Browser ESM bundle
-    echo 'export { ml_kem512, ml_kem768, ml_kem1024 } from "@noble/post-quantum/ml-kem.js";' > _entry.mjs
-    npx esbuild _entry.mjs --bundle --format=esm --minify --outfile=public/js/noble-pq.js --platform=browser
-    rm _entry.mjs
-    sed -i "1s|^|// ML-KEM — vendored from @noble/post-quantum v${INSTALLED_VER} by Paul Miller\n// License: MIT — https://github.com/paulmillr/noble-post-quantum\n// Bundled with esbuild. Exports: ml_kem512, ml_kem768, ml_kem1024\n|" public/js/noble-pq.js
-    # Browser bundle only. This step also emitted a CommonJS conversion at
-    # lib/vendor/noble-pq.cjs back when the server had its own copy of ML-KEM;
-    # the server has read blamejs's vendored copy since the framework was
-    # adopted, and nothing has imported the CJS file since. It kept being
-    # recreated on every refresh, shipping an unreferenced bundle in the tarball
-    # and the image for a supply-chain scanner to find and an operator to wonder
-    # about. If a server-side copy is ever needed again, take it from
-    # lib/vendor/blamejs/lib/vendor/noble-post-quantum.cjs rather than
-    # reintroducing a second one here.
-    ;;
+  # @noble/ciphers, @noble/hashes and @noble/post-quantum are NOT vendored here
+  # any more. Each used to be installed from npm and bundled with esbuild into
+  # public/js/, alongside the copy blamejs vendors for the server — two builds
+  # of one upstream package, resolved separately, versioned separately and
+  # carried separately in the SBOM. They drifted, which is exactly what that
+  # arrangement invites: a framework bump moved the server halves and left the
+  # browser halves on the previous release, and every documentation reference
+  # still agreed with whichever half it happened to name.
+  #
+  # blamejs now publishes browser builds of the same primitives, so the browser
+  # assets are copied out of the vendored framework by the blamejs case below.
+  # One upstream source, one version, one refresh — there is no second copy left
+  # to drift. Do not reintroduce a per-package case for these.
 
   "@simplewebauthn/server")
     echo "module.exports = require(\"@simplewebauthn/server\");" > _entry.cjs
@@ -350,6 +328,63 @@ case "$PKG" in
       echo "ERROR: extract failed — $DEST/package.json missing."
       exit 1
     fi
+
+    # Browser crypto assets. The pages import these over HTTP from /js/, so
+    # they have to live under public/ — but they are COPIES of the framework's
+    # own browser builds, not a second build of the same upstream packages.
+    # That distinction is the point: the version, the bytes and the refresh all
+    # come from one place, so the browser half cannot fall behind the server
+    # half the way it did when each was vendored independently.
+    #
+    # Named per destination because the page URLs predate this and are not
+    # worth churning: noble-post-quantum ships as /js/noble-pq.js.
+    BROWSER_SRC="$DEST/lib/vendor/browser"
+    if [ ! -d "$BROWSER_SRC" ]; then
+      echo "ERROR: $BROWSER_SRC missing — this blamejs release ships no browser builds."
+      echo "       Either the release regressed or the layout moved; do not fall back to"
+      echo "       bundling these from npm again without deciding to re-split them."
+      exit 1
+    fi
+    for pair in "noble-ciphers:noble-ciphers" "noble-hashes:noble-hashes" "noble-post-quantum:noble-pq"; do
+      src="${pair%%:*}"; dst="${pair##*:}"
+      if [ ! -f "$BROWSER_SRC/$src.mjs" ]; then
+        echo "ERROR: $BROWSER_SRC/$src.mjs missing from the vendored framework."
+        exit 1
+      fi
+      cp "$BROWSER_SRC/$src.mjs" "public/js/$dst.js"
+      echo "  browser asset: public/js/$dst.js  <- blamejs lib/vendor/browser/$src.mjs"
+    done
+
+    # The SBOM still needs the public/js path to name a package and a version —
+    # a scanner reads what ships, and these files ship. Take that version from
+    # the framework's own manifest rather than restating it, so the entry cannot
+    # disagree with the bytes it describes. Restating it is what produced the
+    # earlier split, where the recorded browser version stayed on the previous
+    # release for two refreshes while the file itself had moved.
+    DEST="$DEST" node -e '
+      var fs = require("fs");
+      var dest = process.env.DEST;
+      var manifestPath = "lib/vendor/MANIFEST.json";
+      var m = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+      var nested = JSON.parse(fs.readFileSync(dest + "/lib/vendor/MANIFEST.json", "utf8"));
+      var today = new Date().toISOString().slice(0, 10);
+      ["@noble/ciphers", "@noble/hashes", "@noble/post-quantum"].forEach(function (name) {
+        var ours = m.packages[name];
+        var theirs = nested.packages && nested.packages[name];
+        if (!ours) return;
+        if (!theirs || typeof theirs.version !== "string") {
+          console.error("ERROR: " + name + " has no version in the framework manifest — refusing to guess.");
+          process.exit(1);
+        }
+        ours.version = theirs.version;
+        if (typeof ours.cpe === "string") {
+          ours.cpe = ours.cpe.replace(/^(cpe:2\.3:a:[^:]+:[^:]+:)[^:]+/, "$1" + theirs.version);
+        }
+        ours.bundledAt = today;
+      });
+      fs.writeFileSync(manifestPath, JSON.stringify(m, null, 2) + "\n");
+      console.log("  browser package versions synced from the framework manifest");
+    '
 
     # Surface guard + leaked-path guard.
     node -e "var b=require('./$DEST');console.log('blamejs surface OK:',Object.keys(b).length,'primitives');"

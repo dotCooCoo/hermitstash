@@ -8,15 +8,14 @@
       "author": "Paul Miller",
       "source": "https://github.com/paulmillr/noble-ciphers",
       "cpe": "cpe:2.3:a:paulmillr:noble-ciphers:2.3.0:*:*:*:*:node.js:*:*",
-      "build": "browser",
-      "_about": "BROWSER (ESM) build, served to the client for the API payload envelope. Distinct artifact from the server-side CommonJS copy blamejs vendors (see blamejs.components) — a browser cannot import a .cjs bundle. Both should track the same upstream version; blamejs#551 proposes upstreaming the browser build so there is one vendoring path instead of two.",
+      "_about": "BROWSER (ESM) build served to the client for the API payload envelope. Copied verbatim from the vendored framework (lib/vendor/blamejs/lib/vendor/browser/noble-ciphers.mjs), which vendors the same upstream package for the server. It is one artifact from one source, not a second build: the version below is written from the framework manifest on every refresh, so the browser and server halves cannot report different releases.",
       "exports": [
         "xchacha20poly1305"
       ],
       "files": {
         "browser": "public/js/noble-ciphers.js"
       },
-      "bundler": "esbuild ESM",
+      "bundler": "copied from the vendored framework (no separate build)",
       "bundledAt": "2026-08-09"
     },
     "@noble/hashes": {
@@ -25,15 +24,14 @@
       "author": "Paul Miller",
       "source": "https://github.com/paulmillr/noble-hashes",
       "cpe": "cpe:2.3:a:paulmillr:noble-hashes:2.3.0:*:*:*:*:node.js:*:*",
-      "build": "browser",
-      "_about": "BROWSER (ESM) build, served to the client for the vault SHAKE256 KDF. blamejs does NOT vendor @noble/hashes at all, so this is the only copy HermitStash ships and it has no upstream owner — see blamejs#551.",
+      "_about": "BROWSER (ESM) build served to the client for SHAKE256 key derivation. Copied verbatim from the vendored framework (lib/vendor/blamejs/lib/vendor/browser/noble-hashes.mjs). The version below is written from the framework manifest on every refresh. The build exports more than this project uses; the unused exports are inert, and taking the framework build unmodified is what keeps there being a single source.",
       "exports": [
         "shake256"
       ],
       "files": {
         "browser": "public/js/noble-hashes.js"
       },
-      "bundler": "esbuild ESM",
+      "bundler": "copied from the vendored framework (no separate build)",
       "bundledAt": "2026-08-07"
     },
     "@noble/post-quantum": {
@@ -42,8 +40,7 @@
       "author": "Paul Miller",
       "source": "https://github.com/paulmillr/noble-post-quantum",
       "cpe": "cpe:2.3:a:paulmillr:noble-post-quantum:0.7.0:*:*:*:*:node.js:*:*",
-      "build": "browser",
-      "_about": "BROWSER (ESM) build, served to the client for ML-KEM encapsulation in the vault and share flows. Distinct artifact from the server-side CommonJS copy blamejs vendors (see blamejs.components); the two halves of one hybrid exchange must stay on the same upstream version — see blamejs#551.",
+      "_about": "BROWSER (ESM) build served to the client for ML-KEM encapsulation in the vault and share flows. Copied verbatim from the vendored framework (lib/vendor/blamejs/lib/vendor/browser/noble-post-quantum.mjs), served at /js/noble-pq.js because the page URLs predate this. The version below is written from the framework manifest on every refresh, so the half that runs in the browser and the half that runs on the server are always the same release.",
       "exports": [
         "ml_kem512",
         "ml_kem768",
@@ -52,12 +49,12 @@
       "files": {
         "browser": "public/js/noble-pq.js"
       },
-      "bundler": "esbuild ESM",
+      "bundler": "copied from the vendored framework (no separate build)",
       "bundledAt": "2026-08-09"
     },
     "blamejs": {
-      "version": "0.18.19",
-      "tag": "v0.18.19",
+      "version": "0.18.20",
+      "tag": "v0.18.20",
       "license": "Apache-2.0",
       "author": "blamejs contributors",
       "source": "https://github.com/blamejs/blamejs",
@@ -78,6 +75,23 @@
             "xchacha20poly1305"
           ],
           "file": "lib/vendor/blamejs/lib/vendor/noble-ciphers.cjs"
+        },
+        "@noble/hashes": {
+          "version": "2.3.0",
+          "license": "MIT",
+          "author": "Paul Miller",
+          "source": "https://github.com/paulmillr/noble-hashes",
+          "cpe": "cpe:2.3:a:paulmillr:noble-hashes:2.3.0:*:*:*:*:node.js:*:*",
+          "exports": [
+            "shake128",
+            "shake256",
+            "sha3_256",
+            "sha3_512",
+            "sha256",
+            "sha512",
+            "hmac",
+            "hkdf"
+          ]
         },
         "@noble/curves": {
           "version": "2.3.0",
@@ -195,7 +209,7 @@
           "file": "lib/vendor/blamejs/lib/vendor/blamejs-pki.cjs"
         }
       },
-      "integrity": "sha512-HgDQ1PQMhGhtAnxEiX2wOmhaZ9LNalRxZMNfDFXE2yrf7YKiKEDhlNsxuslDXr5L9Nk/uNvyaTCYzzjhLcWjFg=="
+      "integrity": "sha512-e0ZJan+h4Qtqmp0VcN6rWpEeemKuL4tiAphvfDnXZgrziMT/SHJfAFLUu/cYLdAh/M6vrsU6twCLTF1G82Bapg=="
     }
   }
 }
