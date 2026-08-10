@@ -1,0 +1,30 @@
+{
+  "version": "1.14.15",
+  "date": "2026-08-10",
+  "headline": "Serve one copy of each crypto primitive instead of two",
+  "summary": "The browser assets and the server code were separate builds of the same upstream packages, installed and versioned independently, and they drifted. The framework now publishes browser builds, so both halves come from it. Two earlier tags carry these changes and produced nothing — v1.14.13 and v1.14.14 each failed a build-time check after tagging, so no image or release page exists for either; this is the version to use.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "The browser crypto assets come from the vendored framework",
+          "body": "`/js/noble-ciphers.js`, `/js/noble-hashes.js` and `/js/noble-pq.js` were each bundled here from their own package install, alongside the copy the framework vendors for the server: two builds of one package, resolved separately, versioned separately, and listed separately in the inventory. That drifted in the obvious way — the browser halves sat on @noble/ciphers 2.2.0 and @noble/post-quantum 0.6.1 while the server halves had moved to 2.3.0 and 0.7.0, and every version reference in the documentation agreed with whichever half it happened to name. The framework now publishes browser builds of the same primitives, so those three assets are copied from it and their recorded versions written from its manifest on every refresh rather than restated here. Exported names, algorithms and the URLs the pages load are unchanged, and encapsulation, sealing and key derivation were each checked against the server halves in both directions. The files are larger — roughly 50 KB more across the three, uncompressed and cached after first load — because the framework's builds carry more of each package than this project calls."
+        },
+        {
+          "title": "The vendored framework moves to 0.18.21",
+          "body": "Beyond the browser builds above, a response that had already committed its status line no longer has a second status written over it, and the streaming helper stopped replacing a content type the route had set. Neither is reachable here: this server registers its own error handler and none of its routes stream a response in parts."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "The shell-script check runs before a tag is pushed",
+          "body": "It only ran during the build, so a shell edit could pass every local check and fail after tagging — and a tag cannot be moved, so the release has to be re-cut under a new number. That is what happened to v1.14.13, over a single note-level finding in the vendoring script. The check now runs in the pre-release checks at the same strictness the build uses. It reads each script as it will be committed, including ones not yet tracked, with line endings normalised the way they are stored — linting the index instead would have passed while unstaged or untracked content went into the tag unchecked, which is the failure it exists to prevent."
+        }
+      ]
+    }
+  ]
+}

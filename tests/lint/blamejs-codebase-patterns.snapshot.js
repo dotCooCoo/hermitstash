@@ -11505,6 +11505,25 @@ var KNOWN_ANTIPATTERNS = [
     reason: "#123 macOS codebase-patterns watchdog hang. _scanShardInWorker rejected on worker error/exit without w.terminate(), so an errored worker thread stayed alive holding open handles; the parent then could not exit and the smoke run ran to the 25-min watchdog on memory-starved macOS-arm64 runners (it hung this very release's CI). Every settle path must reap the worker via w.terminate() first; the fix funnels message/error/exit through a settle() guard that terminates before resolve/reject. Fires on the bare `w.once(\"error\", reject)` shape; silent once error/exit route through settle().",
   },
   {
+    // The end-of-file TCP drain — retire the pool, then poll until every TCP
+    // handle has finished closing — was hand-rolled in 30 test files, each with
+    // its own budget and its own label, and each one able to report only that
+    // "the drain timed out". When one of them did time out under
+    // SMOKE_PARALLEL=64 there was nothing in the failure naming WHAT was still
+    // open, and the fix had to be reasoned about rather than read. One
+    // implementation owns the budget and the diagnostic; a 31st copy puts both
+    // back out of reach. Structural duplication a behavioral test can't assert
+    // (every copy behaves identically until the day one fails), so the detector
+    // is the guard.
+    id: "test-hand-rolled-tcp-handle-drain",
+    primitive: "a poll for open handles to drain must go through helpers.drainOpenHandles(label) — a hand-rolled waitUntil over process.getActiveResourcesInfo() owns its own budget, its own resource-type list, and reports only that it timed out, never what stayed open",
+    scanScope: "test",
+    regex: /\bwaitUntil\((?:(?!\n\})[\s\S]){0,400}?TCPSocketWrap/,
+    skipCommentLines: true,
+    allowlist: [],
+    reason: "0.18.21 — the same drain was copied into 31 test files, differing only in the label except for two that quietly differed in substance: one also waited for UDPWrap and swallowed its own timeout in a catch, which is what hid a real per-query datagram-socket leak in the NTS and NTP clients, and one also waited for FSReqCallback, so consolidating on the majority shape would have dropped an in-flight file read from the static suite's check. The shared list is the UNION for that reason — anything that keeps the worker alive past run() belongs in it, and which file happened to need which type is an accident. The 5s budget was a latency guess rather than a leak verdict, and the failure identified nothing, so a timeout under SMOKE_PARALLEL=64 was unattributable: measurement put the real cost at 25-28ms both idle and with 64 network-heavy copies running at once on 32 cores. helpers.drainOpenHandles(label) holds one ceiling set as a leak verdict and names the surviving handles with addresses and states, or says why none is reachable. Anchored on a waitUntil whose body names TCPSocketWrap and tempered so it cannot cross a function-closing brace at column 0; the helper's own wait reads a named predicate instead, so it needs no allowlist. Fires on any re-hand-rolled drain; silent on the whole migrated tree.",
+  },
+  {
     // A test that asserts a raw ECDSA signature's first byte is NOT 0x30 (the
     // DER SEQUENCE tag) to prove "this is raw, not DER" is NONDETERMINISTIC: the
     // first byte of an IEEE-P1363 r||s signature is r's high octet, which equals
