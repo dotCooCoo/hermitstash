@@ -23,10 +23,16 @@ var assert = require("node:assert");
 // test-env points it at a throwaway database as a side effect of being required.
 var testEnv = require("../helpers/test-env");
 
+// And the data directory, which test-env does not touch — so without this the
+// module would read and write the real one.
+var tmpDataDir = require("node:fs").mkdtempSync(require("node:path").join(require("node:os").tmpdir(), "hs-test-"));
+process.env.HERMITSTASH_DATA_DIR = tmpDataDir;
+
 var matches = require("../../routes/stash").emailMatchesAllowedList;
 
 after(function () {
   if (testEnv && typeof testEnv.cleanup === "function") testEnv.cleanup();
+  try { require("node:fs").rmSync(tmpDataDir, { recursive: true, force: true }); } catch (_e) { /* best effort */ }
 });
 
 describe("stash email allowlist", function () {
