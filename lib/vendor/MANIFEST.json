@@ -16,7 +16,7 @@
         "browser": "public/js/noble-ciphers.js"
       },
       "bundler": "copied from the vendored framework (no separate build)",
-      "bundledAt": "2026-08-10"
+      "bundledAt": "2026-08-15"
     },
     "@noble/hashes": {
       "version": "2.3.0",
@@ -32,7 +32,7 @@
         "browser": "public/js/noble-hashes.js"
       },
       "bundler": "copied from the vendored framework (no separate build)",
-      "bundledAt": "2026-08-10"
+      "bundledAt": "2026-08-15"
     },
     "@noble/post-quantum": {
       "version": "0.7.0",
@@ -50,11 +50,11 @@
         "browser": "public/js/noble-pq.js"
       },
       "bundler": "copied from the vendored framework (no separate build)",
-      "bundledAt": "2026-08-10"
+      "bundledAt": "2026-08-15"
     },
     "blamejs": {
-      "version": "0.18.21",
-      "tag": "v0.18.21",
+      "version": "0.18.27",
+      "tag": "v0.18.27",
       "license": "Apache-2.0",
       "author": "blamejs contributors",
       "source": "https://github.com/blamejs/blamejs",
@@ -63,7 +63,7 @@
         "server": "lib/vendor/blamejs/"
       },
       "bundler": "shallow git clone of release tag from github.com/blamejs/blamejs",
-      "bundledAt": "2026-08-10",
+      "bundledAt": "2026-08-15",
       "components": {
         "@noble/ciphers": {
           "version": "2.3.0",
@@ -149,21 +149,6 @@
           },
           "file": "lib/vendor/blamejs/lib/vendor/noble-post-quantum.cjs"
         },
-        "@simplewebauthn/server": {
-          "version": "13.3.2",
-          "license": "MIT",
-          "author": "Matthew Miller",
-          "source": "https://github.com/MasterKale/SimpleWebAuthn",
-          "cpe": "cpe:2.3:a:simplewebauthn:server:13.3.2:*:*:*:*:node.js:*:*",
-          "exports": [
-            "generateRegistrationOptions",
-            "verifyRegistrationResponse",
-            "generateAuthenticationOptions",
-            "verifyAuthenticationResponse",
-            "MetadataService"
-          ],
-          "file": "lib/vendor/blamejs/lib/vendor/simplewebauthn-server.cjs"
-        },
         "SecLists-common-passwords-top-10000": {
           "version": "10k-most-common (master)",
           "license": "CC-BY-3.0",
@@ -189,11 +174,11 @@
           "file": "lib/vendor/blamejs/lib/vendor/public-suffix-list.dat"
         },
         "@blamejs/pki": {
-          "version": "0.4.13",
+          "version": "0.5.3",
           "license": "Apache-2.0",
           "author": "blamejs",
           "source": "https://github.com/blamejs/pki",
-          "cpe": "cpe:2.3:a:blamejs:pki:0.4.13:*:*:*:*:node.js:*:*",
+          "cpe": "cpe:2.3:a:blamejs:pki:0.5.3:*:*:*:*:node.js:*:*",
           "exports": [
             "x509",
             "crl",
@@ -209,7 +194,7 @@
           "file": "lib/vendor/blamejs/lib/vendor/blamejs-pki.cjs"
         }
       },
-      "integrity": "sha512-6wTIbOZmre6PcswpDTIt93lqTMvdUh0vuy2lv1lRs3h3bvW2xFIc2mSyc7l2DxDKnqkMZE+bGGph+AVqtoneDw=="
+      "integrity": "sha512-IOdBwzQy3cqrAsQ7okLtBJPRC2BYGjk7rXXRBHmemZvj0OhQjVJx74okQrLmFdBeF7Cq2ifMB++nlBdMWh58og=="
     }
   }
 }

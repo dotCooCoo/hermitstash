@@ -57,12 +57,18 @@ describe("regression", function () {
       assert.strictEqual(typeof mod.ml_kem1024.keygen, "function");
     });
 
-    it("@simplewebauthn/server exports verification functions", function () {
-      var mod = require(path.join(projectRoot, "lib/vendor/blamejs/lib/vendor/simplewebauthn-server.cjs"));
-      assert.strictEqual(typeof mod.verifyAuthenticationResponse, "function");
-      assert.strictEqual(typeof mod.verifyRegistrationResponse, "function");
-      assert.strictEqual(typeof mod.generateRegistrationOptions, "function");
-      assert.strictEqual(typeof mod.generateAuthenticationOptions, "function");
+    it("passkey registration and authentication are reachable", function () {
+      // This asserted the presence of a vendored @simplewebauthn/server bundle
+      // until the framework moved passkey verification onto the certificate
+      // toolkit it already ships and dropped that bundle. Pinning the bundle
+      // pinned a vendoring decision that was never HS's to make; what HS
+      // actually depends on is the capability, which is what is checked now.
+      var b = require(path.join(projectRoot, "lib/vendor/blamejs"));
+      ["startRegistration", "verifyRegistration", "startAuthentication", "verifyAuthentication"]
+        .forEach(function (fn) {
+          assert.strictEqual(typeof b.auth.passkey[fn], "function",
+            "b.auth.passkey." + fn + " must exist — routes/passkey.js calls it");
+        });
     });
 
     it("@blamejs/pki exports the x509 + pkcs12 + crl + key toolkits", function () {

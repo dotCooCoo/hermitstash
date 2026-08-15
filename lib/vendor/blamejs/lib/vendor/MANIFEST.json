@@ -21,7 +21,7 @@
         "server": "sha256:f3325f480cb8eb814fcb0baaa19336cbbf2b993f48624c6aa9600ffd69d0be5e",
         "browser": "sha256:0ffd91540bcb586a29b56e52ee1c29df69097b50776beb4036a07558f7a4e12e"
       },
-      "refreshedAt": "2026-08-10T18:39:35.028Z"
+      "refreshedAt": "2026-08-15T06:22:59.254Z"
     },
     "@noble/hashes": {
       "version": "2.3.0",
@@ -48,7 +48,7 @@
       "hashes": {
         "browser": "sha256:dfe4b7ae3c9880e388c8da4b68f44742b229b53afacd1e674179527e33da62b0"
       },
-      "refreshedAt": "2026-08-10T18:39:35.028Z"
+      "refreshedAt": "2026-08-15T06:22:59.254Z"
     },
     "@noble/curves": {
       "version": "2.3.0",
@@ -70,7 +70,7 @@
       "hashes": {
         "server": "sha256:b5fe88d1ea780d0581dee6145d666f89d46fc9531b5db35db2e5b16627840890"
       },
-      "refreshedAt": "2026-08-10T18:39:35.028Z",
+      "refreshedAt": "2026-08-15T06:22:59.254Z",
       "components": {
         "@noble/hashes": {
           "url": "https://github.com/paulmillr/noble-hashes",
@@ -114,7 +114,7 @@
         "server": "sha256:fab7ebe5737793862c473444f4ee5912f79dd1edec86683acbb4eecbca0f5892",
         "browser": "sha256:cae1d5bbdc7184b202b6ca68df6e1db7b0d0f668c77809ded189ca7f271accc9"
       },
-      "refreshedAt": "2026-08-10T18:39:35.028Z",
+      "refreshedAt": "2026-08-15T06:22:59.254Z",
       "components": {
         "@noble/hashes": {
           "url": "https://github.com/paulmillr/noble-hashes",
@@ -129,29 +129,6 @@
           "version": "2.3.0"
         }
       }
-    },
-    "@simplewebauthn/server": {
-      "version": "13.3.2",
-      "license": "MIT",
-      "author": "Matthew Miller",
-      "source": "https://github.com/MasterKale/SimpleWebAuthn",
-      "exports": [
-        "generateRegistrationOptions",
-        "verifyRegistrationResponse",
-        "generateAuthenticationOptions",
-        "verifyAuthenticationResponse",
-        "MetadataService"
-      ],
-      "files": {
-        "server": "lib/vendor/simplewebauthn-server.cjs"
-      },
-      "bundler": "esbuild --format=cjs --platform=node --alias:reflect-metadata=reflect-metadata/lite --external:crypto --external:node:crypto",
-      "bundledAt": "2026-07-13T00:00:00Z",
-      "cpe": "cpe:2.3:a:simplewebauthn:server:13.3.2:*:*:*:*:node.js:*:*",
-      "hashes": {
-        "server": "sha256:e83195dc9f189385da9c856ef38843f4466f93ea8f3d7fc2efcb1e1b18da6f20"
-      },
-      "refreshedAt": "2026-08-10T18:39:35.028Z"
     },
     "SecLists-common-passwords-top-10000": {
       "version": "10k-most-common (master)",
@@ -171,7 +148,7 @@
       },
       "runtime_artifact": "lib/vendor/common-passwords-top-10000.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-08-10T18:39:35.028Z"
+      "refreshedAt": "2026-08-15T06:22:59.254Z"
     },
     "bimi-trust-anchors": {
       "version": "operator-managed",
@@ -196,7 +173,7 @@
       },
       "runtime_artifact": "lib/vendor/bimi-trust-anchors.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-08-10T18:39:35.028Z"
+      "refreshedAt": "2026-08-15T06:22:59.254Z"
     },
     "publicsuffix-list": {
       "version": "master",
@@ -216,10 +193,10 @@
       },
       "runtime_artifact": "lib/vendor/public-suffix-list.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-08-10T18:39:35.028Z"
+      "refreshedAt": "2026-08-15T06:22:59.254Z"
     },
     "@blamejs/pki": {
-      "version": "0.4.13",
+      "version": "0.5.3",
       "license": "Apache-2.0",
       "author": "blamejs",
       "source": "https://github.com/blamejs/pki",
@@ -239,12 +216,12 @@
         "server": "lib/vendor/blamejs-pki.cjs"
       },
       "bundler": "esbuild --format=cjs --platform=node --external:crypto --external:node:crypto",
-      "bundledAt": "2026-08-10T00:00:00Z",
-      "cpe": "cpe:2.3:a:blamejs:pki:0.4.13:*:*:*:*:node.js:*:*",
+      "bundledAt": "2026-08-14T00:00:00Z",
+      "cpe": "cpe:2.3:a:blamejs:pki:0.5.3:*:*:*:*:node.js:*:*",
       "hashes": {
-        "server": "sha256:067ac05899ef04f7851a8d010dc4289e7a01706d5fd2cdc1ce59860631bba284"
+        "server": "sha256:5d0408c098fe4b801896db68ee8957fdd60a841bffcfea88972fd6aaa10865dd"
       },
-      "refreshedAt": "2026-08-10T18:39:35.028Z"
+      "refreshedAt": "2026-08-15T06:22:59.254Z"
     }
   }
 }

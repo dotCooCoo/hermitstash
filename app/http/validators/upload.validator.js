@@ -54,6 +54,35 @@ var COMPAT = {
   ".tar.gz": ".gz",
 };
 
+// Ceiling on how much a compressed archive may expand to while being inspected.
+// The framework's own default is 1 GiB, which is a bound on the primitive, not
+// on this request: inspecting a .gz means materialising the decompressed bytes,
+// so that default would let a modest upload allocate 1 GiB per concurrent
+// request on top of the plaintext the handler is already holding. The single
+// upload path already caps its own memory (see MAX_CONCURRENT_REASSEMBLY); this
+// keeps inspection inside the same discipline. An archive that expands past it
+// is refused as un-inspectable rather than inspected at any cost.
+var MAX_ARCHIVE_DECOMPRESSED_BYTES = b.constants.BYTES.mib(256);
+
+// Ceiling on entries read from an archive's central directory before giving up.
+// A legitimate upload is orders of magnitude below this; a directory claiming
+// more is refused rather than walked.
+var MAX_ARCHIVE_ENTRIES = 10000;
+
+// The reader's bounds, set to match the balanced profile validateEntries runs
+// under. They have to agree: the reader refuses from the sizes declared in the
+// central directory BEFORE the profile is ever consulted, so leaving it on its
+// own defaults meant an archive holding a 200 MiB file was turned away as
+// `archive-read/entry-too-large` while the profile would have allowed it. Two
+// limits on the same thing, and the tighter one wins silently — which is the
+// worst way for a limit to be wrong, because the message names the reader and
+// not the policy anyone would think to look at.
+var ARCHIVE_BOMB_POLICY = {
+  maxEntries:                 MAX_ARCHIVE_ENTRIES,
+  maxEntryDecompressedBytes:  b.constants.BYTES.mib(500),
+  maxTotalDecompressedBytes:  b.constants.BYTES.gib(1),
+};
+
 // Extensions that have known magic signatures and SHOULD be validated
 var RISKY_EXTENSIONS = new Set([
   ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".tiff",
@@ -160,6 +189,219 @@ function validateMagicBytes(filename, buffer) {
   return { valid: true };
 }
 
+// Archive formats whose entry list this can actually read. .7z, .rar and .bz2
+// are accepted by RISKY_EXTENSIONS and verified against their magic bytes, but
+// there is no reader for them here, so their contents go unexamined — better to
+// say so than to imply the guard covers every archive an operator allows.
+// gzip is here because .tar.gz and .gz are accepted extensions and a gzip
+// stream reports its own magic, not the tar inside it. Reading only zip and tar
+// left "compress the tar first" as the way past this check entirely — the guard
+// would look present and do nothing for a whole accepted format.
+/**
+ * Does this buffer begin with a tar header?
+ *
+ * Decided by the header checksum rather than the "ustar" marker, because the
+ * legacy V7 format carries no marker and is read perfectly well by ordinary
+ * extractors — keying on the marker would let a V7 tar past. The checksum is
+ * stored at offset 148 as octal and computed over the whole 512-byte header
+ * with that field read as spaces, so it validates both formats identically.
+ */
+function _looksLikeTar(buf) {
+  if (!buf || buf.length < 512) return false;
+  var stored = buf.toString("ascii", 148, 156).replace(/\0.*$/, "").trim();
+  if (!/^[0-7]+$/.test(stored)) return false;
+  var expected = parseInt(stored, 8);
+  var sum = 0;
+  for (var i = 0; i < 512; i++) sum += (i >= 148 && i < 156) ? 0x20 : buf[i];
+  return sum === expected;
+}
+
+// Each opener returns something with .entries(), or null when the format has no
+// entry structure to inspect. gzip needs the extra hop: read.fromGzip yields a
+// decompression handle, not a reader, and what is inside may be a tar or may be
+// one plain compressed file.
+var READABLE_ARCHIVE = {
+  zip: function (adapter) {
+    return b.archive.read.zip(adapter, { bombPolicy: ARCHIVE_BOMB_POLICY });
+  },
+  tar: function (adapter) {
+    return b.archive.read.tar(adapter, { bombPolicy: ARCHIVE_BOMB_POLICY });
+  },
+  gzip: async function (adapter) {
+    // Decompression itself is bounded by the framework's caps (1 GiB output,
+    // 100x expansion), so a gzip bomb fails here before any tar is parsed.
+    var gz = await b.archive.read.fromGzip(adapter, {
+      maxDecompressedBytes: MAX_ARCHIVE_DECOMPRESSED_BYTES,
+    });
+    var bytes = await gz.toBuffer();
+
+    // Decide whether this IS a tar before trying to read it as one, rather than
+    // reading it and treating any failure as "not a tar". That shortcut is a
+    // hole: a tar exceeding the entry cap, or one with deliberately malformed
+    // metadata, throws exactly like a non-tar does, so every crafted .tar.gz
+    // would be waved through as an ordinary compressed file. Deciding first
+    // means a parse or policy failure on something that really is a tar
+    // propagates and refuses, which is the fail-closed behaviour claimed.
+    if (!_looksLikeTar(bytes)) return null;
+
+    // Bomb policy passed explicitly: otherwise the compressed path would run on
+    // the reader's 2^20 default while the direct .tar and .zip paths ran on this
+    // cap, and the bound would hold everywhere except the format that arrives
+    // already compressed.
+    return b.archive.read.tar(b.archive.adapters.buffer(bytes), { bombPolicy: ARCHIVE_BOMB_POLICY });
+  },
+};
+
+/**
+ * Project a reader entry into the shape the guard reads.
+ *
+ * The readers describe an entry as `entryType` / `typeflag` / `linkname`; the
+ * guard looks for `isSymlink` / `isHardlink` / `linkTarget`. Handing the reader's
+ * output straight over therefore leaves every link check silently inert — the
+ * guard runs, reports ok, and the symlink protection exists only in the claim.
+ *
+ * The framework has this projection, but only for zip (guardArchive.inspect
+ * refuses any other format), and it hardcodes isHardlink to false because a zip
+ * has no hardlink concept. A tar does: typeflag "1" is a hardlink and "2" a
+ * symlink, with the destination in linkname. That is exactly the case a
+ * zip-shaped projection would drop, so this reads both spellings.
+ */
+function toGuardEntry(e) {
+  var type = e.entryType;
+  return {
+    name:           e.name,
+    size:           e.size,
+    compressedSize: e.compressedSize,
+    isSymlink:      type === "symlink" || e.typeflag === "2",
+    isHardlink:     type === "hardlink" || type === "link" || e.typeflag === "1",
+    linkTarget:     e.linkname || e.linkTarget || null,
+    isDirectory:    type === "directory" || e.typeflag === "5",
+    isEncrypted:    !!e.isEncrypted,
+    attrs:          { externalAttrs: e.externalAttrs },
+  };
+}
+
+/**
+ * Refuse an uploaded archive whose ENTRIES are hostile.
+ *
+ * validateMagicBytes already establishes that a file claiming to be a .zip is
+ * one. Nothing looked inside it. This server never extracts an upload, so a
+ * zip-slip path cannot hurt the server itself — but the archive is handed
+ * straight back to whoever downloads it, and they will extract it. Passing on
+ * an archive that writes outside its extraction directory is passing on the
+ * attack, so it is refused here rather than stored and served.
+ *
+ * Runs the BALANCED profile, explicitly. The guard's bare defaults are the
+ * strict profile, which caps an archive at 100 entries and 100 MiB — an
+ * ordinary project zip or photo folder exceeds that, and calling validateEntries
+ * with no options quietly refused a 150-file archive as `archive.entry-count`.
+ * Balanced allows 10,000 entries (the same bound handed to the reader, so the
+ * two agree), 1 GiB in total, and an archive nested two deep, which is what
+ * someone zipping a folder that already contains a zip actually produces.
+ *
+ * What it still refuses is the structural set: an entry escaping its directory,
+ * an absolute path, a symlink or hardlink pointing outside, a duplicate name,
+ * and direction-changing, control, null or zero-width characters in a name.
+ * Encryption is recorded rather than refused — sending a password-protected
+ * archive is ordinary, and refusing it would refuse the product's purpose.
+ *
+ * Checked against real layouts before choosing that posture: an OOXML document
+ * (every .docx/.xlsx/.pptx is a zip — `[Content_Types].xml`, `_rels/.rels`,
+ * `word/document.xml`), an ordinary folder archive, and a source tree carrying
+ * dotfiles all pass; a hand-built entry named `../../etc/passwd` is refused as
+ * `archive.zip-slip`.
+ *
+ * async, unlike its sibling validators — reading a central directory is I/O
+ * shaped even from a buffer. Both ingest paths await it.
+ */
+async function validateArchive(filename, buffer) {
+  if (!buffer || buffer.length < 8) return { valid: true };
+
+  // Magic first, then the declared extension. A tar in the legacy V7 format
+  // carries no "ustar" marker at all, so sniffing identifies nothing — and
+  // trusting the sniff alone would accept a V7 tar unexamined while ordinary
+  // extractors read it quite happily. Falling back to the extension costs a
+  // parse attempt on a file the sender already told us was a tar, and the
+  // attempt failing is handled below as an unreadable archive.
+  var magic = b.guardArchive.inspectMagic(buffer);
+  var format = (magic && magic.format) || null;
+  if (!format) {
+    var ext = nodePath.extname(String(filename || "")).toLowerCase();
+    if (ext === ".tar") format = "tar";
+  }
+  if (!format) return { valid: true };
+  var open = READABLE_ARCHIVE[format];
+  if (!open) return { valid: true };
+
+  // The entry-count bound is handed to the reader rather than counted out here.
+  // The reader parses the directory before yielding anything, so a count kept in
+  // the loop below would only notice after the work it meant to prevent had
+  // already happened; the reader's own bombPolicy refuses at the layer that does
+  // the parsing. The default ceiling is 2^20, far above anything a real upload
+  // carries — the point of naming a lower one is that this is somebody else's
+  // archive, not ours.
+  // inspect() rather than entries(): it is the one method every reader here
+  // exposes and it returns the whole entry list. The zip reader also has
+  // entries(), the tar reader does not — reaching for that would have refused
+  // every .tar upload while appearing to work, because the throw would land in
+  // the unreadable-archive branch below.
+  var entries = [];
+  try {
+    var reader = await open(b.archive.adapters.buffer(buffer));
+    if (!reader) return { valid: true };
+    entries = await reader.inspect();
+  } catch (e) {
+    // Refuse rather than pass. The magic bytes already said this is an archive,
+    // so a reader that cannot walk it means the structure is malformed or
+    // beyond what this reader supports — and "accept what we could not read" is
+    // how an attacker gets an archive past the check that a real extractor will
+    // happily open. Over-refusing an exotic-but-valid archive is the cost, and
+    // it is the right side to err on for somebody else's file.
+    return { valid: false, reason: "Archive could not be read for inspection.", detail: e.code || "unreadable" };
+  }
+
+  var guardEntries = entries.map(toGuardEntry);
+
+  // A link whose destination cannot be read is refused before the guard sees it.
+  // A tar carries the destination in its header, so the guard can tell whether
+  // it escapes; a ZIP stores it in the entry BODY, and the reader's entry list
+  // has no field for it at all. That difference is invisible in the guard's
+  // result — it is handed linkTarget: null, finds nothing to object to, and
+  // returns ok. So a ZIP symlink pointing anywhere at all would have passed the
+  // check that exists to stop exactly that, while the tar equivalent was caught.
+  // Reading each link's body to recover the target is the alternative; refusing
+  // is the smaller change and errs the right way for somebody else's archive,
+  // where a symlink is uncommon to begin with.
+  var blindLink = guardEntries.find(function (e) {
+    return (e.isSymlink || e.isHardlink) && !e.linkTarget;
+  });
+  if (blindLink) {
+    return {
+      valid: false,
+      reason: "Archive contents failed inspection.",
+      detail: "archive.link-target-unreadable",
+    };
+  }
+
+  var result = b.guardArchive.validateEntries(guardEntries, {
+    profile: "balanced",
+    // Keep the guard's entry cap and the reader's the same number. Two bounds
+    // that disagree is a bug waiting to be found from whichever side is looser.
+    maxEntries: MAX_ARCHIVE_ENTRIES,
+  });
+  if (result && result.ok) return { valid: true };
+
+  // The finding names the offending entry, which is useful in the audit log and
+  // is exactly what must NOT go back to the uploader: it is attacker-authored
+  // text and would render their string in someone else's UI.
+  var first = (result && result.issues && result.issues[0]) || null;
+  return {
+    valid: false,
+    reason: "Archive contents failed inspection.",
+    detail: first ? (first.ruleId || first.kind) : "unknown",
+  };
+}
+
 // MIME types HS renders INLINE at serve time (mirrors app/domain/uploads/
 // file.service.js SAFE_INLINE) and that b.fileType.detect can verify by magic
 // bytes. The serve-time inline/download gate reads the STORED mimeType, which is
@@ -183,4 +425,4 @@ function safeServeMime(declaredMime, buffer) {
   return (sniffed && sniffed.mime === declaredMime) ? declaredMime : "application/octet-stream";
 }
 
-module.exports = { validateFile, validateChunk, validateBundleLimits, detectContentType, validateMagicBytes, safeServeMime };
+module.exports = { validateFile, validateChunk, validateBundleLimits, detectContentType, validateMagicBytes, validateArchive, safeServeMime };

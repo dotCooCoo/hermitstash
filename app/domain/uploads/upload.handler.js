@@ -231,12 +231,22 @@ async function handleFileUpload(ctx) {
     return { error: fileCheck.reason };
   }
 
-  // Magic bytes
+  // Magic bytes, then archive contents. Both live in the same try: the archive
+  // guard is the same class of check and must fail closed the same way.
   try {
     var magicCheck = uploadValidator.validateMagicBytes(file.filename, file.data);
     if (!magicCheck.valid) {
       audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + magicCheck.reason + suffix, req: ctx.req });
       return { error: magicCheck.reason };
+    }
+    var archiveCheck = await uploadValidator.validateArchive(file.filename, file.data);
+    if (!archiveCheck.valid) {
+      audit.log(audit.ACTIONS.UPLOAD_REJECTED, {
+        targetId: bundle._id,
+        details: "reason: " + archiveCheck.reason + (archiveCheck.detail ? " [" + archiveCheck.detail + "]" : "") + suffix,
+        req: ctx.req,
+      });
+      return { error: archiveCheck.reason };
     }
   } catch (_e) {
     // Fail closed: an internal error in the magic-byte gate must reject, not
@@ -566,6 +576,19 @@ async function handleChunkUpload(ctx) {
         _refundIpQuota(ctx.req, quota.ipReserved);
         audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + magicCheck.reason + " (chunked)" + suffix, req: ctx.req });
         return { error: magicCheck.reason };
+      }
+      // The chunked path reassembles to the same plaintext the single-shot path
+      // receives, so it gets the same archive inspection. Guarding only one of
+      // the two would leave the other as the way in.
+      var archiveCheck = await uploadValidator.validateArchive(filename, fullData);
+      if (!archiveCheck.valid) {
+        _refundIpQuota(ctx.req, quota.ipReserved);
+        audit.log(audit.ACTIONS.UPLOAD_REJECTED, {
+          targetId: bundle._id,
+          details: "reason: " + archiveCheck.reason + (archiveCheck.detail ? " [" + archiveCheck.detail + "]" : "") + " (chunked)" + suffix,
+          req: ctx.req,
+        });
+        return { error: archiveCheck.reason };
       }
     } catch (_e) {
       // Fail closed (chunked path): reject on an internal validation error and

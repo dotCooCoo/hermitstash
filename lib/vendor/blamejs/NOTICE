@@ -67,17 +67,8 @@ Used for:    FIPS 203 ML-KEM (ml_kem_512 / ml_kem_768 / ml_kem_1024),
              you to Paul Miller for the auditable, dependency-free
              reference implementation.
 --------------------------------------------------------------------------------
-Component:   @simplewebauthn/server
-Version:     13.3.2
-Source:      https://github.com/MasterKale/SimpleWebAuthn
-License:     MIT
-Copyright:   Copyright (c) Matthew Miller
-Used for:    WebAuthn / passkey registration + authentication response
-             verification (lib/passkey.js, via lib/vendor/simplewebauthn-
-             server.cjs).
---------------------------------------------------------------------------------
 Component:   @blamejs/pki
-Version:     0.4.13
+Version:     0.5.3
 Source:      https://github.com/blamejs/pki
 License:     Apache-2.0
 Copyright:   Copyright (c) blamejs contributors
@@ -85,9 +76,13 @@ Used for:    Pure-JS mTLS CA (default engine). Self-signed CA generation
              (ML-DSA-87 by default, ECDSA P-384 bridge on opt-in), leaf-cert
              signing for client certificates, X.509 CRL generation, and
              PKCS#12 packaging (PBES2 + AES-256-CBC + PBKDF2-HMAC-SHA-512,
-             2,000,000 iterations; PBMAC1 integrity MAC). Zero runtime
-             dependencies. Wired into b.mtlsCa via lib/mtls-engine-default.js,
-             backed by the bundle lib/vendor/blamejs-pki.cjs.
+             2,000,000 iterations; PBMAC1 integrity MAC). Also WebAuthn /
+             passkey registration + assertion verification (attestation
+             statement validation, COSE key handling, signature
+             verification) behind b.auth.passkey. Zero runtime
+             dependencies. Wired into b.mtlsCa via lib/mtls-engine-default.js
+             and b.auth.passkey via lib/auth/passkey.js, backed by the
+             bundle lib/vendor/blamejs-pki.cjs.
 --------------------------------------------------------------------------------
 Component:   SecLists — 10k-most-common.txt
 Version:     master snapshot (bundled 2026-05-02)

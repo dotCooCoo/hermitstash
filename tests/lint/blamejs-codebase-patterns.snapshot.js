@@ -7059,6 +7059,70 @@ var KNOWN_ANTIPATTERNS = [
     reason: "An encrypted-boot db.enc length check (packed.length < <min>) must fail closed (throw), not silently return — a return opens a fresh empty database that the next flush persists over the corrupt durable snapshot (silent data loss). Fires on a packed.length check whose block returns before it throws.",
   },
   {
+    id: "passkey-untrusted-key-objects-build-with-null-prototype",
+    primitive: "b.auth.passkey",
+    scanScope: "lib",
+    // b.auth.passkey builds objects out of key names it does not choose: CBOR
+    // extension labels from the authenticator, and clientExtensionResults from
+    // the browser. Assigning a key called `__proto__` to an ordinary object
+    // hits the legacy prototype setter -- the key vanishes from Object.keys
+    // and from JSON, and its contents reappear as INHERITED properties, so
+    // verified data is lost and unverified-looking data is gained.
+    //
+    // Both converters must build through _plainObject(). This fired for real:
+    // the hazard was fixed in the CBOR converter and then reintroduced
+    // verbatim in the snapshot converter written two changes later.
+    regex: /function _(?:plainFromCbor|snapshotValue)\b(?:(?!\n\})[\s\S]){0,2000}?\bvar out = \{\}/,
+    allowlist: [],
+    reason: "The converters in b.auth.passkey build objects from key names supplied by the authenticator (CBOR extension labels) or the browser (clientExtensionResults), so they must build through _plainObject() — a null-prototype object. `var out = {}` there lets a key called __proto__ hit the legacy prototype setter: it disappears from Object.keys and JSON while its contents become inherited properties, losing verified extension data and adding properties nothing signed.",
+  },
+  {
+    id: "passkey-resident-key-selectors-derive-from-one-requirement",
+    primitive: "b.auth.passkey",
+    scanScope: "lib",
+    // WebAuthn states "this credential must be discoverable" twice:
+    // `residentKey` (L2/L3) and the L1 boolean `requireResidentKey`. Browsers
+    // in the field read one or the other, so reading the caller's two inputs
+    // independently emits a contradictory pair — and a browser reading the
+    // half that says "not required" creates a NON-discoverable credential for
+    // a relying party that required one. Nothing fails at registration; only
+    // username-less and conditional-UI login are quietly missing.
+    regex: /requireResidentKey:\s*sel\.requireResidentKey/,
+    allowlist: [],
+    reason: "b.auth.passkey must derive requireResidentKey from the single resolved residentKey requirement (requireResidentKey === (residentKey === 'required')), never read the caller's boolean alongside it. Reading both independently emits a contradictory pair, and a browser honouring the field that says 'not required' creates a non-discoverable credential the relying party required to be discoverable.",
+  },
+  {
+    id: "passkey-result-origin-is-the-verified-one-not-the-allowlist",
+    primitive: "b.auth.passkey",
+    scanScope: "lib",
+    // `expectedOrigin` may be a single origin OR an allow-list for a
+    // deployment serving one RP ID from several. Recording it as the ceremony's
+    // origin therefore writes an ARRAY into a field every consumer reads as a
+    // string, and names every permitted origin instead of the one that was
+    // used. The verified origin is in the parsed client data, which both
+    // ceremonies already have. Both result objects got this wrong
+    // independently, one of them after the other had been fixed.
+    regex: /\borigin:\s*opts\.expectedOrigin\b/,
+    allowlist: [],
+    reason: "b.auth.passkey result objects must report the origin from the VERIFIED client data, never opts.expectedOrigin — which may be an allow-list, and would put an array in a string-valued field while recording every permitted origin instead of the one the ceremony ran at. Fires on `origin: opts.expectedOrigin` in either ceremony's result.",
+  },
+  {
+    id: "passkey-credential-id-binding-goes-through-the-helper",
+    primitive: "b.auth.passkey",
+    scanScope: "lib",
+    // A WebAuthn response states its credential ID twice — `id` and its binary
+    // spelling `rawId` — and neither is covered by a signature. The binding to
+    // the authoritative ID (inside the attestation at registration, the stored
+    // record at authentication) lives in _requireCredentialIdMatches, which
+    // checks BOTH spellings against the one authority. A hand-rolled comparison
+    // at a call site is how the two ceremonies drifted apart in the first place:
+    // registration bound neither, and authentication bound `id` while leaving
+    // `rawId` free to name a different credential.
+    regex: /\bresponse\.(?:id|rawId)\s*[!=]==/,
+    allowlist: [],
+    reason: "The credential-ID binding in b.auth.passkey must run through _requireCredentialIdMatches, which checks response.id AND response.rawId against the single authoritative ID (attested at registration, stored at authentication). A hand-rolled `response.id !== ...` at a call site binds one spelling and leaves the other free to claim a different credential — an RP keying on the unbound field overwrites the victim's credential row with the attacker's public key.",
+  },
+  {
     id: "local-http-loopback-guard-requires-ip-literal",
     primitive: "b.localHttp",
     scanScope: "lib",
@@ -11505,16 +11569,49 @@ var KNOWN_ANTIPATTERNS = [
     reason: "#123 macOS codebase-patterns watchdog hang. _scanShardInWorker rejected on worker error/exit without w.terminate(), so an errored worker thread stayed alive holding open handles; the parent then could not exit and the smoke run ran to the 25-min watchdog on memory-starved macOS-arm64 runners (it hung this very release's CI). Every settle path must reap the worker via w.terminate() first; the fix funnels message/error/exit through a settle() guard that terminates before resolve/reject. Fires on the bare `w.once(\"error\", reject)` shape; silent once error/exit route through settle().",
   },
   {
-    // The end-of-file TCP drain — retire the pool, then poll until every TCP
-    // handle has finished closing — was hand-rolled in 30 test files, each with
-    // its own budget and its own label, and each one able to report only that
-    // "the drain timed out". When one of them did time out under
-    // SMOKE_PARALLEL=64 there was nothing in the failure naming WHAT was still
-    // open, and the fix had to be reasoned about rather than read. One
-    // implementation owns the budget and the diagnostic; a 31st copy puts both
-    // back out of reach. Structural duplication a behavioral test can't assert
-    // (every copy behaves identically until the day one fails), so the detector
-    // is the guard.
+    // RFC 9162's tree hashes are two lines each, which is exactly why they got
+    // retyped per suite — and a suite that owns its own hashes builds fixtures
+    // by hand, which means small perfect trees and hand-picked sibling values.
+    // A proof assembled that way can be made to come out right without
+    // corresponding to any tree, and one that did hid a real gap: the verifier
+    // never checked the operator's pinned first root, and the fixture asserting
+    // that branch used filler bytes for it. helpers.merkle builds real trees
+    // and derives real proofs, so a fixture cannot quietly stop meaning
+    // anything. Structural duplication a behavioral test can't assert.
+    id: "test-hand-rolled-merkle-tree-hash",
+    primitive: "a test that needs an RFC 9162 tree hash must use helpers.merkle — a per-suite copy leads to hand-built fixtures, and a hand-built proof can be tuned to pass without describing a real tree",
+    scanScope: "test",
+    regex: /createHash\("sha256"\)[\s\S]{0,120}?Buffer\.from\(\[\s*0x0?1\s*\]\)\s*,\s*\w+\s*,\s*\w+/,
+    skipCommentLines: true,
+    allowlist: ["test/helpers/merkle.js"],
+    reason: "0.18.23 — network-tls.test.js and network-tls-ct-inclusion.test.js each retyped the 0x00-leaf / 0x01-interior hashes, and both built consistency fixtures by hand from four-leaf perfect trees with chosen sibling bytes. That shape cannot reach the uneven power-of-two split the algorithm turns on, and one such fixture passed a first root of Buffer.alloc(32, 0x88) — a root belonging to no tree — which is precisely the gap it was sitting on: verifyConsistency rebuilt only the second root, so a pinned first root was never checked unless its size was a power of two. helpers.merkle transcribes the recursive definitions and derives real proofs; the differential suite then found that gap, an m===n refusal, and an unconsumed-proof-tail. Anchored on the interior-hash concatenation shape and tempered to a short window; the allowlist entry is the helper itself. Fires on a re-hand-rolled tree hash.",
+  },
+  {
+    // An OCSP response is ~40 lines of nested DER, and a suite that needs one
+    // refusal shape ends up building the whole thing. Three suites did, each
+    // reaching only the shapes it happened to need, which is how the
+    // signature-algorithm-versus-issuer-key disagreement went untested: no
+    // builder could express it. One builder with options makes a new refusal
+    // an argument instead of a fourth copy. Structural duplication a
+    // behavioral test can't assert, so the detector is the guard.
+    id: "test-hand-rolled-ocsp-response-builder",
+    primitive: "a test that needs an OCSP response must build it with helpers.buildOcspResponse(opts) — a hand-assembled BasicOCSPResponse only ever reaches the shapes its own suite thought of",
+    scanScope: "test",
+    regex: /writeOid\(\s*"1\.3\.6\.1\.5\.5\.7\.48\.1\.1"/,
+    skipCommentLines: true,
+    allowlist: ["test/helpers/ocsp.js"],
+    reason: "0.18.21 — tls-ocsp-freshness.test.js and tls-ocsp-verify.test.js each grew a near-identical BasicOCSPResponse assembler, and between them covered the accept path, staleness and the CertID issuer binding while leaving certStatus revoked/unknown, a non-successful responseStatus, both nonce encodings, an empty responses SEQUENCE and the signature-algorithm/issuer-key agreement untested — none of which either builder could express. helpers.buildOcspResponse(opts) builds all of them from one place, and closing those paths surfaced that the verifier accepted a response declaring RSA while carrying ECDSA (and the reverse). Anchored on the id-pkix-ocsp-basic OID, which appears only when assembling a response; the allowlist entry is the helper itself, the one legitimate site. Fires on a re-hand-rolled builder; silent on both migrated suites.",
+  },
+  {
+    // The end-of-run handle drain — retire the pool, then poll until every
+    // socket and pending file operation has finished — was hand-rolled in 31
+    // test files, each with its own budget, its own resource-type list and its
+    // own label, and each able to report only that "the drain timed out". When
+    // one did time out under SMOKE_PARALLEL=64 nothing in the failure named
+    // what was still open. One implementation owns the budget and the
+    // diagnostic; a 32nd copy puts both back out of reach. Structural
+    // duplication a behavioral test can't assert (every copy behaves
+    // identically until the day one fails), so the detector is the guard.
     id: "test-hand-rolled-tcp-handle-drain",
     primitive: "a poll for open handles to drain must go through helpers.drainOpenHandles(label) — a hand-rolled waitUntil over process.getActiveResourcesInfo() owns its own budget, its own resource-type list, and reports only that it timed out, never what stayed open",
     scanScope: "test",
@@ -11615,6 +11712,57 @@ var KNOWN_ANTIPATTERNS = [
       "test/smoke.js",
     ],
     reason: "The smoke worker requires each test module and only `await mod.run()`. A test written as a top-level `(async function run(){...})()` IIFE runs DETACHED on require: the worker measures + prints its result before the IIFE's post-await assertions execute, so every check after the first await silently never counts (parsers-standalone reported 4 of 26 checks this way) and a failing post-await assertion is never seen — a false pass. Export `run` and invoke under `if (require.main === module)`. Fires on a column-0 `(async` (function or arrow IIFE); `async function run()` (no leading paren), `module.exports = { run }`, and an indented async IIFE inside a helper stay silent. Synchronous `(function(){...})()` IIFEs complete during require, so they do not undercount and are out of scope here.",
+  },
+  {
+    id: "gate-issue-severity-outside-the-contract-enum",
+    primitive: "b.gateContract.ISSUE_SEVERITIES — info / warn / high / critical",
+    // The severity is not decoration: gate-contract's aggregateIssues refuses on
+    // "critical" and "high" and passes everything else, so a value outside the
+    // enum silently lands in the non-blocking bucket. A guard that meant to
+    // raise an alarm instead files a note, and audit consumers reading the
+    // documented enum can drop or misclassify the finding.
+    //
+    // Anchored on ruleId, which is what makes it precise rather than noisy:
+    // that field marks the object as an ISSUE flowing into a gate decision.
+    // lib/ carries 42 other `severity:` values — WCAG conformance levels,
+    // backup-report and NTP-check grades — that are each module's own
+    // vocabulary and correctly not this enum. Scoping by filename would flag
+    // all of them; scoping by ruleId flags none. Verified across 231 real gate
+    // issues: every one is in-enum, so this entry ships with an empty
+    // allowlist and no exceptions to explain.
+    //
+    // The tempered token stops at the `})` closing an `issues.push({...})`, so
+    // the two fields must belong to the SAME object and the match cannot run
+    // from one issue into the next. The quantifier is a ReDoS backstop only,
+    // set far above any real issue body — a char bound doing the precision
+    // work silently rots the day a `snippet` grows past it, which an earlier
+    // {0,200} version of this entry did for any issue whose ruleId sat behind
+    // a long snippet.
+    regex: /severity:\s*"(?!(?:info|warn|high|critical)")[a-z-]+"(?:(?!\}\s*\))[\s\S]){0,2000}?ruleId:|ruleId:(?:(?!\}\s*\))[\s\S]){0,2000}?severity:\s*"(?!(?:info|warn|high|critical)")[a-z-]+"/,
+    allowlist: [],
+    reason: "an issue carrying a ruleId is read by aggregateIssues, which only refuses on high/critical — an invented severity (\"medium\") is silently advisory",
+  },
+  {
+    id: "guard-gate-prose-names-a-method-the-gate-lacks",
+    primitive: "the gate surface built by lib/gate-contract.js — check / mode / audit / observability / metrics",
+    // A guard's @primitive block is its documentation page. When the prose
+    // attributes a call to "the gate" it is telling an operator which method to
+    // reach for, and the example right below it is telling them a different
+    // one — the block teaches two incompatible names and only the example is
+    // executed by the @example gate, so the prose half rots unobserved.
+    //
+    // Precise because it is anchored twice: the POSSESSIVE "gate's" ties the
+    // call to the gate specifically, and the alternation is the ACTUAL surface
+    // gate-contract.js returns. A method added there is added here.
+    //
+    // The possessive is required, not optional. Written loosely enough to
+    // accept a bare "gate", it also matches prose using the word as a noun —
+    // "fails the same gate `cacImplicitLabel({...})` enforces" names a writer
+    // primitive, not a method on a gate, and reporting it would be the
+    // cried-wolf failure that makes a catalog entry worth ignoring.
+    regex: /gate(?:'s|s') `(?!(?:check|mode|audit|observability|metrics)\b)[A-Za-z_$][\w$]*\s*\(/,
+    allowlist: [],
+    reason: "a guard's prose must name a method the gate actually exposes; `decide(ctx)` outlived the rename to `check` in guard-smtp-command.js and kept teaching it",
   },
   {
     // `Promise + setTimeout` direct sleep in tests is forbidden;

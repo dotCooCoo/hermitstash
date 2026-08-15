@@ -12,7 +12,7 @@
 # date below — that digest bump IS the intended CVE-response path. Resolve the current
 # digest with:
 #   docker buildx imagetools inspect cgr.dev/chainguard/wolfi-base:latest
-ARG RUNTIME_BASE=cgr.dev/chainguard/wolfi-base@sha256:30f03343947c7ae3581fda727a6e2aa7b8ce7009b7bfc2ab8d5c9483ace5812f  # wolfi-base 2026-08-10
+ARG RUNTIME_BASE=cgr.dev/chainguard/wolfi-base@sha256:0a8fd427de5882aed77471b0a432c3675eda6b6a0ae952b5d640b46da628cdbe  # wolfi-base 2026-08-15
 FROM ${RUNTIME_BASE}
 # Chainguard wolfi-base — glibc-dynamic (not musl), continuously rebuilt when
 # upstream CVE fixes land. CVE count at any given digest is typically near-zero;

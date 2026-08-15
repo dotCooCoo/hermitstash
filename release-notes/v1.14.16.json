@@ -1,0 +1,30 @@
+{
+  "version": "1.14.16",
+  "date": "2026-08-15",
+  "headline": "Inspect uploaded archives instead of only checking what they claim to be",
+  "summary": "An uploaded .zip was verified to actually be a zip and then stored without anything looking inside it. This server never extracts an upload, so a hostile archive could not hurt the server — but it was handed to whoever downloaded it, and they extract it. Archive contents are now inspected at upload.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "An archive whose entries escape the extraction directory is refused at upload",
+          "body": "Archives are accepted by default and were checked only for agreement between extension and magic bytes — a file claiming to be a zip had to be one, and nothing more was asked. An entry named to write outside the directory it is extracted into passed that check, was stored, and was served to the recipient, who would extract it. Entry names are now inspected on both upload paths and an archive is refused if any entry escapes its directory, is an absolute path, is a symlink or hardlink pointing outside it, duplicates another name, or hides direction-changing, control, null or zero-width characters in its name. What is deliberately still accepted matters as much: a password-protected archive, because sending one is ordinary use; an archive nested inside another, because that is what zipping a folder that already contains one produces; and archives of up to ten thousand entries and a gigabyte, rather than the hundred-entry limit that would have turned away any ordinary project folder. A compressed archive that expands beyond a quarter of a gigabyte is refused as too large to inspect rather than inspected at any cost, since inspecting it means holding the decompressed bytes in memory while doing so. Compressed tar archives are decompressed under the framework's expansion caps and inspected as well, since a gzip stream announces itself and not the tar inside it — otherwise compressing the archive first would have been a way past the check for a whole accepted format. A single gzipped file with no archive inside it has no entries to examine and is accepted. An archive whose structure cannot be read at all is refused rather than stored: the magic bytes already said it was an archive, and accepting what could not be examined is how a crafted file passes a check that a real extractor will happily open. Formats with no reader here — 7z, RAR, bzip2 — are still checked against their magic bytes, but their contents cannot be examined, so an operator who allows them is trusting the sender as before. The reason given to the uploader does not repeat the offending entry name, which is text the sender chose; the audit log records which rule fired."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "The vendored framework moves to 0.18.27",
+          "body": "Passkey verification moves onto the certificate toolkit already vendored here, and the separate WebAuthn library it used is gone from the tree. A registration or sign-in performed inside a frame belonging to another site is now refused unless the deployment opts in; this server sets a policy that forbids being framed at all, so the case cannot arise and the change is a second line rather than a new behaviour. Manufacturer attestations are anchored to pinned vendor roots, binary fields in a response must be canonically encoded, and a response must name the one credential type the specification defines."
+        },
+        {
+          "title": "The runtime base image moves to the current Chainguard rebuild",
+          "body": "The pinned digest had been superseded upstream. Bumping it picks up whatever package fixes landed in the rebuild."
+        }
+      ]
+    }
+  ]
+}
