@@ -13,3 +13,8 @@ tests/.scratch/
 # Dropbox file lock can outlast the cleanup retries and strand it; ignore it so
 # a lingering clone never breaks the eslint gate or gets committed.
 /.vendor-blamejs.tmp/
+# Coverage output: raw V8 JSON (one file per process, thousands per run) and
+# the rendered report. Regenerate with `node scripts/coverage.js`.
+/.coverage/
+/tests/.c8_output/
+/tests/coverage/
