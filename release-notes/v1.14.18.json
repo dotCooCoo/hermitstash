@@ -1,0 +1,47 @@
+{
+  "version": "1.14.18",
+  "date": "2026-08-15",
+  "headline": "Screen what anonymous uploaders send, and remove a session-key wrap that stopped working",
+  "summary": "Three values an unauthenticated visitor controls were stored and served back with only their length checked. Separately, a mechanism for delivering session keys to certificate-authenticated clients has been unable to run since v1.14.0, and the documentation still described it as active.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "An uploaded file's declared type can no longer make it permanently unfetchable",
+          "body": "The type came from a form field, was stored exactly as sent, and was later written back as a response header. A value containing a carriage return made writing that header fail — and fail on every later attempt, so a single upload to a public stash could leave a file that never downloaded again while its download counter still advanced on each try. Node's own header checks are what kept this from becoming header injection; the damage was availability, and it was permanent. The declared type is now screened when it is chosen, and anything malformed is served as a generic binary type instead. Ordinary types are unaffected, and a file declared as an image whose bytes are not an image is still forced to download rather than displayed."
+        },
+        {
+          "title": "Uploader name and message are screened for disguising characters",
+          "body": "Both are set by whoever uploads, need no account, and are shown to every visitor of the bundle page and placed in the notification email — including its subject line, which carries them with no escaping. Escaping is the wrong tool here: it handles markup and does nothing about a right-to-left override that reverses how a name reads, or zero-width and Tag-block characters that do not appear on screen at all. Those characters are now stripped from both fields, matching what already happened to uploaded filenames. Names in non-Latin scripts pass through untouched."
+        },
+        {
+          "title": "A typo in the trusted-proxy list no longer discards the whole list",
+          "body": "TRUST_PROXY names the proxies whose forwarded-client-IP headers are believed. One malformed entry made the entire setting fail to load, leaving only loopback trusted, with nothing logged. Behind a reverse proxy that means every client resolves to the proxy's own address: per-client rate limits and IP blocks collapse onto a single bucket, and because the admin network fence reads that same address, an operator whose fence allows their internal network would admit every caller reaching the proxy. Entries are now checked one at a time — a bad one is dropped and named in the log, the rest keep working. A bare address without a prefix length is accepted and treated as a single host."
+        },
+        {
+          "title": "The admin fence now rejects a malformed range instead of ignoring it",
+          "body": "ADMIN_ALLOWED_CIDRS restricts the admin area to named networks. It was checked at startup with a helper that answers no for an unparseable range rather than reporting an error, so nothing was ever rejected and a typo simply removed that part of the fence with no sign. An address written without a prefix length was worse: it matched nothing at all, not even itself, so an operator who fenced the admin area to their own address was locked out with no explanation. Startup now refuses a malformed entry and names it, and a bare address is treated as a single host."
+        }
+      ]
+    },
+    {
+      "heading": "Removed",
+      "items": [
+        {
+          "title": "The hybrid ECIES session-key wrap, which has been unable to run since v1.14.0",
+          "body": "The first response to a certificate-authenticated client used to carry a wrapped copy of its session key, protected by a key derived from post-quantum encapsulation combined with Diffie-Hellman against the P-384 key in the client's certificate. Certificates became post-quantum in v1.14.0 and carry a signature key with no Diffie-Hellman counterpart, so the second half of that derivation could no longer be computed; the failure was caught and logged, and the wrap silently stopped being sent. It could not be repaired by dropping the certificate half, because that was the only part tying the wrap to the authenticated client rather than to a key supplied in a request header. Nothing consumed it: browsers receive their session key in the page template, and clients using an API key take a different path with its own post-quantum key exchange against the server's published key. No key was ever exposed — the wrap simply stopped being sent — and the property it existed for now holds outright, because a response carries no session key in any form."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Documentation described the removed wrap, and one adjacent claim, as current",
+          "body": "The README listed it as the protection against session-key interception, the threat model diagrammed the construction, and the landing page advertised it. Those now describe how session keys actually reach clients. The threat model's open question asking cryptographers to review that construction is marked withdrawn rather than left standing against code that no longer exists, and its note that a particular key-derivation function is still used in that path is corrected — it is no longer used anywhere. Two places also described the browser payload path as a key exchange it never performed; it is a per-session symmetric envelope."
+        }
+      ]
+    }
+  ]
+}

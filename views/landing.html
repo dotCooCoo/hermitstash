@@ -35,7 +35,7 @@
       <div class="marquee-item">ML-KEM-1024 Hybrid KEM <span class="sep">&#9670;</span></div>
       <div class="marquee-item">XChaCha20-Poly1305 <span class="sep">&#9670;</span></div>
       <div class="marquee-item">PQC TLS Enforcement <span class="sep">&#9670;</span></div>
-      <div class="marquee-item">Hybrid ECIES Key Exchange <span class="sep">&#9670;</span></div>
+      <div class="marquee-item">ML-KEM-1024 Key Exchange <span class="sep">&#9670;</span></div>
       <div class="marquee-item">Zero-Knowledge Vault <span class="sep">&#9670;</span></div>
       <div class="marquee-item">Passkey Login <span class="sep">&#9670;</span></div>
       <div class="marquee-item">Customer Stash Portals <span class="sep">&#9670;</span></div>
@@ -51,7 +51,7 @@
       <div class="marquee-item">ML-KEM-1024 Hybrid KEM <span class="sep">&#9670;</span></div>
       <div class="marquee-item">XChaCha20-Poly1305 <span class="sep">&#9670;</span></div>
       <div class="marquee-item">PQC TLS Enforcement <span class="sep">&#9670;</span></div>
-      <div class="marquee-item">Hybrid ECIES Key Exchange <span class="sep">&#9670;</span></div>
+      <div class="marquee-item">ML-KEM-1024 Key Exchange <span class="sep">&#9670;</span></div>
       <div class="marquee-item">Zero-Knowledge Vault <span class="sep">&#9670;</span></div>
       <div class="marquee-item">Passkey Login <span class="sep">&#9670;</span></div>
       <div class="marquee-item">Customer Stash Portals <span class="sep">&#9670;</span></div>
@@ -94,8 +94,8 @@
       <div class="svc-item grd-border-bottom">
         <span class="svc-num">03</span>
         <div class="svc-body">
-          <h3>Hybrid <span class="fw-200">ECIES</span></h3>
-          <p>API key exchange uses ML-KEM-1024 + ECDH P-384 + HKDF-SHA3-512 + XChaCha20-Poly1305. Session keys encrypted to the client's certificate. No plaintext keys in any HTTP payload.</p>
+          <h3>Encrypted <span class="fw-200">Payloads</span></h3>
+          <p>API key exchange uses ML-KEM-1024 + ECDH P-384 + SHAKE256 + XChaCha20-Poly1305. Session keys never appear in a response body at all — not in plaintext, and not wrapped.</p>
         </div>
         <div class="svc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
       </div>
@@ -303,7 +303,7 @@
           </div>
           <div class="sync-app-feat">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22C55E" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-            <span>mTLS + hybrid ECIES encryption</span>
+            <span>mTLS + ML-KEM-1024 payload encryption</span>
           </div>
           <div class="sync-app-feat">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22C55E" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>

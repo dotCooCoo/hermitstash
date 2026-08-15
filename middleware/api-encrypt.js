@@ -7,27 +7,25 @@
  * - Rejects requests with stale timestamps (anti-replay)
  * - Skips encryption for non-JSON routes (HTML pages, file downloads)
  *
- * Hybrid ECIES key exchange for mTLS clients (ML-KEM-1024 + ECDH P-384):
- * On the first response to an mTLS client with an API key, the session
- * XChaCha20 key is encrypted using a hybrid shared secret derived from
- * both ML-KEM-1024 encapsulation and ECDH P-384 key agreement. The two
- * shared secrets are concatenated and run through HKDF-SHA3-512 to produce
- * a wrapping key, which encrypts the session key via XChaCha20-Poly1305.
+ * No session key is ever placed in a response body, wrapped or otherwise.
+ * Browser clients receive it via template embedding (res._apiKey) over TLS;
+ * clients authenticating with an API key bypass this layer entirely and take
+ * their payload protection from the framework's encrypted wrapper, which runs
+ * its own ML-KEM-1024 exchange against the server's published public key.
  *
- * The client sends its ML-KEM-1024 public key in the X-KEM-Public-Key header
- * on its first request. The server's ECDH P-384 leg uses the client cert's
- * public key (from mTLS). No plaintext key material ever appears in a response.
- *
- * Browser clients receive the session key via template embedding (res._apiKey).
+ * A hybrid ECIES wrap used to ride along on the first response to an mTLS
+ * client, deriving a wrapping key from ML-KEM-1024 encapsulation plus ECDH
+ * against the P-384 key in the peer's certificate. Certificates are now
+ * post-quantum and carry a signature key with no ECDH counterpart, so that
+ * wrap could no longer be computed; the ECDH leg was also the only thing
+ * binding the wrap to the authenticated peer rather than to whatever key a
+ * caller put in a header, so there was nothing to fall back to.
  */
 var b = require("../lib/vendor/blamejs");
-var nodeCrypto = require("node:crypto");
 var vault = require("../lib/vault");
 var config = require("../lib/config");
 var { encryptPayload, decryptPayload, generateApiKey, FUTURE_SKEW_MS } = require("../lib/api-crypto");
 var replayNonce = require("../lib/replay-nonce");
-var { xchacha20poly1305 } = require("../lib/vendor/blamejs/lib/vendor/noble-ciphers.cjs");
-var { ml_kem1024 } = require("../lib/vendor/blamejs/lib/vendor/noble-post-quantum.cjs");
 
 var REPLAY_WINDOW = 30000; // 30 seconds
 // The single-use nonce must outlive the maximum inner-AEAD freshness lifetime.
@@ -38,63 +36,8 @@ var REPLAY_WINDOW = 30000; // 30 seconds
 // to one constant (FUTURE_SKEW_MS from lib/api-crypto) so the future-skew
 // tolerance and the nonce TTL can never drift apart.
 var NONCE_TTL = REPLAY_WINDOW + FUTURE_SKEW_MS;
-var HYBRID_HKDF_INFO = "hermitstash-hybrid-ecies-v1";
-
-// ECIES protocol version — prefixed to _ek for algorithm agility.
-// Clients read this byte to determine which KEM/ECDH/KDF to use for decapsulation.
-// 0x01 = ML-KEM-1024 + ECDH P-384 + HKDF-SHA3-512 + XChaCha20-Poly1305
-var ECIES_PROTOCOL_VERSION = 0x01;
-
-/**
- * Hybrid ECIES encrypt: encrypt a session key using ML-KEM-1024 + ECDH P-384.
- *
- * @param {Buffer} sessionKeyBuffer - the 32-byte session key to protect
- * @param {Buffer} clientKemPubKeyBytes - client's ML-KEM-1024 public key (from X-KEM-Public-Key header)
- * @param {nodeCrypto.KeyObject} clientEcdhPubKey - client's P-384 public key (from mTLS cert)
- * @returns {{ ek, epk, kem }} base64url-encoded fields for the response
- */
-function hybridEciesEncrypt(sessionKeyBuffer, clientKemPubKeyBytes, clientEcdhPubKey) {
-  // --- ML-KEM-1024 leg ---
-  var kemResult = ml_kem1024.encapsulate(clientKemPubKeyBytes);
-  var sharedSecretKem = kemResult.sharedSecret;   // 32 bytes
-  var ciphertextKem = kemResult.cipherText;        // 1568 bytes (ML-KEM-1024, FIPS 203)
-
-  // --- ECDH P-384 leg ---
-  var ephemeral = nodeCrypto.generateKeyPairSync("ec", { namedCurve: "secp384r1" });
-  var sharedSecretEcdh = nodeCrypto.diffieHellman({
-    privateKey: ephemeral.privateKey,
-    publicKey: clientEcdhPubKey,
-  });
-
-  // --- Combine shared secrets ---
-  var combinedSecret = Buffer.concat([
-    Buffer.from(sharedSecretKem),
-    sharedSecretEcdh,
-  ]);
-
-  // --- Derive wrapping key via HKDF-SHA3-512 ---
-  var wrappingKey = nodeCrypto.hkdfSync("sha3-512", combinedSecret, "", HYBRID_HKDF_INFO, 32);
-
-  // --- Encrypt session key with XChaCha20-Poly1305 using the wrapping key ---
-  var nonce = b.crypto.generateBytes(24);
-  var ct = xchacha20poly1305(new Uint8Array(Buffer.from(wrappingKey)), nonce).encrypt(new Uint8Array(sessionKeyBuffer));
-  // Pack: version(1) + nonce(24) + ciphertext_with_tag
-  var encryptedSessionKey = Buffer.concat([Buffer.from([ECIES_PROTOCOL_VERSION]), Buffer.from(nonce), Buffer.from(ct)]);
-
-  // Export ephemeral ECDH public key as SPKI DER
-  var epkDer = ephemeral.publicKey.export({ type: "spki", format: "der" });
-
-  return {
-    ek: encryptedSessionKey.toString("base64url"),
-    epk: epkDer.toString("base64url"),
-    kem: Buffer.from(ciphertextKem).toString("base64url"),
-  };
-}
 
 module.exports = function apiEncrypt(req, res, next) {
-  // Track whether this is a new session (key just generated)
-  var isNewSession = !req.session.apiKey;
-
   // Ensure session has an API encryption key (vault-sealed for PQC at rest)
   if (!req.session.apiKey) {
     req.session.apiKey = vault.seal(generateApiKey());
@@ -107,23 +50,14 @@ module.exports = function apiEncrypt(req, res, next) {
   res._apiKey = apiKey;
 
   // Bearer-authenticated clients (sync, API key holders) bypass the
-  // legacy `_e/_t` envelope. The session apiKey above is cookie-bound
-  // and was historically delivered via /drop/init's hybrid ECIES
-  // handshake — sync clients never run that path in production, so
-  // the legacy wrap was dead-end ciphertext for them. Bearer auth
+  // legacy `_e/_t` envelope. The session apiKey above is cookie-bound,
+  // and a Bearer client has no way to learn it — so wrapping a body
+  // with it would be dead-end ciphertext for them. Bearer auth
   // implies mTLS + API-key transport security; encryption-grade JSON
   // payloads route through blamejs apiEncrypt instead. Bypass here
   // means: no body interception, no res.json wrap. Browser cookie-
   // auth flows (no req.apiKey) continue with legacy encryption.
   if (req.apiKey) return next();
-
-  // Capture the client's ML-KEM public key from the first request header (if present)
-  var clientKemPubKey = null;
-  if (isNewSession && req.headers["x-kem-public-key"]) {
-    try {
-      clientKemPubKey = Buffer.from(req.headers["x-kem-public-key"], "base64url");
-    } catch (_e) { /* invalid base64 — ignore */ }
-  }
 
   // Decrypt incoming JSON body if encrypted
   if (req.method === "POST") {
@@ -234,44 +168,10 @@ module.exports = function apiEncrypt(req, res, next) {
   var origJson = res.json;
   res.json = function (data) {
     var encrypted = encryptPayload(data, apiKey);
+    // The body carries the encrypted payload and its timestamp, and nothing
+    // else. In particular it carries no copy of the session key, wrapped to a
+    // peer certificate or otherwise — see the note at the top of this file.
     var response = { _e: encrypted, _t: Date.now() };
-
-    // Hybrid ECIES key exchange on first response for mTLS clients with ML-KEM public key.
-    // Both legs (ML-KEM-1024 + ECDH P-384) must succeed. The combined shared secret
-    // derives a wrapping key that encrypts the session XChaCha20 key.
-    //
-    // The peer cert must be AUTHORIZED, not merely presented. Under
-    // requestCert:true/rejectUnauthorized:false, getPeerCertificate returns a
-    // cert even on an untrusted (self-signed / bad-CA / expired) handshake, so
-    // wrapping the session key to an unverified peer's P-384 key would hand it
-    // to a keypair an attacker controls. req.socket.authorized gates on a
-    // verified chain — the same precondition middleware/sync-guards.js and
-    // middleware/web-guard.js already require before trusting a peer cert.
-    if (isNewSession && clientKemPubKey && req.socket && req.socket.authorized && typeof req.socket.getPeerCertificate === "function") {
-      var peerCert = req.socket.getPeerCertificate(true);
-      if (peerCert && peerCert.raw && peerCert.raw.length > 0) {
-        try {
-          // Extract the client's P-384 public key from the mTLS certificate
-          var x509 = new nodeCrypto.X509Certificate(peerCert.raw);
-          var clientEcdhPubKey = x509.publicKey;
-
-          // Perform hybrid ECIES encryption of the session key
-          var sessionKeyBuffer = Buffer.from(apiKey, "base64url");
-          var result = hybridEciesEncrypt(sessionKeyBuffer, clientKemPubKey, clientEcdhPubKey);
-
-          response._ek = result.ek;
-          response._epk = result.epk;
-          response._kem = result.kem;
-        } catch (hybridErr) {
-          // The peer is already an authorized mTLS client (gated above); an ECIES
-          // failure here means no key exchange this response. Browser clients get
-          // the key via template embedding (res._apiKey) so this is non-fatal.
-          var logger = require("../app/shared/logger");
-          logger.error("[api-encrypt] Hybrid ECIES failed for mTLS client", { error: hybridErr.message });
-        }
-      }
-      isNewSession = false;
-    }
 
     origJson.call(res, response);
   };

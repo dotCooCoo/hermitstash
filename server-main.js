@@ -647,13 +647,23 @@ if (Array.isArray(config.adminAllowedCidrs) && config.adminAllowedCidrs.length >
   // spoof an in-range source (and a dual-stack listener could false-deny an in-range
   // operator on a ::ffff: address); composing getIp here closes both. A miss is
   // answered 404 so a probe can't tell the fence exists.
-  var adminFenceCidrs = config.adminAllowedCidrs.slice();
-  adminFenceCidrs.forEach(function (cidr) {
-    // Refuse to boot on a malformed CIDR rather than silently disabling an allow
-    // entry — a typo'd fence is an operator emergency, not a soft default.
-    try { b.ssrfGuard.cidrContains(cidr, "127.0.0.1"); }
-    catch (_e) { throw new Error("ADMIN_ALLOWED_CIDRS contains a malformed CIDR: " + JSON.stringify(cidr)); }
-  });
+  // Refuse to boot on a malformed CIDR rather than silently disabling an allow
+  // entry — a typo'd fence is an operator emergency, not a soft default.
+  //
+  // The previous check probed each entry with ssrfGuard.cidrContains inside a
+  // try/catch, but that helper answers false for an unparseable range instead of
+  // throwing, so nothing was ever rejected: a typo'd entry simply matched no
+  // address and the operator lost that part of their fence with no indication.
+  // parseCidrList also supplies the /32 that a bare address needs — written
+  // without one it matched nothing at all, not even itself.
+  var adminFence = clientIp.parseCidrList(config.adminAllowedCidrs.join(","));
+  if (adminFence.invalid.length > 0) {
+    throw new Error("ADMIN_ALLOWED_CIDRS contains a malformed entry: "
+      + adminFence.invalid.map(function (bad) {
+        return JSON.stringify(bad.entry) + " (" + bad.reason + ")";
+      }).join("; "));
+  }
+  var adminFenceCidrs = adminFence.valid;
   app.use(function adminNetworkFence(req, res, next) {
     // Decide on the router's canonical, once-decoded req.pathname — never the raw
     // req.url, whose percent-escapes the gate and the downstream route matcher

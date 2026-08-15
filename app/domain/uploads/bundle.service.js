@@ -10,6 +10,31 @@ var { ValidationError, NotFoundError, ForbiddenError } = require("../../shared/e
 var { sanitizeRename } = require("../../shared/sanitize-filename");
 var { validateEmail } = require("../../shared/validate");
 
+// Codepoint policies for the two free-text fields an anonymous uploader can set.
+// Both were length-sliced and otherwise unscreened, then rendered to every
+// visitor of the bundle page and into the admin notification — whose SUBJECT
+// line carries them with no escaping at all. HTML escaping neutralises markup;
+// it does nothing about a right-to-left override that reverses how a filename
+// reads, or zero-width and Tag-block characters that are invisible entirely.
+//
+// The policies are named EXPLICITLY because sanitize() does nothing otherwise —
+// a profile alone leaves it a no-op, so passing one and assuming it strips is a
+// silent way to have no protection. Homoglyphs are deliberately allowed, as they
+// are for filenames: a name written in a non-Latin script is not an attack, and
+// refusing one would refuse legitimate users.
+var TEXT_OPTS = {
+  bidiPolicy: "strip", controlPolicy: "strip", nullBytePolicy: "strip",
+  zeroWidthPolicy: "strip", tagsPolicy: "strip", confusablePolicy: "allow",
+};
+
+function _safeText(value) {
+  if (value === null || value === undefined) return value;
+  var text = String(value);
+  if (!text) return text;
+  var cleaned = b.guardText.sanitize(text, TEXT_OPTS);
+  return typeof cleaned === "string" ? cleaned : (cleaned && cleaned.value) || text;
+}
+
 /**
  * Initialize a new upload bundle.
  * Returns { bundleId, shareId, finalizeToken }.
@@ -28,7 +53,7 @@ async function initBundle(opts) {
     var validParts = parts.filter(function (e) { return validateEmail(e).valid; });
     uploaderEmail = validParts.length > 0 ? validParts.join(",") : null;
   }
-  var message = opts.message ? String(opts.message).slice(0, 2000) : null;
+  var message = opts.message ? _safeText(String(opts.message).slice(0, 2000)) : null;
   // Bundle expiry is server-authoritative. A client (including an anonymous
   // /drop uploader) may request a retention window via expiryDays, but the
   // operator's configured FILE_EXPIRY_DAYS is the CEILING — a request can only
@@ -66,7 +91,7 @@ async function initBundle(opts) {
 
   var bundle = bundlesRepo.create({
     shareId: shareId,
-    uploaderName: opts.uploaderName || "Anonymous",
+    uploaderName: _safeText(opts.uploaderName) || "Anonymous",
     uploaderEmail: uploaderEmail,
     ownerId: opts.ownerId || null,
     finalizeTokenHash: b.crypto.sha3Hash(finalizeToken),

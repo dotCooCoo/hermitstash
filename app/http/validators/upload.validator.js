@@ -419,6 +419,21 @@ var INLINE_SNIFFABLE_MIME = new Set([
 
 function safeServeMime(declaredMime, buffer) {
   if (!declaredMime || typeof declaredMime !== "string") return "application/octet-stream";
+
+  // Screen the declared type before anything else. Only the handful of inline
+  // types below were ever sniff-bound; every other declared type was returned
+  // verbatim, stored, and later written as a Content-Type header. The multipart
+  // parser preserves a form field byte for byte, carriage returns and nulls
+  // included, so a value like "text/plain\r\nX-Injected: 1" reached writeHead —
+  // which refuses it with ERR_INVALID_CHAR. That is not header injection, node
+  // stops that; it is worse in one specific way: the throw happens on every
+  // subsequent download of that file, so an anonymous upload to a public stash
+  // could make one file permanently unfetchable, with the download counter
+  // incrementing on each failed attempt. A type the guard rejects is served as
+  // a plain download instead of being trusted.
+  var mimeCheck = b.guardMime.validate(declaredMime);
+  if (!mimeCheck || !mimeCheck.ok) return "application/octet-stream";
+
   if (!INLINE_SNIFFABLE_MIME.has(declaredMime)) return declaredMime;
   if (!buffer || buffer.length < 4) return "application/octet-stream";
   var sniffed = b.fileType.detect(buffer);

@@ -88,7 +88,7 @@ All primitives are sourced from vendored libraries — zero npm runtime dependen
 | KEM (post-quantum) | ML-KEM-1024 | `node:crypto` (OpenSSL 3.5+) | NIST FIPS 203. Level 5 parameters (highest available). Level 5 chosen over 768/Level 3 because the performance cost is acceptable for the low request volume of a self-hosted server and the security margin is preferred |
 | KEM (classical) | ECDH on NIST P-384 | `node:crypto` | FIPS-approved curve. P-384 over P-256 for 192-bit classical security matching ML-KEM-1024's post-quantum level. X25519 was considered but rejected so that node:crypto's single ECDH path can be used on both the server and in mTLS certificates (P-384 signatures) without two ECC stacks |
 | Symmetric AEAD | XChaCha20-Poly1305 | `@noble/ciphers` 2.3.0 | RFC 8439 extended. 192-bit nonce (vs 96-bit for plain ChaCha20-Poly1305) allows random nonces without birthday risk. Constant-time in software, no AES-NI dependency |
-| KDF / XOF | SHAKE256 | `node:crypto` (server), `@noble/hashes` 2.3.0 (browser bundle) | FIPS 202. Chosen over HKDF-SHA3 for the storage envelope because it is a single-call extendable-output function with no salt/info complexity — the inputs are already high-entropy KEM shared secrets. HKDF-SHA3-512 is still used inside the hybrid ECIES path where domain separation is needed (see §5.6) |
+| KDF / XOF | SHAKE256 | `node:crypto` (server), `@noble/hashes` 2.3.0 (browser bundle) | FIPS 202. Chosen over HKDF-SHA3 for the storage envelope because it is a single-call extendable-output function with no salt/info complexity — the inputs are already high-entropy KEM shared secrets |
 | Hash | SHA3-512 | `node:crypto` | FIPS 202. Truncated when shorter outputs are needed. SHA-256 was rejected in favor of a SHA-3 family member to avoid length-extension concerns even where they don't technically apply |
 | Webhook MAC | HMAC-SHA256 (Standard Webhooks) | `node:crypto` | RFC 2104. The scheme's specified construction, for receiver-library interoperability. Symmetric authenticator to an operator-registered endpoint — see §5.10 for why it sits outside the post-quantum requirement |
 | Password hash | Argon2id | Node 24+ built-in `crypto.argon2` via blamejs `lib/argon2-builtin.js` | RFC 9106. Memory-hard. Default parameters: 64 MiB memory, 3 time cost, 4 parallelism. `ARGON2_FAST=1` env flag switches to 1 MiB / 1 / 1 for automated test runs only |
@@ -251,9 +251,9 @@ Notes:
 - Session store lives on tmpfs (`/dev/shm` by default) so sessions are ephemeral across restarts — N4 applies: no forward secrecy, but also nothing to forward-compromise once the host restarts
 - Session rows are sealed per-row with fresh nonces via the standard envelope (§5.1)
 
-### 5.6 API payload encryption + hybrid ECIES handshake
+### 5.6 API payload encryption
 
-For browser (cookie-authenticated) clients, every JSON POST body and every JSON response body is encrypted with XChaCha20-Poly1305 using a **per-session symmetric key**, separate from the vault key. Bearer-authenticated clients (sync / API-key / mTLS) are bypassed out of this path at `middleware/api-encrypt.js:110` (`if (req.apiKey) return next();`) — their JSON payload protection routes through blamejs apiEncrypt instead (see §5.6.4).
+For browser (cookie-authenticated) clients, every JSON POST body and every JSON response body is encrypted with XChaCha20-Poly1305 using a **per-session symmetric key**, separate from the vault key. Bearer-authenticated clients (sync / API-key / mTLS) are bypassed out of this path by `middleware/api-encrypt.js` (`if (req.apiKey) return next();`) — their JSON payload protection routes through blamejs apiEncrypt instead (see §5.6.4).
 
 Code: `middleware/api-encrypt.js`, `lib/api-crypto.js`.
 
@@ -266,70 +266,21 @@ First request per session:
 
 Delivery of `apiKey` to the client depends on client type:
 - **Browsers:** the server embeds the apiKey in the response HTML template (`res._apiKey` → template placeholder). No separate key exchange — the browser is already authenticated by the session cookie over TLS
-- **Sync clients (Bearer / API-key):** the production sync client authenticates via `Authorization: Bearer <API key>` (`middleware/api-auth.js` sets `req.apiKey`), which causes `middleware/api-encrypt.js:110` to bypass payload-envelope interception entirely — no `_e/_t` body wrap and no ECIES key exchange. Its JSON payload protection routes through blamejs apiEncrypt (§5.6.4), not the handshake below. The hybrid ECIES handshake in §5.6.2 fires only for a session that is **not** Bearer-authenticated and presents both an mTLS cert and the `X-KEM-Public-Key` header
+- **Sync clients (Bearer / API-key):** the production sync client authenticates via `Authorization: Bearer <API key>` (`middleware/api-auth.js` sets `req.apiKey`), which causes `middleware/api-encrypt.js` to bypass payload-envelope interception entirely — no `_e/_t` body wrap. Its JSON payload protection routes through blamejs apiEncrypt (§5.6.4), which runs its own ML-KEM-1024 exchange against the server's published public key
 
-#### 5.6.2 Hybrid ECIES handshake (mTLS, non-Bearer clients)
+A response body never carries the session key, wrapped or otherwise; it carries the encrypted payload and its timestamp and nothing else. §5.6.2 records a wrap that used to ride along on the first response and why it is gone.
 
-The concern this solves: a sync client connecting with an API key needs the session XChaCha20 key, and we don't want to send it in plaintext over the wire (even under TLS) in case of future log/trace/proxy leaks.
+#### 5.6.2 Retired: hybrid ECIES session-key wrap
 
-On the **first** response to a client that:
-1. Presented a valid mTLS certificate (source of the P-384 leg), **and**
-2. Sent its ML-KEM-1024 public key in the `X-KEM-Public-Key` header (source of the PQC leg)
+Through v1.13.21 the first response to an mTLS client that also sent an `X-KEM-Public-Key` header carried a wrapped copy of the session key, in the fields `_ek`, `_epk` and `_kem`. The wrapping key came from two shared secrets concatenated and run through HKDF-SHA3-512: ML-KEM-1024 encapsulation to the header key, and ECDH against the P-384 public key in the peer certificate.
 
-The server:
+The concern it addressed was putting a session key on the wire in plaintext, where a future log, trace or proxy leak could recover it.
 
-```
-                 ┌─────────────────────────────────────────────┐
-                 │ Client presents:                            │
-                 │  - mTLS cert (P-384 pub key on cert)        │
-                 │  - X-KEM-Public-Key header (ML-KEM-1024 pub)│
-                 └─────────────────────────────────────────────┘
-                           │                           │
-                           │ ML-KEM-1024               │ generate ephemeral
-                           │ encapsulate               │ P-384 keypair, do ECDH
-                           ▼                           ▼
-                 ┌─────────────────┐          ┌──────────────────┐
-                 │ kem.ss (32 B)   │          │ ecdh.ss (48 B)   │
-                 │ + kem.ct (1088) │          │ + eph.pub (SPKI) │
-                 └────────┬────────┘          └────────┬─────────┘
-                          │                            │
-                          └──────────────┬─────────────┘
-                                         │ concat
-                                         ▼
-                              ┌───────────────────────────────┐
-                              │ HKDF-SHA3-512(                │
-                              │   ikm = ss1 || ss2,           │
-                              │   salt = "",                  │
-                              │   info = "hermitstash-        │
-                              │           hybrid-ecies-v1",   │
-                              │   length = 32)                │
-                              └──────────────┬────────────────┘
-                                             │ wrapping key
-                                             ▼
-                                   random 24-byte nonce ─┐
-                                             │           │
-                                             ▼           ▼
-                              ┌───────────────────────────────┐
-                              │ XChaCha20-Poly1305(           │
-                              │   key = wrapping_key,         │
-                              │   nonce, session_api_key)     │
-                              └──────────────┬────────────────┘
-                                             │
-                                             ▼
-                    response JSON { _e, _t, _ek, _epk, _kem }
+It no longer exists. From v1.14.0 client certificates are post-quantum (§5.4) and carry an ML-DSA-87 signature key, which has no ECDH counterpart, so the second shared secret could not be computed. That leg was also the only thing binding the wrap to the **authenticated** peer: the ML-KEM public key arrives in a request header, so a wrap derived from it alone would go to whatever key the caller supplied. There was no safe reduction, and the mechanism was removed rather than weakened.
 
-                _ek = [version(1) | nonce(24) | ct+tag]  ML-KEM-wrapped api key
-                _epk = server's ephemeral P-384 public key (SPKI DER, base64url)
-                _kem = ML-KEM encapsulation ciphertext (base64url)
-```
+Nothing replaced it, because nothing needed it. A browser receives the session key in its page template over TLS (§5.6.1) and an API-key client bypasses this layer entirely for blamejs apiEncrypt (§5.6.4), whose own ML-KEM-1024 exchange runs against the server's published public key rather than a key supplied by the caller. The property the wrap existed to provide — no session key in plaintext on the wire — now holds because no response carries a session key at all.
 
-`_ek` starts with a 1-byte protocol version (currently `0x01`) so future KEMs (HQC, classic McEliece) can be added without ambiguity. The client:
-1. Decapsulates `_kem` with its ML-KEM-1024 private key → `ss1`
-2. ECDHs its P-384 private key (from its mTLS cert) with the server's ephemeral public key `_epk` → `ss2`
-3. HKDF-SHA3-512 the concatenation with the same `info` string
-4. Unwraps `_ek` to recover the session API key
-
-From that point the session uses symmetric XChaCha20-Poly1305 for every request body.
+Regression coverage: `tests/security/api-encrypt-no-key-in-response.test.js`.
 
 #### 5.6.3 Payload encryption (once session key is known)
 
@@ -359,7 +310,7 @@ The plaintext always contains `{ _d, _t }` where `_t` is the client-supplied tim
 
 #### 5.6.4 Sync / Bearer client payload encryption (blamejs apiEncrypt)
 
-Sync clients (Bearer auth, `req.apiKey` set) do not use the `_e/_t` envelope or the §5.6.2 ECIES handshake. They use blamejs's per-session `apiEncrypt` protocol (ML-KEM-1024 + P-384 ECDH hybrid, SHAKE256 KDF, XChaCha20-Poly1305 wrap). The server keypair lives at `data/api-encrypt-keypair.sealed` (`lib/constants.js:180-183`) and is advertised at `GET /.well-known/blamejs-pubkey`.
+Sync clients (Bearer auth, `req.apiKey` set) do not use the `_e/_t` envelope. They use blamejs's per-session `apiEncrypt` protocol (ML-KEM-1024 + P-384 ECDH hybrid, SHAKE256 KDF, XChaCha20-Poly1305 wrap). The server keypair lives at `data/api-encrypt-keypair.sealed` (`lib/constants.js:180-183`) and is advertised at `GET /.well-known/blamejs-pubkey`.
 
 This covers a **narrow** carve-out only: JSON POSTs to `/drop/init`, `/drop/finalize/:bundleId`, and `/sync/rename` (`server-main.js:432-438`). All other Bearer-auth paths — `GET /b/:shareId`, `DELETE /files/:fileId`, multipart uploads, binary downloads — travel as plaintext-over-TLS/mTLS with no application-layer payload encryption.
 
@@ -621,8 +572,8 @@ Receivers verify with `hmac.compare_digest()` (Python) or `crypto.timingSafeEqua
        │
        └── vault.seal() ── per-session API keys in session.apiKey (§5.6)
                             │
-                            ├── session key delivered to mTLS clients via hybrid ECIES
-                            │   (HKDF-SHA3-512 with "hermitstash-hybrid-ecies-v1" info)
+                            ├── delivered to browsers in the page template, never in a
+                            │   response body (§5.6.1)
                             │
                             └── used for per-request XChaCha20-Poly1305 of JSON bodies
 
@@ -660,11 +611,10 @@ Receivers verify with `hmac.compare_digest()` (Python) or `crypto.timingSafeEqua
 
 ## 7. Algorithm agility & versioning
 
-Three separate version mechanisms:
+Two separate version mechanisms:
 
 1. **Storage envelope** (`lib/vendor/blamejs/lib/crypto.js`) — 4-byte header identifies magic/KEM/cipher/KDF and is bound as AEAD AAD. Old blobs remain readable when new IDs are added. Current: magic `0xE2`, KEM `0x03`, cipher `0x02`, KDF `0x02` (legacy `0xE1` blobs decrypt via the migration fallback in `lib/crypto.js`)
-2. **ECIES protocol** (`middleware/api-encrypt.js`) — 1-byte version on the `_ek` field. Current: `0x01`. Unlike the envelope, sessions are ephemeral so backward-compat on decrypt is not required — both sides must agree
-3. **mTLS CA generation** (`lib/mtls-ca.js`, `lib/mtls-ca-browser.js`) — the sync and browser CAs each carry their own `OU=CAv{N}` generation tag in the subject DN, and a boot-time banner warns when an on-disk CA is older than its current generation. The sync CA additionally auto-migrates from classical to the ML-DSA-87 default at boot when the runtime can verify an ML-DSA chain in TLS (§5.8.2); operators pin or disable that with `MTLS_CA_ALGORITHM` / `MTLS_AUTO_MIGRATE`. Regeneration is operator-initiated via Admin → Danger Zone
+2. **mTLS CA generation** (`lib/mtls-ca.js`, `lib/mtls-ca-browser.js`) — the sync and browser CAs each carry their own `OU=CAv{N}` generation tag in the subject DN, and a boot-time banner warns when an on-disk CA is older than its current generation. The sync CA additionally auto-migrates from classical to the ML-DSA-87 default at boot when the runtime can verify an ML-DSA chain in TLS (§5.8.2); operators pin or disable that with `MTLS_CA_ALGORITHM` / `MTLS_AUTO_MIGRATE`. Regeneration is operator-initiated via Admin → Danger Zone
 
 ---
 
@@ -780,7 +730,7 @@ If you are a cryptographer willing to spend an hour on this, these are the quest
 
 3. **ML-KEM ciphertext integrity (§5.1, L11):** ML-KEM's implicit rejection handles tampered ciphertexts correctly, but should we add a belt-and-suspenders construction (e.g. AEAD with AAD = kem.ct) before the symmetric step?
 
-4. **ECIES construction (§5.6.2):** HKDF-SHA3-512 with `info = "hermitstash-hybrid-ecies-v1"` and empty salt over ML-KEM ss || ECDH ss — is this a safe hybrid KEM-DEM instantiation, or should we be looking at X-Wing or CombinedKEM constructions?
+4. **ECIES construction (§5.6.2) — WITHDRAWN:** the construction this asked about no longer exists. It combined an ML-KEM shared secret with an ECDH one under HKDF-SHA3-512, and post-quantum client certificates left no ECDH key to derive the second secret from.
 
 5. **PRF-derived ML-KEM keygen (§5.7):** Deriving an ML-KEM-1024 keypair deterministically from a 32-byte PRF seed expanded to 64 bytes. Is the FIPS 203 `d || z` decomposition correctly handled? Is there any risk from the PRF not being uniform enough for ML-KEM's expected input distribution?
 

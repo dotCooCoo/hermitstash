@@ -144,7 +144,7 @@ ML-KEM-1024 + P-384 (vault.key)
   +-- Wraps per-file XChaCha20-Poly1305 keys (file encryption at rest)
   +-- Wraps per-session XChaCha20-Poly1305 keys (API payload encryption)
   +-- API payload encryption: blamejs apiEncrypt envelope (ML-KEM-1024 + P-384 ECDH + SHAKE256) for sync writes
-  +--   and legacy ECIES (ML-KEM-1024 + P-384 + HKDF-SHA3-512) for cookie-authed browsers
+  +--   and a per-session XChaCha20-Poly1305 envelope for cookie-authed browsers
   +-- Wraps database file XChaCha20-Poly1305 key (DB encryption at rest)
   +-- Directly seals ALL database fields (not just PII)
   +-- Directly seals session cookie values
@@ -209,7 +209,7 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | CSRF on API endpoints | Per-session XChaCha20-Poly1305 key binds JSON requests to session; form POSTs validated with constant-time CSRF token |
 | Logout CSRF | Logout is POST-only with CSRF token validation — cross-site `<img>` or `<a>` tags cannot force logout |
 | WebSocket credential leakage | API keys accepted only via Authorization header — query string tokens rejected to prevent proxy/log/Referer leaks |
-| Session key interception | Hybrid ECIES key exchange — session key encrypted via ML-KEM-1024 + ECDH P-384, never plaintext in HTTP |
+| Session key interception | No response body ever carries the session key — browsers receive it in their page template over TLS, sync clients derive one through ML-KEM-1024 key exchange |
 | CSV formula injection | Export values sanitized to prevent spreadsheet code execution |
 | DNS rebinding via webhooks | Pre-validated IP pinned to outbound connection |
 | SSRF via webhooks | Blocks localhost, RFC 1918, RFC 6598 CGNAT, link-local, IPv6 private ranges |
@@ -236,7 +236,7 @@ Built on Node.js 24.19.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - Email verification with SHA3-hashed tokens
 - Hybrid KEM encrypted session cookies
 - Per-session XChaCha20-Poly1305 encrypted API payloads with anti-replay and anti-tamper
-- Hybrid PQC payload encryption for API clients -- ML-KEM-1024 + ECDH P-384 hybrid envelope (SHAKE256 KDF, XChaCha20-Poly1305 wrap) via blamejs apiEncrypt for sync write paths and `/drop/init` / `/drop/finalize/:bundleId`; legacy ECIES with HKDF-SHA3-512 retained for cookie-authenticated browsers. Server keypair is published as plain JSON at `/.well-known/blamejs-pubkey` and vault-sealed at rest
+- Hybrid PQC payload encryption for API clients -- ML-KEM-1024 + ECDH P-384 hybrid envelope (SHAKE256 KDF, XChaCha20-Poly1305 wrap) via blamejs apiEncrypt for sync write paths and `/drop/init` / `/drop/finalize/:bundleId`. Cookie-authenticated browsers use a per-session XChaCha20-Poly1305 envelope instead, keyed by a session key delivered in the page template rather than in any response body. Server keypair is published as plain JSON at `/.well-known/blamejs-pubkey` and vault-sealed at rest
 - Rate limiting on login (5/15min), registration (10/15min), 2FA verify (5/5min), passkey login (10/min)
 - Account lockout after 10 consecutive failed password attempts (30-minute cooldown)
 - Password reset flow with single-use, 1-hour-expiry tokens and anti-enumeration (always returns success)

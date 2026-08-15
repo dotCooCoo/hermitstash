@@ -1,5 +1,5 @@
 // Regression coverage for the single-use replay claim that backs the 2FA
-// single-use guarantee (TOTP step + backup code) and the cookie-ECIES
+// single-use guarantee (TOTP step + backup code) and the cookie-session
 // in-window replay defense. The defense is only real if a repeat claim of the
 // same value is actually refused.
 const { describe, it } = require("node:test");
