@@ -298,12 +298,20 @@ jobs:
   # eighteen releases without being executed once.
   #
   # Its own job rather than a step in `lint`: the suites boot servers, mint
-  # CAs and run ML-KEM keygen, which does not fit lint's five-minute budget on
-  # a two-core runner. Splitting them also runs the two in parallel and keeps
-  # a slow test run from delaying lint feedback.
+  # CAs and run key generation, which does not fit lint's five-minute budget.
+  #
+  # One job per suite, because a runner has two cores and `node --test` scales
+  # its worker count with them. All three together take about half an hour at
+  # that width — measured, not estimated — so they run on three runners at once
+  # instead, and each reports its own pass or fail.
   tests:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [unit, security, integration]
 
     steps:
       - name: Checkout
@@ -314,9 +322,5 @@ jobs:
         with:
           node-version: 24.19.0
 
-      - name: Run test suites (unit + security + integration)
-        run: |
-          node --test --test-reporter=spec \
-            "tests/unit/*.test.js" \
-            "tests/security/*.test.js" \
-            "tests/integration/*.test.js"
+      - name: Run the ${{ matrix.suite }} suite
+        run: node --test --test-reporter=spec "tests/${{ matrix.suite }}/*.test.js"
