@@ -174,12 +174,16 @@ async function report(check) {
   var Report = require(path.join(REPO, "tests", "node_modules", "c8", "lib", "report.js"));
   var reporters = ["text-summary", "html", "json-summary"];
   var r = new Report({
-    include: [],
+    include: ["lib/**", "app/**", "middleware/**", "routes/**", "server.js", "server-main.js"],
     exclude: EXCLUDE,
     extension: [".js"],
     reporter: reporters,
     reportsDirectory: path.join(COV, "report"),
     tempDirectory: RAW,
+    // src stays the repo root and the product paths are named by include:
+    // c8 globs each src entry as a DIRECTORY, so listing server.js there would
+    // match nothing and an entry point no suite loaded would vanish from the
+    // report instead of showing as uncovered.
     src: [REPO],
     all: true,            // count files no suite loaded — an untouched file is the gap
     excludeNodeModules: true,
