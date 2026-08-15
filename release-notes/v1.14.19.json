@@ -1,0 +1,30 @@
+{
+  "version": "1.14.19",
+  "date": "2026-08-15",
+  "headline": "Correct the advice boot gives about a damaged vault key, and stop background timers holding short-lived processes open",
+  "summary": "Two fixes an operator can see. One changes what the server tells you when the key that decrypts everything is unreadable; the other stops any command that touches the audit subsystem from sitting idle for a minute before it exits.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "A corrupt vault key is no longer reported as an old one",
+          "body": "The vault key decrypts everything the server stores, so what boot says about a bad one is the instruction you follow at the worst possible moment. A truncated or empty key file was described as being in a superseded format, with the advice to run the migration tool — which converts a readable key and cannot repair a damaged one. The server now distinguishes a key it cannot parse, which needs a restore from backup, from a genuinely older key, which is what the migration tool is for. It also says so without quoting the file: a parser error repeats a window of what it was reading, and that file is mostly private key material."
+        },
+        {
+          "title": "Background timers no longer keep a process alive after its work is done",
+          "body": "Three schedulers start with the audit subsystem — retention cleanup, the archival check and chain checkpointing. Each runs once shortly after start and then repeats, and while the repeat was marked as not keeping the process alive, the first run was not. Anything short-lived that loaded the audit subsystem therefore waited for that first timer before exiting, up to a minute. A running server is unaffected, and every schedule keeps its timing; what changes is that a command which has finished its work now ends."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Regression cover for three access rules that had none",
+          "body": "The rule deciding who a gated stash admits — an exact address, or a whole domain, and never an address carrying a second @ that would let one domain pass as another. The confinement on audit archive downloads, where the requested archive names a file. And a check that every administrative route refuses a caller who is not an administrator, applied to the routes as they are written rather than to a list someone has to keep current. All three behaved correctly; none of them was covered, so nothing would have reported it if that changed."
+        }
+      ]
+    }
+  ]
+}
