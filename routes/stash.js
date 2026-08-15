@@ -1104,3 +1104,12 @@ module.exports = function (app) {
   });
 
 };
+
+// Exposed for the access-control tests. The gate it backs cannot be observed
+// from a response on purpose: /stash/:slug/request-code answers identically
+// whether or not the address is allowed, so that the endpoint cannot be used to
+// enumerate a stash's recipients. That leaves no black-box way to assert which
+// addresses match, and this rule — exact address, or a whole domain written
+// @example.com, and neither one matching an address carrying a second "@" — is
+// worth asserting directly.
+module.exports.emailMatchesAllowedList = emailMatchesAllowedList;

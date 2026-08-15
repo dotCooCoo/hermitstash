@@ -19,21 +19,21 @@ function run() {
   var warnings = [];
   var errors = [];
 
-  // ---- Critical: vault key must exist and be readable ----
+  // ---- Vault key shape: NOT checked here ----
+  // lib/vault.js owns it, and this module cannot reach the operator first. The
+  // check that used to live here recorded its error into `errors`, which is only
+  // printed at the bottom of run() — and the `require("../../lib/db")` a few
+  // lines down loads the vault on the way to the database key, so a bad vault
+  // key exits the process there, before anything queued here is ever printed.
+  //
+  // vault.js is also the better place for it. It validates all four key fields
+  // rather than two, and it deliberately withholds the parser's message: a
+  // SyntaxError from a corrupt vault.key quotes a window of the file, and that
+  // file is mostly ML-KEM and P-384 private key material, so echoing it writes
+  // secrets to stderr. The copy here interpolated freely and, because
+  // parseOrDefault returns {} for anything unparseable, told operators with a
+  // truncated key to run the migration tool — which cannot repair one.
   var dataDir = PATHS.DATA_DIR;
-  var vaultKeyPath = PATHS.VAULT_KEY;
-  if (nodeFs.existsSync(vaultKeyPath)) {
-    try {
-      var keyData = b.safeJson.parseOrDefault(nodeFs.readFileSync(vaultKeyPath, "utf8"), {});
-      // Hybrid format (ML-KEM-1024 + P-384) — matches lib/vault.js loadKeys().
-      if (!keyData.ecPublicKey || !keyData.ecPrivateKey) {
-        errors.push("Vault key file exists but is not in the ML-KEM-1024 + P-384 hybrid format. Run the migration tool.");
-      }
-    } catch (e) {
-      errors.push("Vault key file is corrupted: " + e.message);
-    }
-  }
-  // No vault key on first run is OK — it will be generated
 
   // ---- Critical: default admin credentials ----
   var { users } = require("../../lib/db");

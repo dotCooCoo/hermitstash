@@ -35,11 +35,10 @@ var RAW = path.join(COV, "raw");
 // enough. They exist to catch a regression, so raise them as gaps close and
 // never lower one to make a run pass.
 //
-// Measured on Windows, where the end-to-end suite's servers contribute nothing
-// (see serverCoverageCaptured below), so a POSIX run should clear these
-// comfortably. That asymmetry is the reason for rounding down rather than
-// pinning to the exact figure.
-var THRESHOLDS = { lines: 70, branches: 69, functions: 70, statements: 70 };
+// Rounded down because the end-to-end suite is timing-sensitive and a slow
+// machine can lose a test or two; the floors should catch a real regression
+// without failing on jitter.
+var THRESHOLDS = { lines: 81, branches: 70, functions: 74, statements: 81 };
 
 // What the union is measured against: code this project owns and ships.
 // Vendored trees are upstream's to test, the test files are the instrument
@@ -96,8 +95,16 @@ function run(label, cmd, args, opts) {
     // more useful than none — report the failure and keep going, so one broken
     // suite does not hide the numbers for the rest.
     console.log("FAILED (" + Math.round((Date.now() - started) / 1000) + "s)");
-    var out = ((e.stdout || "") + (e.stderr || "")).toString().trim().split("\n").slice(-8);
-    out.forEach(function (l) { console.log("      " + l); });
+    // Show the lines that say what broke, not just the tail. A tail-only
+    // excerpt reported a failing suite as a list of filenames with the error
+    // scrolled off, which is a diagnosis you have to re-run to get.
+    var all = ((e.stdout || "") + (e.stderr || "")).toString().trim().split("\n");
+    var interesting = all.filter(function (l) {
+      return /^(not ok|\s*✖|\s*Error|\s*AssertionError|# fail|\s*error:)|Cannot find module|Failed:\s*[1-9]|MODULE_NOT_FOUND/.test(l);
+    });
+    var shown = interesting.length ? interesting.slice(0, 20) : all.slice(-12);
+    shown.forEach(function (l) { console.log("      " + l.trim().slice(0, 150)); });
+    if (interesting.length > 20) console.log("      … " + (interesting.length - 20) + " more");
     return false;
   }
 }
@@ -122,11 +129,24 @@ function suites(opts) {
       // inherited, so the server's own execution lands in the same directory —
       // which is the coverage that matters here, and the reason e2e is in the
       // union at all rather than measured on its own.
+      // Absolute, quoted, and forward-slashed — all three are load-bearing, and
+      // each was learned by breaking it.
+      //
+      // NODE_OPTIONS is inherited by every descendant and an unresolvable
+      // preload is fatal, so a relative path killed every process the suite
+      // spawned from some third directory. Quoting is what carries an absolute
+      // path through the spaces in this repository's own location. And the
+      // separators must be forward slashes: NODE_OPTIONS reads a backslash as
+      // an escape, so path.join's native form arrived as
+      // "C:UsersRobertDropbox…" with every separator swallowed.
+      var hook = path.join(REPO, "scripts", "coverage-flush.js").replace(/\\/g, "/");
+      var nodeOptions = ((process.env.NODE_OPTIONS || "") + " --require \"" + hook + "\"").trim();
       ok = run("e2e", "node", ["tests/run-all.js"], {
         cwd: SYNC,
         env: Object.assign({}, process.env, {
           NODE_V8_COVERAGE: RAW,
           HERMITSTASH_SERVER_DIR: REPO,
+          NODE_OPTIONS: nodeOptions,
         }),
       }) && ok;
     }
@@ -172,7 +192,9 @@ function serverCoverageCaptured(before) {
 
 async function report(check) {
   var Report = require(path.join(REPO, "tests", "node_modules", "c8", "lib", "report.js"));
-  var reporters = ["text-summary", "html", "json-summary"];
+    // json alongside the summary: the per-branch detail is what makes it
+  // possible to read an uncovered arm and decide whether anything can reach it.
+  var reporters = ["text-summary", "html", "json-summary", "json"];
   var r = new Report({
     include: ["lib/**", "app/**", "middleware/**", "routes/**", "server.js", "server-main.js"],
     exclude: EXCLUDE,
