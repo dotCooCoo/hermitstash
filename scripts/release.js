@@ -617,6 +617,40 @@ function eslintGate() {
 // recoverable position: tags are immutable, so the whole release has to be
 // re-cut. v1.14.13 was lost that way to a single SC2016 note.
 //
+// The in-repo test suites — unit, security, integration. Nothing ran these
+// before a cut: preflight checked lint and currency, the e2e stage drove the
+// sync client's suite from the other repo, and the Docker lint job ran neither.
+// The cost of that was a security test asserting an mTLS key-exchange property
+// which failed from v1.14.0 to v1.14.17 without once being executed, because
+// the behaviour it covered had become impossible and the code swallowed the
+// error. A test nothing runs is not coverage.
+//
+// Kept separate from the e2e stage: that stage boots the server and drives it
+// from the sync client, which is slower, needs the sibling checkout, and proves
+// something different. These run in-process against the source on disk.
+function unitTestGate() {
+  process.stdout.write("  test suites … ");
+  var globs = ["tests/unit/*.test.js", "tests/security/*.test.js", "tests/integration/*.test.js"];
+  try {
+    // --test-reporter=dot keeps a passing run to a few lines; the failure path
+    // below prints the real output, which is what anyone reading this needs.
+    cp.execFileSync("node", ["--test", "--test-reporter=dot"].concat(globs), {
+      cwd: REPO, stdio: ["ignore", "pipe", "pipe"],
+    });
+    console.log(green("ok"));
+    return 0;
+  } catch (e) {
+    console.log(red("FAIL"));
+    var out = ((e.stdout || "") + (e.stderr || "")).toString().trim();
+    var lines = out.split("\n").filter(function (l) {
+      return /^(not ok|\s+✖|# fail|Error|AssertionError|\s+at Test)/.test(l) || /fail \d+/.test(l);
+    });
+    if (!lines.length) lines = out.split("\n").slice(-30);
+    console.log(dim(lines.slice(0, 40).map(function (l) { return "      " + l; }).join("\n")));
+    return 1;
+  }
+}
+
 // Line endings are the reason this was not already here. Only the vendored
 // tree is pinned to LF, so on a Windows checkout every other .sh arrives with
 // CRLF and shellcheck reports SC1017 on all of them — noise CI never sees,
@@ -815,7 +849,8 @@ function cmdPreflight() {
     // version. Fix with `node scripts/check-doc-versions.js --fix`.
     + nodeGate("doc versions", ["scripts/check-doc-versions.js"])
     + eslintGate()
-    + shellcheckGate();
+    + shellcheckGate()
+    + unitTestGate();
 
   var actionsCode = actionsGate();
   var vendorCode = vendorGate();

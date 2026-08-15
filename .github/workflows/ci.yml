@@ -129,6 +129,27 @@ jobs:
           fi
           exit $EXIT_CODE
 
+      # ── in-repo test suites ────────────────────────────────────
+      # Unit, security and integration. These ran nowhere before: this job
+      # checked lint only, and the release flow drove the sync client's suite
+      # from the other repo. A security test asserting an mTLS key-exchange
+      # property failed for eighteen releases without being executed once.
+      - name: Run test suites (unit + security + integration)
+        if: always()
+        id: test_suites
+        run: |
+          set +e
+          node --test --test-reporter=spec \
+            "tests/unit/*.test.js" \
+            "tests/security/*.test.js" \
+            "tests/integration/*.test.js"
+          EXIT_CODE=$?
+          set -e
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "::error::test suites failed"
+          fi
+          exit $EXIT_CODE
+
       # ── Currency visibility (non-blocking) ─────────────────────
       # Surfaces stale GitHub Action pins / vendored blamejs on every push so
       # drift is caught continuously. NON-blocking here (exit 0): the release
@@ -171,6 +192,7 @@ jobs:
           HADOLINT_OK=${{ steps.hadolint.outcome == 'success' }}
           SHELLCHECK_OK=${{ steps.shellcheck.outcome == 'success' }}
           PATTERNS_OK=${{ steps.codebase_patterns.outcome == 'success' }}
+          TESTS_OK=${{ steps.test_suites.outcome == 'success' }}
 
           PASS="✅"
           FAIL="❌"
@@ -179,14 +201,15 @@ jobs:
           HADOLINT_ICON=$( [ "$HADOLINT_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
           SHELLCHECK_ICON=$( [ "$SHELLCHECK_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
           PATTERNS_ICON=$( [ "$PATTERNS_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
+          TESTS_ICON=$( [ "$TESTS_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
 
           ALL_OK=true
-          [ "$ESLINT_OK" = "true" ] && [ "$HADOLINT_OK" = "true" ] && [ "$SHELLCHECK_OK" = "true" ] && [ "$PATTERNS_OK" = "true" ] || ALL_OK=false
+          [ "$ESLINT_OK" = "true" ] && [ "$HADOLINT_OK" = "true" ] && [ "$SHELLCHECK_OK" = "true" ] && [ "$PATTERNS_OK" = "true" ] && [ "$TESTS_OK" = "true" ] || ALL_OK=false
 
           {
             echo "body<<SUMMARY_EOF"
             if [ "$ALL_OK" = "true" ]; then
-              echo "🎉   Linting finished with no errors or warnings   🎉"
+              echo "🎉   Lint and tests finished with no errors or warnings   🎉"
               echo ""
             fi
             echo "| Check | Status |"
@@ -195,6 +218,7 @@ jobs:
             echo "| Hadolint (Dockerfile) | $HADOLINT_ICON |"
             echo "| ShellCheck (shell scripts) | $SHELLCHECK_ICON |"
             echo "| codebase-patterns (vendored) | $PATTERNS_ICON |"
+            echo "| Test suites (unit + security + integration) | $TESTS_ICON |"
 
             if [ "$ESLINT_OK" != "true" ] && [ -n "$ESLINT_OUTPUT" ]; then
               echo ""

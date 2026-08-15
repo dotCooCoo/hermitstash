@@ -16,4 +16,4 @@ A clear description of what you'd want to happen.
 Any workarounds you're currently using, or other approaches that could work.
 
 **Additional context**
-Anything else — screenshots, links to similar features in other tools, etc.
+Anything else — screenshots, or links to similar features in other tools.
