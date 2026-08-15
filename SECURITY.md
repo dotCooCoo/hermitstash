@@ -42,7 +42,7 @@ I'll keep you updated as I work on it, and I'll credit you in the fix commit and
 
 Things I consider in scope:
 
-- Cryptographic flaws (misuse of primitives, weak key derivation, nonce reuse, etc.)
+- Cryptographic flaws (misuse of primitives, weak key derivation, nonce reuse)
 - Authentication and session bypass
 - Authorization issues (accessing files or data you shouldn't)
 - Data exposure (plaintext leaking somewhere it shouldn't)
@@ -80,7 +80,7 @@ Key rotation: re-running `scripts/generate-release-signing-key.js` produces a ne
 To set expectations honestly:
 
 - No bug bounty. I can't pay for findings — this is a personal project with no budget. I can offer credit, gratitude, and a genuine attempt to fix what you find.
-- No SLA. I'll do my best, but I can't guarantee response times.
+- No service-level agreement. I'll do my best, but I can't guarantee response times.
 - No guarantees about backwards compatibility while I'm fixing things. If a fix requires breaking changes, I'll make them.
 
 ## Thank you

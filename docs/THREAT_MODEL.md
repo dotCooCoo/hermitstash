@@ -116,7 +116,7 @@ Code: `lib/vendor/blamejs/lib/crypto.js` `encrypt()` / `decrypt()`, reached via 
 
 **Layout:**
 
-```
+```text
 Offset  Field                        Size    Value
 ──────  ─────────────────────────    ────    ─────
 0       Magic                        1       0xE2 (FixedInfo/suite-bound; 0xE1 is the legacy pre-migration magic)
@@ -133,7 +133,7 @@ Offset  Field                        Size    Value
 
 **Encrypt (hybrid, default path):**
 
-```
+```text
                 ┌────────────────────────────────────────────────┐
                 │ Recipient public key: (mlkem_pk, p384_pk)      │
                 └────────────────────────────────────────────────┘
@@ -170,7 +170,7 @@ Offset  Field                        Size    Value
 
 **Notes for reviewers:**
 - The two shared secrets are concatenated with a suite-binding `FixedInfo` before the KDF (`lib/vendor/blamejs/lib/crypto.js:691-696`, `:1105-1107`): SHAKE256 absorbs `ml_kem_ss || ecdh_ss || suiteFixedInfo`, where `suiteFixedInfo = "blamejs/v1" || 0x00 || kemId || cipherId || kdfId || 0x00` (NIST SP 800-56C r2 §4.1 OtherInfo / RFC 9180 §5.1 suite_id binding). A key derived under one suite is not silently usable under another. The legacy 0xE1 path omitted this binding.
-- The 4-byte envelope header (magic | KEM | cipher | KDF) **is** authenticated as AEAD AAD on the active 0xE2 envelope (`lib/vendor/blamejs/lib/crypto.js:1109-1113` on encrypt, re-derived at `:1306-1308` on decrypt). An algorithm-substitution flip of any header byte surfaces as a Poly1305 tag verification failure. The legacy 0xE1 path did not bind the header.
+- The 4-byte envelope header (magic | KEM | cipher | KDF) **is** authenticated as AEAD additional authenticated data (AAD) on the active 0xE2 envelope (`lib/vendor/blamejs/lib/crypto.js:1109-1113` on encrypt, re-derived at `:1306-1308` on decrypt). An algorithm-substitution flip of any header byte surfaces as a Poly1305 tag verification failure. The legacy 0xE1 path did not bind the header.
 
 ### 5.2 Vault — long-lived at-rest key
 
@@ -186,7 +186,7 @@ The vault key is the root of at-rest encryption. On first boot the server genera
 
 **Diagram — key hierarchy:**
 
-```
+```text
      data/vault.key  (ML-KEM-1024 priv + P-384 priv, plaintext JSON, 0o600)
           │
           │  vault.seal() / vault.unseal()
@@ -214,9 +214,9 @@ Each table's fields are classified as:
 - **argon2** — password hash, handled externally (not auto-processed by this layer)
 - **raw** — plaintext (IDs, counters, status enums, FK references, timestamps)
 
-Derived fields (e.g. `emailHash` from `email`) are auto-computed from a source field as a keyed MAC of `<prefix>:<value>` under a per-deployment secret (`vault.derived-hash-mac.sealed`, re-sealed — not regenerated — on vault-key rotation, so the index survives a rotation).
+Derived fields such as `emailHash` from `email` are auto-computed from a source field as a keyed MAC of `<prefix>:<value>` under a per-deployment secret (`vault.derived-hash-mac.sealed`, re-sealed — not regenerated — on vault-key rotation, so the index survives a rotation).
 
-The middleware also rewrites queries transparently: `{ email: "x@y.com" }` becomes a match on the keyed `emailHash`, so callers still use plaintext lookups. During the rollover from the previous unkeyed digest, a query matches both the keyed index and the legacy digest; a one-time pass on first boot rewrites existing rows to the keyed form.
+The middleware also rewrites queries transparently: `{ email: "user@example.com" }` becomes a match on the keyed `emailHash`, so callers still use plaintext lookups. During the rollover from the previous unkeyed digest, a query matches both the keyed index and the legacy digest; a one-time pass on first boot rewrites existing rows to the keyed form.
 
 **Security notes:**
 - Hash prefixes (`hs-email`, `hs-ip`, `hs-share`, `hs-certfp`, `hs-slug`, `hs-access-code`, `hs-enroll`, `hs-blockedip` — full list in `lib/constants.js`) namespace the input before the MAC, so the same value in two columns produces different indexes. Because the MAC key lives only in the deployment's sealed keystore, an attacker holding only the database cannot recompute an index from a guessed plaintext (no confirmation oracle) and cannot correlate indexes across deployments. The index is still deterministic within one database — equal values produce equal indexes, which is what makes the lookup work — so it remains an *identifier*, not an anonymizer. See N7
@@ -230,7 +230,7 @@ Code: `lib/storage.js:41-50`, using `crypto.encryptPacked()` / `decryptPacked()`
 
 **"Packed" format (different from the storage envelope):**
 
-```
+```text
 Offset  Field             Size    Value
 ──────  ──────────────    ────    ─────
 0       Version           1       0x02 (XChaCha20-Poly1305)
@@ -287,7 +287,7 @@ Regression coverage: `tests/security/api-encrypt-no-key-in-response.test.js`.
 Code: `lib/api-crypto.js`.
 
 Requests:
-```
+```http
 POST /api/endpoint
 Content-Type: application/json
 
@@ -295,7 +295,7 @@ Content-Type: application/json
 ```
 
 Responses:
-```
+```http
 Content-Type: application/json
 
 { "_e": "<base64url(...)>", "_t": <server timestamp> }
@@ -331,7 +331,7 @@ Code: `public/js/vault-pq.js`.
 
 **Encryption flow (per file):**
 
-```
+```text
               ┌─────────────────────────┐
               │  WebAuthn assertion +   │  (PRF mode)
               │  PRF extension          │
@@ -381,7 +381,7 @@ Decrypt inverts: `encapsulate` → server-stored ciphertext becomes `decapsulate
 
 **Notes:**
 - The "stealth mode" toggle hides vault operations from the audit log, so an attacker who later reads the audit log (after compromising the vault key) cannot enumerate vault activity. This is an additional privacy property orthogonal to the client-side encryption
-- Passkey-gated mode is a pragmatic fallback for authenticators/browsers that don't support PRF (e.g. older iOS WebAuthn). It still requires the passkey to retrieve the seed, but it is **not** zero-knowledge — the server holds the seed. An operator who can read the DB can reconstruct the vault keypair in this mode
+- Passkey-gated mode is a pragmatic fallback for authenticators/browsers that don't support PRF, such as older iOS WebAuthn. It still requires the passkey to retrieve the seed, but it is **not** zero-knowledge — the server holds the seed. An operator who can read the DB can reconstruct the vault keypair in this mode
 - Vault key rotation (PRF mode): user re-registers passkey, server re-emits an encapsulation challenge, client decrypts every file with the old key and re-encrypts with the new one. Atomic — `POST /vault/rotate` in `routes/vault.js:359`
 
 ### 5.8 mTLS CAs and client certificate issuance
@@ -413,7 +413,7 @@ Code entry points:
 
 #### 5.8.1 Issuance flow
 
-```
+```text
  ┌────────────────────────┐         ┌────────────────────────────┐
  │ Operator generates     │         │ Sync client enrolls        │
  │ sync token via admin   │────────▶│ (one-time enrollment code) │
@@ -475,7 +475,7 @@ Code: HermitStash no longer ships this file — the gate is provided by blamejs 
 
 **Flow:**
 
-```
+```text
               Incoming TCP connection
                        │
                        ▼
@@ -519,7 +519,7 @@ Code: HermitStash no longer ships this file — the gate is provided by blamejs 
 
 Outbound webhook POSTs are signed with the [Standard Webhooks](https://www.standardwebhooks.com/) scheme, which binds a delivery identifier and a timestamp into the MAC rather than covering the body alone.
 
-```
+```text
 webhook-id:        msg_<token>
 webhook-timestamp: <unix seconds>
 webhook-signature: v1,base64(HMAC-SHA256(secret, "<webhook-id>.<webhook-timestamp>.<body>"))
@@ -555,7 +555,7 @@ Receivers verify with `hmac.compare_digest()` (Python) or `crypto.timingSafeEqua
 
 ## 6. Key hierarchy summary
 
-```
+```text
   data/vault.key  (long-lived, filesystem-only protection)
        │
        │
@@ -687,7 +687,7 @@ The ML-KEM ciphertext carried in the envelope is not authenticated by the outer 
 On first boot the admin password is printed to stdout and written to `data/initial-admin-password.txt`. Any attacker with log access or filesystem access before the operator logs in can capture it. See N11. No easy fix — the alternative (forcing password set before any access) is worse UX.
 
 ### L13 — No rate limit on ML-KEM decapsulation
-An attacker sending malformed envelopes forces server-side ML-KEM decapsulation per attempt. ML-KEM is fast (~0.1ms) so this isn't a realistic DoS vector, but it's uncapped.
+An attacker sending malformed envelopes forces server-side ML-KEM decapsulation per attempt. ML-KEM is fast (~0.1 ms) so this isn't a realistic DoS vector, but it's uncapped.
 
 ### L14 — Session cookie forward secrecy
 Vault-sealed session data means a later vault compromise decrypts all captured cookies. Per-session ephemeral keys would fix this but add complexity and don't match the threat model (see §3 — we don't defend against host compromise, and in-transit protection is already provided by TLS).
@@ -702,7 +702,7 @@ When passphrase wrapping is enabled (§5.2 opt-in), the passphrase and the deriv
 
 Node.js provides no mechanism to zero a Buffer's backing memory on demand. `delete process.env.VAULT_PASSPHRASE` limits exposure to later env-dump surfaces but doesn't scrub the bytes. The passphrase Buffer and wrapping-key Buffer remain GC-candidates but may persist until the allocator reuses those pages. An attacker with code execution on the running host can read them.
 
-This is unavoidable for any at-rest encryption scheme on a service that boots without human interaction each request. The passphrase wrapping closes the disk-snapshot threat but does not close the live-host-compromise threat (which is already a non-goal — see N1). Operators who need defense against a compromised host need a completely different architecture (HSM, enclave, etc.) which is out of scope for this project.
+This is unavoidable for any at-rest encryption scheme on a service that boots without human interaction each request. The passphrase wrapping closes the disk-snapshot threat but does not close the live-host-compromise threat (which is already a non-goal — see N1). Operators who need defense against a compromised host need a completely different architecture — a hardware security module or an enclave — which is out of scope for this project.
 
 ---
 
@@ -728,7 +728,7 @@ If you are a cryptographer willing to spend an hour on this, these are the quest
 
 2. **Envelope header as AAD (§5.1, L4) — RESOLVED:** the active 0xE2 envelope binds the 4-byte header (magic | KEM | cipher | KDF) as AEAD AAD, so a header flip surfaces as a Poly1305 tag failure.
 
-3. **ML-KEM ciphertext integrity (§5.1, L11):** ML-KEM's implicit rejection handles tampered ciphertexts correctly, but should we add a belt-and-suspenders construction (e.g. AEAD with AAD = kem.ct) before the symmetric step?
+3. **ML-KEM ciphertext integrity (§5.1, L11):** ML-KEM's implicit rejection handles tampered ciphertexts correctly, but should we add a belt-and-suspenders construction (AEAD with AAD = kem.ct, say) before the symmetric step?
 
 4. **ECIES construction (§5.6.2) — WITHDRAWN:** the construction this asked about no longer exists. It combined an ML-KEM shared secret with an ECDH one under HKDF-SHA3-512, and post-quantum client certificates left no ECDH key to derive the second secret from.
 

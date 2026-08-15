@@ -101,7 +101,7 @@ All cryptographic operations use NIST-standardized post-quantum algorithms:
 
 Every encrypted blob starts with a 4-byte header encoding the algorithms used:
 
-```
+```text
 byte 0: 0xE2  (envelope magic — FixedInfo/suite-bound per NIST SP 800-56C r2 §4.1 + RFC 9180)
 byte 1: KEM   (0x02 ML-KEM-1024 / 0x03 ML-KEM-1024+P-384)
 byte 2: Cipher(0x02 XChaCha20-Poly1305)
@@ -121,7 +121,7 @@ Future KEMs get a new version byte / new envelope ID — old blobs remain readab
 
 ### Hybrid KEM
 
-```
+```text
 ML-KEM-1024 encapsulate  -->  shared_secret_1 (32 bytes)
 P-384 ephemeral ECDH     -->  shared_secret_2 (48 bytes)
                                |
@@ -136,7 +136,7 @@ Protects against both quantum (ML-KEM) and classical (P-384) attacks. If either 
 
 Zero plaintext anywhere. Every piece of data is encrypted or hashed before touching disk:
 
-```
+```text
 ML-KEM-1024 + P-384 (vault.key)
   |
   +-- vault.seal() = hybrid KEM --> SHAKE256 KDF --> XChaCha20-Poly1305
@@ -154,7 +154,7 @@ ML-KEM-1024 + P-384 (vault.key)
 
 Routes never touch `vault.seal()` directly. A centralized **field-crypto middleware** (`lib/field-crypto.js`) intercepts all database operations:
 
-```
+```text
 Routes pass PLAINTEXT
        |
   Collection.insert() / update() / find()
@@ -192,7 +192,7 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | Quantum computer key recovery | Hybrid ML-KEM-1024 + P-384 ECDH (dual protection) |
 | Harvest-now-decrypt-later | ML-KEM-1024 post-quantum KEM + envelope versioning for algorithm agility |
 | Classical-only TLS downgrade | ClientHello PQC gate rejects connections without hybrid key exchange groups |
-| Brute-force passwords | Argon2id (64MB memory, 3 iterations) |
+| Brute-force passwords | Argon2id (64 MiB memory, 3 iterations) |
 | Brute-force login | Rate limiting (5 attempts / 15 min per IP) |
 | Brute-force share IDs | 256-bit SHA3-derived IDs (2^256 search space) |
 | Session hijacking | Hybrid KEM encrypted cookies, per-session keys |
@@ -222,7 +222,7 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | Automated scanners and bots | Request fingerprinting (missing Accept-Language + known automation User-Agents) blocks non-browser clients on public routes — survives PQC TLS adoption |
 | NPM supply chain | All dependencies vendored as committed bundles — zero npm runtime packages |
 | Admin settings injection | Type-safe settings schema (lib/settings-schema.js) sanitizes on save (strip control chars, trim, type-specific normalization) and validates (format, range, enum) — bad data rejected at the gate with clear error messages |
-| Stale config after admin change | Config reset registry (config.onReset) invalidates cached clients (S3, upload paths, etc.) when dependent settings change at runtime |
+| Stale config after admin change | Config reset registry (config.onReset) invalidates every cached client that reads a setting — the S3 client and the resolved upload path among them — when that setting changes at runtime |
 | Timing attack on access codes | SHA3-512 hash comparison uses constant-time `timingSafeEqual` on all security-sensitive comparisons (access codes, CSRF, TOTP) |
 | Crash during backup restore | Pre-restore snapshots of vault.key, db.key.enc, hermitstash.db.enc enable rollback if restore is interrupted |
 
@@ -249,7 +249,7 @@ Built on Node.js 24.19.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 **File Management**
 - Public folder drops -- drag entire trees, no login required
 - Per-file XChaCha20-Poly1305 encryption, keys sealed with hybrid ML-KEM-1024 + P-384
-- Chunked uploads for large files (>10MB auto-split, server reassembly)
+- Chunked uploads for large files (over 10 MB auto-split, server reassembly)
 - Pause/resume/cancel uploads, per-file progress bars
 - Password-protected share links with exponential backoff lockout (2^n × 30s after 5 failed attempts), persisted per-share in the database so counters survive restart
 - Email-gated access -- restrict bundles to specific recipient emails, verified by one-time code (anti-enumeration, rate limited, SHA3-hashed codes)
@@ -282,7 +282,7 @@ Built on Node.js 24.19.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - Per-page branding -- custom title, instructions, accent color, and logo
 - Per-page upload constraints -- max file size, max bundle size, max files, default expiry, allowed extensions; each blank field uses the global default, or can be marked "No limit" to lift that cap for the stash
 - Password-protected stash pages with Argon2 hashing and rate-limited unlock
-- Email/domain-gated stash access -- restrict by specific emails or entire domains (@acme.com), verified by one-time code
+- Email/domain-gated stash access -- restrict by specific emails or entire domains (@example.com), verified by one-time code
 - Dual protection mode -- require both email verification and password on stash pages
 - Simplified upload form -- message and files only (no name/email fields)
 - Bundle naming during stash upload
@@ -296,7 +296,7 @@ Built on Node.js 24.19.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 **Teams**
 - Create teams, add/remove members with role-based access
 - Assign a stash to a team -- uploads to it appear in the team's member-only file list (`/teams/:id/files`)
-- A stash can be shared with a team and/or individual users at the same time
+- A stash can be shared with a team, with individual users, or with both at once
 - Team admin and member roles
 
 **Profile**
@@ -366,7 +366,7 @@ Built on Node.js 24.19.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - New `sync` API key scope for WebSocket connections and sync bundle operations
 - Resource-scoped API keys -- `boundStashId` and `boundBundleId` columns restrict keys to specific resources
 - Stash-scoped sync tokens -- admin generates tokens that grant sync access to a single stash only
-- One-time enrollment codes -- admin generates a short code (e.g. `HSTASH-A4K9-XMWP-7RB2`), client redeems it to get API key + mTLS certs automatically (no file transfer needed, 1-hour expiry)
+- One-time enrollment codes -- admin generates a short code (for example `HSTASH-A4K9-XMWP-7RB2`), client redeems it to get API key + mTLS certs automatically (no file transfer needed, 1-hour expiry)
 - Stash sync mode -- persistent mutable bundle per stash for desktop sync clients
 - Admin UI: sync toggle per stash, one-click sync token generation with copy button
 - Desktop sync client: [hermitstash-sync](https://github.com/dotCooCoo/hermitstash-sync) — watches a local folder and syncs via WebSocket + PQC TLS
@@ -464,7 +464,7 @@ When the migration runs, the superseded CA cert is retained at `data/ca.prev.crt
 | `MTLS_CA_ALGORITHM` | unset | Set to `ECDSA-P384-SHA384` to pin the **sync** CA classical and suppress the post-quantum auto-migration — for peers that can't verify ML-DSA in TLS. Unset lets the sync CA follow its stored algorithm and migrate when the runtime is capable. Set the pin before the CA migrates; a pin that conflicts with an already-migrated ML-DSA-87 CA is refused. |
 | `MTLS_AUTO_MIGRATE` | `true` | Set to `false` to disable the auto-migration without pinning an algorithm — an existing classical sync CA is left in place. |
 | `MTLS_REQUIRED` | `true` when a CA exists | Set to `false` to permit API-key-only WebSocket upgrades; per-key cert binding is still enforced when a key was issued with a bound cert. |
-| `MTLS_CA_KEY` / `MTLS_CA_CERT` | under `data/` | Point the sync CA private key / cert at absolute paths (e.g. a read-only secrets volume). |
+| `MTLS_CA_KEY` / `MTLS_CA_CERT` | under `data/` | Point the sync CA private key / cert at absolute paths (for example, a read-only secrets volume). |
 | `MTLS_BROWSER_CA_KEY` / `MTLS_BROWSER_CA_CERT` | under `data/` | Point the browser CA private key / cert at absolute paths. |
 
 Browser certs are unaffected by any sync-CA migration, pin, or regeneration.
@@ -480,7 +480,7 @@ Configure it in **Admin → Settings → Auth**, or with environment variables:
 | `TAILSCALE_ENABLED` | `false` | Master switch. When `true`, the container installs and starts the Tailscale sidecar at boot (see below) and the app reads the tailnet identity headers. |
 | `TAILSCALE_SSO` | `false` | Show the "Sign in with Tailscale" option and accept tailnet sign-ins. |
 | `TAILSCALE_SSO_ALLOWLIST` | empty | Comma-separated tailnet logins auto-provisioned on first sign-in. |
-| `TAILSCALE_SSO_GRANT` | empty | A tailnet ACL app-capability (e.g. `example.com/cap/hermitstash`) that permits auto-provisioning. With both the allowlist and grant empty, SSO signs in existing accounts only and never creates one. |
+| `TAILSCALE_SSO_GRANT` | empty | A tailnet ACL app-capability (for example `example.com/cap/hermitstash`) that permits auto-provisioning. With both the allowlist and grant empty, SSO signs in existing accounts only and never creates one. |
 | `TAILSCALE_HOSTNAME_AUTOCONFIG` | `true` | Derive the WebAuthn origin + share-URL base from this node's MagicDNS name when no `RP_ORIGIN` is set. Never overrides an operator-set origin. |
 | `TAILSCALE_SOCKET` | `/run/tailscale/tailscaled.sock` | tailscaled LocalAPI socket. |
 | `TAILSCALE_SERVE_MODE` | `off` | `serve` (tailnet-only, injects identity headers), `funnel` (public internet, **no** identity), or `off` (you run your own tailscaled). |
@@ -527,11 +527,11 @@ docker run -d --name hermitstash \
 
 Tags published per release:
 
-| Tag | Example | Behaviour |
+| Tag | Example | Behavior |
 |-----|---------|-----------|
 | `:1` | major-version pin | Gets bug fixes and features within the major version (no breaking changes) |
 | `:1.7` | minor-version pin | Gets only patch updates within the minor series |
-| `:1.7.x` | exact pin | Pin to a specific patch (`:1.7.12`, `:1.7.13`, etc.) — never updates |
+| `:1.7.x` | exact pin | Pin to a specific patch such as `:1.7.12` or `:1.7.13` — never updates |
 | `:latest` | rolling | Always the newest published image — follows the default branch |
 | `:sha-<commit>` | per-commit | Reproducible pin to the exact commit |
 
@@ -586,7 +586,7 @@ Uses `cgr.dev/chainguard/wolfi-base` with Node installed from the `nodejs-24` pa
 
 ### docker-compose.yml
 
-The included `docker-compose.yml` provides a production-ready starting point:
+The included `docker-compose.yml` is a starting point with the volumes, shared-memory size, and dropped capabilities already set:
 
 ```yaml
 services:
@@ -630,7 +630,7 @@ All other settings (auth, email, S3, branding) are best configured via the admin
 Works out of the box with Coolify, Portainer, CapRover, and similar platforms:
 
 1. Point the platform at the git repo (or Dockerfile)
-2. Set the `RP_ORIGIN` env var to your domain's full URL (e.g., `https://app.hermitstash.com`)
+2. Set the `RP_ORIGIN` env var to your domain's full URL (for example, `https://app.hermitstash.com`)
 3. Mount persistent volumes for `/app/data` and `/app/uploads`
 4. Set `shm_size: 256m` (or equivalent in the platform's container config)
 5. The built-in health check works with any orchestrator that supports `HEALTHCHECK`
@@ -686,7 +686,7 @@ v1.9+ adds an **opt-in** layer that wraps the vault key with an Argon2id-derived
    - `VAULT_PASSPHRASE_FILE=/path/to/secret` (file — preferred for orchestration).
 
 5. Restart the server. Expected startup lines:
-   ```
+   ```text
    [vault] Unsealing vault.key.sealed...
    [vault] Unsealed successfully.
    ```
@@ -743,7 +743,7 @@ Sessions are invalidated by the required server restart (sessions live in tmpfs 
 - Annual key rotation per compliance policy
 - Investigating? Run `--dry-run` first; it does everything except the final swap
 
-For just changing the passphrase (e.g. the old passphrase leaked but the sealed file did NOT), keep using `vault-passphrase-rotate.js` — it's a faster operation that only re-wraps the same vault key.
+For just changing the passphrase (the old passphrase leaked but the sealed file did NOT, say), keep using `vault-passphrase-rotate.js` — it's a faster operation that only re-wraps the same vault key.
 
 ### PEM at-rest sealing for CA + TLS keys (v1.9.4+, opt-in)
 
@@ -883,13 +883,13 @@ Probes from the same origin as the app (container HEALTHCHECK on `localhost`, a 
 
 ### Reverse proxy
 
-Drop-in configs for the three common proxies live in [`deploy/reverse-proxy/`](deploy/reverse-proxy/) — [`Caddyfile`](deploy/reverse-proxy/Caddyfile), [`nginx.conf`](deploy/reverse-proxy/nginx.conf), and [`apache.conf`](deploy/reverse-proxy/apache.conf). All three terminate TLS, forward `/sync/ws` WebSocket upgrades, match the 100MB upload limit, and pass `X-Forwarded-*` headers through for `TRUST_PROXY=true`.
+Drop-in configs for the three common proxies live in [`deploy/reverse-proxy/`](deploy/reverse-proxy/) — [`Caddyfile`](deploy/reverse-proxy/Caddyfile), [`nginx.conf`](deploy/reverse-proxy/nginx.conf), and [`apache.conf`](deploy/reverse-proxy/apache.conf). All three terminate TLS, forward `/sync/ws` WebSocket upgrades, match the 100 MiB upload limit, and pass `X-Forwarded-*` headers through for `TRUST_PROXY=true`.
 
 The admin panel (Settings > Uploads) auto-detects your proxy and generates a ready-to-paste snippet reflecting your current `MAX_FILE_SIZE` if you'd rather tune body limits from the UI.
 
 If you use the sync client's mTLS mode, see the [reverse-proxy README](deploy/reverse-proxy/README.md#mtls-sync-clients) — TLS-terminating proxies strip the client cert, so you need TCP passthrough or a dedicated bypass port.
 
-Passkey sign-in uses the browser's WebAuthn API, which is exposed only over HTTPS or on `localhost`. On a plain-HTTP origin (e.g. a LAN hostname) the passkey option hides itself and reappears once the app is served over HTTPS; password sign-in and the rest of the app work over plain HTTP regardless.
+Passkey sign-in uses the browser's WebAuthn API, which is exposed only over HTTPS or on `localhost`. On a plain-HTTP origin (a LAN hostname, for example) the passkey option hides itself and reappears once the app is served over HTTPS; password sign-in and the rest of the app work over plain HTTP regardless.
 
 ### S3 storage
 
@@ -899,10 +899,10 @@ Configure S3-compatible storage (AWS, MinIO, Cloudflare R2, DigitalOcean Spaces,
 
 **Umbrel:** Available in the [Umbrel App Store](https://apps.umbrel.com/app/hermitstash) — open the App Store on your Umbrel, search HermitStash, and click Install. Volumes, ports, and shared memory are configured automatically.
 
-**Coolify / Portainer:** Paste `ghcr.io/dotcoocoo/hermitstash:1` as the image. Set port 3000, mount `/app/data` and `/app/uploads` as persistent volumes, set shared memory to 256MB, add `TRUST_PROXY=true` and `RP_ORIGIN=https://your-domain.com`.
+**Coolify / Portainer:** Paste `ghcr.io/dotcoocoo/hermitstash:1` as the image. Set port 3000, mount `/app/data` and `/app/uploads` as persistent volumes, set shared memory to 256 MiB, add `TRUST_PROXY=true` and `RP_ORIGIN=https://your-domain.com`.
 
 **Unraid:** Docker → Add Container → paste this template URL:
-```
+```text
 https://raw.githubusercontent.com/dotCooCoo/hermitstash/main/unraid-template.xml
 ```
 Pre-fills icon, ports, volumes, and `--shm-size=256m` automatically.
@@ -926,7 +926,7 @@ curl -fsSL https://raw.githubusercontent.com/dotCooCoo/hermitstash/main/deploy/i
 # Or with auto-update enabled from the start:
 curl -fsSL https://raw.githubusercontent.com/dotCooCoo/hermitstash/main/deploy/install.sh | sudo HERMITSTASH_AUTO_UPDATE=yes bash
 ```
-Installs Node.js 24, creates a `hermit` system user, sets up tmpfs (256MB) for the in-memory database, and registers a systemd service using the checked-in [`deploy/hermitstash.service`](deploy/hermitstash.service) unit. Re-running the script `git pull`s the latest code and restarts the service. See [`deploy/install.sh`](deploy/install.sh). Uninstall with [`deploy/uninstall.sh`](deploy/uninstall.sh) — data is preserved unless you pass `--purge`.
+Installs Node.js 24, creates a `hermit` system user, sets up tmpfs (256 MiB) for the in-memory database, and registers a systemd service using the checked-in [`deploy/hermitstash.service`](deploy/hermitstash.service) unit. Re-running the script `git pull`s the latest code and restarts the service. See [`deploy/install.sh`](deploy/install.sh). Uninstall with [`deploy/uninstall.sh`](deploy/uninstall.sh) — data is preserved unless you pass `--purge`.
 
 **Terraform (DigitalOcean):**
 ```bash
@@ -1158,7 +1158,7 @@ Response (key shown once, then SHA3-hashed -- never retrievable):
 Non-HTML clients (Bearer-authenticated API, sync client, anything that doesn't
 send `Accept: text/html`) receive errors as RFC 9457 problem-details:
 
-```
+```http
 HTTP/1.1 400 Bad Request
 Content-Type: application/problem+json
 Cache-Control: no-store
@@ -1233,7 +1233,7 @@ unchanged.
 
 Include the key as a Bearer token:
 
-```
+```http
 Authorization: Bearer hs_a1b2c3d4e5f6...
 ```
 
@@ -1347,7 +1347,7 @@ Event filter: set to `*` for all events, or a specific event name. Additional ev
 
 Every webhook request is signed with the [Standard Webhooks](https://www.standardwebhooks.com/) scheme and carries three headers:
 
-```
+```text
 webhook-id: msg_<token>
 webhook-timestamp: <unix seconds>
 webhook-signature: v1,<base64>
@@ -1437,7 +1437,7 @@ Managed via `scripts/vendor-update.sh`:
 
 | Vendored | Version | Author | Purpose |
 |----------|---------|--------|---------|
-| [`blamejs`](https://github.com/blamejs/blamejs) | 0.18.27 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, etc. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
+| [`blamejs`](https://github.com/blamejs/blamejs) | 0.18.27 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, and envelope-bound field crypto. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
 | [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) (browser only) | 2.3.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | XChaCha20-Poly1305 in the browser vault + outbox flows |
 | [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (browser only) | 2.3.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | SHAKE256 KDF in the browser |
 | [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) (browser only) | 0.7.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | ML-KEM-1024 in the browser vault flow |
@@ -1457,7 +1457,7 @@ These libraries are exceptional work. HermitStash wouldn't exist without them.
 
 ~180 JS files, 24 HTML templates (plus 3 shared partials), 21 database tables. Small files, one job each.
 
-```
+```text
 server.js             Bootstrap, middleware, scheduled tasks, default accounts
 lib/
   crypto.js           PQC crypto: ML-KEM-1024+P-384, XChaCha20, SHAKE256,

@@ -14,7 +14,7 @@ Each config:
 
 - Terminates TLS with a Let's Encrypt cert
 - Forwards `/sync/ws` WebSocket upgrades (used by the companion sync client)
-- Matches the 100MB `MAX_FILE_SIZE` default — bump the value in both places if you raise it
+- Matches the 100 MiB `MAX_FILE_SIZE` default — bump the value in both places if you raise it
 - Disables response buffering so streamed ciphertext doesn't spool to disk
 - Passes `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host` through so `TRUST_PROXY=true` can honor them
 - Leaves security headers to HermitStash — adding HSTS/CSP at the proxy will collide with the app's own headers
@@ -31,7 +31,7 @@ If you use sync mTLS, the two options are:
    port) straight to HermitStash's TLS listener, so node's `socket.getPeerCertificate()`
    gets the real cert. Simplest in Caddy via the `layer4` app; in nginx via the `stream`
    module; in Apache there's no clean equivalent.
-2. **Bypass port** — run HermitStash with TLS on a separate port (e.g. 8443) that's
+2. **Bypass port** — run HermitStash with TLS on a separate port such as 8443 that's
    exposed directly to sync clients, and keep the proxy only for human browser
    traffic on 443.
 
