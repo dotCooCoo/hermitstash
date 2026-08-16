@@ -53,8 +53,8 @@
       "bundledAt": "2026-08-16"
     },
     "blamejs": {
-      "version": "0.18.28",
-      "tag": "v0.18.28",
+      "version": "0.18.29",
+      "tag": "v0.18.29",
       "license": "Apache-2.0",
       "author": "blamejs contributors",
       "source": "https://github.com/blamejs/blamejs",
@@ -174,11 +174,11 @@
           "file": "lib/vendor/blamejs/lib/vendor/public-suffix-list.dat"
         },
         "@blamejs/pki": {
-          "version": "0.5.4",
+          "version": "0.5.5",
           "license": "Apache-2.0",
           "author": "blamejs",
           "source": "https://github.com/blamejs/pki",
-          "cpe": "cpe:2.3:a:blamejs:pki:0.5.4:*:*:*:*:node.js:*:*",
+          "cpe": "cpe:2.3:a:blamejs:pki:0.5.5:*:*:*:*:node.js:*:*",
           "exports": [
             "x509",
             "crl",
@@ -194,7 +194,7 @@
           "file": "lib/vendor/blamejs/lib/vendor/blamejs-pki.cjs"
         }
       },
-      "integrity": "sha512-xAvR751Ue8qf9wOA/CmYiB9KejcY+IJYf/kk8+EJb2TvlygN21CRoTPYSE1a25AYUGGLDTlCoXAeeza/vA7dvg=="
+      "integrity": "sha512-kUTf8JLw5FIUeZd+N3sGn9lM94DNWNEcoVQWnkECASfz4V/WY+eIdbVoaELo8fLLd4rgNs5m25yVw20xVk5qaA=="
     }
   }
 }

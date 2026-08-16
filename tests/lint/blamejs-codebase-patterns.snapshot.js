@@ -5606,10 +5606,12 @@ async function testNoDuplicateCodeBlocks() {
       // CHAR_THREATS_REJECT_ALL — are already extracted).
       mode:  "family-subset",
       files: [
+        "lib/guard-archive.js:<top>",
         "lib/guard-csv.js:_gateDispositionFor",
         "lib/guard-email.js:_detectAddressIssues",
         "lib/guard-email.js:_detectMessageIssues",
         "lib/guard-email.js:_parseAddressLine",
+        "lib/guard-filename.js:<top>",
         "lib/guard-email.js:validateAddress",
         "lib/guard-html.js:_gateDispositionFor",
         "lib/guard-html.js:_permissiveAllowed",
@@ -5618,6 +5620,7 @@ async function testNoDuplicateCodeBlocks() {
         "lib/guard-json.js:<top>",
         "lib/guard-json.js:_detectIssues",
         "lib/guard-json.js:_gateDispositionFor",
+        "lib/guard-json.js:_scanJsonShapes",
         "lib/guard-json.js:_scanRawSource",
         "lib/guard-json.js:gate",
         "lib/guard-markdown.js:_allMatches",
@@ -10380,10 +10383,10 @@ var KNOWN_ANTIPATTERNS = [
   },
   {
     id: "inline-codepoint-class-table",
-    primitive: "codepointClass.BIDI_RE / C0_CTRL_RE / ZERO_WIDTH_RE / NULL_RE_G / hex4 / charClass / fromCp",
-    regex: /var\s+BIDI_RANGES\s*=\s*\[\s*0x200E(?:(?!\n\})[\s\S]){0,2000}?new RegExp\(\s*["']\[["']\s*\+\s*charClass\(/,
+    primitive: "codepointClass.BIDI_RANGES / C0_CTRL_RANGES / ZERO_WIDTH_RANGES / NULL_RANGES / inRanges / firstInRanges / stripRanges / hex4 / charClass / fromCp",
+    regex: /var\s+(?:BIDI_RANGES\s*=\s*\[\s*0x200E|C0_CTRL_RANGES\s*=\s*\[\s*\[\s*0x0000|ZERO_WIDTH_RANGES\s*=\s*\[\s*0x00AD|TAG_RANGES\s*=\s*\[\s*\[\s*0xE0000)/,
     allowlist: ["lib/codepoint-class.js"],
-    reason: "Extracted across guard-csv / guard-html / guard-svg. The BIDI_RANGES + C0_CTRL_RANGES + ZERO_WIDTH_RANGES literal tables plus the _hex4 / _charClass / _fromCp helpers plus the `new RegExp(\"[\" + _charClass(...) + \"]\")` regex compilations were identical across 3 guard primitives by design. Centralized so the codepoint catalog has a single source of truth and future guards (filename / archive / mime / ...) consume the shared module instead of re-defining the tables.",
+    reason: "Extracted across guard-csv / guard-html / guard-svg, where the BIDI_RANGES + C0_CTRL_RANGES + ZERO_WIDTH_RANGES tables and the hex4 / charClass / fromCp helpers were identical by design. The catalog has one source of truth so a guard cannot screen a narrower set than its siblings — which is what a local copy becomes the moment a codepoint is added to the shared table and not to the copy (a local bidi set in safePath was short the Arabic letter mark for exactly that reason). Anchored on the table definitions themselves: a file that re-declares one is re-inlining the catalog, whether it then scans with a walk or compiles a class from it.",
   },
   {
     id: "inline-resolve-profile-and-posture",
@@ -10402,9 +10405,9 @@ var KNOWN_ANTIPATTERNS = [
   {
     id: "inline-detect-char-threats",
     primitive: "codepointClass.detectCharThreats(text, opts, codePrefix)",
-    regex: /var\s+bidiMatch\s*=\s*\w+\.match\(BIDI_RE\)(?:(?!\n\})[\s\S]){0,1200}?bidi-override(?:(?!\n\})[\s\S]){0,1600}?nullBytePolicy(?:(?!\n\})[\s\S]){0,1200}?null-byte/,
+    regex: /var\s+bidiMatch\s*=(?:(?!\n\})[\s\S]){0,120}?BIDI_RANGES(?:(?!\n\})[\s\S]){0,1200}?bidi-override(?:(?!\n\})[\s\S]){0,1600}?nullBytePolicy(?:(?!\n\})[\s\S]){0,1200}?null-byte/,
     allowlist: ["lib/codepoint-class.js"],
-    reason: "Extracted across guard-html / guard-svg detection passes — the bidi/null-byte/control-char issue-emit cascade was identical at the head of every _detectIssues. guard-csv keeps its inline form because it uses different opt-name vocabulary (bidiCharPolicy / nullByteHandling) and additionally classifies homoglyphs as a CSV-specific threat.",
+    reason: "Extracted across guard-html / guard-svg detection passes — the bidi/null-byte/control-char issue-emit cascade was identical at the head of every _detectIssues. guard-csv keeps its inline form because it uses different opt-name vocabulary (bidiCharPolicy / nullByteHandling) and additionally classifies homoglyphs as a CSV-specific threat. Anchored on BIDI_RANGES rather than a compiled BIDI_RE: the class regexes are gone, so a re-inlined cascade scans the shared table.",
   },
   {
     id: "inline-profile-builder-forwarder",
@@ -10534,9 +10537,9 @@ var KNOWN_ANTIPATTERNS = [
   {
     id: "inline-assert-no-char-threats",
     primitive: "codepointClass.assertNoCharThreats(text, opts, errorFactory, codePrefix)",
-    regex: /opts\.bidiPolicy\s*===\s*["']reject["'](?:(?!\n\})[\s\S]){0,800}?BIDI_RE\.test(?:(?!\n\})[\s\S]){0,800}?opts\.nullBytePolicy\s*===\s*["']reject["']/,
+    regex: /opts\.bidiPolicy\s*===\s*["']reject["'](?:(?!\n\})[\s\S]){0,800}?BIDI_RANGES(?:(?!\n\})[\s\S]){0,800}?opts\.nullBytePolicy\s*===\s*["']reject["']/,
     allowlist: ["lib/codepoint-class.js"],
-    reason: "Extracted across guard-html / guard-svg sanitize entry — every guard's reject-on-character-class threats opens with the same `if (opts.bidiPolicy === 'reject' && BIDI_RE.test(s)) throw; if (opts.nullBytePolicy === 'reject' && s.indexOf(NULL_BYTE) !== -1) throw; if (opts.controlPolicy === 'reject' && C0_CTRL_RE.test(s)) throw;` cascade. Centralized so the reject-policy contract is identical across the family. guard-csv keeps its own inline cell-level reject for opt-name vocabulary reasons (bidiCharPolicy etc.).",
+    reason: "Extracted across guard-html / guard-svg sanitize entry — every guard's reject-on-character-class threats opens with the same `if (opts.bidiPolicy === 'reject' && <bidi scan>) throw; if (opts.nullBytePolicy === 'reject' && s.indexOf(NULL_BYTE) !== -1) throw; if (opts.controlPolicy === 'reject' && <control scan>) throw;` cascade. Centralized so the reject-policy contract is identical across the family. guard-csv keeps its own inline cell-level reject for opt-name vocabulary reasons (bidiCharPolicy etc.). Anchored on BIDI_RANGES: the compiled class regexes are gone, so a re-inlined cascade names the shared table.",
   },
   {
     id: "inline-audit-shape-validation",

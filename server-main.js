@@ -273,7 +273,17 @@ app.get("/img/stash/:name", serveLogoFrom(C.PATHS.STASH_LOGO_DIR));
 // origin caller.
 app.get("/health", function (req, res) {
   res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ status: "ok", uptime: process.uptime(), timestamp: new Date().toISOString() }));
+  // `status` stays "ok" whenever the process is serving, because that is what
+  // the probes in the Dockerfile, compose file and kubernetes manifests test.
+  // Maintenance is reported alongside it rather than through it, so a human or
+  // a dashboard can tell the difference without an orchestrator concluding the
+  // container is dead.
+  res.end(JSON.stringify({
+    status: "ok",
+    maintenance: !!config.maintenanceMode,
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+  }));
 });
 app.get("/sitemap.xml", function (req, res) {
   var origin = originPolicy.getOrigin();
@@ -620,6 +630,15 @@ app.use(require("./app/security/csrf-policy").csrfMiddleware);
 // Maintenance mode — blocks non-admin access when enabled
 app.use(function (req, res, next) {
   if (!config.maintenanceMode) return next();
+  // The liveness probe is not a visitor. Every shipped deployment polls /health
+  // and treats anything other than 200 as a dead process: the Dockerfile and
+  // compose health checks exit non-zero, and kubernetes.yml wires it to the
+  // liveness, readiness AND startup probes — so answering the maintenance page
+  // here had the orchestrator restart the container in a loop for as long as
+  // the operator left maintenance on, which is precisely when they wanted it
+  // left alone. Maintenance withholds the site from people; it does not claim
+  // the process has stopped.
+  if (req.pathname === "/health") return next();
   // Allow admin and auth routes through
   if (req.user && req.user.role === "admin") return next();
   if (req.pathname && req.pathname.startsWith("/auth")) return next();

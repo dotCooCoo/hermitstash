@@ -1277,7 +1277,22 @@ module.exports = function (app) {
         restartInMs: 0,
       };
 
-      async function finalize(note) {
+      // Commit the new CA. Returns true when the caller should then restart.
+      //
+      // This runs BEFORE the response, and that ordering is the point. It used
+      // to run after: the handler answered {ok:true, "Committing and
+      // restarting."} and only then committed, so a commit that threw was
+      // caught by a handler whose headers were already sent and swallowed by
+      // `if (res.headersSent) return;`. The admin was told the rotation
+      // succeeded while the server stayed up on the old CA — and the client
+      // certificates and their stored fingerprints had already been rotated to
+      // a CA that was never written, so those clients could no longer
+      // authenticate against the CA that was still live.
+      //
+      // commit() throws on a real condition: a still-retained prior root makes
+      // it refuse (mtls-ca/retained-root-exists). Letting that propagate turns
+      // the worst outcome — a silent half-rotation — into a 500 that names it.
+      async function commitCa(note) {
         if (skipRestart) {
           // Dry-run mode: skip commit and skip exit. The in-memory new CA and
           // the pre-signed client certs are
@@ -1286,7 +1301,7 @@ module.exports = function (app) {
           // should understand this mutates api_keys.certFingerprint.
           audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "mTLS CA regenerate dry-run (skipRestart): " + JSON.stringify(summary), req: req });
           logger.info("[mTLS] CA regenerate dry-run — not committing, not exiting", { summary: summary, note: note });
-          return;
+          return false;
         }
         // Write a flag file so startup-checks can show a post-restart banner.
         // Atomic, symlink-refusing write to a predictable DATA_DIR path (a planted
@@ -1321,16 +1336,25 @@ module.exports = function (app) {
         // valid and importable, so they are NOT deleted here (they were, pre-split,
         // when a single CA signed both sync and browser certs).
         audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "mTLS CA regenerated: " + JSON.stringify(summary), req: req });
-        logger.info("[mTLS] CA regenerated — exiting for restart", { summary: summary, note: note });
-        // Give the HTTP response time to flush before exit
+        logger.info("[mTLS] CA regenerated — restarting", { summary: summary, note: note });
+        return true;
+      }
+
+      // Scheduled only after the response is written: the exit has to follow
+      // the flush, which is why the commit and the restart used to be one step
+      // placed after res.json. Only the restart needs to be.
+      function scheduleRestart() {
         setTimeout(function () { process.exit(0); }, RESTART_DELAY_MS);
       }
 
       // Fast path: no live sync clients → skip rotation, commit + exit
       if (liveByKeyId.size === 0) {
         summary.restartInMs = RESTART_DELAY_MS;
-        res.json({ ok: true, summary: summary, note: "No active sync clients — committing new CA and restarting." });
-        await finalize("fast-path");
+        var restartFast = await commitCa("fast-path");
+        res.json({ ok: true, summary: summary, note: restartFast
+          ? "No active sync clients — new CA committed; restarting."
+          : "No active sync clients — dry run, nothing committed." });
+        if (restartFast) scheduleRestart();
         return;
       }
 
@@ -1416,10 +1440,15 @@ module.exports = function (app) {
 
       summary.syncClientsAcked = ackCount;
 
-      // Respond with the summary BEFORE committing + exiting so the admin UI
-      // sees the ack count and knows which clients will need manual recovery.
-      res.json({ ok: true, summary: summary, note: "CA rotation pushed to " + liveByKeyId.size + " client(s); " + ackCount + " acked. Committing and restarting." });
-      await finalize("rotation-path");
+      // Commit first, then report. The summary still carries the ack count so
+      // the admin UI can show which clients will need manual recovery — but a
+      // commit that fails now reaches them as an error instead of arriving
+      // underneath an "ok" they have already been given.
+      var restartRotation = await commitCa("rotation-path");
+      res.json({ ok: true, summary: summary, note: "CA rotation pushed to " + liveByKeyId.size
+        + " client(s); " + ackCount + " acked. "
+        + (restartRotation ? "New CA committed; restarting." : "Dry run — nothing committed.") });
+      if (restartRotation) scheduleRestart();
     } catch (e) {
       if (e.isAppError) throw e;
       logger.error("CA regeneration failed", { error: e.message || String(e), stack: e.stack });

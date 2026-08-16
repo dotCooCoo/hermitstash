@@ -1,0 +1,30 @@
+{
+  "version": "1.14.21",
+  "date": "2026-08-16",
+  "headline": "Keep health checks passing during maintenance, and stop CA regeneration reporting success before it commits",
+  "summary": "Two failures an operator would meet at the worst moment: turning on maintenance mode made orchestrators restart the container, and a failed certificate-authority rotation was reported as having worked.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Maintenance mode no longer makes orchestrators restart the container",
+          "body": "The health endpoint answered the maintenance page, and every deployment recipe here treats anything other than a 200 on that path as a dead process — the container health checks exit non-zero on it, and the Kubernetes manifest wires it to the liveness, readiness and startup probes alike. Switching maintenance on therefore had the orchestrator kill and restart the deployment, over and over, for as long as it stayed on. Maintenance withholds the site from visitors; it is not a statement that the process has stopped, and the endpoint now says so. It keeps reporting status ok and carries a maintenance flag alongside, so a person or a dashboard can still tell the difference."
+        },
+        {
+          "title": "A failed certificate-authority rotation is no longer reported as a success",
+          "body": "Regenerating the sync certificate authority issues fresh client certificates and rewrites the stored fingerprint on every affected API key before writing the new authority to disk. The reply was sent first and the write happened after it, so a write that failed was recorded in the log and nothing else. That leaves the worst possible state: the certificates and their stored fingerprints have moved to an authority that was never written, the server continues on the old one, and the operator has been told it succeeded — after which those clients cannot connect and nothing indicates why. The write now happens first, and a failure is returned as an error naming the cause. A preview run still changes nothing and now says so rather than reporting a restart."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "The vendored framework moves to 0.18.29",
+          "body": "Character-class screening across the guard family is reimplemented internally. The behaviour this depends on — spreadsheet-formula disarming in exports, direction-override stripping in uploader-supplied text, and filename and path handling — is unchanged, which was checked rather than assumed."
+        }
+      ]
+    }
+  ]
+}
