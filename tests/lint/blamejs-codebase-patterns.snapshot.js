@@ -12432,6 +12432,43 @@ var KNOWN_ANTIPATTERNS = [
   },
 
   {
+    id: "char-threat-strip-without-the-reject-assert",
+    primitive: "b.codepointClass.scrubCharThreats",
+    scanScope: "lib",
+    skipCommentLines: true,
+    // applyCharStripPolicies removes only the classes an operator set to
+    // "strip". Calling it as the sanitize front end therefore says nothing
+    // about the classes set to "reject": they are not stripped, and unless
+    // something else refuses them first they are returned to the caller
+    // unchanged — no repair and no error, with the strict profile behaving
+    // more weakly than the balanced one. guardText and guardCsv both shipped
+    // that way, and guardEmail's severity filter let a C0 control past for the
+    // same reason. scrubCharThreats owns the ordering (bound the length, then
+    // assert the reject classes, then strip) so the three cannot be composed
+    // in the wrong order. A bare applyCharStripPolicies call with no
+    // assertNoCharThreats anywhere in the same function is the front end
+    // re-implemented without its refusal step.
+    //
+    // Guards with their own policy vocabulary (guardCsv names bidiCharPolicy
+    // rather than bidiPolicy) translate before calling and so keep a direct
+    // pair; they are allowlisted rather than forced through a shared signature
+    // that cannot read their opts.
+    regex: /codepointClass\.applyCharStripPolicies\(/,
+    requires: /assertNoCharThreats|scrubCharThreats/,
+    allowlist: [
+      "lib/codepoint-class.js",   // the primitive's home
+      "lib/guard-csv.js",         // asserts via _charPolicies (own vocabulary)
+      "lib/guard-filename.js",    // asserts directly, adjacent line
+      "lib/guard-email.js",       // asserts directly, adjacent line
+      "lib/ai-prompt.js",         // strip-only by design: no reject policy exists
+      "lib/guard-json.js",        // strip applied to already-parsed output
+      "lib/guard-markdown.js",    // refuses critical via sanitizeSeverities + generated assert
+      "lib/guard-xml.js",         // refuses critical via sanitizeSeverities + generated assert
+    ],
+    reason: "A sanitize path that strips character-class threats must first refuse the classes set to \"reject\" — applyCharStripPolicies removes only \"strip\" classes, so on its own it hands a reject-policy threat back unchanged with no error. Compose b.codepointClass.scrubCharThreats, which bounds the input, asserts the reject classes and strips the rest in one call. lib/codepoint-class.js is the primitive's home; the listed guards assert under their own policy vocabulary or through the generated sanitize.",
+  },
+
+  {
     id: "db-handle-hand-rolled-dml",
     primitive: "b.sql",
     scanScope: "lib",

@@ -8,6 +8,12 @@ const nodeCrypto = require("crypto");
 // HermitStash module is required so lib/session wires its store against it.
 var testDbPath = path.join(__dirname, "..", "..", "data", "test-session-revoke-" + nodeCrypto.randomBytes(4).toString("hex") + ".db");
 process.env.HERMITSTASH_DB_PATH = testDbPath;
+// The session store is a SECOND database, and it was left on its shared default
+// name. Two test files opening it at once — which the runner does, since it runs
+// files in parallel — collide with "database is locked", and whichever lost the
+// race failed. It presented as an unrelated flake because it depends on which
+// files happen to be scheduled together.
+process.env.HERMITSTASH_SESSION_DB = "test-session-revoke-" + nodeCrypto.randomBytes(4).toString("hex") + ".db";
 
 var b = require("../../lib/vendor/blamejs");
 var vault = require("../../lib/vault");

@@ -16,7 +16,7 @@
         "browser": "public/js/noble-ciphers.js"
       },
       "bundler": "copied from the vendored framework (no separate build)",
-      "bundledAt": "2026-08-15"
+      "bundledAt": "2026-08-16"
     },
     "@noble/hashes": {
       "version": "2.3.0",
@@ -32,7 +32,7 @@
         "browser": "public/js/noble-hashes.js"
       },
       "bundler": "copied from the vendored framework (no separate build)",
-      "bundledAt": "2026-08-15"
+      "bundledAt": "2026-08-16"
     },
     "@noble/post-quantum": {
       "version": "0.7.0",
@@ -50,11 +50,11 @@
         "browser": "public/js/noble-pq.js"
       },
       "bundler": "copied from the vendored framework (no separate build)",
-      "bundledAt": "2026-08-15"
+      "bundledAt": "2026-08-16"
     },
     "blamejs": {
-      "version": "0.18.27",
-      "tag": "v0.18.27",
+      "version": "0.18.28",
+      "tag": "v0.18.28",
       "license": "Apache-2.0",
       "author": "blamejs contributors",
       "source": "https://github.com/blamejs/blamejs",
@@ -174,11 +174,11 @@
           "file": "lib/vendor/blamejs/lib/vendor/public-suffix-list.dat"
         },
         "@blamejs/pki": {
-          "version": "0.5.3",
+          "version": "0.5.4",
           "license": "Apache-2.0",
           "author": "blamejs",
           "source": "https://github.com/blamejs/pki",
-          "cpe": "cpe:2.3:a:blamejs:pki:0.5.3:*:*:*:*:node.js:*:*",
+          "cpe": "cpe:2.3:a:blamejs:pki:0.5.4:*:*:*:*:node.js:*:*",
           "exports": [
             "x509",
             "crl",
@@ -194,7 +194,7 @@
           "file": "lib/vendor/blamejs/lib/vendor/blamejs-pki.cjs"
         }
       },
-      "integrity": "sha512-IOdBwzQy3cqrAsQ7okLtBJPRC2BYGjk7rXXRBHmemZvj0OhQjVJx74okQrLmFdBeF7Cq2ifMB++nlBdMWh58og=="
+      "integrity": "sha512-xAvR751Ue8qf9wOA/CmYiB9KejcY+IJYf/kk8+EJb2TvlygN21CRoTPYSE1a25AYUGGLDTlCoXAeeza/vA7dvg=="
     }
   }
 }

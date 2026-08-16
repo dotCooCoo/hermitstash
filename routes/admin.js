@@ -33,6 +33,7 @@ var nodePath = require("node:path");
 var nodeCrypto = require("node:crypto");
 var { certFingerprintSha3 } = require("../lib/cert-utils");
 var audit = require("../lib/audit");
+var runtimeState = require("../lib/runtime-state");
 var C = require("../lib/constants");
 var { PATHS } = C;
 var logger = require("../app/shared/logger");
@@ -506,12 +507,44 @@ module.exports = function (app) {
       var caExists = mtlsCa.exists();
 
       var tlsKeyMode = (process.env.TLS_KEY_SEALED || "auto").toLowerCase();
-      var tlsSealedExists = nodeFs.existsSync(C.PATHS.TLS_KEY_SEALED);
-      var tlsPlainExists = nodeFs.existsSync(process.env.TLS_KEY ||
-        nodePath.join(C.PATHS.TLS_DIR, "privkey.pem"));
+      // Resolved exactly as server-main.js does: TLS_KEY, then its ".sealed"
+      // sibling derived from that same path. Reading the fixed default for the
+      // sealed one meant an operator who moved TLS_KEY outside data/tls and
+      // sealed it had a running TLS listener reported as disabled.
+      var tlsKeyPath = process.env.TLS_KEY || nodePath.join(C.PATHS.TLS_DIR, "privkey.pem");
+      var tlsPlainExists = nodeFs.existsSync(tlsKeyPath);
+      var tlsSealedExists = nodeFs.existsSync(tlsKeyPath + ".sealed");
+
+      // Whether TLS is serving comes from the process that decided it, not from
+      // a second reading of the same files. This panel used to look at the key
+      // and not the certificate, so a key mounted ahead of its chain showed a
+      // green "TLS: enabled" row on a server that had logged "starting in HTTP
+      // mode" — the worst thing this panel can get wrong, since an operator
+      // reads it to decide whether the deployment is safe to expose. Deriving it
+      // again from more predicates only moves the drift: the listener also
+      // depends on the key loading under the configured sealed-key mode, and
+      // reimplementing that here is how the copy diverges next time.
+      //
+      // The file checks below survive only to explain a "no" — which half is
+      // missing — never to decide one.
+      var tlsCertExists = nodeFs.existsSync(process.env.TLS_CERT ||
+        nodePath.join(C.PATHS.TLS_DIR, "fullchain.pem"));
+      var tlsKeyExists = tlsPlainExists || tlsSealedExists;
+      var tlsReported = runtimeState.get("tlsEnabled");
+      // Null means nothing recorded it — report the honest fallback rather than
+      // treating "not known" as "off", which is the same lie inverted.
+      var tlsServing = tlsReported === null ? (tlsCertExists && tlsKeyExists) : tlsReported;
 
       var enforceMtlsStrict = process.env.ENFORCE_MTLS_STRICT;
-      var mtlsHardEnforced = enforceMtlsStrict === "true" && caExists;
+      // Hard enforcement is `rejectUnauthorized` on the TLS listener, so it can
+      // only be in force when there is a listener. Without one the process
+      // requires no client certificate anywhere — ENFORCE_MTLS_STRICT=true does
+      // not turn the soft app-layer check on — and reporting it as active tells
+      // an operator a gate is closed while it is wide open.
+      var hardReported = runtimeState.get("hardMtls");
+      var mtlsHardEnforced = hardReported === null
+        ? (enforceMtlsStrict === "true" && caExists && tlsServing)
+        : hardReported;
       var mtlsSoftEnforced = enforceMtlsStrict !== "false" && config.enforceMtls;
 
       // Build the structured response. Each item: a stable key, label,
@@ -574,16 +607,34 @@ module.exports = function (app) {
           description: "Hard mode rejects non-mTLS at the TLS handshake; soft mode rejects in middleware. Hard is stricter and faster.",
           guidance: enforceMtlsStrict === "false"
             ? "ENFORCE_MTLS_STRICT=false is the escape hatch for locked-out operators. Remove once recovered."
-            : (mtlsHardEnforced ? "Set via ENFORCE_MTLS_STRICT=true (env)." : "Set ENFORCE_MTLS_STRICT=true for hard enforcement at the TLS layer."),
+            : (mtlsHardEnforced ? "Set via ENFORCE_MTLS_STRICT=true (env)."
+              // Asked for hard enforcement and cannot have it. Repeating "set
+              // ENFORCE_MTLS_STRICT=true" would be advice already followed, and
+              // would leave the operator believing client certificates are
+              // required. What is true depends on whether the app-layer check is
+              // picking up the slack, so the two cases say different things —
+              // claiming nothing is enforced while the middleware is enforcing
+              // would be the same kind of wrong this row is being fixed for.
+              : (enforceMtlsStrict === "true" && caExists && !tlsServing
+                ? (mtlsSoftEnforced
+                  ? "ENFORCE_MTLS_STRICT=true is set, but hard enforcement is a TLS-listener setting and this server is running without TLS, so it is not in force. Client certificates are still required by the app-layer check (ENFORCE_MTLS). Fix the TLS row above to get handshake-level enforcement."
+                  : "ENFORCE_MTLS_STRICT=true is set, but hard enforcement is a TLS-listener setting and this server is running without TLS — no client certificate is required on any connection. Fix the TLS row above, or set ENFORCE_MTLS=true for app-layer enforcement in the meantime.")
+                : "Set ENFORCE_MTLS_STRICT=true for hard enforcement at the TLS layer.")),
           actions: [], // env-only; no UI action available
         },
         {
           key: "tls",
           label: "TLS / HTTPS",
-          status: tlsPlainExists || tlsSealedExists ? "ok" : "warn",
-          value: tlsPlainExists || tlsSealedExists ? "enabled" : "disabled (HTTP only)",
+          status: tlsServing ? "ok" : "warn",
+          value: tlsServing ? "enabled"
+            : (tlsKeyExists && !tlsCertExists ? "disabled (HTTP only) — key present, certificate missing"
+              : (tlsCertExists && !tlsKeyExists ? "disabled (HTTP only) — certificate present, key missing"
+                : "disabled (HTTP only)")),
           description: "PQC TLS 1.3 with a post-quantum hybrid key exchange (SecP384r1MLKEM1024 preferred, then X25519MLKEM768, then SecP256r1MLKEM768) when both client + server support it.",
-          guidance: tlsPlainExists || tlsSealedExists ? null : "Mount cert + key into data/tls/ or set TLS_CERT and TLS_KEY env vars.",
+          guidance: tlsServing ? null
+            : (tlsKeyExists && !tlsCertExists
+              ? "The key is in place but the certificate is not, so the server started in HTTP mode. Mount the chain at data/tls/fullchain.pem or set TLS_CERT, then restart."
+              : "Mount cert + key into data/tls/ or set TLS_CERT and TLS_KEY env vars."),
           actions: [], // config-only; no UI action available
         },
       ];

@@ -452,6 +452,8 @@ var PATTERNS_NA = {
   "archive-gz-without-safedecompress": "HS never decompresses untrusted input",
   "archive-wrap-partial-recipient": "blamejs multi-recipient archive; N/A to HS",
   "backup-adapter-storage-without-posture-check": "blamejs backup-adapter internals; HS backup is its own",
+  "outbound-tls-posture": "HS opens no outbound TLS connection itself — no tls.connect, https.Agent, https.request or http2.connect anywhere outside the vendored tree. S3, SMTP, webhooks and OAuth all dial through blamejs primitives, which merge the posture inside their own calls. Re-check if HS ever constructs one directly",
+  "secure-context-cert-compression": "HS builds no SecureContext — it has no createSecureContext call outside the vendored tree. lib/tls-context.js hands options to the server's own setSecureContext, which the detector does not target and which already names certificateCompression",
   "primitive-unreachable": "blamejs-internal primitive-wiring test",
   "gitleaks-entropy": "HS covers via its gitleaks-entropy-unallowed detector",
   "slsa-framework-action-not-sha-pinned": "HS covers via this runner's actions-currency gate",

@@ -2,6 +2,13 @@ const { describe, it, before } = require("node:test");
 const assert = require("node:assert");
 var http = require("http");
 
+// The session store is its own database, and its default name is shared. The
+// runner runs test files in parallel, so two files that both open it collide
+// with "database is locked" — set before lib/session is required, which is when
+// the path is resolved.
+process.env.HERMITSTASH_SESSION_DB = "test-session-cookie-"
+  + require("crypto").randomBytes(4).toString("hex") + ".db";
+
 var { Router } = require("../../lib/vendor/blamejs").router;
 var { sessionMiddleware } = require("../../lib/session");
 var vault = require("../../lib/vault");

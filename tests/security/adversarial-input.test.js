@@ -466,17 +466,29 @@ describe("database manipulation", function () {
   it("19. query with undefined field value throws without crashing process", async function () {
     var { files } = require(path.join(testServer.projectRoot, "lib", "db"));
 
-    // SQLite rejects undefined as a bind parameter -- verify this throws
-    // a catchable error rather than crashing the process
-    var threw = false;
+    // What this is about is that an unanswerable query does not take the
+    // process down. It used to assert the SQLite bind TypeError, which was
+    // incidental: the undefined reached the driver only because the query fell
+    // through to a comparison against the sealed column, and that same
+    // fall-through is what let `{sealedField: {$ne: x}}` match every row.
+    //
+    // The sealed-column guard now resolves an absent operand to "matches
+    // nothing" before the driver sees it, which is the answer a caller always
+    // got. Either outcome satisfies the point — no crash — so accept both
+    // rather than pinning the incidental one.
+    var threw = null;
+    var result;
     try {
-      files.find({ shareId: undefined });
+      result = files.find({ shareId: undefined });
     } catch (e) {
-      threw = true;
-      assert.ok(e instanceof TypeError, "error must be a TypeError");
-      assert.ok(e.message.includes("bound"), "error message should mention binding");
+      threw = e;
     }
-    assert.strictEqual(threw, true, "querying with undefined should throw a catchable error");
+    if (threw) {
+      assert.match(threw.message, /sealed field 'shareId'|bound/i,
+        "if it raises, the error must say why: " + threw.message);
+    } else {
+      assert.deepEqual(result, [], "if it does not raise, an absent operand must match nothing");
+    }
 
     // Verify the database is still functional after the error
     var allFiles = files.find({});

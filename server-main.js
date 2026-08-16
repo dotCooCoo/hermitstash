@@ -22,6 +22,7 @@ var clientIp = require("./lib/client-ip");
 var logger = require("./app/shared/logger");
 var { sendHtml } = require("./lib/template");
 var certUtils = require("./lib/cert-utils");
+var runtimeState = require("./lib/runtime-state");
 var mtlsCa = require("./lib/mtls-ca");
 
 // WebSocket upgrade — handshake handled by b.websocket.handleUpgrade,
@@ -1053,6 +1054,9 @@ if (fs.existsSync(TLS_CERT) && tlsKeyAvailable()) {
       ca: haveMtlsCa ? caList : undefined,
     };
     tlsEnabled = true;
+    // Publish what actually happened, so the admin security panel reports the
+    // listener rather than re-deriving it from the same files and drifting.
+    runtimeState.set({ tlsEnabled: true, hardMtls: hardMtls });
     // Report the list actually handed to the listener, not the framework's full
     // preference — under enforcement the classical last-resort is dropped, and a
     // banner naming a group the listener will not negotiate is how the previous
@@ -1062,9 +1066,15 @@ if (fs.existsSync(TLS_CERT) && tlsKeyAvailable()) {
       keySealed: fs.existsSync(TLS_KEY_SEALED),
     });
   } catch (e) {
+    // Both files were there and the listener still did not come up — a sealed
+    // key that will not load under the configured mode is the usual reason.
+    // Recorded so the security panel reports HTTP rather than inferring TLS
+    // from the presence of the files that failed to produce it.
+    runtimeState.set({ tlsEnabled: false, hardMtls: false });
     logger.error("[TLS] Failed to load certificates", { error: e.message });
   }
 } else {
+  runtimeState.set({ tlsEnabled: false, hardMtls: false });
   logger.warn("[TLS] No certificate found — starting in HTTP mode (no PQC protection)", { certPath: TLS_CERT });
 }
 

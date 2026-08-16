@@ -47,16 +47,21 @@ describe("uploader-supplied text is screened for hostile codepoints", function (
     });
   });
 
-  it("the policies are named explicitly, because a profile alone is a no-op", function () {
-    // sanitize() with no policies does nothing at all. Passing a profile and
-    // assuming it strips is a silent way to ship no protection, so this pins
-    // that the explicit set is what does the work.
+  it("the policies are named explicitly, because the defaults do something else", function () {
+    // Without policies, sanitize applies its defaults, and those REFUSE — it
+    // throws rather than returning the threat. (Through blamejs 0.18.27 it
+    // returned the input unchanged, which is the bug 0.18.28 fixed.) Either way
+    // it is not what this code wants: these two fields carry names and messages
+    // from anonymous uploaders, and a refusal would turn an unusual name into a
+    // failed upload. Naming "strip" for each class is what produces a cleaned
+    // value, and this pins that the explicit set is doing the work.
     var hostile = "x‮y";
-    assert.equal(b.guardText.sanitize(hostile), hostile,
-      "precondition: sanitize with no policies is a no-op — if this changes, the "
-      + "comment in bundle.service.js about explicit policies needs revisiting");
-    assert.notEqual(b.guardText.sanitize(hostile, TEXT_OPTS), hostile,
-      "the explicit policy set must actually strip");
+    assert.throws(function () { return b.guardText.sanitize(hostile); },
+      /bidi/i,
+      "precondition: the default policies refuse rather than clean — if this changes, "
+      + "the comment in bundle.service.js about explicit policies needs revisiting");
+    assert.equal(b.guardText.sanitize(hostile, TEXT_OPTS), "xy",
+      "the explicit policy set must clean rather than refuse");
   });
 
   it("the service applies it to both anonymous fields", function () {
