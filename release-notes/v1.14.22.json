@@ -1,0 +1,26 @@
+{
+  "version": "1.14.22",
+  "date": "2026-08-16",
+  "headline": "Pick up a signature-forgery fix in the certificate toolkit",
+  "summary": "The vendored certificate toolkit had a flaw that let a signature from a trusted signer be re-presented over content they never signed. Upgrade when convenient; nothing in this server is known to be reachable through it.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "A signature could be re-presented over content its signer never approved",
+          "body": "The certificate toolkit behind mutual-TLS issuance, passkey verification and the TLS certificate paths handled a signed message by exposing the signed byte range, the signature and the certificates as separate parts. That allowed a message genuinely signed by a trusted signer to be rebuilt with the signature's own input as the content, and it would verify — as something the signer never approved. Building a certificate bundle with no password is refused rather than quietly produced under an empty one, and the work factor for unlocking a bundle is now charged on the modern key-derivation path as well as the legacy one. This server reaches none of these through a path an outsider controls, so the upgrade is precautionary rather than urgent; no configuration or client needs changing."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "The vendored framework moves to 0.18.30",
+          "body": "Alongside the toolkit upgrade, nine of its input screens are reimplemented internally — address validation, media types, shell and template metacharacters, and the mail line protocols among them. Each ships with a test comparing the new implementation against the one it replaces across that screen's own body of examples. The behaviour this server depends on is unchanged, which was verified rather than assumed: spreadsheet-formula disarming in exports, direction-override stripping in uploader-supplied names and messages, address validation, and certificate issuance all behave exactly as before."
+        }
+      ]
+    }
+  ]
+}
