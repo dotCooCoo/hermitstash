@@ -1,0 +1,21 @@
+{
+  "version": "1.14.23",
+  "date": "2026-08-16",
+  "headline": "Bound the work an input screen can be made to do",
+  "summary": "The checks applied to uploaded filenames, media types, SVG and archive contents, the name and message attached to an upload, and the audit CSV export no longer run regular expressions. A value that fits inside its size limit can no longer decide how long checking it takes.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Screening an input now costs in proportion to its size",
+          "body": "A size limit caps the bytes a caller may send; a pattern decides how much work those bytes cause. Between the two the sender picks the bytes, so a value well inside its limit could hold a check for far longer than its length suggests. Every screen in the vendored framework's guard and safe primitives is now a single pass over the characters, which is bounded by the length already capped. This server reaches those screens wherever an outsider supplies the value: upload filenames, declared media types, SVG and archive contents, the uploader name and message stored with a bundle, and the CSV form of an audit export. No configuration changes, and nothing needs re-uploading."
+        },
+        {
+          "title": "The ambiguous certificate signature can no longer be produced, not just rejected",
+          "body": "The toolkit behind mutual-TLS issuance, passkey verification and the TLS certificate paths moves to 0.5.7. v1.14.22 picked up the half that refuses to verify a signature re-presented over content its signer never approved; this release adds the half that refuses to mint the ambiguous signature which makes that construction possible in the first place. Signing over a byte argument whose backing store has been handed to another thread is also refused rather than read as empty, which had allowed a signature to be produced over no content at all."
+        }
+      ]
+    }
+  ]
+}

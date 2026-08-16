@@ -234,7 +234,13 @@ case "$PKG" in
     # rmdir: the tar extract below writes the new tree straight into the kept dir.
     # Cross-platform + tolerant of Windows-mangled paths like "C\357\200\272"
     # (U+F03A); a no-op-safe wipe on a clean checkout (empty dir → nothing to do).
-    node -e "var fs=require('fs'),p=require('path');fs.mkdirSync('$DEST',{recursive:true});for(var e of fs.readdirSync('$DEST')){fs.rmSync(p.join('$DEST',e),{recursive:true,force:true,maxRetries:60,retryDelay:300});}"
+    # Leaving the TOP directory alone was not enough: removing a child
+    # directory recursively still ends in an rmdir of that child, so a lock one
+    # level down (lib/) killed the run exactly the same way. scripts/_vendor-wipe.js
+    # falls back to emptying a held directory instead of removing it, and fails
+    # loudly if a FILE survives — extracting over leftover files would mix two
+    # releases, which is worse than stopping.
+    node scripts/_vendor-wipe.js "$DEST"
 
     # Fetch the published tarball, verify its bytes against the integrity value
     # the registry advertises, then unpack it into $DEST.

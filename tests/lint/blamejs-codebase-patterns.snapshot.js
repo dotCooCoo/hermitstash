@@ -3960,16 +3960,18 @@ async function testNoDuplicateCodeBlocks() {
       // db.init's per-table `cryptoField.registerTable` metadata object,
       // eat.verify's option forwarding, and the cookie-jar's getAll loop. The
       // functions are wholly unrelated (OAuth request-object parsing vs schema
-      // registration vs EAT verification vs cookie enumeration); the longest
-      // byte-identical run across any pair is a single `key: value,` line. There
-      // is no shared primitive to extract — the coincidence is the generic
-      // object-literal / key-array shape, not behavior.
+      // registration vs EAT verification vs cookie enumeration vs the ISO 8601
+      // reader's returned field object); the longest byte-identical run across
+      // any pair is a single `key: value,` line. There is no shared primitive
+      // to extract — the coincidence is the generic object-literal / key-array
+      // shape, not behavior.
       mode:  "family-subset",
       files: [
         "lib/auth/jar.js:parse",
         "lib/db.js:init",
         "lib/eat.js:verify",
         "lib/http-client-cookie-jar.js:getAll",
+        "lib/time.js:readDateTime",
       ],
     },
     {
@@ -4183,6 +4185,24 @@ async function testNoDuplicateCodeBlocks() {
         "lib/guard-template.js:<top>",
         "lib/guard-time.js:<top>",
         "lib/guard-uuid.js:<top>",
+      ],
+    },
+    {
+      // Character-walk scanners — shape-only. Each of these steps an index
+      // through a string, reads the character there, and decides; that loop is
+      // what a scanner IS, so the 60-token shingle is the walk's skeleton
+      // rather than shared logic. What each one decides is unrelated:
+      // guard-filename folds the superscript digits Windows resolves to
+      // COM/LPT device numbers, guard-regex parses a `{lo,hi}` repetition
+      // bound, and guard-yaml recognises a leading-zero value YAML 1.1 reads
+      // as octal. There is no primitive that covers all three — the shared
+      // part is already `codepointClass.isRunOf` / `indexOfAny` / `inRanges`,
+      // which each of them calls.
+      mode:  "family-subset",
+      files: [
+        "lib/guard-filename.js:_foldSuperscriptDigits",
+        "lib/guard-regex.js:_scanBraces",
+        "lib/guard-yaml.js:_hasLeadingZeroOctal",
       ],
     },
     {
@@ -5623,6 +5643,7 @@ async function testNoDuplicateCodeBlocks() {
         "lib/guard-json.js:_scanJsonShapes",
         "lib/guard-json.js:_scanRawSource",
         "lib/guard-json.js:gate",
+        "lib/guard-yaml.js:_hasMergeKeyAlias",
         "lib/guard-markdown.js:_allMatches",
         "lib/guard-markdown.js:_detectIssues",
         "lib/guard-markdown.js:_gateDispositionFor",
@@ -5636,6 +5657,7 @@ async function testNoDuplicateCodeBlocks() {
         "lib/guard-xml.js:_detectIssues",
         "lib/guard-xml.js:_gateDispositionFor",
         "lib/guard-xml.js:_sanitizeTransform",
+        "lib/guard-xml.js:_scanXmlShapes",
         "lib/guard-xml.js:gate",
         "lib/guard-yaml.js:<top>",
         "lib/guard-yaml.js:_detectIssues",
@@ -5930,11 +5952,15 @@ async function testNoDuplicateCodeBlocks() {
       files: [
         "lib/guard-auth.js:gate",
         "lib/guard-graphql.js:gate",
+        "lib/guard-graphql.js:_measureQueryShape",
         "lib/guard-html.js:gate",
         "lib/guard-image.js:gate",
+        "lib/guard-image.js:_detectMagicMimes",
         "lib/guard-json.js:gate",
         "lib/guard-oauth.js:gate",
+        "lib/guard-oauth.js:_isScopeToken",
         "lib/guard-pdf.js:gate",
+        "lib/guard-pdf.js:_hasPdfMagic",
         "lib/guard-regex.js:gate",
         "lib/guard-xml.js:gate",
         "lib/guard-csv.js:_gateDispositionFor",
@@ -17105,9 +17131,121 @@ function testNoInternalNarrativeComments() {
     bad);
 }
 
+// The guard-* / safe-* family screens hostile input, and a pattern is the
+// wrong tool for that job in three separate ways this campaign hit:
+//
+//   - It is a second, silent performance contract. `stripTrailingHspace`
+//     hung for 85 seconds on a value that was under its byte cap, because
+//     `/[ \t]+$/` retries from every offset. A screen whose cost the operator
+//     cannot read off the cap is not a cap.
+//   - It reads a language the author did not write. `\s` is 25 codepoints,
+//     not five; `\b` is the `\w` set, so a hyphen ends a word; `.` never
+//     matches a line separator. Every one of those cost a real bypass here.
+//   - It cannot say what it means. A tag screen that ends the tag at the
+//     first `>` reports a page with a text alternative as one without,
+//     because the pattern has no way to know the `>` was inside a quote.
+//
+// So the family carries no patterns. The walk primitives in
+// lib/codepoint-class.js, lib/markup-tokenizer.js and lib/safe-buffer.js
+// cover the shapes; b.regexLinear covers a pattern that has to be RUN.
+//
+// This finds a regex LITERAL by tokenizing: a `/` opens one only where an
+// operand may start, so division and comments and strings are not mistaken
+// for one. There is no allowlist — a genuine need for a pattern in this
+// family is a signal that a walk primitive is missing, not that this gate
+// should grow an entry.
+function testNoRegexInGuardAndSafeFamily() {
+  // class: regex-in-guard-or-safe-primitive
+  var OPERAND_MAY_FOLLOW = "=(,:[!&|?{};+-*%<>~^";
+
+  function regexLiteralLines(src) {
+    var hits = [];
+    var prev = "";
+    var line = 1;
+    for (var i = 0; i < src.length; i += 1) {
+      var c = src.charAt(i);
+      if (c === "\n") { line += 1; continue; }
+      if (c === "/" && src.charAt(i + 1) === "/") {
+        while (i < src.length && src.charAt(i) !== "\n") i += 1;
+        line += 1;
+        continue;
+      }
+      if (c === "/" && src.charAt(i + 1) === "*") {
+        var close = src.indexOf("*/", i + 2);
+        if (close === -1) break;
+        for (var q = i; q < close; q += 1) if (src.charAt(q) === "\n") line += 1;
+        i = close + 1;
+        continue;
+      }
+      if (c === "\"" || c === "'" || c === "`") {
+        var quote = c;
+        i += 1;
+        while (i < src.length && src.charAt(i) !== quote) {
+          if (src.charAt(i) === "\\") i += 1;
+          if (src.charAt(i) === "\n") line += 1;
+          i += 1;
+        }
+        prev = quote === "`" ? "`" : "\"";
+        continue;
+      }
+      if (c === "/" && (prev === "" || OPERAND_MAY_FOLLOW.indexOf(prev) !== -1)) {
+        var j = i + 1;
+        var inClass = false;
+        var closed = false;
+        for (; j < src.length; j += 1) {
+          var d = src.charAt(j);
+          if (d === "\\") { j += 1; continue; }
+          if (d === "\n") break;
+          if (d === "[") inClass = true;
+          else if (d === "]") inClass = false;
+          else if (d === "/" && !inClass) { closed = true; break; }
+        }
+        if (closed) {
+          hits.push({ line: line, text: src.slice(i, j + 1) });
+          i = j;
+          prev = "/";
+          continue;
+        }
+      }
+      if (c !== " " && c !== "\t" && c !== "\r") prev = c;
+    }
+    return hits;
+  }
+
+  // guard-regex is the one member exempt from the SPIRIT as well as the
+  // letter: it exists to screen operator-supplied patterns, so a pattern is
+  // its subject matter. It carries none as literals either, and this gate
+  // covers it — the note is here so a future reader knows the exemption was
+  // considered and not needed.
+  var files = _libFiles().filter(function (full) {
+    return /^lib\/(safe-|guard-)[^/]+\.js$/.test(_relPath(full));
+  });
+
+  var bad = [];
+  for (var fi = 0; fi < files.length; fi += 1) {
+    var rel = _relPath(files[fi]);
+    var hits = regexLiteralLines(fs.readFileSync(files[fi], "utf8"));
+    for (var h = 0; h < hits.length; h += 1) {
+      bad.push({
+        file:    rel,
+        line:    hits[h].line,
+        content: "regular expression `" + hits[h].text.slice(0, 60) + "` in a " +
+                 "content-safety primitive — screen the characters instead " +
+                 "(codepointClass.isRunOf / indexOfAny / firstInRanges, " +
+                 "markupTokenizer for markup, safeBuffer for byte shapes), or " +
+                 "run it on b.regexLinear when a pattern is genuinely the input",
+      });
+    }
+  }
+  bad = _filterMarkers(bad, "regex-in-guard-or-safe-primitive");
+  _report("guard-* / safe-* primitives screen input by walking characters, " +
+          "never with a regular expression", bad);
+}
+
 async function run() {
   testPrimitiveReachability();
   testDenyPathComposesDenyResponse();
+  testNoRegexInGuardAndSafeFamily();
   testNoInternalNarrativeComments();
   testNoOrphanAllowClass();
   testNoRetiredAllowTokenReRegistered();
