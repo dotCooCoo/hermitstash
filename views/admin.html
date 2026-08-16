@@ -376,7 +376,7 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                 Regenerate mTLS CA <span id="caGenBadge" class="danger-badge" style="display:none"></span>
               </div>
-              <p class="danger-card-desc" id="caRegenDesc">Regenerates the mTLS Certificate Authority with the current algorithm envelope. Active sync clients receive new certificates over WebSocket before the server restarts. Offline sync clients will need to re-enroll. All browser certificates will be invalidated — admins must re-download their .p12 after the restart.</p>
+              <p class="danger-card-desc" id="caRegenDesc">Regenerates the mTLS Certificate Authority with the current algorithm envelope. Active sync clients receive new certificates over WebSocket before the server restarts. Offline sync clients will need to re-enroll. Browser certificates are issued by a separate CA and keep working — no .p12 re-download is needed.</p>
             </div>
             <div class="danger-card-confirm">
               <input type="text" id="regenCaConfirm" class="text-input danger-confirm-input" placeholder="Type REGEN to confirm">
@@ -2869,7 +2869,7 @@ function loadCaStatus(){
       strong.style.color='#ef4444';
       strong.textContent='Your CA uses legacy algorithms (generation '+s.generation+'). ';
       desc.appendChild(strong);
-      desc.appendChild(document.createTextNode('Current generation is '+s.current+' \u2014 regenerate to pick up upgraded cryptographic primitives. Active sync clients receive new certificates over WebSocket before the server restarts. Offline sync clients will need to re-enroll. All browser certificates will be invalidated \u2014 admins must re-download their .p12 after the restart.'));
+      desc.appendChild(document.createTextNode('Current generation is '+s.current+' \u2014 regenerate to pick up upgraded cryptographic primitives. Active sync clients receive new certificates over WebSocket before the server restarts. Offline sync clients will need to re-enroll. Browser certificates are issued by a separate CA and keep working \u2014 no .p12 re-download is needed.'));
     }else{
       badge.textContent='Current v'+s.generation;
       badge.style.background='rgba(45,138,62,.1)';
@@ -2881,7 +2881,7 @@ function loadCaStatus(){
 function regenerateCa(){
   var confirm=document.getElementById('regenCaConfirm').value;
   if(confirm!=='REGEN')return alert('Type REGEN to confirm.');
-  if(!window.confirm('Regenerate the mTLS CA and restart the server?\n\nActive sync clients will receive new certificates automatically.\nOffline sync clients must re-enroll.\nBrowser certificates must be re-downloaded after restart.'))return;
+  if(!window.confirm('Regenerate the mTLS CA and restart the server?\n\nActive sync clients will receive new certificates automatically.\nOffline sync clients must re-enroll.\nBrowser certificates are unaffected — they are issued by a separate CA.'))return;
   var btn=document.getElementById('regenCaBtn');
   btn.disabled=true;dangerBtnText(btn,'Regenerating...');
   fetch('/admin/api/mtls-ca/regenerate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:'REGEN'})}).then(function(r){return r.json()}).then(function(d){
@@ -2891,7 +2891,7 @@ function regenerateCa(){
       msg+='Sync clients:\n';
       msg+='  \u2022 '+s.syncClientsAcked+' of '+s.syncClientsConnected+' active clients acked rotation\n';
       msg+='  \u2022 '+s.syncClientsOffline+' offline clients must re-enroll\n';
-      msg+='Browser certs invalidated: '+s.browserCertsRevoked+'\n\n';
+      msg+='Browser certs unaffected: '+(s.browserCertsUnaffected||0)+' (issued by a separate CA)\n\n';
       msg+='Server restarting in '+Math.round(s.restartInMs/1000)+'s. This page will lose connection.';
       alert(msg);
     }else{

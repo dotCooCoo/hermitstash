@@ -496,6 +496,139 @@ function testNoUnresolvedMarkers() {
     matches);
 }
 
+// Release tooling lives in scripts/, which no other detector scans: it never
+// ships, so the shapes the rest of this gate guards do not apply to it. This one
+// does, because the thing a fail-open here lets through is a release.
+var SCRIPTS_ROOT = path.resolve(__dirname, "..", "..", "scripts");
+function _scriptFiles() {
+  try { return _walk(SCRIPTS_ROOT); }
+  catch (_e) { return []; }
+}
+
+function testReleaseCaptureStatusChecked() {
+  // class: release-script-capture-status-unchecked
+  //
+  // capture() and its wrappers answer "" when a command ran and printed
+  // nothing, and null when it did not run at all. Used directly in a boolean
+  // position those collapse, and the collapsed reading is always the permissive
+  // one: an unreadable `git status` became a clean tree, an unreadable
+  // `ls-remote` became a tag the remote does not have.
+  //
+  // Only the DIRECT form is refused, which is the form with nowhere for a null
+  // check to live. Assigning the result first is fine — the decision then has
+  // somewhere to happen, and tests/unit/release-lookup-status.test.js pins that
+  // decision for the gates where it matters.
+  // What counts, decided before the scan rather than after seeing what matched:
+  //
+  //   violation   !capture(...)            negation of a tri-state
+  //   violation   if (gitCap(...))         nothing follows, so it is a bare boolean
+  //   violation   if (gitCap(...) && x)    same, inside a compound
+  //   violation   capture(...) ? a : b     same, as a ternary test
+  //   ALLOWED     if (capture(...) === null)   the comparison IS the decision
+  //   ALLOWED     if (gitCap(...) !== subject) likewise
+  //   ALLOWED     var out = capture(...)       stored; the decision happens later
+  //   ALLOWED     return capture(...)          handed on, not judged here
+  //
+  // So the test is what FOLLOWS the call's own closing paren, which needs the
+  // paren matched rather than guessed — a call argument can contain parens and
+  // the call can wrap across lines.
+  var CALL_RE = /(!{1,2})?\s*\b(capture|gitCap|ghApi)\s*\(/g;
+  var COMPARISON_AHEAD = /^\s*(?:===|!==|==|!=)/;
+
+  // Blank the inside of every string literal, keeping length and newlines, so
+  // parens and operators inside a git argument or a gh query cannot unbalance
+  // the scan. Every index below indexes this masked copy and the original
+  // alike.
+  function maskStrings(src) {
+    var out = src.split("");
+    for (var i = 0; i < src.length; i += 1) {
+      var c = src.charAt(i);
+      if (c !== "\"" && c !== "'" && c !== "`") continue;
+      var quote = c;
+      i += 1;
+      while (i < src.length && src.charAt(i) !== quote) {
+        if (src.charAt(i) === "\\") { out[i] = " "; i += 1; }
+        if (i < src.length && src.charAt(i) !== "\n") out[i] = " ";
+        i += 1;
+      }
+    }
+    return out.join("");
+  }
+
+  function matchParen(code, open) {
+    var depth = 0;
+    for (var i = open; i < code.length; i += 1) {
+      if (code.charAt(i) === "(") depth += 1;
+      else if (code.charAt(i) === ")") { depth -= 1; if (depth === 0) return i; }
+    }
+    return -1;
+  }
+
+  // The "(" of the group this call sits directly inside, or -1 at top level.
+  // Distinguishes `if (a && gitCap(...))` — where the parent group is the
+  // condition, so the call IS a boolean operand — from `JSON.parse(capture(...))`,
+  // where the parent is a call and the result is an argument.
+  function parentOpen(code, idx) {
+    var depth = 0;
+    for (var i = idx - 1; i >= 0; i -= 1) {
+      var c = code.charAt(i);
+      if (c === ")") depth += 1;
+      else if (c === "(") {
+        if (depth === 0) return i;
+        depth -= 1;
+      }
+    }
+    return -1;
+  }
+
+  var files = _scriptFiles();
+  var bad = [];
+  var repoRoot = path.resolve(__dirname, "..", "..");
+  for (var fi = 0; fi < files.length; fi++) {
+    var content;
+    try { content = fs.readFileSync(files[fi], "utf8"); }
+    catch (_e) { continue; }
+
+    var code = maskStrings(content);
+    var lines = content.split("\n");
+    CALL_RE.lastIndex = 0;
+    var m;
+    while ((m = CALL_RE.exec(code)) !== null) {
+      var openIdx = code.indexOf("(", m.index + (m[1] ? m[1].length : 0));
+      var lineNo = code.slice(0, m.index).split("\n").length;
+      var lineText = lines[lineNo - 1] || "";
+
+      if (/^\s*(\/\/|\*|\/\*)/.test(lineText)) continue;
+      // The helper definitions name themselves; only call SITES are in scope.
+      if (/^\s*function\s+(capture|gitCap|ghApi)\s*\(/.test(lineText)) continue;
+
+      var close = matchParen(code, openIdx);
+      if (close === -1) continue;
+      var after = code.slice(close + 1, close + 8);
+
+      // A trailing ")" is ambiguous alone: it ends an `if (...)` and it also ends
+      // `JSON.parse(capture(...))`. Resolve it by asking which group the call is
+      // directly inside — an if/while condition, or an argument list.
+      var pOpen = parentOpen(code, m.index);
+      var parentIsCondition = pOpen !== -1 &&
+        /\b(?:if|while)\s*$/.test(code.slice(Math.max(0, pOpen - 10), pOpen));
+
+      var compared = COMPARISON_AHEAD.test(after);
+      var negated = !!m[1];
+      var bareBoolean = !compared &&
+        (/^\s*(?:&&|\|\||\?)/.test(after) || (parentIsCondition && /^\s*\)/.test(after)));
+
+      if (negated || bareBoolean) {
+        bad.push({ file: path.relative(repoRoot, files[fi]).replace(/\\/g, "/"),
+          line: lineNo, content: lineText.trim() });
+      }
+    }
+  }
+  bad = _filterMarkers(bad, "release-script-capture-status-unchecked");
+  _report("release lookups are not consumed directly in a boolean position "
+    + "(store the result and compare against null)", bad);
+}
+
 // ---- Pattern: literal NUL bytes (0x00) in source files ----
 //
 // The Edit / Write tooling decodes JSON `\u0000` escape sequences into
@@ -5133,6 +5266,7 @@ async function run() {
   testHttp2TeardownPaired();
   testNoStrayConsoleCalls();
   testNoUnresolvedMarkers();
+  testReleaseCaptureStatusChecked();
   testNoLiteralNulBytesInSource();
   testNoReleaseNamedTestFiles();
   testParserPrimitivesHaveFuzzHarness();

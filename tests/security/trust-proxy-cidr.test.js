@@ -154,10 +154,14 @@ describe("operator CIDR lists are validated per entry", function () {
           "parsing " + JSON.stringify(v === undefined ? "undefined" : v).slice(0, 40) + " must not throw");
       });
 
-    var main = fs.readFileSync(path.join(__dirname, "..", "..", "server-main.js"), "utf8");
-    var fence = main.slice(main.indexOf("adminAllowedCidrs) && config.adminAllowedCidrs.length"));
-    assert.match(fence.slice(0, 2600), /clientIp\.parseCidrList\(/, "the fence must go through the parser");
-    assert.match(fence.slice(0, 2600), /throw new Error\("ADMIN_ALLOWED_CIDRS contains a malformed entry/,
-      "and must refuse to boot on one, which is what its comment always claimed");
+    // The contrast, asserted on behaviour rather than on the text of whichever
+    // file currently holds the fence. Same bad entry: the trust list drops it
+    // and keeps the rest, the fence refuses outright.
+    var adminFence = require("../../app/security/admin-fence");
+    assert.deepStrictEqual(clientIp.parseCidrList("10.0.0.0/8,not-a-cidr").valid.length, 1,
+      "the trust list keeps the good entry");
+    assert.throws(function () { adminFence.compile(["10.0.0.0/8", "not-a-cidr"]); },
+      /ADMIN_ALLOWED_CIDRS contains a malformed entry/,
+      "the fence refuses to build on one, which is what its comment always claimed");
   });
 });

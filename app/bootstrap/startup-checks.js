@@ -96,8 +96,27 @@ function run() {
     var regenFlagPath = require("node:path").join(PATHS.DATA_DIR, "ca-regen-flag.json");
     if (nodeFs.existsSync(regenFlagPath)) {
       var flagData = b.safeJson.parseOrDefault(nodeFs.readFileSync(regenFlagPath, "utf8"), {});
-      var s = flagData.summary || {};
-      warnings.push("mTLS CA was regenerated at " + flagData.at + " (v" + s.caGenerationBefore + " → v" + s.caGenerationAfter + "). Acked: " + (s.syncClientsAcked || 0) + "/" + (s.syncClientsConnected || 0) + " live sync clients. " + (s.syncClientsOffline || 0) + " offline clients need re-enrollment. " + (s.browserCertsRevoked || 0) + " browser cert(s) invalidated — admins must re-download.");
+      // parseOrDefault answers {} for anything it cannot parse, so a truncated
+      // or corrupt flag would otherwise render every field as "undefined" — a
+      // notice that asserts a regeneration and tells admins to re-download
+      // certificates while carrying nothing to act on, and reads exactly like a
+      // real one. The writer always stamps `at`, so its absence means the record
+      // did not survive.
+      var s = (flagData && flagData.summary) || {};
+      // Both generations are required, not just the timestamp: a record that
+      // parses but lost its summary renders "v undefined → v undefined", which
+      // is the same unreadable notice as a corrupt file.
+      if (flagData && flagData.at && s.caGenerationBefore != null && s.caGenerationAfter != null) {
+        // Browser certificates are issued by a separate CA and keep working
+        // across a sync-CA regeneration. This used to tell admins to re-download
+        // them, which was true before the two CAs were split apart and is now
+        // an afternoon of unnecessary work.
+        warnings.push("mTLS CA was regenerated at " + flagData.at + " (v" + s.caGenerationBefore + " → v" + s.caGenerationAfter + "). Acked: " + (s.syncClientsAcked || 0) + "/" + (s.syncClientsConnected || 0) + " live sync clients. " + (s.syncClientsOffline || 0) + " offline clients need re-enrollment. Browser certificates are unaffected — they are issued by a separate CA.");
+      } else {
+        // The file existing is still evidence something wrote it, so staying
+        // silent would drop a real signal. Report what can be stated.
+        warnings.push("A CA-regeneration notice was found at " + regenFlagPath + " but could not be read, and has been discarded. If the mTLS CA was regenerated, offline sync clients must re-enroll — check Admin → mTLS for the current CA generation. Browser certificates are unaffected either way; they are issued by a separate CA.");
+      }
       try { nodeFs.unlinkSync(regenFlagPath); } catch (_e) { /* flag file may have been removed by a concurrent boot */ }
     }
   } catch (_e) { /* flag corrupted or unreadable — non-fatal */ }

@@ -154,7 +154,26 @@ function act(file, args, opts) {
 
 function gitCap(dir, args) { return capture("git", ["-C", dir].concat(args)); }
 function gitAct(dir, args, opts) { return act("git", ["-C", dir].concat(args), opts); }
-function gitClean(dir) { return !gitCap(dir, ["status", "--porcelain"]); }
+// A lookup that did not run is not an answer.
+//
+// capture() already tells the two apart — "" when the command ran and printed
+// nothing, null when it did not run at all — but a truthiness test collapses
+// them, and the collapsed reading is the dangerous one in both gates below. An
+// unreadable `git status` read as a clean tree, and an unreadable `ls-remote`
+// read as a tag the remote does not have. Neither is a safe default: the first
+// is checked immediately after the public tree is wiped and re-exported, where
+// "clean" means "nothing to commit" and the release would then tag a public
+// repo it never updated; the second is the guard that stops an already-published
+// tag being moved, and tags are immutable once pushed.
+//
+// Both return null for "could not tell", and every caller has to decide what to
+// do about that rather than inherit a default. A file-syncing agent holding a
+// handle in the public repo, or a dropped connection during ls-remote, is
+// exactly when these fail.
+function gitClean(dir) {
+  var out = gitCap(dir, ["status", "--porcelain"]);
+  return out === null ? null : out === "";
+}
 function gitBranch(dir) { return gitCap(dir, ["rev-parse", "--abbrev-ref", "HEAD"]); }
 
 function ghAvailable() {
@@ -511,18 +530,28 @@ function extractDetectorIds(file, regexes) {
 
 // Advisory: surface blamejs codebase-patterns detector classes that HS's own gate
 // hasn't adopted (candidate new checks / features). Never fails the cut — adopting
-// a check is a judgement call, not a release blocker. blamejs registers detectors
-// in a `"class-id": 1,` table; HS registers them via _filterMarkers(..,"id") +
-// `// class: id` comments.
+// a check is a judgement call, not a release blocker.
+//
+// Both gates are read with the same three patterns. blamejs was assumed to
+// register detectors only in a `"class-id": 1,` table, and reading just that
+// table missed any detector registered the other way: 0.18.32 added
+// release-script-capture-status-unchecked with a `// class:` comment and a
+// _filterMarkers call and no table entry, so the advisory reported the same
+// detector count before and after vendoring it — which is the one thing this
+// advisory exists to notice.
 function patternsGate() {
   console.log(bold("\n== patterns-currency (advisory) =="));
-  var bjIds = extractDetectorIds(BJ_PATTERNS_GATE, [/^\s*"([a-z][a-z0-9-]+)":\s*(?:1|true),?\s*$/gm]);
-  var hsIds = extractDetectorIds(HS_PATTERNS_GATE, [
+  var DETECTOR_ID_PATTERNS = [
+    // blamejs's registry table.
+    /^\s*"([a-z][a-z0-9-]+)":\s*(?:1|true),?\s*$/gm,
+    // Either gate: the marker filter and the class comment above a detector.
     /_filterMarkers\([^,]+,\s*"([a-zA-Z][a-zA-Z0-9-]+)"/g,
     /\/\/\s*class:\s*([a-zA-Z][a-zA-Z0-9-]+)/g,
     // KNOWN_ANTIPATTERNS registry entries register their class via `id: "..."`.
     /^\s*id:\s*"([a-zA-Z][a-zA-Z0-9-]+)"/gm,
-  ]);
+  ];
+  var bjIds = extractDetectorIds(BJ_PATTERNS_GATE, DETECTOR_ID_PATTERNS);
+  var hsIds = extractDetectorIds(HS_PATTERNS_GATE, DETECTOR_ID_PATTERNS);
   if (!bjIds || !hsIds) {
     console.log(yellow("  ⚠ could not locate a codebase-patterns gate — skipping (blamejs gate moved?)"));
     return 0;
@@ -532,15 +561,78 @@ function patternsGate() {
   var drift = bjIds.filter(function (x) { return !hsSet[x] && !PATTERNS_NA[x]; }).sort();
   var naCount = bjIds.filter(function (x) { return !hsSet[x] && PATTERNS_NA[x]; }).length;
   console.log(dim("  blamejs gate " + bjIds.length + " detectors · HS gate " + hsIds.length + " · " + naCount + " known-N/A excluded"));
+
+  // The absolute drift is large and mostly blamejs-internal surface HS has no
+  // equivalent of, so a full list every run is noise nobody reads. What is
+  // actionable is what this vendor bump ADDED — held against the snapshot the
+  // previous vendor committed, which git still has.
+  // "Previous" is the snapshot as it stood before the CURRENT vendored one,
+  // which is not always HEAD: the vendor bump lands as its own commit before the
+  // release, and from then on HEAD holds the new snapshot and comparing to it
+  // reports nothing added forever. So find the revisions that changed this file
+  // and pick the one before whichever holds the version on disk.
+  var SNAP_REL = "tests/lint/blamejs-codebase-patterns.snapshot.js";
+  var added = null;
+  var revList = capture("git", ["-C", REPO, "log", "--format=%H", "-n", "2", "--", SNAP_REL]);
+  var revs = revList === null ? null : revList.split("\n").filter(Boolean);
+  var prevSrc = null;
+  if (revs && revs.length) {
+    // Ask git whether the snapshot is modified rather than comparing its bytes
+    // to the file. A byte comparison has to get both the trailing newline and
+    // the line endings right — this file is not pinned to LF, so a checkout on a
+    // machine with core.autocrlf=true gives CRLF on disk against LF from `git
+    // show`, and every run would read as an uncommitted bump and compare the
+    // snapshot against itself. git already normalises for this comparison.
+    var snapState = capture("git", ["-C", REPO, "status", "--porcelain", "--", SNAP_REL]);
+    if (snapState === null) {
+      // prevSrc stays null so the branch below reports that it could not tell.
+      // Falling through to the "no previous snapshot" default would announce
+      // every detector in the framework as newly added, one line after saying
+      // the comparison was skipped.
+      prevSrc = null;
+    } else {
+      // Uncommitted bump → the newest commit is still the old snapshot.
+      // Committed bump → step back one revision that touched the file.
+      var uncommitted = snapState !== "";
+      var baseRev = uncommitted ? revs[0] : (revs.length > 1 ? revs[1] : null);
+      if (baseRev) prevSrc = capture("git", ["-C", REPO, "show", baseRev + ":" + SNAP_REL], { maxBuffer: 1 << 28 });
+      else prevSrc = ""; // only ever one revision — everything in it is "added"
+    }
+  }
+  if (prevSrc === null) {
+    // Distinguish "there is no previous snapshot" from "the lookup failed" —
+    // reporting "nothing new" because git could not answer is how a new
+    // detector goes unnoticed, which is the thing this advisory is for.
+    console.log(yellow("  ⚠ could not read the previously vendored snapshot from git —"));
+    console.log(yellow("    cannot say which detectors this bump added; compare by hand if the vendor moved"));
+  } else {
+    var prevSet = {};
+    DETECTOR_ID_PATTERNS.forEach(function (re) {
+      re.lastIndex = 0;
+      var m;
+      while ((m = re.exec(prevSrc)) !== null) prevSet[m[1].toLowerCase()] = true;
+    });
+    added = bjIds.filter(function (x) { return !prevSet[x]; }).sort();
+    if (added.length === 0) {
+      console.log(dim("  no detector classes added since the previously vendored snapshot"));
+    } else {
+      console.log(yellow("  ⚠ this bump ADDS " + added.length + " detector class(es):"));
+      added.forEach(function (d) {
+        var mark = hsSet[d] ? green(" (HS already covers)") : PATTERNS_NA[d] ? dim(" (known N/A)") : "";
+        console.log("      " + cyan(d) + mark);
+      });
+    }
+  }
+
   if (drift.length === 0) {
     console.log(green("  OK — HS's gate covers every applicable blamejs detector"));
     return 0;
   }
-  console.log(yellow("  ⚠ blamejs has " + drift.length + " detector class(es) not in HS's gate — review for adoption:"));
-  drift.forEach(function (d) { console.log("      " + cyan(d)); });
-  console.log(dim("  Some may be renames of an existing HS detector. Assess each + port the worthwhile ones"));
-  console.log(dim("  into tests/lint/codebase-patterns.test.js (add confirmed-N/A ids to PATTERNS_NA here)."));
-  console.log(dim("  ADVISORY — does not block the cut."));
+  console.log(dim("  " + drift.length + " blamejs detector class(es) are not in HS's gate overall"));
+  console.log(dim("  (`node scripts/release.js patterns --all` lists them; most target blamejs-internal surface.)"));
+  console.log(dim("  Port the worthwhile ones into tests/lint/codebase-patterns.test.js;"));
+  console.log(dim("  add confirmed-N/A ids to PATTERNS_NA here. ADVISORY — does not block the cut."));
+  if (process.argv.indexOf("--all") !== -1) drift.forEach(function (d) { console.log("      " + cyan(d)); });
   return 0;
 }
 
@@ -760,9 +852,13 @@ function cmdStatus() {
     var name = r[0], dir = r[1];
     if (!fs.existsSync(dir)) { console.log("  " + name + "  " + red("missing (" + dir + ")")); return; }
     var br = gitBranch(dir), clean = gitClean(dir);
+    // A repo with no tags and a describe that could not run both mean "no tag to
+    // show" on a status line, and nothing gates on this value.
+    // allow:release-script-capture-status-unchecked
     var tag = gitCap(dir, ["describe", "--tags", "--abbrev=0"]) || "—";
     console.log("  " + name + "  branch=" + cyan(br || "?") +
-      "  " + (clean ? green("clean") : yellow("dirty")) + "  latest-tag=" + cyan(tag));
+      "  " + (clean === null ? red("unreadable") : clean ? green("clean") : yellow("dirty")) +
+      "  latest-tag=" + cyan(tag));
   });
   console.log("  sync     " + (fs.existsSync(SYNC_REPO) ? green("present") : red("missing")) + dim("  (" + SYNC_REPO + ")"));
 
@@ -912,6 +1008,11 @@ function cmdCommit() {
   if (gitBranch(REPO) !== "main") { console.log(red("  ✗ private repo not on main")); return 1; }
 
   var clean = gitClean(REPO);
+  if (clean === null) {
+    console.log(red("  ✗ could not read the private working tree (git status failed)"));
+    console.log(dim("  refusing rather than assuming it is clean — re-run once git can read the repo"));
+    return 1;
+  }
   if (clean && headIsReleaseCommit(REPO, subject, v)) {
     console.log(dim("  HEAD already carries the v" + v + " release commit — ensuring push"));
   } else if (clean) {
@@ -985,7 +1086,17 @@ function cmdSync() {
 
   runSyncScript();
 
-  if (gitClean(PUBLIC_REPO)) {
+  var publicClean = gitClean(PUBLIC_REPO);
+  if (publicClean === null) {
+    // The wipe + re-export has already run, so the tree on disk is the new one.
+    // Treating an unreadable status as "nothing to commit" would leave that tree
+    // uncommitted and let `tag` put the release tag on the previous content.
+    console.log(red("  ✗ could not read the public working tree (git status failed)"));
+    console.log(dim("  the sync already ran, so the tree is updated but NOT committed —"));
+    console.log(dim("  close whatever holds the repo and re-run `sync` before tagging"));
+    return 1;
+  }
+  if (publicClean) {
     console.log(dim("  public tree already matches private HEAD — nothing to commit"));
   } else {
     var msgFile = writeCommitMsgFile(subject, rn && rn.summary);
@@ -1003,7 +1114,13 @@ function tagPointsAtHead(dir, tag) {
   var head = gitCap(dir, ["rev-parse", "HEAD"]);
   return !!tagCommit && tagCommit === head;
 }
-function remoteHasTag(dir, tag) { return !!gitCap(dir, ["ls-remote", "--tags", "origin", "refs/tags/" + tag]); }
+// null = could not ask the remote. See the note on gitClean: answering "the
+// remote does not have this tag" because the network dropped is how an
+// immutable published tag gets moved.
+function remoteHasTag(dir, tag) {
+  var out = gitCap(dir, ["ls-remote", "--tags", "origin", "refs/tags/" + tag]);
+  return out === null ? null : out !== "";
+}
 
 function createSignedTag(name, dir, tag, msg) {
   gitAct(dir, ["tag", "-s", tag, "-m", msg]);
@@ -1023,11 +1140,23 @@ function tagOneRepo(name, dir, tag, msg) {
   if (existsLocal) {
     if (tagPointsAtHead(dir, tag)) {
       console.log(dim("  " + name + ": tag " + tag + " already at HEAD — ensuring push"));
-    } else if (remoteHasTag(dir, tag)) {
-      console.log(red("  ✗ " + name + ": tag " + tag + " is on the remote but does NOT point at HEAD"));
-      console.log(red("     tags are immutable — `bump` a new version rather than moving " + tag));
-      return 1;
     } else {
+      // Asked ONCE and reused for both branches below. Two calls would be two
+      // chances to fail, and a second lookup that failed after a first that
+      // answered would read as falsy and fall through to the recreate branch —
+      // the same collapse this whole change is about.
+      var published = remoteHasTag(dir, tag);
+      if (published === null) {
+        console.log(red("  ✗ " + name + ": could not ask the remote whether " + tag + " is published"));
+        console.log(red("     " + tag + " exists locally and does not point at HEAD, so this is exactly"));
+        console.log(red("     the case that must not proceed on a guess — re-run when the remote answers"));
+        return 1;
+      }
+      if (published) {
+        console.log(red("  ✗ " + name + ": tag " + tag + " is on the remote but does NOT point at HEAD"));
+        console.log(red("     tags are immutable — `bump` a new version rather than moving " + tag));
+        return 1;
+      }
       console.log(yellow("  " + name + ": stale local tag " + tag + " (not at HEAD, not pushed) — recreating at HEAD"));
       gitAct(dir, ["tag", "-d", tag]);
       if (!createSignedTag(name, dir, tag, msg)) return 1;
@@ -1037,9 +1166,17 @@ function tagOneRepo(name, dir, tag, msg) {
   }
   try { gitAct(dir, ["push", "origin", tag]); }
   catch (_e) { console.log(red("  ✗ " + name + ": tag push failed")); return 1; }
-  if (willExecute() && !remoteHasTag(dir, tag)) {
-    console.log(red("  ✗ " + name + ": tag not visible on the remote after push"));
-    return 1;
+  if (willExecute()) {
+    var visible = remoteHasTag(dir, tag);
+    if (visible === null) {
+      console.log(red("  ✗ " + name + ": could not confirm " + tag + " reached the remote"));
+      console.log(dim("     the push itself reported success — check `git ls-remote --tags origin` before continuing"));
+      return 1;
+    }
+    if (!visible) {
+      console.log(red("  ✗ " + name + ": tag not visible on the remote after push"));
+      return 1;
+    }
   }
   return 0;
 }

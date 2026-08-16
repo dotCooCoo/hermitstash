@@ -93,4 +93,60 @@ describe("audit chain PQC checkpoints (F-6)", function () {
     var v2 = await auditArchive.verifyCheckpoints();
     assert.strictEqual(v2.ok, true, "restoring the real tip hash verifies again: " + v2.reason);
   });
+
+  it("a checkpointed row deleted without being archived fails as a truncation", async function () {
+    // Deleting the tail is the other half of a chain rewrite: rather than
+    // changing a row's hash, remove it. The purge anchor is what separates this
+    // from a legitimate archival, so a row that is simply gone — with the anchor
+    // still below it — has to be reported rather than passed over.
+    await writeRows(2, "trunc");
+    var res = await auditArchive.checkpointNow();
+    assert.strictEqual(res.ok, true, "a fresh checkpoint is needed to delete under it");
+
+    db.rawExec("DELETE FROM audit_log WHERE monotonicCounter = ?", res.counter);
+
+    var v = await auditArchive.verifyCheckpoints();
+    assert.strictEqual(v.ok, false, "a deleted checkpointed row must not verify");
+    assert.strictEqual(Number(v.counter), Number(res.counter));
+    assert.ok(/truncat|deleted without being archived/i.test(v.reason || ""),
+      "reason should name the truncation: " + v.reason);
+  });
+
+  it("the same deletion verifies once the purge anchor records the archival", async function () {
+    // Same missing row, legitimate cause. Archival advances the anchor to the
+    // counter it purged, and verification has to accept that — otherwise every
+    // deployment that ever archived would report its own audit chain as
+    // tampered with.
+    var v0 = await auditArchive.verifyCheckpoints();
+    assert.strictEqual(v0.ok, false, "still the truncation from the previous case");
+
+    auditArchive.upsertPurgeAnchorNeverLower(v0.counter, "a".repeat(128), "test-bundle");
+
+    var v1 = await auditArchive.verifyCheckpoints();
+    assert.strictEqual(v1.ok, true,
+      "a row removed by a recorded archival is not a truncation: " + v1.reason);
+  });
+
+  it("an edited checkpoint file fails the linked-anchor check", async function () {
+    // The anchors are linked and individually signed, so editing one on disk
+    // breaks the sequence regardless of what the live rows say. Without this the
+    // stored evidence could be pruned or reordered after the fact.
+    var file = path.join(dataDir, "audit-chain-checkpoints.json");
+    var original = fs.readFileSync(file, "utf8");
+    var doc = JSON.parse(original);
+    assert.ok(doc.anchors.length >= 2, "need at least two anchors to break a link");
+
+    doc.anchors[0].tipHash = "0".repeat(128);
+    fs.writeFileSync(file, JSON.stringify(doc));
+    try {
+      var v = await auditArchive.verifyCheckpoints();
+      assert.strictEqual(v.ok, false, "an edited anchor must fail the chain check");
+      assert.ok(v.breakAt !== undefined, "and should say where the chain broke: " + JSON.stringify(v));
+    } finally {
+      fs.writeFileSync(file, original);
+    }
+
+    var restored = await auditArchive.verifyCheckpoints();
+    assert.strictEqual(restored.ok, true, "restoring the file verifies again: " + restored.reason);
+  });
 });

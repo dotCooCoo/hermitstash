@@ -89,4 +89,30 @@ describe("audit archive top-level manifest integrity (F-5)", function () {
     var v = await auditArchive.verifyArchive(archiveId, PASS);
     assert.strictEqual(v.ok, true, "restoring the manifest must verify ok: " + v.reason);
   });
+
+  it("editing the encrypted body is caught by the checksum, before any decryption", async function () {
+    // The manifest is left untouched here, so this is the other half of the
+    // integrity story: the ciphertext itself. It is checked by checksum before
+    // the passphrase is used, so a corrupted or swapped body is reported as
+    // corruption rather than surfacing as a decryption failure that reads like
+    // a wrong passphrase.
+    var file = archiveFile(archiveId);
+    var original = fs.readFileSync(file, "utf8");
+    var env = JSON.parse(original);
+    var raw = Buffer.from(env.data, "base64");
+    raw[raw.length - 1] = raw[raw.length - 1] ^ 0xFF;
+    env.data = raw.toString("base64");
+    fs.writeFileSync(file, JSON.stringify(env));
+    try {
+      var v = await auditArchive.verifyArchive(archiveId, PASS);
+      assert.strictEqual(v.ok, false, "an edited body must fail verification");
+      assert.match(v.reason || "", /checksum mismatch/i,
+        "and must be named as corruption, not a passphrase problem: " + v.reason);
+    } finally {
+      fs.writeFileSync(file, original);
+    }
+
+    var restored = await auditArchive.verifyArchive(archiveId, PASS);
+    assert.strictEqual(restored.ok, true, "restoring the body verifies again: " + restored.reason);
+  });
 });

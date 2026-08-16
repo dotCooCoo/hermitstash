@@ -163,9 +163,12 @@ function validateMagicBytes(filename, buffer) {
   // Normalize both sides through the compatibility map
   var expectedType = COMPAT[ext] || ext;
   var detectedType = COMPAT[detected] || detected;
-  var extensionMatches = (expectedType === detectedType) ||
-    // .jpg/.jpeg interchangeable
-    ((expectedType === ".jpg" || expectedType === ".jpeg") && (detectedType === ".jpg" || detectedType === ".jpeg"));
+  // COMPAT already folds .jpeg to .jpg on both sides, and detectContentType
+  // only ever reports .jpg — so the two spellings are one type by the time they
+  // reach this comparison. A second .jpg/.jpeg special case used to sit here and
+  // could not be reached: for it to be consulted the equality above had to fail,
+  // which for that pair it cannot.
+  var extensionMatches = (expectedType === detectedType);
 
   if (!extensionMatches) {
     return { valid: false, reason: "File content does not match " + ext + " format." };

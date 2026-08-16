@@ -243,11 +243,21 @@ describe("rate limiting", function () {
   it("login blocked after 15 failed attempts", async function () {
     var projectRoot = testServer.projectRoot;
     await client.initApiKey();
+    // Every attempt's status is kept, and the first 15 are asserted to be 401
+    // before the 16th is judged. A request that never reached the limiter leaves
+    // the counter short, so the 16th comes back 401 and the bare assertion below
+    // reads as "the limiter is broken" when the truth is "an attempt went
+    // missing". Holding the sequence makes the failure say which happened.
+    var seen = [];
     for (var i = 0; i < 15; i++) {
-      await client.post("/auth/login", { json: { email: "nobody@test.com", password: "wrong" } });
+      var attempt = await client.post("/auth/login", { json: { email: "nobody@test.com", password: "wrong" } });
+      seen.push(attempt.status);
     }
+    assert.deepEqual(seen, new Array(15).fill(401),
+      "each of the first 15 failed logins must be counted and refused; got " + seen.join(","));
     var res = await client.post("/auth/login", { json: { email: "nobody@test.com", password: "wrong" } });
-    assert.strictEqual(res.status, 429, "16th attempt should be rate limited");
+    assert.strictEqual(res.status, 429,
+      "16th attempt should be rate limited; first 15 were " + seen.join(","));
     // Every rate-limit 429 is RFC 9457 application/problem+json (lib/rate-limit
     // mounts via guard({ problemDetails: true })), not the framework default
     // text/plain.

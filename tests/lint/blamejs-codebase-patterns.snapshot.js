@@ -111,6 +111,7 @@ function _clusterFingerprint(site) {
 var LIB_ROOT  = path.resolve(__dirname, "..", "..", "lib");
 var TEST_ROOT      = path.resolve(__dirname, "..", "..", "test");
 var WORKFLOWS_ROOT = path.resolve(__dirname, "..", "..", ".github", "workflows");
+var SCRIPTS_ROOT   = path.resolve(__dirname, "..", "..", "scripts");
 
 function _walk(dir, files) {
   files = files || [];
@@ -193,6 +194,15 @@ function _workflowFiles() {
     var rel = _relPath(full);
     return /\.ya?ml$/.test(rel);
   });
+}
+
+// Release-tooling walker. scripts/ never ships (package.json `files` omits
+// it), but it holds the release orchestrator and the gates themselves — the
+// place where a silent fail-open costs the most, because the thing it lets
+// through is a release.
+function _scriptFiles() {
+  try { return _walk(SCRIPTS_ROOT); }
+  catch (_e) { return []; }
 }
 
 function _relPath(absPath) {
@@ -17242,10 +17252,142 @@ function testNoRegexInGuardAndSafeFamily() {
           "never with a regular expression", bad);
 }
 
+// A captured shell-out reports `stdout: ""` for BOTH "the command succeeded
+// and printed nothing" and "the command never ran". Reading `.stdout` without
+// consulting `.status` therefore resolves that ambiguity silently — and in the
+// release orchestrator every one of those defaults was the permissive one: a
+// failed `git diff` read as no backend touched (skipping the live-integration
+// gate), a failed `gh pr list` as no open PR, a failed `git status` as a clean
+// tree. The gate a lookup failure lets through is a release.
+//
+// The rule: a raw `_capture(...)` result may be consumed only after its status
+// is consulted, or by handing it to a helper whose name carries the check
+// (`_captureOk` / `_captureQuery` / `_ghJson` / `_isTransientQueryFailure`).
+// Inline `_capture(...).stdout` is refused outright — there is nowhere in that
+// expression for a status check to have happened.
+function testCaptureStatusChecked() {
+  // class: release-script-capture-status-unchecked
+  var STATUS_AWARE = ["_ghJson", "_isTransientQueryFailure", "_describeFailure"];
+
+  function isIdentChar(c) {
+    return (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") ||
+           (c >= "0" && c <= "9") || c === "_" || c === "$";
+  }
+
+  // Forward from `open` (index of the "(") to its matching ")", skipping over
+  // string literals so a paren inside a gh GraphQL query doesn't unbalance it.
+  function matchParen(src, open) {
+    var depth = 0;
+    for (var i = open; i < src.length; i += 1) {
+      var c = src.charAt(i);
+      if (c === "\"" || c === "'" || c === "`") {
+        var quote = c;
+        i += 1;
+        while (i < src.length && src.charAt(i) !== quote) {
+          if (src.charAt(i) === "\\") i += 1;
+          i += 1;
+        }
+        continue;
+      }
+      if (c === "(") depth += 1;
+      else if (c === ")") { depth -= 1; if (depth === 0) return i; }
+    }
+    return -1;
+  }
+
+  // The name a call's result is bound to, if the call is the RHS of an
+  // assignment: scan back over whitespace, an `=`, more whitespace, then the
+  // identifier.
+  function boundName(src, callStart) {
+    var i = callStart - 1;
+    while (i >= 0 && (src.charAt(i) === " " || src.charAt(i) === "\t" || src.charAt(i) === "\n")) i -= 1;
+    if (src.charAt(i) !== "=") return null;
+    if (src.charAt(i - 1) === "=" || src.charAt(i - 1) === "!" ||
+        src.charAt(i - 1) === "<" || src.charAt(i - 1) === ">") return null;
+    i -= 1;
+    while (i >= 0 && (src.charAt(i) === " " || src.charAt(i) === "\t")) i -= 1;
+    var end = i + 1;
+    while (i >= 0 && isIdentChar(src.charAt(i))) i -= 1;
+    var name = src.slice(i + 1, end);
+    return name || null;
+  }
+
+  // The enclosing function body ends at the first closing brace in column 0 —
+  // a structural boundary, so the window can never rot the way a character
+  // budget does when the body grows.
+  function bodyEnd(src, from) {
+    var at = src.indexOf("\n}", from);
+    return at === -1 ? src.length : at;
+  }
+
+  function lineOf(src, index) {
+    var line = 1;
+    for (var i = 0; i < index; i += 1) if (src.charAt(i) === "\n") line += 1;
+    return line;
+  }
+
+  var files = _scriptFiles().filter(function (full) {
+    return fs.readFileSync(full, "utf8").indexOf("function _capture(") !== -1;
+  });
+
+  var bad = [];
+  files.forEach(function (full) {
+    var rel = _relPath(full);
+    var src = fs.readFileSync(full, "utf8");
+    var needle = "_capture(";
+    var at = src.indexOf(needle);
+    for (; at !== -1; at = src.indexOf(needle, at + 1)) {
+      // Whole-token only: skip _captureOk( / _captureQuery( / _captureSpawn(,
+      // and skip the definition + the seam's own forwarding call.
+      if (at > 0 && isIdentChar(src.charAt(at - 1))) continue;
+      var close = matchParen(src, at + needle.length - 1);
+      if (close === -1) continue;
+      var after = src.slice(close + 1, close + 13);
+      // `_capture(...).status` / `.spawnError` IS the check, inline. An
+      // existence probe reads exactly like this (`git rev-parse --verify
+      // --quiet <ref>`, where a non-zero exit is the answer), so treating the
+      // binding as unchecked here would refuse the one correct use of the raw
+      // form.
+      if (after.indexOf(".status") === 0 || after.indexOf(".spawnError") === 0) continue;
+      if (after.indexOf(".stdout") === 0 || after.indexOf(".stderr") === 0) {
+        bad.push({
+          file:    rel,
+          line:    lineOf(src, at),
+          content: "`_capture(...)" + after.slice(0, 7) + "` consumes a shell-out's " +
+                   "output inline, so its exit status is never checked — a failed " +
+                   "command is indistinguishable from one that printed nothing. Use " +
+                   "_captureOk / _captureQuery, or read .status first",
+        });
+        continue;
+      }
+      var name = boundName(src, at);
+      if (!name) continue;   // `return _capture(...)` — the seam itself
+      var window = src.slice(close, bodyEnd(src, close));
+      var checked = window.indexOf(name + ".status") !== -1 ||
+                    window.indexOf(name + ".spawnError") !== -1 ||
+                    STATUS_AWARE.some(function (h) { return window.indexOf(h + "(" + name) !== -1; });
+      if (!checked) {
+        bad.push({
+          file:    rel,
+          line:    lineOf(src, at),
+          content: "`" + name + "` holds a raw _capture(...) result whose .status is " +
+                   "never consulted in this function — a failed command reads as an " +
+                   "empty answer. Use _captureOk / _captureQuery, or check " +
+                   name + ".status",
+        });
+      }
+    }
+  });
+  bad = _filterMarkers(bad, "release-script-capture-status-unchecked");
+  _report("release tooling checks a shell-out's exit status before trusting its " +
+          "output (an unreadable result is not an empty one)", bad);
+}
+
 async function run() {
   testPrimitiveReachability();
   testDenyPathComposesDenyResponse();
   testNoRegexInGuardAndSafeFamily();
+  testCaptureStatusChecked();
   testNoInternalNarrativeComments();
   testNoOrphanAllowClass();
   testNoRetiredAllowTokenReRegistered();

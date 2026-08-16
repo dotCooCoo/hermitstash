@@ -57,6 +57,7 @@ var errorHandler = require("./middleware/error-handler");
 var startupChecks = require("./app/bootstrap/startup-checks");
 var txHelper = require("./app/data/db/transaction");
 var originPolicy = require("./app/security/origin-policy");
+var adminFence = require("./app/security/admin-fence");
 var apiKeysRepo = require("./app/data/repositories/apiKeys.repo");
 var bundlesRepo = require("./app/data/repositories/bundles.repo");
 var filesRepo = require("./app/data/repositories/files.repo");
@@ -658,53 +659,13 @@ app.use(function (req, res, next) {
 // deployment mounts nothing and /admin behaves exactly as before. A miss is
 // answered 404 (not 403) so a probe can't even tell the fence exists.
 if (Array.isArray(config.adminAllowedCidrs) && config.adminAllowedCidrs.length > 0) {
-  // Resolve the client IP through HS's canonical peer-gated reader and match it
-  // against the operator CIDR allowlist with b.ssrfGuard.cidrContains. clientIp.getIp
-  // honours X-Forwarded-For ONLY when the socket peer is a configured trusted proxy
-  // and canonicalizes ::ffff: IPv4-mapped IPv6. The framework networkAllowlist
-  // primitive resolves the client IP itself WITHOUT that peer gate, so an
-  // X-Forwarded-For header on a request that reaches the admin port off-proxy could
-  // spoof an in-range source (and a dual-stack listener could false-deny an in-range
-  // operator on a ::ffff: address); composing getIp here closes both. A miss is
-  // answered 404 so a probe can't tell the fence exists.
-  // Refuse to boot on a malformed CIDR rather than silently disabling an allow
-  // entry — a typo'd fence is an operator emergency, not a soft default.
-  //
-  // The previous check probed each entry with ssrfGuard.cidrContains inside a
-  // try/catch, but that helper answers false for an unparseable range instead of
-  // throwing, so nothing was ever rejected: a typo'd entry simply matched no
-  // address and the operator lost that part of their fence with no indication.
-  // parseCidrList also supplies the /32 that a bare address needs — written
-  // without one it matched nothing at all, not even itself.
-  var adminFence = clientIp.parseCidrList(config.adminAllowedCidrs.join(","));
-  if (adminFence.invalid.length > 0) {
-    throw new Error("ADMIN_ALLOWED_CIDRS contains a malformed entry: "
-      + adminFence.invalid.map(function (bad) {
-        return JSON.stringify(bad.entry) + " (" + bad.reason + ")";
-      }).join("; "));
-  }
-  var adminFenceCidrs = adminFence.valid;
-  app.use(function adminNetworkFence(req, res, next) {
-    // Decide on the router's canonical, once-decoded req.pathname — never the raw
-    // req.url, whose percent-escapes the gate and the downstream route matcher
-    // would resolve differently (a gate-vs-resolver split). The router always sets
-    // req.pathname before middleware; if it is ever absent, fail CLOSED by treating
-    // the request as admin-scoped so the fence still applies.
-    var pathname = typeof req.pathname === "string" ? req.pathname : "/admin";
-    if (pathname !== "/admin" && pathname.indexOf("/admin/") !== 0) return next();
-    var ip = clientIp.getIp(req);
-    var allowed = !!ip && adminFenceCidrs.some(function (cidr) {
-      try { return b.ssrfGuard.cidrContains(cidr, ip); } catch (_e) { return false; }
-    });
-    if (allowed) return next();
-    audit.log(audit.ACTIONS.ADMIN_FENCE_DENIED, {
-      req: req,
-      details: "Admin request from a non-allowlisted network was refused: " + pathname,
-    });
-    res.statusCode = 404;
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.end("Not Found");
-  });
+  // app/security/admin-fence.js owns the rules — which paths are in scope, how
+  // the client IP is resolved, and the refusal to start on a malformed entry.
+  // It lives beside the other security policies so it can be exercised
+  // directly; mounted inline here, it could only be reached by booting the
+  // whole server, and the test that claimed to cover it was building a
+  // different middleware.
+  app.use(adminFence.create(config.adminAllowedCidrs));
   logger.info("[admin-fence] /admin restricted to operator CIDR allowlist", {
     cidrs: config.adminAllowedCidrs.length,
   });

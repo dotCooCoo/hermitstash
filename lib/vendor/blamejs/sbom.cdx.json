@@ -2,10 +2,10 @@
   "$schema": "http://cyclonedx.org/schema/bom-1.5.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:171215e9-0e4b-4610-b05d-6f0761ee261e",
+  "serialNumber": "urn:uuid:7abc4e28-568d-43ea-905a-b2151f6b6609",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-08-16T14:25:43.633Z",
+    "timestamp": "2026-08-16T20:10:35.186Z",
     "lifecycles": [
       {
         "phase": "build"
@@ -19,14 +19,14 @@
       }
     ],
     "component": {
-      "bom-ref": "@blamejs/core@0.18.31",
+      "bom-ref": "@blamejs/core@0.18.32",
       "type": "application",
       "name": "blamejs",
-      "version": "0.18.31",
+      "version": "0.18.32",
       "scope": "required",
       "author": "blamejs contributors",
       "description": "The Node framework that owns its stack.",
-      "purl": "pkg:npm/%40blamejs/core@0.18.31",
+      "purl": "pkg:npm/%40blamejs/core@0.18.32",
       "properties": [],
       "externalReferences": [
         {
@@ -54,7 +54,7 @@
   "components": [],
   "dependencies": [
     {
-      "ref": "@blamejs/core@0.18.31",
+      "ref": "@blamejs/core@0.18.32",
       "dependsOn": []
     }
   ]
