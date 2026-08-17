@@ -24,7 +24,7 @@
  *   public key — operators can `git log keys/release-pqc-pub.json`
  *   to walk the history.
  *
- * Algorithm: ML-DSA-65 (FIPS 204 / RFC 9909) — NIST PQC security
+ * Algorithm: ML-DSA-65 (FIPS 204 / RFC 9881) — NIST PQC security
  * level 3 (~192-bit classical, ~96-bit post-quantum). Matches the
  * framework's audit-chain signer choice and the project's PQC stack.
  */

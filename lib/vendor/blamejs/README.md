@@ -31,7 +31,7 @@ The modern Node app is a 1,200-package supply-chain liability with no LTS calend
 - **Vendored standard library.** Auth, sessions, jobs, mail, storage, crypto, ORM, templating — bundled with the framework, not hunted on npm. Your `package.json` has one entry.
 - **Security as a default, not a config flag.** Post-quantum-aware crypto envelopes, sealed-by-default storage, server-rendered output, CSRF/origin/bot defenses, per-account brute-force lockout, all wired in from line zero.
 - **Server-rendering first.** HTML out of the box; client JS is opt-in islands, not the foundation.
-- **A real LTS calendar.** Major versions on a published cadence with documented deprecation windows. No silent semver-major surprises in transitive deps.
+- **A real LTS calendar.** Major versions on a published cadence, each with 24 months of security-only patches from the day its successor ships — dates, Node floors and crypto posture per major in [LTS-CALENDAR.md](LTS-CALENDAR.md). Deprecations ship a warning at least one minor before removal. No silent semver-major surprises in transitive deps.
 
 ## Status
 
@@ -53,7 +53,7 @@ var b = require("@blamejs/core");
 })();
 ```
 
-**Requirements:** Node.js 24.19+ (current active LTS line; 24.14.1 fixed CVE-2026-21713 non-constant-time HMAC compare, 24.19 is the current patch level and the release this framework's TLS behaviour depends on). Node 26 satisfies the floor and the framework test suite runs cleanly on it today; the floor itself will bump to `>=26.x` when Node 26 promotes to Active LTS. Two Node 26 platform changes operators integrating with blamejs should know about: the new `localStorage` global (the framework's storage backend is `b.backup.diskStorage`; the legacy `b.backup.localStorage` alias was removed in v0.11.20 — update call sites accordingly), and the seed-only ML-KEM / ML-DSA PKCS8 export shape (sealed material from Node 24 re-imports cleanly on Node 26; new material from Node 26 in the seed-only shape). See [SECURITY.md](SECURITY.md#node-26-compatibility) for the details.
+**Requirements:** Node.js 24.19+ (current active LTS line; 24.14.1 fixed CVE-2026-21713 non-constant-time HMAC compare, 24.19 is the current patch level and the release this framework's TLS behavior depends on). Node 26 satisfies the floor and the framework test suite runs cleanly on it today; the floor itself will bump to `>=26.x` when Node 26 promotes to Active LTS. Two Node 26 platform changes operators integrating with blamejs should know about: the new `localStorage` global (the framework's storage backend is `b.backup.diskStorage`; the legacy `b.backup.localStorage` alias was removed in v0.11.20 — update call sites accordingly), and the seed-only ML-KEM / ML-DSA PKCS8 export shape (sealed material from Node 24 re-imports cleanly on Node 26; new material from Node 26 in the seed-only shape). See [SECURITY.md](SECURITY.md#node-26-compatibility) for the details.
 
 ## What ships in the box
 
@@ -170,12 +170,12 @@ The framework bundles the surface a typical Node app reaches for. Every primitiv
 - **Aggregator** — `b.guardAll` registry; every shipped guard ON by default; opt-out per guard with audited reason via `exceptFor: { name: { reason } }`. `b.fileUpload` and `b.staticServe` wire `b.guardAll.byExtension({ profile: "strict" })` + `b.guardFilename.gate({ profile: "strict" })` automatically — operator opts out via `contentSafety: null` / `filenameSafety: null` (audited)
 ### Communication
 
-- **WebSockets (server)** — channel/room fan-out across cluster replicas; RFC 6455 §5.5 control-frame size + FIN enforcement on inbound (defends 1 MiB-PING-as-PONG amplification) (`b.websocket`, `b.websocketChannels`)
-- **WebSockets (client)** — `b.wsClient` with PQC-TLS handshake, permessage-deflate negotiation with decompression-bomb cap, fatal UTF-8 validation, permanent-error classifier (skips reconnect on 4xx / accept mismatch / bad-subprotocol), exponential-backoff with full jitter
+- **WebSocket (server)** — channel/room fan-out across cluster replicas; RFC 6455 §5.5 control-frame size + FIN enforcement on inbound (defends 1 MiB-PING-as-PONG amplification) (`b.websocket`, `b.websocketChannels`)
+- **WebSocket (client)** — `b.wsClient` with PQC-TLS handshake, permessage-deflate negotiation with decompression-bomb cap, fatal UTF-8 validation, permanent-error classifier (skips reconnect on 4xx / accept mismatch / bad-subprotocol), exponential-backoff with full jitter
 - **Pub/sub + events** — distributed pub/sub with cluster-table / Redis PUB/SUB / custom backends (`b.pubsub`); framework-emitted signal bus for breach / integrity events (`b.events`)
 - **CloudEvents + SSE** — CloudEvents 1.0.2 for AWS EventBridge / Knative / Azure Event Grid / Google Eventarc / CNCF: `wrap` / `parse` envelopes, non-throwing `validate` / `isValid`, the JSON event + batch formats (`toJSON` / `fromJSON` / `toJSONBatch` / `fromJSONBatch`), and the HTTP binding in both binary and structured content modes with auto-detecting `http.decode` (`b.cloudEvents`); Server-Sent Events with newline-injection refusal in `event:` / `id:` / `data:` / `Last-Event-ID` (CVE-2026-33128 / 29085 / 44217 class) (`b.sse`, `b.middleware.sse`)
 - **Mail (outbound)** — multipart + attachments + DKIM + calendar invites; bounce intake (`b.mail`, `b.mailBounce`)
-- **Mail (outbound delivery)** — turnkey MX-lookup → MTA-STS-fetch → DANE-TLSA → REQUIRETLS handshake → SMTP wire layer → RFC 3464 DSN-on-permanent-failure → deferred-retry scheduling, all wired once (`b.mail.send.deliver`)
+- **Mail (outbound delivery)** — MX-lookup → MTA-STS-fetch → DANE-TLSA → REQUIRETLS handshake → SMTP wire layer → RFC 3464 DSN-on-permanent-failure → deferred-retry scheduling, all wired once (`b.mail.send.deliver`)
 - **Mail (inbound auth)** — SPF / DMARC / ARC verify + ARC chain signing for relays, plus DMARC aggregate (RUA) + forensic (RUF) report parsing (`b.mail.spf`, `b.mail.dmarc`, `b.mail.arc`)
 - **Mail server listeners** — RFC 5321 MX inbound with connection-level gate cascade (HELO identity / DNS blocklist / greylisting) and a DATA-phase SPF/DKIM/DMARC gate that refuses policy-failing mail before storage (`b.mail.server.mx`), RFC 6409 submission with SASL + identity-binding (`b.mail.server.submission`), RFC 9051 IMAP4rev2 with CONDSTORE / QRESYNC / NOTIFY / METADATA / CATENATE (`b.mail.server.imap`), RFC 8620 + RFC 8621 JMAP Core + Mail over HTTP/SSE/WebSocket (`b.mail.server.jmap`), POP3 (`b.mail.server.pop3`), ManageSieve (`b.mail.server.managesieve`)
 - **JMAP EmailSubmission reference** — composes `b.mail.send.deliver` to land the RFC 8621 §7.5 surface end-to-end (`b.mail.server.jmap.emailSubmissionSetHandler`)
@@ -228,7 +228,7 @@ The framework bundles the surface a typical Node app reaches for. Every primitiv
 - **Outbound DLP** — interceptor-installed on httpClient + mail + webhook with built-in detectors for PAN (Luhn), SSN, EIN, IBAN (mod-97), api-key shapes, PEM, SSH private keys, JWTs, AWS access keys, PHI composite; refuse / redact / audit-only verdicts under pci-dss / hipaa / fapi2 / soc2 / gdpr presets (`b.redact.installOutboundDlp`)
 ### Observability
 
-- **Audit chain** — tamper-evident, SLH-DSA-signed checkpoints; CADF (ISO/IEC 19395:2017) envelope export for federated SIEM (`b.audit`, `b.audit.export({ format: "cadf" })`)
+- **Audit chain** — tamper-evident, SLH-DSA-signed checkpoints; CADF (DMTF DSP0262) envelope export for federated SIEM (`b.audit`, `b.audit.export({ format: "cadf" })`)
 - **Metrics + tracing** — `b.metrics`, `b.tracing` (OTel pass-through); OTLP/HTTP-JSON exporter for traces + metrics (`b.otelExport`). Span / metric / resource attribute **values** are scrubbed through the telemetry redactor before egress (`b.observability.redactAttrs`, default composes `b.redact.redact`) so a secret or PII in an attribute value never reaches the collector verbatim (CWE-532); operators building a custom exporter apply the same gate
 - **Log-stream sinks** — local file rotation, generic webhook, OTLP/HTTP-JSON OR OTLP/gRPC, AWS CloudWatch Logs via SigV4 with optional autoCreate, RFC 5424 syslog over UDP/TCP/TLS (`b.logStream`)
 - **PII redaction** — `b.redact`
@@ -277,7 +277,7 @@ Full primitive-by-primitive docs live at [blamejs.com](https://blamejs.com), whi
 
 `blamejs` ships an operator-facing CLI for the recurring ops work. Each subcommand boots a headless app instance from `--data-dir` (no HTTP listener), runs the operation, and shuts down. Same vault + DB + audit chain the running app uses.
 
-```
+```text
 blamejs migrate       up | down | status                          --db <path> [--dir <path>]
 blamejs seed          run | status                                --db <path> --env <name> [--dir <path>]
 blamejs dev           --command <cmd> [--watch <dir>...]
@@ -302,7 +302,7 @@ Pass `--help` to any subcommand for the full flag list (`blamejs api-key --help`
 
 ## Reference app + deployment
 
-`examples/wiki/` is a complete production-ready operator-built blamejs app — the wiki you're looking at when you visit `blamejs.com`. It demonstrates every framework primitive in real usage and ships with `Dockerfile`, `docker-compose.yml` (dev), `docker-compose.prod.yml` (Caddy + GHCR image), and a published OCI image at `ghcr.io/blamejs/blamejs-wiki:<tag>` (multi-arch amd64/arm64, cosign-signed via GitHub OIDC, Trivy-scanned, SHA3-512 digest).
+`examples/wiki/` is a complete operator-built blamejs app running in production at `blamejs.com`. It demonstrates every framework primitive in real usage and ships with `Dockerfile`, `docker-compose.yml` (dev), `docker-compose.prod.yml` (Caddy + GHCR image), and a published OCI image at `ghcr.io/blamejs/blamejs-wiki:<tag>` (multi-arch amd64/arm64, cosign-signed via GitHub OIDC, Trivy-scanned, SHA3-512 digest).
 
 See [`examples/wiki/DEPLOY.md`](examples/wiki/DEPLOY.md) for the full deployment walkthrough, including the operator-facing environment-variable matrix (`WIKI_*` and `BLAMEJS_*` keys) and the pin-to-version workflow for production updates.
 
@@ -338,7 +338,7 @@ import { shake256 }          from "/vendor/blamejs/noble-hashes.mjs";
 
 They are built from the same npm install as the server bundles in one `scripts/vendor-update.sh` run, and each pair shares one `version` field in the manifest — so the two halves of a hybrid exchange cannot be pinned to different releases of the same algorithm. They carry per-file SHA-256 hashes, are covered by the vendor-currency gate, and appear in the SBOM exactly as the server bundles do.
 
-## Why "blamejs"
+## Why the name
 
 Because when something breaks, `blame` should know exactly where it lives. We own the stack so you don't have to chase the fault across an ecosystem.
 

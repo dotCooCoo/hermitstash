@@ -220,7 +220,7 @@ describe("auth integration", function () {
         "logout should succeed, got " + logoutRes.status + " " + logoutRes.text
       );
 
-      // Secure logout (RFC 9527): the response carries a Clear-Site-Data
+      // Secure logout (W3C Clear-Site-Data): the response carries a Clear-Site-Data
       // header that wipes the browser's cookies/storage/cache.
       var csd = logoutRes.headers["clear-site-data"] || "";
       assert.ok(

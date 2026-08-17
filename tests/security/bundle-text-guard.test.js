@@ -18,6 +18,19 @@ var { describe, it } = require("node:test");
 var assert = require("node:assert");
 var b = require("../../lib/vendor/blamejs");
 
+// The hostile codepoints, built from their numbers rather than typed as
+// themselves. Identical bytes at runtime — the guard is still fed a real
+// override — but the source stays readable: an unterminated U+202E reorders the
+// remainder of its line in any conforming viewer, which is what the literal form
+// did to this file, and the zero-width ones showed as nothing at all.
+var RLO = String.fromCodePoint(0x202E);   // RIGHT-TO-LEFT OVERRIDE
+var ZWSP = String.fromCodePoint(0x200B);  // ZERO WIDTH SPACE
+var BEL = String.fromCodePoint(0x0007);   // BELL — a C0 control
+var TAG = String.fromCodePoint(0xE0001);  // LANGUAGE TAG, from the Tag block
+// An UNPAIRED high surrogate, deliberately not the pair for U+E0001: a lone
+// surrogate is its own case and must not survive either.
+var LONE_SURROGATE = String.fromCharCode(0xDB40);
+
 // The policy set the service applies. Kept here so a change to either side
 // without the other shows up as a failure rather than as silence.
 var TEXT_OPTS = {
@@ -27,13 +40,13 @@ var TEXT_OPTS = {
 
 describe("uploader-supplied text is screened for hostile codepoints", function () {
   it("strips a right-to-left override used to disguise how a name reads", function () {
-    var out = b.guardText.sanitize("Bob ‮gnp.exe", TEXT_OPTS);
-    assert.ok(out.indexOf("‮") === -1, "the RTLO must not survive: " + JSON.stringify(out));
+    var out = b.guardText.sanitize("Bob " + RLO + "gnp.exe", TEXT_OPTS);
+    assert.ok(out.indexOf(RLO) === -1, "the RTLO must not survive: " + JSON.stringify(out));
   });
 
   it("strips zero-width, control and Tag-block characters", function () {
-    var out = b.guardText.sanitize("a​bc󠀁d", TEXT_OPTS);
-    ["​", "", "\uDB40"].forEach(function (ch) {
+    var out = b.guardText.sanitize("a" + ZWSP + "b" + BEL + "c" + TAG + "d", TEXT_OPTS);
+    [ZWSP, BEL, LONE_SURROGATE].forEach(function (ch) {
       assert.ok(out.indexOf(ch) === -1, JSON.stringify(ch) + " must not survive: " + JSON.stringify(out));
     });
   });
@@ -55,7 +68,7 @@ describe("uploader-supplied text is screened for hostile codepoints", function (
     // from anonymous uploaders, and a refusal would turn an unusual name into a
     // failed upload. Naming "strip" for each class is what produces a cleaned
     // value, and this pins that the explicit set is doing the work.
-    var hostile = "x‮y";
+    var hostile = "x" + RLO + "y";
     assert.throws(function () { return b.guardText.sanitize(hostile); },
       /bidi/i,
       "precondition: the default policies refuse rather than clean — if this changes, "

@@ -16,7 +16,7 @@
         "browser": "public/js/noble-ciphers.js"
       },
       "bundler": "copied from the vendored framework (no separate build)",
-      "bundledAt": "2026-08-16"
+      "bundledAt": "2026-08-17"
     },
     "@noble/hashes": {
       "version": "2.3.0",
@@ -32,7 +32,7 @@
         "browser": "public/js/noble-hashes.js"
       },
       "bundler": "copied from the vendored framework (no separate build)",
-      "bundledAt": "2026-08-16"
+      "bundledAt": "2026-08-17"
     },
     "@noble/post-quantum": {
       "version": "0.7.0",
@@ -50,11 +50,11 @@
         "browser": "public/js/noble-pq.js"
       },
       "bundler": "copied from the vendored framework (no separate build)",
-      "bundledAt": "2026-08-16"
+      "bundledAt": "2026-08-17"
     },
     "blamejs": {
-      "version": "0.18.32",
-      "tag": "v0.18.32",
+      "version": "0.18.33",
+      "tag": "v0.18.33",
       "license": "Apache-2.0",
       "author": "blamejs contributors",
       "source": "https://github.com/blamejs/blamejs",
@@ -194,7 +194,7 @@
           "file": "lib/vendor/blamejs/lib/vendor/blamejs-pki.cjs"
         }
       },
-      "integrity": "sha512-2e2Ko3SoCrVpw0YgIWHZI0ZwSHJWaWOumUfiT8HAUt6TuBjyUVv4ga8Jq+BPfPoUeqDHBmcCzDtRT4uP+9zpMg=="
+      "integrity": "sha512-9hW8+3WvM5FQEzIK/jedxRYBhT8fUuW+nirInt3VBqFT5YgKduFHLUxp8e+gRYrmRbOUrdXaOFMsVgvUGfRjwQ=="
     }
   }
 }

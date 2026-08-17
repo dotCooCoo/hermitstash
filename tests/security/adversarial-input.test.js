@@ -157,7 +157,7 @@ describe("multipart abuse", function () {
       contentType: "application/json",
     });
     // b.parsers.json refuses malformed input with a typed BodyParserError
-    // (RFC 7159 hard reject). HS's error handler surfaces this as 400 or
+    // (RFC 8259 hard reject). HS's error handler surfaces this as 400 or
     // 500. Pre-blamejs HS lax-parsed and fell back to {}, accepting the
     // request; that was the lax posture and security-default rule says
     // the framework rejection is correct. "Does not crash" here means

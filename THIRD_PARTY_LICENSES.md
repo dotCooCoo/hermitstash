@@ -11,7 +11,7 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
 
 ---
 
-## blamejs v0.18.32
+## blamejs v0.18.33
 
 - **License:** Apache-2.0
 - **Copyright:** blamejs contributors
@@ -104,7 +104,7 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
 - **Copyright:** BIMI Group / DigiCert / Entrust
 - **Source:** https://bimigroup.org/
 - **Files:** `lib/vendor/blamejs/lib/vendor/bimi-trust-anchors.pem`
-- **Used for:** RFC 9091 BIMI VMC/CMC trust-anchor bundle (operator-managed; ships empty by default) inside blamejs
+- **Used for:** BIMI VMC/CMC trust-anchor bundle (operator-managed; ships empty by default) inside blamejs
 
 Argon2id password hashing uses Node 24+'s built-in `crypto.argon2` (via
 blamejs's `lib/argon2-builtin.js` wrapper) — a platform primitive, not a

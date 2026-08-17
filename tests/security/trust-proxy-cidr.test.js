@@ -71,7 +71,11 @@ describe("operator CIDR lists are validated per entry", function () {
   });
 
   it("rejects the shapes that silently matched nothing", function () {
-    ["true", "yes", "not-a-cidr", "999.1.1.1/32", "10.0.0.0/99", "10.0.0.0/-1", "10.0.0.0/8‮"]
+    // The last entry carries a real U+202E, built from its number rather than
+    // typed: identical bytes for the parser, but an unterminated override in the
+    // source reorders the remainder of this line for anyone reading it.
+    var RLO = String.fromCodePoint(0x202E);   // RIGHT-TO-LEFT OVERRIDE
+    ["true", "yes", "not-a-cidr", "999.1.1.1/32", "10.0.0.0/99", "10.0.0.0/-1", "10.0.0.0/8" + RLO]
       .forEach(function (entry) {
         var parsed = clientIp.parseCidrList(entry);
         assert.equal(parsed.valid.length, 0, JSON.stringify(entry) + " must not be treated as a range");

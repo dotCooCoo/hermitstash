@@ -279,7 +279,7 @@ module.exports = function (app) {
 
   app.get("/auth/failed", (req, res) => {
     audit.log(audit.ACTIONS.AUTH_FAILED_PAGE, { details: "OAuth failed or domain not authorized", req: req });
-    // RFC 7235 §3.1: 401 responses MUST carry a WWW-Authenticate challenge.
+    // RFC 9110 §15.5.2: 401 responses MUST carry a WWW-Authenticate challenge.
     // FormBased is not a registered scheme — browsers ignore it — but its
     // presence satisfies the MUST so compliance scanners don't flag the page.
     res.setHeader("WWW-Authenticate", 'FormBased realm="HermitStash"');
@@ -319,7 +319,7 @@ module.exports = function (app) {
       }
       audit.log(audit.ACTIONS.LOGOUT, { req: req });
       // Pass res for the secure self-logout: destroys the storage row AND
-      // emits RFC 9527 Clear-Site-Data + an expired hs_sid cookie so the
+      // emits W3C Clear-Site-Data + an expired hs_sid cookie so the
       // browser wipes its client-side state. The token logoutUser revokes
       // is req.sessionId — the live cookie this request carried.
       await sessionService.logoutUser(req, res);

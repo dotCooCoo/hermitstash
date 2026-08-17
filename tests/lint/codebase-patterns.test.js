@@ -324,7 +324,7 @@ function testNoRawByteLiterals() {
       }
       // HTTP status-code comparisons (`statusCode >= 200 && < 300`,
       // `code < 600`, etc.) overlap with multiples of 8 (200, 208, 256,
-      // 264 …). Same RFC 7231 boundary set as the time-literal filter.
+      // 264 …). Same RFC 9110 boundary set as the time-literal filter.
       var statusCmpRe = /[<>!=]=?\s*(?:200|300|400|500|600|399|599)\b|\b(?:200|300|400|500|600|399|599)\s*[<>!=]=?/;
       if (statusCmpRe.test(stripped)) continue;
       // Strip bit-shift operands (`>>> 8`, `<< 16`) — those are bit
@@ -503,6 +503,104 @@ var SCRIPTS_ROOT = path.resolve(__dirname, "..", "..", "scripts");
 function _scriptFiles() {
   try { return _walk(SCRIPTS_ROOT); }
   catch (_e) { return []; }
+}
+
+// Operator-facing rendered surface: the templates and browser assets a visitor
+// or an admin actually reads. No other walker reaches these, and they are where
+// an invisible character does the most damage — it renders as nothing, and an
+// operator copying a value out of the page gets something that matches nothing.
+var RENDERED_ROOTS = ["views", "public"];
+// Third-party browser bundles, copied verbatim by scripts/vendor-update.sh from
+// the vendored framework. A finding in one is fixed upstream and re-vendored, so
+// naming them here keeps the gate off code this repo does not author.
+var RENDERED_SKIP = ["noble-ciphers.js", "noble-hashes.js", "noble-pq.js"];
+function _renderedFiles() {
+  var root = path.resolve(__dirname, "..", "..");
+  var out = [];
+  RENDERED_ROOTS.forEach(function (r) {
+    (function walk(dir) {
+      var entries;
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_e) { return; }
+      entries.forEach(function (e) {
+        var full = path.join(dir, e.name);
+        if (e.isDirectory()) {
+          if (["vendor", "node_modules", "fonts", "img", "template"].indexOf(e.name) !== -1) return;
+          return walk(full);
+        }
+        if (!/\.(html|js|css|txt|svg)$/.test(e.name)) return;
+        if (RENDERED_SKIP.indexOf(e.name) !== -1) return;
+        out.push(full);
+      });
+    })(path.join(root, r));
+  });
+  return out;
+}
+
+function testNoInvisibleCharacters() {
+  // class: invisible-character-in-shipped-text
+  //
+  // Characters that render as nothing, or that reorder the text after them.
+  // Two ways they cost something, both seen in the framework this vendors:
+  // an unterminated U+202E inside a comment reordered the remainder of its line
+  // for every reader, and a pair of zero-width joiners inside a documented
+  // media-type wildcard produced a value that matched nothing when an operator
+  // pasted it into an allowlist.
+  //
+  // Tests ARE scanned. They legitimately need these codepoints to prove a guard
+  // strips them, but a test can build one from its number — String.fromCodePoint
+  // (0x202E) is the same byte at runtime and leaves the source readable — so the
+  // gate asks for that rather than for the character to be typed. A test that
+  // genuinely needs the literal can carry `// allow:invisible-character-in-shipped-text`.
+  //
+  // C0 controls are deliberately NOT in this class: tab, newline and the ANSI
+  // escape that colours terminal output are ordinary here, and a literal NUL has
+  // its own detector already.
+  var NAMED = {
+    0x061C: "ARABIC LETTER MARK", 0x00AD: "SOFT HYPHEN", 0x180E: "MONGOLIAN VOWEL SEPARATOR",
+    0x200B: "ZERO WIDTH SPACE", 0x200C: "ZERO WIDTH NON-JOINER", 0x200D: "ZERO WIDTH JOINER",
+    0x200E: "LEFT-TO-RIGHT MARK", 0x200F: "RIGHT-TO-LEFT MARK",
+    0x202A: "LEFT-TO-RIGHT EMBEDDING", 0x202B: "RIGHT-TO-LEFT EMBEDDING",
+    0x202C: "POP DIRECTIONAL FORMATTING", 0x202D: "LEFT-TO-RIGHT OVERRIDE",
+    0x202E: "RIGHT-TO-LEFT OVERRIDE", 0x2060: "WORD JOINER",
+    0x2066: "LRI", 0x2067: "RLI", 0x2068: "FSI", 0x2069: "PDI",
+    0xFEFF: "ZERO WIDTH NO-BREAK SPACE",
+  };
+  function classify(cp) {
+    if (NAMED[cp]) return NAMED[cp];
+    if (cp >= 0xE0000 && cp <= 0xE007F) return "UNICODE TAG";
+    return null;
+  }
+
+  var repoRoot = path.resolve(__dirname, "..", "..");
+  var files = _libFiles().concat(_appFiles(), _scriptFiles(), _renderedFiles(), _testFiles());
+  var bad = [];
+  for (var fi = 0; fi < files.length; fi++) {
+    var content;
+    try { content = fs.readFileSync(files[fi], "utf8"); } catch (_e) { continue; }
+    var lines = content.split(/\r?\n/);
+    for (var li = 0; li < lines.length; li++) {
+      var col = 0;
+      // Iterated by CODE POINT, so an astral TAG character is seen as itself
+      // rather than as two surrogates that match nothing.
+      for (var ch of lines[li]) {
+        var cp = ch.codePointAt(0);
+        col += 1;
+        var name = classify(cp);
+        if (!name) continue;
+        // A byte-order mark at the very start of a file is ordinary.
+        if (cp === 0xFEFF && li === 0 && col === 1) continue;
+        bad.push({
+          file: path.relative(repoRoot, files[fi]).replace(/\\/g, "/"),
+          line: li + 1,
+          content: "U+" + cp.toString(16).toUpperCase().padStart(4, "0") + " " + name +
+            " at column " + col + " — build it from its number "
+            + "(String.fromCodePoint) or write it as <U+" + cp.toString(16).toUpperCase().padStart(4, "0") + "> in prose",
+        });
+      }
+    }
+  }
+  bad = _filterMarkers(bad, "invisible-character-in-shipped-text");
+  _report("no invisible or bidi-control characters in shipped text", bad);
 }
 
 function testReleaseCaptureStatusChecked() {
@@ -1516,7 +1614,7 @@ function testNoBareCanonicalizeWalks() {
 // ---- Pattern 16: regex-only string format validators with no length cap ----
 
 function testFormatValidatorLengthCap() {
-  // Pattern from v0.6.61 (.email RFC 5321) / v0.6.62 (.url RFC 7230):
+  // Pattern from v0.6.61 (.email RFC 5321) / v0.6.62 (.url RFC 9112):
   // a regex-only validator like `EMAIL_RE.test(v)` accepts arbitrarily
   // long matching strings → DoS-shape. The validator should bound length
   // explicitly before the regex test. We can't perfectly grep this, but
@@ -2643,7 +2741,7 @@ async function testNoDuplicateCodeBlocks() {
         "lib/mail-dkim.js:_parseDkimTagList",
         "lib/network-smtp-policy.js:_parseStsPolicy",
       ],
-      reason: "RFC structured-field tag-list parser scaffolding — split on top-level separator + handle quoted strings + extract key=value pairs. Each call site enforces a different RFC's tag-name vocabulary (RFC 9211 Cache-Status; RFC 9213 CDN-Cache-Control; RFC 8941 Sec-CH-UA brand-list; RFC 8617 ARC tag-set; RFC 7489 DMARC record; RFC 9091 BIMI record; RFC 6376 DKIM-Signature; RFC 8461 MTA-STS policy). Future consolidation candidate but each site emits domain-typed output (different field vocabulary, different error class, different shape) that consolidation would erase.",
+      reason: "RFC structured-field tag-list parser scaffolding — split on top-level separator + handle quoted strings + extract key=value pairs. Each call site enforces a different RFC's tag-name vocabulary (RFC 9211 Cache-Status; RFC 9213 CDN-Cache-Control; RFC 8941 Sec-CH-UA brand-list; RFC 8617 ARC tag-set; RFC 7489 DMARC record; BIMI record (no RFC — draft-blank-ietf-bimi); RFC 6376 DKIM-Signature; RFC 8461 MTA-STS policy). Future consolidation candidate but each site emits domain-typed output (different field vocabulary, different error class, different shape) that consolidation would erase.",
     },
     {
       mode: "family-subset",
@@ -2686,6 +2784,12 @@ async function testNoDuplicateCodeBlocks() {
         "lib/http-client-cache.js:_splitTopLevelCommas",
         "lib/http-message-signature.js:_splitTopLevelSemis",
       ],
+      // RFC 8941 below is deliberate and must not be bumped to RFC 9651. 9651
+      // obsoletes 8941 as a specification, but §2.4 is explicit that it does not
+      // update the field definitions written against it — and Client Hints,
+      // Cache-Status and RFC 9421 Message Signatures all normatively reference
+      // 8941. A field defined against 8941 cannot carry 9651's added types,
+      // because a recipient may still be parsing it with an 8941 parser.
       reason: "Quote-aware top-level structured-fields splitter — walks a string respecting RFC 8941 §3.3.3 quoted-string state with backslash-escape so `,` (cdn-cache-control / http-client-cache) or `;` (client-hints brand-member params / http-message-signature Signature-Input params) inside quoted-string values doesn't split mid-value. Same shape replicated across four parsers because they each split on a different delimiter for a different RFC; consolidation candidate via a shared `b.structuredFields.splitTopLevel(s, sep)` helper but the per-file copy is intentional pending the extraction (operator-grep finds the splitter inside the file that uses it).",
     },
     {
@@ -3781,7 +3885,7 @@ async function testNoDuplicateCodeBlocks() {
         "lib/mail-dkim.js:_parseDkimTagList",
         "lib/network-smtp-policy.js:_parseStsPolicy",
       ],
-      reason: "Header / TXT-record tag-list parser family — each parses its own RFC-defined `tag=value; tag=value` structure (RFC 9421 signature-input / RFC 7489 DMARC / RFC 9165 BIMI / RFC 6376 DKIM / RFC 8461 MTA-STS). Consolidating would erase per-RFC tag-quoting and continuation-line rules; the 60-token shingle is the loop-and-split skeleton.",
+      reason: "Header / TXT-record tag-list parser family — each parses its own RFC-defined `tag=value; tag=value` structure (RFC 9421 signature-input / RFC 9989 DMARC / BIMI (no RFC) / RFC 6376 DKIM / RFC 8461MTA-STS). Consolidating would erase per-RFC tag-quoting and continuation-line rules; the 60-token shingle is the loop-and-split skeleton.",
     },
     {
       files: [
@@ -4316,7 +4420,10 @@ function testNoLegacyUrlFormat() {
 // refresh or careless file lands a require() against these packages.
 var VENDOR_DENY_NAMES = [
   { name: "axios",      cve: "CVE-2026-25639/42033/42041/40175 prototype-pollution" },
-  { name: "xml-crypto", cve: "CVE-2026-25922/23687/34840 SAML XML signature wrapping" },
+  // The three ids are genuine SAML signature-wrapping advisories but belong to
+  // other products (authentik, SAP NetWeaver AS ABAP, OneUptime) — they are the
+  // class this entry guards against, not xml-crypto's own advisories.
+  { name: "xml-crypto", cve: "SAML XML signature wrapping (cf. CVE-2026-25922 / CVE-2026-23687 / CVE-2026-34840)" },
   { name: "xml2js",     cve: "SAML XML wrapping class — operator must use a documented opt-in path" },
   { name: "samlify",    cve: "SAML signature-wrapping class — operator must use a documented opt-in path" },
 ];
@@ -4585,7 +4692,7 @@ function testNoBoolStringCoerceShape() {
   // (x === "" || y === "true"); RFC 9111 cdn-cache-control was the first instance.
   var matches = _scan(/===\s*""\s*\|\|\s*[A-Za-z_$][\w$]*\s*===\s*"true"/);
   matches = _filterMarkers(matches, "bool-string-coerce-shape");
-  _report("boolean directive presence-check must NOT coerce via `val === \"\" || val === \"true\"` — qualified-form arguments (RFC 9111 §5.2.2.4 / §5.2.2.6 `private=\"X\"`) flip the flag to false. Presence == enabled; surface the argument on a separate field map.",
+  _report("boolean directive presence-check must NOT coerce via `val === \"\" || val === \"true\"` — qualified-form arguments (RFC 9111 §5.2.2.4 / §5.2.2.7 `private=\"X\"`) flip the flag to false. Presence == enabled; surface the argument on a separate field map.",
     matches);
 }
 
@@ -5266,6 +5373,7 @@ async function run() {
   testHttp2TeardownPaired();
   testNoStrayConsoleCalls();
   testNoUnresolvedMarkers();
+  testNoInvisibleCharacters();
   testReleaseCaptureStatusChecked();
   testNoLiteralNulBytesInSource();
   testNoReleaseNamedTestFiles();

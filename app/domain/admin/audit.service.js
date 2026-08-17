@@ -148,7 +148,7 @@ function toCadfRow(e) {
   };
 }
 
-// CADF (Cloud Auditing Data Federation, ISO/IEC 19395) event batch for SIEM/
+// CADF (Cloud Auditing Data Federation, DMTF DSP0262) event batch for SIEM/
 // compliance tooling. Decrypted — admin-only. Built from the already-unsealed
 // entries via the stateless b.auditTools.exportCadf with an injected reader.
 function exportCadf(entries, opts) {

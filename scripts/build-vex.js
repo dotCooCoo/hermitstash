@@ -2,7 +2,9 @@
 'use strict';
 
 // Release-time VEX builder. Reads vex/statements.json, expands each
-// entry into a CSAF 2.1 §3.2.3 vulnerability statement via b.vex.statement
+// entry into a CSAF 2.1 §3.2.4 vulnerability statement via b.vex.statement
+// (2.1 inserted a Schema property at §3.2.1, shifting Vulnerabilities from the
+// §3.2.3 it occupied in CSAF 2.0)
 // (handles cveId / ids[] / cweId / justification flags / product_status),
 // wraps them in a b.vex.document, and writes the serialized JSON to
 //

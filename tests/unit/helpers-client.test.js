@@ -41,7 +41,7 @@ describe("Helpers.uuid()", function () {
       crypto: { getRandomValues: function (arr) { for (var i = 0; i < arr.length; i++) arr[i] = (i * 37 + 11) & 0xff; return arr; } },
     });
     var u = h.uuid();
-    assert.match(u, V4, "expected RFC 4122 v4 shape, got " + u);
+    assert.match(u, V4, "expected RFC 9562 v4 shape, got " + u);
   });
 });
 

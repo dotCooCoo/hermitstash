@@ -2,7 +2,8 @@ var b = require("../../lib/vendor/blamejs");
 
 /**
  * Sanitize filename for Content-Disposition headers.
- * Prevents header injection and handles non-ASCII via RFC 5987 encoding.
+ * Prevents header injection and handles non-ASCII via RFC 8187 encoding
+ * (the ext-value syntax; RFC 5987 defined it and is obsoleted by RFC 8187).
  */
 function safeContentDisposition(filename, type) {
   type = type || "attachment";
@@ -10,7 +11,7 @@ function safeContentDisposition(filename, type) {
   var safe = String(filename || "download")
     .replace(/["\\\r\n]/g, "_")
     .replace(/[^\x20-\x7E]/g, "_");
-  // RFC 5987 encoded version for non-ASCII support
+  // RFC 8187 encoded version for non-ASCII support
   var encoded = encodeURIComponent(filename || "download");
   return type + '; filename="' + safe + '"; filename*=UTF-8\'\'' + encoded;
 }

@@ -102,7 +102,7 @@ async function completeLogin(req, userId) {
  * request gets a fresh anonymous session.
  *
  * Pass `res` (the live response) for a secure self-logout: it adds an
- * RFC 9527 Clear-Site-Data header + an expired hs_sid cookie so the
+ * W3C Clear-Site-Data header + an expired hs_sid cookie so the
  * browser drops its client-side state, not just the server row. Callers
  * without a response (e.g. flows that revoke the row but answer on a
  * different surface) omit `res` and get the server-side-only revoke.

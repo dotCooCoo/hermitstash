@@ -8792,7 +8792,7 @@ var KNOWN_ANTIPATTERNS = [
       // cookies) now route through stripDoubleQuotes. The four below keep the
       // inline test because they do MORE than a plain strip, which stripDouble
       // Quotes does not: they unescape inside the quoted span (http-client-cache
-      // — single-pass RFC 8941; middleware/scim-server — `\"`→`"`; safe-mime —
+      // — single-pass RFC 9651; middleware/scim-server — `\"`→`"`; safe-mime —
       // `\X`→`X`), or they omit the length>=2 guard and the strip is embedded in
       // a larger branch (guard-mime — a single `"` is treated differently).
       // Routing any of them would change behaviour.
@@ -12442,7 +12442,7 @@ var KNOWN_ANTIPATTERNS = [
     // (`.replace(/\\/g,"\\\\")...replace(/\n/g,"\\n")`) is the Prometheus
     // escape signature — a second exposition encoder growing in another
     // lib file, whose escaping/ordering drifts from the canonical one.
-    // The two-step backslash+quote chains used by RFC 8941 sf-string /
+    // The two-step backslash+quote chains used by RFC 9651 sf-string /
     // IMAP / Sieve / Link-header quoted-strings do not escape newline
     // and are deliberately out of scope. The `{1,60}` bound on the
     // optional intermediate replace is a ReDoS backstop, not precision.
@@ -12467,7 +12467,7 @@ var KNOWN_ANTIPATTERNS = [
     // its own detector + owner).
     regex: /\.replace\(\/\\\\\/g,\s*"\\{4}"\)\.replace\(\/"\/g/,
     allowlist: ["lib/safe-buffer.js"],
-    reason: "Backslash+DQUOTE quoted-string escaping is owned by safeBuffer.quoteString (RFC 8941 sf-string, RFC 8288 Link params, RFC 8601 reason, RFC 3501 IMAP, RFC 5804 ManageSieve all route through it). An inline `.replace(/\\\\/g,...).replace(/\"/g,...)` chain in another lib file is the serializer re-implemented — compose safeBuffer.quoteString instead. lib/safe-buffer.js is the primitive's home.",
+    reason: "Backslash+DQUOTE quoted-string escaping is owned by safeBuffer.quoteString (RFC 9651 sf-string, RFC 8288 Link params, RFC 8601 reason, RFC 3501 IMAP, RFC 5804 ManageSieve all route through it). An inline `.replace(/\\\\/g,...).replace(/\"/g,...)` chain in another lib file is the serializer re-implemented — compose safeBuffer.quoteString instead. lib/safe-buffer.js is the primitive's home.",
   },
 
   {
@@ -12709,7 +12709,7 @@ function testNoBoolStringCoerceShape() {
 // `.split(";")`) and ALSO contains an sf-string unquote regex shape
 // — meaning the parser KNOWS its values can be quoted strings but
 // doesn't respect quoted-comma boundaries during the split.
-// RFC 8941 §3.3.3 + RFC 9110 §5.5 quoted-string values legitimately
+// RFC 9651 §3.3.3 + RFC 9110 §5.5 quoted-string values legitimately
 // contain commas inside quotes (e.g. `private="Authorization,
 // Cookie"`); a bare split produces fake list members and corrupts
 // the parse output.
@@ -12739,7 +12739,7 @@ function testNoBareCommaSplitOnQuotedHeader() {
     }
   }
   bad = _filterMarkers(bad, "bare-split-on-quoted-header-token-grammar");
-  _report("RFC structured-fields parser must use quote-aware top-level splitter, not bare `.split(\",\") / .split(\";\")` (RFC 8941 §3.3.3 quoted-string values can contain delimiter chars — cdn-cache-control.parse bug class)",
+  _report("RFC structured-fields parser must use quote-aware top-level splitter, not bare `.split(\",\") / .split(\";\")` (RFC 9651 §3.3.3 quoted-string values can contain delimiter chars — cdn-cache-control.parse bug class)",
     bad);
 }
 
@@ -17383,11 +17383,66 @@ function testCaptureStatusChecked() {
           "output (an unreadable result is not an empty one)", bad);
 }
 
+// RFC 9651 §2.4 is explicit that it does NOT update specifications referencing
+// RFC 8941: "a field whose definition references RFC 8941 cannot use the Date
+// type because some recipients might still be using a parser based on RFC 8941
+// to process it." So the structured-fields RFC a comment should name is not
+// "the newest one" — it is whichever one the protocol being described
+// normatively references.
+//
+// The rule is per FILE, not per line: a module describing a protocol describes
+// it throughout, so a stray 9651 anywhere in it claims a field model that
+// protocol's own spec does not permit. `b.structuredFields` is the one
+// exception — a standalone codec of the current spec, implementing 9651 rather
+// than describing someone else's field.
+function testSfvCitationMatchesReferencingProtocol() {
+  // class: sfv-citation-must-match-referencing-protocol
+  // The codec module documents the CURRENT spec because it implements it. Every
+  // other file describes some protocol's field — Cache-Status, Targeted
+  // Cache-Control, Client Hints, Digest Fields, Message Signatures, the HTTP
+  // core — and every one of those specs was published before RFC 9651 and
+  // references RFC 8941. So the rule needs no per-protocol table: outside the
+  // codec, the structured-fields citation is RFC 8941.
+  //
+  // This detector's own prose names both numbers on purpose, hence the
+  // self-exemption.
+  var CODEC_SCOPED = {
+    "lib/structured-fields.js":                                1,
+    "test/layer-0-primitives/structured-fields.test.js":       1,
+    "test/layer-0-primitives/structured-fields-codec.test.js": 1,
+    "test/layer-0-primitives/codebase-patterns.test.js":       1,
+  };
+
+  var bad = [];
+  _libFiles().concat(_testFiles()).forEach(function (full) {
+    var rel = _relPath(full);
+    if (CODEC_SCOPED[rel]) return;
+    var src = fs.readFileSync(full, "utf8");
+    if (src.indexOf("RFC 9651") === -1) return;
+    src.split(/\r?\n/).forEach(function (line, i) {
+      if (line.indexOf("RFC 9651") === -1) return;
+      bad.push({
+        file:    rel,
+        line:    i + 1,
+        content: "cites RFC 9651 outside b.structuredFields. This file describes " +
+                 "a protocol's field, and every structured-fields consumer the " +
+                 "framework implements is specified against RFC 8941 — RFC 9651 " +
+                 "§2.4 does not update those specs, so naming it here claims a " +
+                 "field model the protocol does not permit. Cite RFC 8941",
+      });
+    });
+  });
+  bad = _filterMarkers(bad, "sfv-citation-must-match-referencing-protocol");
+  _report("a structured-fields citation names the RFC its protocol references, " +
+          "not the newest one", bad);
+}
+
 async function run() {
   testPrimitiveReachability();
   testDenyPathComposesDenyResponse();
   testNoRegexInGuardAndSafeFamily();
   testCaptureStatusChecked();
+  testSfvCitationMatchesReferencingProtocol();
   testNoInternalNarrativeComments();
   testNoOrphanAllowClass();
   testNoRetiredAllowTokenReRegistered();
