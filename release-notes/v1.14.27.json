@@ -1,0 +1,26 @@
+{
+  "version": "1.14.27",
+  "date": "2026-08-18",
+  "headline": "Rate limit the email-verification links, and correct the documented login limit",
+  "summary": "One route pair gains a limit it should always have had, and the security documentation stops describing a login throttle that is not the one in the code.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "The documented login rate limit did not match the one enforced",
+          "body": "The README described login as fifteen minutes of cooldown after five attempts. The limit in the code is fifteen attempts per five minutes — the two numbers had been transposed, in both the security table and the feature list. An operator sizing an incident response, or deciding whether the default is strict enough for their deployment, was reading the wrong figure. Corrected, along with the note that IPv6 clients are keyed by their /64 so rotating an address does not reset the counter, and the list now includes email verification and password reset."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Email-verification links are rate limited",
+          "body": "Both routes that redeem a verification token — the link opened from the email, and the request that consumes it — accepted unlimited attempts, while every comparable flow was already limited. This is not about guessing the token: it is 256 bits and the route rejects anything that is not 64 hexadecimal characters before it looks anything up. Each rejected token writes an audit record, so an unauthenticated caller could write those without bound, filling the audit table and burying the events an operator turns to first after an incident. Both routes now take the same ceiling as the password-reset link they mirror: ten attempts per fifteen minutes."
+        }
+      ]
+    }
+  ]
+}

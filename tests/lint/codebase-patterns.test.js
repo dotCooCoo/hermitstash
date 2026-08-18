@@ -648,6 +648,58 @@ function _lineOf(src, index) {
   return src.slice(0, index).split(/\r?\n/).length;
 }
 
+// Index of the ")" closing the "(" at `open`, or -1. Callers pass a
+// string-masked copy, so a paren inside a literal cannot unbalance the count.
+// Shared, rather than one copy per detector: two implementations of the same
+// scan are how the detectors here have drifted apart before.
+function _matchParen(code, open) {
+  var depth = 0;
+  for (var i = open; i < code.length; i += 1) {
+    if (code.charAt(i) === "(") depth += 1;
+    else if (code.charAt(i) === ")") { depth -= 1; if (depth === 0) return i; }
+  }
+  return -1;
+}
+
+// Blank COMMENT bodies only, leaving string contents intact. Needed where the
+// thing being looked for is itself a string argument — masking strings as well
+// blanks the very literal the rule is asking about, which reads as the check
+// being absent. Length and newlines preserved, as with _maskCodeSpans.
+function _maskCommentsOnly(src) {
+  var out = src.split("");
+  var i = 0;
+  while (i < src.length) {
+    var two = src.substr(i, 2);
+    if (two === "//") {
+      while (i < src.length && src.charAt(i) !== "\n") { out[i] = " "; i += 1; }
+      continue;
+    }
+    if (two === "/*") {
+      while (i < src.length && src.substr(i, 2) !== "*/") {
+        if (src.charAt(i) !== "\n") out[i] = " ";
+        i += 1;
+      }
+      out[i] = " "; out[i + 1] = " ";
+      i += 2;
+      continue;
+    }
+    // Skip over a string so a "//" inside one is not read as a comment.
+    var c = src.charAt(i);
+    if (c === "\"" || c === "'" || c === "`") {
+      var quote = c;
+      i += 1;
+      while (i < src.length && src.charAt(i) !== quote) {
+        if (src.charAt(i) === "\\") i += 1;
+        i += 1;
+      }
+      i += 1;
+      continue;
+    }
+    i += 1;
+  }
+  return out.join("");
+}
+
 // A require of one of the isolating helpers, by basename rather than by the
 // directory it is reached through: a test says "../helpers/isolate-db" and the
 // helpers say "./isolate-db" to each other, and a pattern anchored on "helpers/"
@@ -655,6 +707,171 @@ function _lineOf(src, index) {
 // about what counts as isolated.
 function _helperRequireRe() {
   return /require\s*\(\s*["'][^"']*(?:^|[./])(?:isolate-db|test-env|test-server)["']\s*\)/g;
+}
+
+function testAdminRoutesAreGuarded() {
+  // class: admin-route-without-admin-check
+  //
+  // An /admin route with no admin check is reachable by any signed-in user. The
+  // guard is easy to leave off because it is not part of the registration on
+  // most of these routes — it sits as the first line of the handler body, so a
+  // new route copied from a neighbour and edited can lose it without anything
+  // looking wrong.
+  //
+  // Both spellings count. requireAdmin works as 3-arg middleware named in the
+  // registration, and as an inline `if (!requireAdmin(req, res)) return;`; a few
+  // routes gate on an admin SCOPE instead, which is the same decision made
+  // through the API-key policy.
+  //
+  // What counts, decided before the scan rather than after seeing what matched:
+  //
+  //   violation   app.post("/admin/x", async (req, res) => { … })   no check anywhere
+  //   ALLOWED     app.post("/admin/x", requireAdmin, handler)       middleware form
+  //   ALLOWED     …=> { if (!requireAdmin(req, res)) return; … }    inline form
+  //   ALLOWED     app.post("/admin/x", requireScope("admin"), h)   scope middleware
+  //   violation   …=> { hasScope(key, "admin") … }                  a predicate, not a gate
+  //   ALLOWED     app.get("/dashboard", …)                          not an admin path
+  //   ALLOWED     a registration inside a comment or a string       not executable
+  //
+  // The body is read from the registration to the next one, which is where a
+  // handler ends in every route file here.
+  // Scanned over the whole source, not line by line: a registration whose path
+  // sits on the next line is still a registration, and a per-line scan cannot
+  // see one — which would let an unguarded route in through nothing more than
+  // how it was formatted.
+  var repoRoot = path.resolve(__dirname, "..", "..");
+  // The methods this router actually exposes — get, post, put, patch, delete,
+  // use and ws. `use` is here because use(prefix, mw) mounts a handler at a
+  // path, which exposes the namespace just as a route does; a plain
+  // app.use(middleware) carries no path string and so does not match. `ws` is
+  // here because an admin WebSocket route would need the same guard, though
+  // none exists today.
+  //
+  // Deliberately NOT `all`: this is not Express and the router has no such
+  // method, so app.all(...) would fail at boot rather than serve an unguarded
+  // route. Recorded so the absence reads as a decision rather than an oversight.
+  var REG = /app\.(?:get|post|put|delete|patch|use|ws)\(\s*(["'`])([^"'`]+)\1/g;
+  // Two enforcing shapes, and nothing else. Both are tested against the fully
+  // masked source, so the word inside a string or a comment cannot pass.
+  //
+  //   inline      if (!requireAdmin(req, res)) return;
+  //   middleware  app.post(path, requireAdmin, handler)
+  //
+  // The inline form has to branch AND stop. A bare `requireAdmin(req, res);`
+  // returns false and execution carries straight on; so does a branch that logs
+  // and falls through. Either is the unguarded route this class exists to catch,
+  // wearing the shape of a guard. The canonical spelling, with or without
+  // braces, is what every route here uses.
+  var GUARD_INLINE = /if\s*\(\s*!\s*requireAdmin\s*\([^)]*\)\s*\)\s*\{?\s*return\b/;
+  var GUARD_MIDDLEWARE = /\brequireAdmin\b/;
+  // The scope form needs both views at once: the CALL has to be executable
+  // (found in the masked source, where a call quoted inside a string is blanked)
+  // and its ARGUMENT has to be the exact scope (read from the comments-only
+  // source, where the literal survives). Testing the whole thing against either
+  // view alone is wrong in one direction or the other — against the masked view
+  // the scope name is blanked, and against the other a log line reading
+  // `requireScope("admin")` counts as a guard.
+  // requireScope only. hasScope is a boolean predicate — evaluating it enforces
+  // nothing, so accepting it would let `if (hasScope(key, "admin")) { … }` with
+  // no else, or a bare call, read as a guard. No admin route uses it as one; the
+  // uses in this codebase name the sync scope or sit inside helpers.
+  var SCOPE_CALL = /\brequireScope\s*\(/g;
+  // The FIRST argument, anchored at the opening paren — not "admin appears
+  // somewhere in the call". requireScope("user", "admin") names a different
+  // scope first, and requireScope(getScope("admin")) passes an expression whose
+  // value is not knowable here; neither is an admin guard.
+  var FIRST_ARG_ADMIN = /^\(\s*(["'`])admin\1\s*[,)]/;
+  function guardsByScope(masked, codeOnly, from, to) {
+    SCOPE_CALL.lastIndex = from;
+    var c;
+    while ((c = SCOPE_CALL.exec(masked)) !== null) {
+      if (c.index >= to) break;
+      var open = c.index + c[0].lastIndexOf("(");
+      var close = _matchParen(masked, open);
+      if (close === -1 || close > to) continue;
+      if (FIRST_ARG_ADMIN.test(codeOnly.slice(open, close + 1))) return true;
+    }
+    return false;
+  }
+
+  // Where the registration's middleware arguments live: from the opening paren
+  // to the start of the handler. requireScope RETURNS middleware, so a call in
+  // the handler body builds one and throws it away — only a call in this region
+  // is registered and therefore runs. The handler starts at the first `function`
+  // or `=>` at the call's own depth.
+  function argsRegionEnd(masked, open, close) {
+    var depth = 0;
+    for (var i = open; i < close; i += 1) {
+      var ch = masked.charAt(i);
+      if (ch === "(") { depth += 1; continue; }
+      if (ch === ")") { depth -= 1; continue; }
+      if (depth !== 1) continue;
+      if (masked.startsWith("function", i) || masked.startsWith("=>", i)) return i;
+    }
+    return close;
+  }
+  //
+  // Accepted limit, stated rather than left implicit: a guard that branches
+  // correctly but is placed after work has already happened still passes. Order
+  // within the handler needs the control-flow graph rather than a pattern. What
+  // is held here is that a guard exists, runs, and its answer is acted on.
+
+  var bad = [];
+  // Every request-handler tree, not just routes/ — a route can be registered
+  // from anywhere that receives the app.
+  var files = _appFiles();
+  for (var fi = 0; fi < files.length; fi++) {
+    var content;
+    try { content = fs.readFileSync(files[fi], "utf8"); } catch (_e) { continue; }
+    // Two views of the same bytes. Registrations are read where strings survive,
+    // so the path is legible; each is then confirmed against the fully-masked
+    // view, where anything inside a comment or a string has been blanked — so a
+    // registration that is only quoted text is not mistaken for a route.
+    var masked = _maskCodeSpans(content);
+    var codeOnly = _maskCommentsOnly(content);
+    var rel = path.relative(repoRoot, files[fi]).replace(/\\/g, "/");
+
+    // Every registration in the file, in order, so each one's body can end where
+    // the next begins.
+    var sites = [];
+    REG.lastIndex = 0;
+    var m;
+    while ((m = REG.exec(codeOnly)) !== null) {
+      if (masked.charAt(m.index) !== "a") continue;   // quoted or commented out
+      sites.push({ index: m.index, open: m.index + m[0].indexOf("("), routePath: m[2] });
+    }
+
+    for (var s = 0; s < sites.length; s++) {
+      // A whole path segment, not a prefix: "/administrator" and "/administer"
+      // are not the admin namespace, and demanding a guard on them would fail
+      // the gate on a route that never needed one.
+      var rp = sites[s].routePath;
+      if (rp !== "/admin" && rp.indexOf("/admin/") !== 0) continue;
+      // The region is the registration CALL, matched paren to paren, not
+      // "everything up to the next registration". The handler is an argument to
+      // this call, so its parens bound it exactly — whereas running to the next
+      // registration (or, for the last route in a file, to the end of the file)
+      // swept up trailing helpers, and a requireAdmin mentioned in one of those
+      // would have excused an unguarded route.
+      var from = sites[s].index;
+      var to = _matchParen(masked, sites[s].open);
+      if (to === -1) to = s + 1 < sites.length ? sites[s + 1].index : content.length;
+
+      // Inline: anywhere in the handler, but it has to branch on the answer.
+      if (GUARD_INLINE.test(masked.slice(from, to))) continue;
+      // Middleware: only in the argument list, where it is actually registered.
+      var argsEnd = argsRegionEnd(masked, sites[s].open, to);
+      if (GUARD_MIDDLEWARE.test(masked.slice(from, argsEnd))) continue;
+      if (guardsByScope(masked, codeOnly, from, argsEnd)) continue;
+      bad.push({
+        file: rel, line: _lineOf(content, from),
+        content: rp + " has no admin check — any signed-in user reaches "
+          + "it; add requireAdmin as middleware or as the handler's first line",
+      });
+    }
+  }
+  bad = _filterMarkers(bad, "admin-route-without-admin-check");
+  _report("every /admin route checks for an admin", bad);
 }
 
 function testTestScratchOutsideRepo() {
@@ -1070,14 +1287,7 @@ function testReleaseCaptureStatusChecked() {
     return out.join("");
   }
 
-  function matchParen(code, open) {
-    var depth = 0;
-    for (var i = open; i < code.length; i += 1) {
-      if (code.charAt(i) === "(") depth += 1;
-      else if (code.charAt(i) === ")") { depth -= 1; if (depth === 0) return i; }
-    }
-    return -1;
-  }
+  var matchParen = _matchParen;   // shared — see the module-level definition
 
   // The "(" of the group this call sits directly inside, or -1 at top level.
   // Distinguishes `if (a && gitCap(...))` — where the parent group is the
@@ -5791,6 +6001,7 @@ async function run() {
   testNoStrayConsoleCalls();
   testNoUnresolvedMarkers();
   testNoInvisibleCharacters();
+  testAdminRoutesAreGuarded();
   testTestScratchOutsideRepo();
   testTestsDoNotReachLiveDatabase();
   testReleaseCaptureStatusChecked();

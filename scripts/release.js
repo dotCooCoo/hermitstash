@@ -480,6 +480,7 @@ var PATTERNS_NA = {
   "leftmost-domain-informational": "HS's email-multi-at-split detector flags every split(\"@\")[1] domain derivation and exempts a non-routing use via the standard inline allow marker, so a separate informational-only leftmost-domain detector is subsumed",
   "from-base64url-untrapped": "HS decodes via Buffer.from(x,'base64'); never blamejs's .fromBase64Url() helper",
   "no-number-money-arithmetic": "HS has no monetary/billing domain",
+  "sfv-citation-must-match-referencing-protocol": "the detector targets files that implement a structured-fields protocol — Cache-Status, Targeted Cache-Control, Client Hints, Digest Fields, Message Signatures — and HS implements none of them. Its single structured-fields mention was a comment describing the Permissions-Policy validation the framework performs, which cites RFC 8941; the comment said RFC 9651 and was corrected to match in v1.14.26. Re-check if HS ever parses or serialises a structured field itself",
   "wildcard-suffix-match-without-single-label-check": "wildcard SNI/SAN lives in vendored blamejs; HS delegates CORS origin matching to b.middleware.cors",
   "list-without-pagination": "HS centralizes object-store pagination in the s3-client.js walker; callers delegate via S3Client.list",
   "inline-numeric-bounds-cascade": "blamejs opts-factory primitive shape; HS authors no framework primitives (consumes b.* via the public surface)",

@@ -193,7 +193,7 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | Harvest-now-decrypt-later | ML-KEM-1024 post-quantum KEM + envelope versioning for algorithm agility |
 | Classical-only TLS downgrade | ClientHello PQC gate rejects connections without hybrid key exchange groups |
 | Brute-force passwords | Argon2id (64 MiB memory, 3 iterations) |
-| Brute-force login | Rate limiting (5 attempts / 15 min per IP) |
+| Brute-force login | Rate limiting (15 attempts / 5 min per IP; IPv6 keyed by /64 so rotating an address does not reset it) |
 | Brute-force share IDs | 256-bit SHA3-derived IDs (2^256 search space) |
 | Session hijacking | Hybrid KEM encrypted cookies, per-session keys |
 | API replay attacks | Timestamp validation (30-second window) |
@@ -238,7 +238,7 @@ Built on Node.js 24.19.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - Hybrid KEM encrypted session cookies
 - Per-session XChaCha20-Poly1305 encrypted API payloads with anti-replay and anti-tamper
 - Hybrid PQC payload encryption for API clients -- ML-KEM-1024 + ECDH P-384 hybrid envelope (SHAKE256 KDF, XChaCha20-Poly1305 wrap) via blamejs apiEncrypt for sync write paths and `/drop/init` / `/drop/finalize/:bundleId`. Cookie-authenticated browsers use a per-session XChaCha20-Poly1305 envelope instead, keyed by a session key delivered in the page template rather than in any response body. Server keypair is published as plain JSON at `/.well-known/blamejs-pubkey` and vault-sealed at rest
-- Rate limiting on login (5/15min), registration (10/15min), 2FA verify (5/5min), passkey login (10/min)
+- Rate limiting on login (15/5min), registration (10/15min), 2FA verify (5/5min), passkey login (10/min), email verification (10/15min), password reset (10/15min)
 - Account lockout after 10 consecutive failed password attempts (30-minute cooldown)
 - Password reset flow with single-use, 1-hour-expiry tokens and anti-enumeration (always returns success)
 - User invitation system -- admin invites by email with role assignment, 48-hour expiry

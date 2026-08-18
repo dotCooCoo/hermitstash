@@ -69,8 +69,16 @@ function findAndValidateToken(rawToken, req, res) {
 }
 
 module.exports = function (app) {
-  // Verify email — GET shows confirmation page, POST consumes the token
-  app.get("/auth/verify/:token", async (req, res) => {
+  // Verify email — GET shows confirmation page, POST consumes the token.
+  //
+  // Both are rate limited, matching the password-reset flow they mirror. The
+  // token is 256 bits, so this is not about guessing it: every rejected token
+  // writes an EMAIL_VERIFICATION_FAILED audit row, and unauthenticated callers
+  // could otherwise write those without bound — filling the table and burying
+  // the security events it exists to record. Same ceiling as
+  // /auth/reset-password/:token, which is the same shape of flow: a token
+  // redeemed from a link in an email.
+  app.get("/auth/verify/:token", rateLimit.guard({ max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async (req, res) => {
     try {
       var rawToken = req.params.token;
       if (!findAndValidateToken(rawToken, req, res)) return;
@@ -93,7 +101,7 @@ module.exports = function (app) {
   });
 
   // Verify email — POST consumes the token and logs in the user
-  app.post("/auth/verify/:token", async (req, res) => {
+  app.post("/auth/verify/:token", rateLimit.guard({ max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async (req, res) => {
     try {
       var rawToken = req.params.token;
       var record = findAndValidateToken(rawToken, req, res);
