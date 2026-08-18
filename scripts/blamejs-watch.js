@@ -256,9 +256,117 @@ function render(a, vendored) {
   return lines.join("\n");
 }
 
+// ---- upstream issues we filed -------------------------------------------
+//
+// Filing a defect upstream is half of it: the other half is noticing when the
+// fix ships, because that is when it can be adopted. The set is read from
+// GitHub rather than kept in a list here, so it cannot fall out of date and it
+// picks up everything ever filed from this account.
+//
+// A closed issue is the actionable one — its fix is in some release, so the
+// next vendor bump is worth making deliberately rather than whenever the
+// currency gate forces it.
+var ISSUE_LIMIT = 500;
+function upstreamIssues() {
+  var raw;
+  try {
+    raw = run("gh", ["issue", "list", "--repo", "blamejs/blamejs",
+      "--author", "@me", "--state", "all", "--limit", String(ISSUE_LIMIT),
+      // stateReason separates a closure that shipped a fix (COMPLETED) from one
+      // that did not (NOT_PLANNED, DUPLICATE). Without it, an issue declined
+      // upstream would be reported as a fix waiting to be adopted.
+      "--json", "number,state,title,closedAt,stateReason"]);
+  } catch (_e) {
+    return null;   // gh missing or unauthenticated — reported, never treated as "none"
+  }
+  var parsed;
+  try { parsed = JSON.parse(raw); } catch (_e) { return null; }
+  // A count equal to the cap means the list was cut off and every total below
+  // it would understate. Say so rather than print a confident wrong number —
+  // the first version of this asked for 60 and reported 60 filed against 103.
+  if (parsed.length >= ISSUE_LIMIT) parsed.truncated = true;
+  return parsed;
+}
+
+function renderIssues(issues, vendoredAt) {
+  if (issues === null) {
+    process.stdout.write("filed upstream: could not read the issue list "
+      + "(gh unavailable or unauthenticated) — state unknown, not none\n\n");
+    return;
+  }
+  if (!issues.length) return;
+
+  var open = issues.filter(function (i) { return i.state === "OPEN"; });
+  var closed = issues.filter(function (i) { return i.state === "CLOSED"; });
+  // Only a COMPLETED closure shipped something. Declined and duplicate ones are
+  // closed too, and reporting those as fixes would send someone after an
+  // upgrade that contains nothing.
+  var fixed = closed.filter(function (i) { return i.stateReason === "COMPLETED"; });
+  var declined = closed.length - fixed.length;
+  // Candidates: fixed after the vendored release was cut, so their fix is in
+  // something newer than what is on disk.
+  //
+  // This is a CANDIDATE set and is deliberately not split into shipped and
+  // unshipped. A closure timestamp does not establish which release carries the
+  // commit — a fix merged after a tag is cut lands in the next release, a draft
+  // can sit for any length of time, and the closure may precede or follow the
+  // merge. Sorting on dates would put a confident label on a guess, so the set
+  // is reported whole and the release notes settle it. Being told to check three
+  // entries costs a minute; being told the wrong one shipped costs a release.
+  var candidates = fixed.filter(function (i) {
+    return i.closedAt && vendoredAt && i.closedAt > vendoredAt;
+  });
+
+  process.stdout.write("upstream issues filed: " + issues.length
+    + " · fixed: " + fixed.length
+    + (declined ? " · closed without a fix: " + declined : "")
+    + " · open: " + open.length
+    + (issues.truncated ? "   (list hit the " + ISSUE_LIMIT + " cap — these totals are a floor)" : "") + "\n");
+
+  if (!vendoredAt) {
+    process.stdout.write("  could not date the vendored release, so which fixes are already in is unknown\n");
+  } else if (candidates.length) {
+    process.stdout.write("\nFIXED SINCE THE VENDORED RELEASE WAS CUT — check these, then adopt and cut:\n");
+    candidates.forEach(function (i) {
+      process.stdout.write("  #" + i.number + "  " + i.title.slice(0, 88) + "\n");
+    });
+    process.stdout.write("  Confirm each against the release notes before adopting: a closure date says\n");
+    process.stdout.write("  when the issue was closed, not which release carries the commit.\n");
+  } else {
+    process.stdout.write("  none fixed since it was cut — nothing to adopt\n");
+  }
+
+  if (open.length) {
+    process.stdout.write("\nstill open:\n");
+    open.slice(0, 6).forEach(function (i) {
+      process.stdout.write("  #" + i.number + "  " + i.title.slice(0, 88) + "\n");
+    });
+    if (open.length > 6) process.stdout.write("  … and " + (open.length - 6) + " more\n");
+  }
+  process.stdout.write("\n");
+}
+
+// The commit a release's tag points at, by date. This is the boundary that
+// decides whether a fix is in that release: anything committed after it is not,
+// however long the release object took to be created or published afterwards.
+//
+// Deliberately NOT `release view --json createdAt` — that is when the release
+// OBJECT was made, which drifts from the tag whenever a release is drafted
+// early or created late. On the release vendored here the two differ by twelve
+// seconds; on a drafted one they differ by however long the draft sat.
+//
+// Null when it cannot be read; the caller then says the boundary is unknown
+// rather than assuming a side.
+function tagCommitDate(tag) {
+  try {
+    return run("gh", ["api", "repos/blamejs/blamejs/commits/" + tag,
+      "--jq", ".commit.committer.date"]) || null;
+  } catch (_e) { return null; }
+}
 function main() {
   var consumed = consumedPrimitives();
   var vendored = vendoredVersion();
+  renderIssues(upstreamIssues(), tagCommitDate("v" + vendored));
 
   var tags, replay = process.argv[2] === "--assess";
   if (replay) {

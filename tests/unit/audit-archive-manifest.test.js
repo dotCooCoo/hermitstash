@@ -12,6 +12,11 @@ var fs = require("fs");
 var dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "hs-audit-manifest-"));
 process.env.HERMITSTASH_DATA_DIR = dataDir;
 process.env.HERMITSTASH_DB_PATH = path.join(dataDir, "hermitstash.db");
+// Also the directory lib/db sweeps at load, deleting every other
+// hermitstash-*.db in it. Redirecting only the data directory leaves that on
+// /dev/shm wherever it exists — which is CI — so concurrent test processes
+// delete each other's databases there.
+process.env.HERMITSTASH_TMPDIR = dataDir;
 
 Object.keys(require.cache).forEach(function (k) {
   if (k.includes("hermitstash") && !k.includes("node_modules") && !k.includes("test")) delete require.cache[k];

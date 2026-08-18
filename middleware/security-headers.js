@@ -5,7 +5,7 @@
  *
  * The framework primitive owns:
  *   Strict-Transport-Security (HSTS), X-Content-Type-Options,
- *   X-Frame-Options, Referrer-Policy, Permissions-Policy (RFC 9651
+ *   X-Frame-Options, Referrer-Policy, Permissions-Policy (RFC 8941
  *   validated), Cross-Origin-Opener-Policy, Cross-Origin-Resource-Policy,
  *   Origin-Agent-Cluster, X-DNS-Prefetch-Control, Document-Policy,
  *   Content-Security-Policy (with Trusted Types).

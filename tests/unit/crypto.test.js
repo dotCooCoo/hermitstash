@@ -54,7 +54,10 @@ describe("crypto module", function () {
     });
   });
 
-  describe("ML-KEM-768 + AES-256-GCM", function () {
+  // Named for what the envelope actually is. It said ML-KEM-768 + AES-256-GCM,
+  // both of which this product removed — the assertions are size-based so they
+  // never noticed, but a reader would take the heading as the crypto in use.
+  describe("ML-KEM-1024 + P-384 hybrid, XChaCha20-Poly1305", function () {
     it("generateEncryptionKeyPair returns PEM keys", function () {
       var pair = generateEncryptionKeyPair();
       assert.ok(pair.publicKey.startsWith("-----BEGIN PUBLIC KEY-----"));

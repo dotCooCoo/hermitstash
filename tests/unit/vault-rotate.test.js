@@ -2,6 +2,7 @@ var { describe, it, before, after } = require("node:test");
 var assert = require("node:assert");
 var path = require("path");
 var fs = require("fs");
+var os = require("os");
 var crypto = require("crypto");
 var { DatabaseSync } = require("node:sqlite");
 var b = require("../../lib/vendor/blamejs");
@@ -11,7 +12,7 @@ var b = require("../../lib/vendor/blamejs");
 // db input, but lib/field-crypto transitively requires lib/vault which reads
 // process.env at load time.
 var testId = b.crypto.generateToken(4);
-var testHarnessDir = path.join(__dirname, "..", "..", "data", "vrtest-" + testId);
+var testHarnessDir = path.join(os.tmpdir(), "hermitstash-vrtest-" + testId);
 process.env.HERMITSTASH_DB_PATH = path.join(testHarnessDir, "harness.db");
 fs.mkdirSync(testHarnessDir, { recursive: true });
 

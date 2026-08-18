@@ -20,6 +20,7 @@
  * so the check never rejected anything.
  */
 
+require("../helpers/isolate-db"); // must precede every HermitStash require
 var { describe, it } = require("node:test");
 var assert = require("node:assert");
 var path = require("node:path");
@@ -151,8 +152,12 @@ describe("operator CIDR lists are validated per entry", function () {
     var ip = fs.readFileSync(path.join(__dirname, "..", "..", "lib", "client-ip.js"), "utf8");
     assert.match(ip, /parseCidrList\(raw\)/, "the trust list must go through the parser");
     // Which makes the parser itself the thing that must not throw, whatever a
-    // config file happens to contain.
-    [undefined, null, 0, 123, true, {}, [], " ", "a".repeat(4096), "10.0.0.0/8,".repeat(500)]
+    // config file happens to contain. The NUL is built from its number for the
+    // same reason as the override above: typed literally it makes ripgrep treat
+    // this entire file as binary, and every grep-based gate then skips it in
+    // silence.
+    var NUL = String.fromCharCode(0);
+    [undefined, null, 0, 123, true, {}, [], NUL, "a".repeat(4096), "10.0.0.0/8,".repeat(500)]
       .forEach(function (v) {
         assert.doesNotThrow(function () { clientIp.parseCidrList(v); },
           "parsing " + JSON.stringify(v === undefined ? "undefined" : v).slice(0, 40) + " must not throw");

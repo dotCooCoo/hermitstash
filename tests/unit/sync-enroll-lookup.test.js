@@ -13,7 +13,8 @@ const b = require("../../lib/vendor/blamejs");
 const C = require("../../lib/constants");
 
 var testId = b.crypto.generateToken(4);
-var testDbPath = path.join(__dirname, "..", "..", "data", "test-enroll-lookup-" + testId + ".db");
+var scratch = require("../helpers/isolate-db");
+var testDbPath = path.join(scratch.dir, "test-enroll-lookup-" + testId + ".db");
 process.env.HERMITSTASH_DB_PATH = testDbPath;
 
 Object.keys(require.cache).forEach(function (k) {

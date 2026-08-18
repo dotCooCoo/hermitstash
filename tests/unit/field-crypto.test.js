@@ -6,7 +6,8 @@ var b = require("../../lib/vendor/blamejs");
 
 // Use an isolated test database so field-crypto + vault load cleanly
 var testId = b.crypto.generateToken(4);
-var testDbPath = path.join(__dirname, "..", "..", "data", "test-field-crypto-" + testId + ".db");
+var scratch = require("../helpers/isolate-db");
+var testDbPath = path.join(scratch.dir, "test-field-crypto-" + testId + ".db");
 process.env.HERMITSTASH_DB_PATH = testDbPath;
 
 // Clear require cache so all lib modules load fresh against the test DB

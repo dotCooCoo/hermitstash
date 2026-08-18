@@ -6,7 +6,8 @@ const b = require("../../lib/vendor/blamejs");
 
 // Isolated test database (mirrors tests/unit/db.test.js bootstrap).
 var testId = b.crypto.generateToken(4);
-var testDbPath = path.join(__dirname, "..", "..", "data", "test-db-lockout-" + testId + ".db");
+var scratch = require("../helpers/isolate-db");
+var testDbPath = path.join(scratch.dir, "test-db-lockout-" + testId + ".db");
 process.env.HERMITSTASH_DB_PATH = testDbPath;
 
 Object.keys(require.cache).forEach(function (k) {

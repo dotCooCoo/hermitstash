@@ -7,7 +7,8 @@ var b = require("../../lib/vendor/blamejs");
 
 // Use an isolated test database
 var testId = b.crypto.generateToken(4);
-var testDbPath = path.join(__dirname, "..", "..", "data", "test-expiry-" + testId + ".db");
+var scratch = require("../helpers/isolate-db");
+var testDbPath = path.join(scratch.dir, "test-expiry-" + testId + ".db");
 process.env.HERMITSTASH_DB_PATH = testDbPath;
 
 // Clear require cache so all lib modules load fresh against the test DB
@@ -30,7 +31,7 @@ var expiry = {
 };
 
 // Create a temp upload dir for file operations
-var tempUploadDir = path.join(__dirname, "..", "..", "data", "test-expiry-uploads-" + testId);
+var tempUploadDir = path.join(scratch.dir, "test-expiry-uploads-" + testId);
 if (!fs.existsSync(tempUploadDir)) fs.mkdirSync(tempUploadDir, { recursive: true });
 
 after(function () {

@@ -6,7 +6,8 @@ const b = require("../../lib/vendor/blamejs");
 
 // Isolated test database for config-durability tests.
 var testId = b.crypto.generateToken(4);
-var testDbPath = path.join(__dirname, "..", "..", "data", "test-cfgdur-" + testId + ".db");
+var scratch = require("../helpers/isolate-db");
+var testDbPath = path.join(scratch.dir, "test-cfgdur-" + testId + ".db");
 process.env.HERMITSTASH_DB_PATH = testDbPath;
 process.env.LOCAL_AUTH = "true";
 process.env.REGISTRATION_OPEN = "true";

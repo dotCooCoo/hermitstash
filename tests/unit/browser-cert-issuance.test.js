@@ -10,6 +10,7 @@
 // SHA3-512 fingerprint the mTLS gate pins on is derived from certPem. If a
 // vendor bump changes the package shape, or someone reintroduces a
 // fingerprint256 dependency, this goes red.
+require("../helpers/isolate-db"); // must precede every HermitStash require
 var { describe, it } = require("node:test");
 var assert = require("node:assert");
 var b = require("../../lib/vendor/blamejs");

@@ -188,3 +188,115 @@ describe("per-user upload limits", function () {
     assert.strictEqual(Number(reloadTarget().quotaBytes), before, "value unchanged by blocked write");
   });
 });
+
+// Which cap applies to a given upload, and whether the one that applies is
+// actually enforced. The precedence has three levels — a per-user override, the
+// instance-wide PER_USER_QUOTA, and no cap at all — and getting it wrong in
+// either direction is a real outcome: a user silently granted unlimited
+// storage, or one refused an upload they are entitled to make.
+describe("per-user quota precedence and enforcement", function () {
+  var handler, config, usersRepo, filesRepo;
+  var savedGlobal, savedQuota;
+
+  before(function () {
+    handler = require(path.join(testServer.projectRoot, "app", "domain", "uploads", "upload.handler"));
+    config = require(path.join(testServer.projectRoot, "lib", "config"));
+    usersRepo = require(path.join(testServer.projectRoot, "app", "data", "repositories", "users.repo"));
+    filesRepo = require(path.join(testServer.projectRoot, "app", "data", "repositories", "files.repo"));
+    savedGlobal = config.perUserQuotaBytes;
+    savedQuota = reloadTarget().quotaBytes;
+  });
+  after(function () {
+    config.perUserQuotaBytes = savedGlobal;
+    usersRepo.update(targetId, { $set: { quotaBytes: savedQuota } });
+  });
+
+  // $set, not a bare object: the repositories forward `ops` straight to the DB
+  // layer, which acts only on $set/$push. A bare object used to write nothing
+  // and say nothing — it now throws, and the case below holds that.
+  function setOwnerQuota(v) { usersRepo.update(targetId, { $set: { quotaBytes: v } }); }
+  function check(size, ownerId) {
+    // No IP quota configured in these cases, so req is only along for the ride.
+    return handler.checkAllQuotas(size, { ownerId: ownerId }, { headers: {}, ip: "127.0.0.1" });
+  }
+
+  it("applies no per-user cap to an anonymous upload", async function () {
+    // The per-user quota is keyed on an owner. Applying the global to an upload
+    // with no owner would cap every anonymous visitor against one shared total.
+    config.perUserQuotaBytes = 1024;
+    var r = await check(1048576, null);
+    assert.strictEqual(r.allowed, true, "an ownerless upload is not subject to a per-user cap");
+  });
+
+  it("falls back to the instance default when the owner has no override", async function () {
+    setOwnerQuota(0);
+    config.perUserQuotaBytes = 1048576;
+    assert.strictEqual((await check(512, targetId)).allowed, true, "under the global cap");
+    var over = await check(2097152, targetId);
+    assert.strictEqual(over.allowed, false, "over the global cap must be refused");
+    assert.match(over.error, /Personal storage quota exceeded/);
+    assert.strictEqual(over.reason, "per-user quota exceeded");
+  });
+
+  it("lets an explicit override win over the instance default, in both directions", async function () {
+    config.perUserQuotaBytes = 1048576;   // global 1 MB
+
+    setOwnerQuota(4194304);               // this user may use 4 MB
+    assert.strictEqual((await check(2097152, targetId)).allowed, true,
+      "an override above the global raises this user's ceiling");
+
+    setOwnerQuota(1024);                  // this user is held to 1 KB
+    assert.strictEqual((await check(4096, targetId)).allowed, false,
+      "an override below the global lowers it, and is enforced");
+  });
+
+  it("treats a missing owner record as no override rather than as no cap", async function () {
+    // A grant can outlive the account it was written for. Reading the absent
+    // user as "unlimited" would turn a deleted account into a bypass.
+    config.perUserQuotaBytes = 1024;
+    var r = await check(1048576, "no-such-user-id");
+    assert.strictEqual(r.allowed, false, "an unknown owner falls back to the global cap, not to no cap");
+  });
+
+  it("counts what the owner already stores, not just the new file", async function () {
+    // The cap is on the total. Checking the incoming size alone would let a
+    // user at their limit keep uploading forever.
+    config.perUserQuotaBytes = 0;
+    setOwnerQuota(10000);
+    var f = filesRepo.create({
+      bundleId: "quota-bundle", originalName: "big.bin", storedName: "big.bin",
+      size: 9000, uploadedBy: targetId, createdAt: new Date().toISOString(),
+    });
+    try {
+      assert.strictEqual((await check(500, targetId)).allowed, true, "9000 + 500 is under 10000");
+      var over = await check(2000, targetId);
+      assert.strictEqual(over.allowed, false, "9000 + 2000 is over 10000 and must be refused");
+    } finally {
+      if (f && f._id) filesRepo.remove(f._id);
+    }
+  });
+
+  it("is off entirely when neither an override nor an instance default is set", async function () {
+    config.perUserQuotaBytes = 0;
+    setOwnerQuota(0);
+    assert.strictEqual((await check(1073741824, targetId)).allowed, true,
+      "quotas are opt-in; with none configured a large upload is allowed");
+  });
+
+  it("refuses an update that would write nothing rather than accepting it", function () {
+    // How this was found: setting the quota with a bare object left it at 0, and
+    // three enforcement cases "passed" against a cap that had never been
+    // written. The repositories take (id, ops) and hand ops straight to the DB
+    // layer, which acts only on $set/$push, so the mistake looks exactly like a
+    // correct call and reports nothing.
+    assert.throws(function () { usersRepo.update(targetId, { quotaBytes: 4096 }); },
+      /needs \$set or \$push/,
+      "a bare object must be refused, not silently ignored");
+    assert.strictEqual(Number(reloadTarget().quotaBytes), 0, "and must not have written anything");
+
+    // The correct form still works.
+    usersRepo.update(targetId, { $set: { quotaBytes: 4096 } });
+    assert.strictEqual(Number(reloadTarget().quotaBytes), 4096);
+    usersRepo.update(targetId, { $set: { quotaBytes: 0 } });
+  });
+});

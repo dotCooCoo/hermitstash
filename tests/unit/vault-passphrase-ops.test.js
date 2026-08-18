@@ -10,11 +10,12 @@ var { describe, it, before, after, beforeEach } = require("node:test");
 var assert = require("node:assert");
 var path = require("path");
 var fs = require("fs");
+var os = require("os");
 var crypto = require("crypto");
 var b = require("../../lib/vendor/blamejs");
 
 var testId = b.crypto.generateToken(4);
-var harnessDir = path.join(__dirname, "..", "..", "data", "vpops-test-" + testId);
+var harnessDir = path.join(os.tmpdir(), "hermitstash-vpops-test-" + testId);
 process.env.HERMITSTASH_DATA_DIR = harnessDir;
 process.env.HERMITSTASH_DB_PATH = path.join(harnessDir, "h.db");
 fs.mkdirSync(harnessDir, { recursive: true });

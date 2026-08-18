@@ -218,6 +218,7 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | ZIP path traversal (Zip Slip) | Entry names sanitized to remove `..` segments; paths normalized on both upload and archive |
 | Anonymous storage abuse | Per-IP upload quota with 24-hour rolling window |
 | Stored XSS via uploads | User-controlled names auto-escaped in templates; raw output reserved for admin-set values only |
+| HTML injection into outgoing email | Uploader names, file paths, skip reasons and access codes HTML-escaped before templating; link URLs escaped for attribute context so a quote cannot end the `href` |
 | Weak bundle/stash passwords | Minimum 4-character requirement enforced server-side |
 | Automated scanners and bots | Request fingerprinting (missing Accept-Language + known automation User-Agents) blocks non-browser clients on public routes — survives PQC TLS adoption |
 | NPM supply chain | All dependencies vendored as committed bundles — zero npm runtime packages |

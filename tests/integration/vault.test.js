@@ -158,7 +158,7 @@ describe("vault integration", function () {
       assert.ok((res.json.detail || res.json.error || "").includes("Invalid"), "error should mention invalid key");
     });
 
-    it("fails with wrong-size key (not 1184 or 1568 bytes)", async function () {
+    it("fails with a key that is the wrong size for ML-KEM-1024", async function () {
       await loginOwner();
       // 512 bytes -- valid base64 but wrong ML-KEM size
       var wrongSizeKey = crypto.randomBytes(512).toString("base64");
@@ -175,12 +175,18 @@ describe("vault integration", function () {
       assert.strictEqual(res.json.success, true);
     });
 
-    it("succeeds with valid ML-KEM-768 public key (1184 bytes, legacy)", async function () {
+    it("refuses an ML-KEM-768 key (1184 bytes) — the floor is ML-KEM-1024", async function () {
+      // This case used to be named as though 768 were an accepted legacy size,
+      // and sent a 1568-byte key: the helper it called returns ML-KEM-1024, so
+      // it duplicated the case above while reading as proof of support for a
+      // size the route refuses. 1184 bytes is now actually sent, and refused,
+      // which is the parameter floor this product commits to.
       await loginOwner();
-      var pk = fakePublicKey();
-      var res = await client.post("/vault/enable", { json: enablePayload(pk) });
-      assert.strictEqual(res.status, 200);
-      assert.strictEqual(res.json.success, true);
+      var pk768 = crypto.randomBytes(1184).toString("base64");
+      var res = await client.post("/vault/enable", { json: { publicKey: pk768, mode: "passkey", seed: fakeSeed() } });
+      assert.strictEqual(res.status, 400);
+      assert.ok((res.json.detail || res.json.error || "").includes("ML-KEM"),
+        "the refusal must name the key size, so an operator can tell what to send");
     });
   });
 

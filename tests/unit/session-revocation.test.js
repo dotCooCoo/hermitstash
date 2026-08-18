@@ -6,7 +6,13 @@ const nodeCrypto = require("crypto");
 
 // Isolated test DB so the vault + session store load cleanly. Set before any
 // HermitStash module is required so lib/session wires its store against it.
-var testDbPath = path.join(__dirname, "..", "..", "data", "test-session-revoke-" + nodeCrypto.randomBytes(4).toString("hex") + ".db");
+//
+// The directory has to be private to this process, not the shared temp root:
+// lib/db.js sweeps its working directory at load and deletes every other
+// hermitstash-*.db in it, so several concurrent test files pointed at one
+// directory delete each other's databases.
+var scratch = require("../helpers/isolate-db");
+var testDbPath = path.join(scratch.dir, "test-session-revoke-" + nodeCrypto.randomBytes(4).toString("hex") + ".db");
 process.env.HERMITSTASH_DB_PATH = testDbPath;
 // The session store is a SECOND database, and it was left on its shared default
 // name. Two test files opening it at once — which the runner does, since it runs

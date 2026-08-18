@@ -6,6 +6,7 @@
  * (suspend), and a security event that carries no failure word (rate_limit_hit,
  * email_quota_exceeded) is still raised to warn/failure.
  */
+require("../helpers/isolate-db"); // must precede every HermitStash require
 var { describe, it } = require("node:test");
 var assert = require("node:assert");
 var siem = require("../../lib/audit-siem");

@@ -6,7 +6,8 @@ var b = require("../../lib/vendor/blamejs");
 
 // Isolated test database — load all lib modules fresh against it.
 var testId = b.crypto.generateToken(4);
-var testDbPath = path.join(__dirname, "..", "..", "data", "test-webhook-svc-" + testId + ".db");
+var scratch = require("../helpers/isolate-db");
+var testDbPath = path.join(scratch.dir, "test-webhook-svc-" + testId + ".db");
 process.env.HERMITSTASH_DB_PATH = testDbPath;
 
 Object.keys(require.cache).forEach(function (k) {

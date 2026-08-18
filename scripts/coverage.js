@@ -38,7 +38,7 @@ var RAW = path.join(COV, "raw");
 // Rounded down because the end-to-end suite is timing-sensitive and a slow
 // machine can lose a test or two; the floors should catch a real regression
 // without failing on jitter.
-var THRESHOLDS = { lines: 81, branches: 70, functions: 74, statements: 81 };
+var THRESHOLDS = { lines: 82, branches: 74, functions: 86, statements: 82 };
 
 // What the union is measured against: code this project owns and ships.
 // Vendored trees are upstream's to test, the test files are the instrument

@@ -2,7 +2,7 @@ const { describe, it } = require("node:test");
 const assert = require("node:assert");
 var vault = require("../../lib/vault");
 
-describe("vault (ML-KEM-768)", function () {
+describe("vault (ML-KEM-1024 + P-384 hybrid)", function () {
   it("seal returns vault: prefixed string", function () {
     var sealed = vault.seal("secret data");
     assert.ok(sealed.startsWith("vault:"), "should start with vault: prefix");

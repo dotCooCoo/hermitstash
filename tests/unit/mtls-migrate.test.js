@@ -35,6 +35,11 @@ var assert = require("node:assert");
 var DATA_DIR = nodePath.join(os.tmpdir(), "hs-mtls-migrate-test-" + process.pid + "-" + Date.now());
 nodeFs.mkdirSync(DATA_DIR, { recursive: true });
 process.env.HERMITSTASH_DATA_DIR = DATA_DIR;
+// Also the directory lib/db sweeps at load, deleting every other
+// hermitstash-*.db in it. Redirecting only the data directory leaves that on
+// /dev/shm wherever it exists — which is CI — so concurrent test processes
+// delete each other's databases there.
+process.env.HERMITSTASH_TMPDIR = DATA_DIR;
 
 var b = require("../../lib/vendor/blamejs");
 var C = require("../../lib/constants");

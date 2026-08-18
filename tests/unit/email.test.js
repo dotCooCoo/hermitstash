@@ -7,7 +7,8 @@ const b = require("../../lib/vendor/blamejs");
 
 // Use an isolated test database
 var testId = b.crypto.generateToken(4);
-var testDbPath = path.join(__dirname, "..", "..", "data", "test-email-" + testId + ".db");
+var scratch = require("../helpers/isolate-db");
+var testDbPath = path.join(scratch.dir, "test-email-" + testId + ".db");
 process.env.HERMITSTASH_DB_PATH = testDbPath;
 
 // Clear module cache so db, config, email all load fresh
@@ -237,8 +238,13 @@ describe("email", function () {
     });
 
     it("sendEmail returns false for addresses containing NUL", async function () {
+      // Built from its number rather than typed. A literal NUL makes ripgrep
+      // classify this whole file as binary, and every grep-based gate then skips
+      // it in silence — which is how a repo-anchored scratch path survived two
+      // separate sweeps here. The byte the validator sees is identical.
+      var NUL = String.fromCharCode(0);
       var result = await email.sendEmail({
-        to: "victim@example.com extra",
+        to: "victim@example.com" + NUL + "extra",
         subject: "test",
         html: "<p>hi</p>",
       });

@@ -41,16 +41,29 @@ after(function () {
 });
 
 var projectRoot = path.join(__dirname, "..", "..");
+var securityStatus = require("../../app/domain/admin/security-status.service");
 
-// The two predicates, read out of the source. Driving the real endpoint would
-// need an admin session, a listening server and control over the process
-// environment at boot; what is worth pinning is that the panel's inputs match
-// the server's, and that is a property of the expressions themselves.
+// Where the panel gets its INPUTS is a property of two files agreeing, and
+// neither can be driven without a listening server and control of the boot
+// environment — so those are read out of the source. What the panel then CLAIMS
+// about those inputs is a pure function, so it is asked directly.
 function adminSource() {
   return fs.readFileSync(path.join(projectRoot, "routes", "admin.js"), "utf8");
 }
 function serverSource() {
   return fs.readFileSync(path.join(projectRoot, "server-main.js"), "utf8");
+}
+
+// A deployment with nothing configured, so each case turns on only what it is
+// about. Mirrors the default in tests/unit/security-status-report.test.js.
+function panelState(over) {
+  return Object.assign({
+    vaultMode: "disabled", vaultSealedExists: false, vaultKeyExists: false,
+    caKeyMode: "auto", caSealedExists: false, caPlainExists: false, caExists: false,
+    tlsKeyMode: "auto", tlsSealedExists: false, tlsPlainExists: false,
+    tlsCertExists: false, tlsKeyExists: false, tlsServing: false,
+    enforceMtlsStrict: undefined, mtlsHardEnforced: false, mtlsSoftEnforced: false,
+  }, over || {});
 }
 
 describe("the security panel agrees with what the server actually does", function () {
@@ -83,8 +96,15 @@ describe("the security panel agrees with what the server actually does", functio
       "the panel must read the recorded listener state");
     assert.match(src, /var hardReported = runtimeState\.get\("hardMtls"\);/,
       "and the recorded enforcement state");
-    assert.match(src, /status: tlsServing \? "ok" : "warn"/,
-      "the TLS row's status must come from that");
+    // What each row then CLAIMS about that state moved to
+    // app/domain/admin/security-status.service.js and is asserted on behaviour
+    // in tests/unit/security-status-report.test.js — including that the TLS row
+    // is only "ok" when the process reports it is serving. Pinned here: the
+    // route still hands the recorded value over rather than deciding again.
+    assert.match(src, /securityStatus\.buildReport\(\{/,
+      "the route must delegate the claims rather than rebuild them inline");
+    assert.match(src, /tlsServing: tlsServing,/,
+      "and must pass the recorded listener state into it");
     assert.ok(!/status: tlsPlainExists \|\| tlsSealedExists \? "ok"/.test(src),
       "the key-only predicate must be gone");
 
@@ -106,8 +126,13 @@ describe("the security panel agrees with what the server actually does", functio
   });
 
   it("a key without a certificate is named as the reason, not reported as enabled", function () {
-    var src = adminSource();
-    assert.match(src, /key present, certificate missing/,
+    // Asserted on behaviour rather than on source text: the row is built by
+    // app/domain/admin/security-status.service.js, so the claim can be asked
+    // for directly instead of matched against an expression.
+    var report = securityStatus.buildReport(panelState({ tlsKeyExists: true, tlsCertExists: false }));
+    var tls = report.items.filter(function (i) { return i.key === "tls"; })[0];
+    assert.equal(tls.status, "warn");
+    assert.match(tls.value, /key present, certificate missing/,
       "the half-configured case is the one an operator has to act on, so it must say so");
   });
 
@@ -121,8 +146,11 @@ describe("the security panel agrees with what the server actually does", functio
   });
 
   it("and when it is asked for but impossible, the guidance says why", function () {
-    var src = adminSource();
-    assert.match(src, /hard enforcement is a TLS-listener setting and this server is running without TLS/,
+    var report = securityStatus.buildReport(panelState({
+      enforceMtlsStrict: "true", caExists: true, tlsServing: false, mtlsHardEnforced: false,
+    }));
+    var row = report.items.filter(function (i) { return i.key === "mtls_enforcement"; })[0];
+    assert.match(row.guidance, /hard enforcement is a TLS-listener setting and this server is running without TLS/,
       "repeating 'set ENFORCE_MTLS_STRICT=true' to someone who already has is not guidance");
   });
 
@@ -131,10 +159,16 @@ describe("the security panel agrees with what the server actually does", functio
     // the next configuration along. With ENFORCE_MTLS=true the middleware does
     // require a client certificate, so telling the operator none is required
     // would be the same defect pointed the other way.
-    var src = adminSource();
-    assert.match(src, /mtlsSoftEnforced\s*\n?\s*\?\s*"ENFORCE_MTLS_STRICT=true is set, but hard enforcement/,
+    var base = { enforceMtlsStrict: "true", caExists: true, tlsServing: false, mtlsHardEnforced: false };
+    function guidance(soft) {
+      var r = securityStatus.buildReport(panelState(Object.assign({}, base, { mtlsSoftEnforced: soft })));
+      return r.items.filter(function (i) { return i.key === "mtls_enforcement"; })[0].guidance;
+    }
+    assert.notEqual(guidance(true), guidance(false),
       "the no-TLS guidance must branch on whether soft enforcement is active");
-    assert.match(src, /Client certificates are still required by the app-layer check/,
+    assert.match(guidance(true), /Client certificates are still required by the app-layer check/,
       "and must say so when it is");
+    assert.match(guidance(false), /no client certificate is required on any connection/,
+      "and say the opposite when it is not");
   });
 });

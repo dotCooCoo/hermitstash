@@ -2,12 +2,13 @@ var { describe, it, before, after } = require("node:test");
 var assert = require("node:assert");
 var path = require("path");
 var fs = require("fs");
+var os = require("os");
 var crypto = require("crypto");
 var b = require("../../lib/vendor/blamejs");
 
 // Isolated harness — vault module loads cleanly against an isolated DB
 var testId = b.crypto.generateToken(4);
-var harnessDir = path.join(__dirname, "..", "..", "data", "pem-seal-test-" + testId);
+var harnessDir = path.join(os.tmpdir(), "hermitstash-pem-seal-test-" + testId);
 process.env.HERMITSTASH_DATA_DIR = harnessDir;
 process.env.HERMITSTASH_DB_PATH = path.join(harnessDir, "h.db");
 fs.mkdirSync(harnessDir, { recursive: true });

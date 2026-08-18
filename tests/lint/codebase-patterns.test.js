@@ -603,6 +603,423 @@ function testNoInvisibleCharacters() {
   _report("no invisible or bidi-control characters in shipped text", bad);
 }
 
+// Blank comment bodies and string contents, preserving length and newlines so an
+// index into the result indexes the original. Two detectors below need it for
+// the same reason: a rule that reads source as plain text accepts a comment that
+// merely mentions the thing, and accepts a match inside a string — including the
+// child-process scripts some tests build as text, where the code applies to the
+// child and leaves this process on whatever it was already using.
+function _maskCodeSpans(src) {
+  var out = src.split("");
+  var i = 0;
+  while (i < src.length) {
+    var c = src.charAt(i);
+    var two = src.substr(i, 2);
+    if (two === "//") {
+      while (i < src.length && src.charAt(i) !== "\n") { out[i] = " "; i += 1; }
+      continue;
+    }
+    if (two === "/*") {
+      while (i < src.length && src.substr(i, 2) !== "*/") {
+        if (src.charAt(i) !== "\n") out[i] = " ";
+        i += 1;
+      }
+      out[i] = " "; out[i + 1] = " ";
+      i += 2;
+      continue;
+    }
+    if (c === "\"" || c === "'" || c === "`") {
+      var quote = c;
+      i += 1;
+      while (i < src.length && src.charAt(i) !== quote) {
+        if (src.charAt(i) === "\\") { out[i] = " "; i += 1; }
+        if (i < src.length && src.charAt(i) !== "\n") out[i] = " ";
+        i += 1;
+      }
+      i += 1;
+      continue;
+    }
+    i += 1;
+  }
+  return out.join("");
+}
+
+function _lineOf(src, index) {
+  return src.slice(0, index).split(/\r?\n/).length;
+}
+
+// A require of one of the isolating helpers, by basename rather than by the
+// directory it is reached through: a test says "../helpers/isolate-db" and the
+// helpers say "./isolate-db" to each other, and a pattern anchored on "helpers/"
+// sees only the first. Shared by both detectors below so they cannot disagree
+// about what counts as isolated.
+function _helperRequireRe() {
+  return /require\s*\(\s*["'][^"']*(?:^|[./])(?:isolate-db|test-env|test-server)["']\s*\)/g;
+}
+
+function testTestScratchOutsideRepo() {
+  // class: test-scratch-inside-repo
+  //
+  // A test that puts its scratch under the repository leaves it there. Teardown
+  // is unreliable — on Windows a directory cannot be removed while the database
+  // inside it is open, and a syncing agent holds the directory handle even after
+  // every file is gone — so what accumulates is permanent. data/ had reached
+  // 9,097 abandoned directories, 671 loose databases and 884 session databases,
+  // each beside the live database and the real vault keys, and all of it
+  // replicated to cloud storage. In the OS temp directory a missed one is the
+  // operating system's to sweep.
+  //
+  // Two shapes, because the second is invisible on the line that causes it.
+  //
+  // What counts, decided before the scan rather than after seeing what matched:
+  //
+  //   violation   path.join(__dirname, "..", "..", "data", name)   repo-anchored scratch
+  //   violation   path.join(projectRoot, "uploads", name)          same, other anchor
+  //   violation   HERMITSTASH_SESSION_DB set, nothing else set     see below
+  //   ALLOWED     path.join(os.tmpdir(), name)                     no repo anchor
+  //   ALLOWED     path.join(__dirname, "..", "..", "lib", f)       reads source, not scratch
+  //   ALLOWED     path.join(projectRoot, "app", "data", "…")       "data" here is source too
+  //   ALLOWED     path.join(__dirname, "fixtures", f)              reads a fixture
+  //   ALLOWED     "../../data/vault.key" as a payload string       no join, no anchor
+  //   ALLOWED     SESSION_DB set beside TMPDIR or DATA_DIR         redirected
+  //
+  // Which is why the scratch segment has to be the FIRST one after the anchor
+  // and its "../" hops, rather than merely present: app/data/repositories/*.repo
+  // is a source import that every server-backed test makes, and matching "data"
+  // anywhere in the argument list flags all of them.
+  //
+  // The session-database shape: HERMITSTASH_SESSION_DB is a filename, not a
+  // path. lib/session.js joins it onto /dev/shm where that exists and onto the
+  // data directory where it does not, so giving it a unique name — which tests
+  // do, to stop parallel files colliding on one store — reads as isolation while
+  // still writing inside the repo on any platform without /dev/shm. The escape
+  // is per-file: setting HERMITSTASH_TMPDIR or HERMITSTASH_DATA_DIR anywhere in
+  // the file has already redirected it, including into a spawned child's env.
+  var repoRoot = path.resolve(__dirname, "..", "..");
+  var ANCHOR = /^(?:[A-Za-z_$][\w$]*\.)?(?:__dirname|projectRoot|repoRoot|rootDir|REPO)$/;
+  var SCRATCH_SEG = /^["'](data|uploads)["']$/;
+  var HOP = /^["'](\.\.?)["']$/;
+  var JOIN = /path\.join\s*\(([^)]*)\)/g;
+  // Tokens in order, keeping a quoted literal whole so a comma inside one does
+  // not split it.
+  var TOKEN = /\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^,]+?)\s*(?:,|$)/g;
+
+  function firstSegmentAfterAnchor(args) {
+    TOKEN.lastIndex = 0;
+    var toks = [];
+    var t;
+    while ((t = TOKEN.exec(args)) !== null) {
+      if (t[1]) toks.push(t[1].trim());
+      if (TOKEN.lastIndex >= args.length) break;
+    }
+    if (!toks.length || !ANCHOR.test(toks[0])) return null;
+    for (var i = 1; i < toks.length; i++) {
+      if (HOP.test(toks[i])) continue;
+      return toks[i];
+    }
+    return null;
+  }
+
+  // Executable forms only — the same reason the reachability gate below asks for
+  // them. A comment naming the variable is not a redirect.
+  var SETS_SESSION = /process\.env\.HERMITSTASH_SESSION_DB\s*=(?!=)/;
+  var SETS_REDIRECT = /process\.env\.HERMITSTASH_(?:TMPDIR|DATA_DIR)\s*=(?!=)/;
+  var HELPER_REQUIRE = _helperRequireRe();
+
+  var bad = [];
+  var files = _testFiles();
+  for (var fi = 0; fi < files.length; fi++) {
+    var content;
+    try { content = fs.readFileSync(files[fi], "utf8"); } catch (_e) { continue; }
+    var rel = path.relative(repoRoot, files[fi]).replace(/\\/g, "/");
+    var masked = _maskCodeSpans(content);
+
+    // Scanned over the whole source rather than line by line: the argument list
+    // is routinely wrapped across lines, and a per-line scan never sees those —
+    // wrapping the call would have been enough to walk past this gate.
+    JOIN.lastIndex = 0;
+    var m;
+    while ((m = JOIN.exec(content)) !== null) {
+      if (masked.charAt(m.index) !== "p") continue;   // inside a string or comment
+      var seg = firstSegmentAfterAnchor(m[1]);
+      if (!seg || !SCRATCH_SEG.test(seg)) continue;
+      bad.push({
+        file: rel, line: _lineOf(content, m.index),
+        content: m[0].replace(/\s+/g, " ").trim() + " — scratch anchored to the "
+          + "repository; join onto os.tmpdir() instead",
+      });
+    }
+
+    var sessionAt = masked.search(SETS_SESSION);
+    if (sessionAt !== -1 && !SETS_REDIRECT.test(masked)) {
+      var viaHelper = false;
+      HELPER_REQUIRE.lastIndex = 0;
+      var hr;
+      while ((hr = HELPER_REQUIRE.exec(content)) !== null) {
+        if (masked.charAt(hr.index) === "r") { viaHelper = true; break; }
+      }
+      if (!viaHelper) {
+        bad.push({
+          file: rel, line: _lineOf(content, sessionAt),
+          content: "HERMITSTASH_SESSION_DB is a filename, not a path — it lands in "
+            + "the data directory unless HERMITSTASH_TMPDIR or HERMITSTASH_DATA_DIR "
+            + "is set too",
+        });
+      }
+    }
+  }
+  bad = _filterMarkers(bad, "test-scratch-inside-repo");
+  _report("test scratch is written outside the repository", bad);
+}
+
+function testTestsDoNotReachLiveDatabase() {
+  // class: test-reaches-live-database
+  //
+  // lib/db.js resolves its paths once, at load, and sets its encrypted path only
+  // when HERMITSTASH_DB_PATH is unset — which is also the condition under which
+  // the exit hook re-encrypts data/hermitstash.db.enc. So a test process that
+  // loads lib/db without redirecting it first decrypts the operator's real
+  // database to a working file, runs its assertions against whatever real
+  // settings it finds there, and writes the file back out on the way out.
+  //
+  // No test mentions the database to do this. lib/config reads settings from it,
+  // so requiring lib/client-ip, lib/audit-siem, middleware/security-headers or
+  // middleware/sync-guards is enough, and seven files got there that way. Two
+  // costs beyond the write: real data sits decrypted on disk for the duration,
+  // and any row a test inserts lands in the operator's database.
+  //
+  // Redirecting HERMITSTASH_TMPDIR instead does not help and is worse — it moves
+  // the WORKING database to scratch while the encrypted path stays on the live
+  // file, so the exit hook writes the scratch database over the real one. Only
+  // HERMITSTASH_DB_PATH nulls the encrypted path.
+  //
+  // lib/db resolves TWO things from the environment at load, and isolating one
+  // without the other still leaves a live file exposed:
+  //
+  //   encrypted path   data/hermitstash.db.enc, rewritten by the exit hook.
+  //                    Moved by HERMITSTASH_DB_PATH (which nulls it) or by
+  //                    HERMITSTASH_DATA_DIR (which relocates it).
+  //   working directory  swept at load — every other hermitstash-*.db in it is
+  //                    deleted. It is HERMITSTASH_TMPDIR, else /dev/shm, else the
+  //                    data directory. Left at the default, a test deletes the
+  //                    working database of a development server running from this
+  //                    checkout; pointed at the shared OS temp root, concurrent
+  //                    test processes delete each other's.
+  //
+  // So a file needs BOTH, and only HERMITSTASH_TMPDIR settles the second one.
+  // HERMITSTASH_DATA_DIR does not: /dev/shm is preferred over the data directory
+  // wherever it exists, so on Linux — which is to say on CI, and not on the
+  // Windows machine where this was written — a file that redirects only the data
+  // directory still shares one swept directory with every other test process.
+  //
+  // Compliant: a private HERMITSTASH_TMPDIR, plus HERMITSTASH_DB_PATH or
+  // HERMITSTASH_DATA_DIR — or a helper that does both. Neither half alone is
+  // enough, and TMPDIR assigned the shared temp root is not private.
+  //
+  // Order matters as much as presence — lib/db reads the environment once, at
+  // load — so the escape has to appear ABOVE the first require that reaches it.
+  // A file that redirects the path after requiring lib/config has already lost.
+  //
+  // And it has to be an escape that RUNS. Matching the variable name as text
+  // accepts a comment that merely mentions it, and accepts the name inside a
+  // string — including the child-process scripts some files build, where the
+  // assignment applies to the child and leaves this process on the live
+  // database. So comments are stripped and string contents blanked before the
+  // assignment is looked for, and a helper require counts only when the
+  // `require` token itself survives that blanking.
+  var repoRoot = path.resolve(__dirname, "..", "..");
+  var SOURCE_ROOTS = ["lib", "app", "routes", "middleware"];
+  var TARGET = path.join(repoRoot, "lib", "db.js");
+  // Lookahead rather than a consumed character, so an assignment whose value
+  // starts on the next line still matches while `===` still does not.
+  var ASSIGN_DATA_DIR = /process\.env\.HERMITSTASH_DATA_DIR\s*=(?!=)/;
+  var ASSIGN_DB_PATH = /process\.env\.HERMITSTASH_DB_PATH\s*=(?!=)/;
+  var ASSIGN_TMPDIR = /process\.env\.HERMITSTASH_TMPDIR\s*=(?!=)/;
+  // Assigned the shared temp root itself, rather than something under it. That
+  // is not isolation — it is every concurrent test process sweeping one
+  // directory — so it does not count as a redirect and is called out by name.
+  var ASSIGN_SHARED_ROOT =
+    /process\.env\.HERMITSTASH_(?:TMPDIR|DATA_DIR)\s*=\s*(?:require\(\s*["']os["']\s*\)|os)\.tmpdir\(\)\s*;?\s*$/;
+  var ESCAPE_HELPER = _helperRequireRe();
+
+  // Masking is shared with the scratch-path gate above — see _maskCodeSpans.
+
+  function resolveModule(spec, fromDir) {
+    if (!spec || spec.charAt(0) !== ".") return null;
+    var base = path.resolve(fromDir, spec);
+    var tries = [base, base + ".js", path.join(base, "index.js")];
+    for (var i = 0; i < tries.length; i++) {
+      try { if (fs.statSync(tries[i]).isFile()) return tries[i]; } catch (_e) { /* next */ }
+    }
+    return null;
+  }
+
+  // Both shapes this repo writes: a literal specifier, and the path.join form
+  // that several test files use against a projectRoot variable.
+  var REQ_LITERAL = /require\s*\(\s*["']([^"']+)["']\s*\)/g;
+  var REQ_JOIN = /require\s*\(\s*path\.join\s*\(([^)]*)\)\s*\)/g;
+  var SEGMENT = /["']([^"']+)["']/g;
+
+  // ONE scan answers both questions — which modules a file depends on, and the
+  // line each dependency is pulled in on. They were two scans, and the per-line
+  // one could not see a require whose arguments wrapped, while the whole-source
+  // one could: the dependency counted, its line did not, and a redirect written
+  // below it then read as being above it. Sharing the scan removes the gap by
+  // construction rather than by keeping two regex loops in agreement.
+  //
+  // Masked, so a commented-out require and one embedded in a child-process
+  // script are not mistaken for executable dependencies.
+  var siteCache = {};
+  function requireSites(file) {
+    if (Object.prototype.hasOwnProperty.call(siteCache, file)) return siteCache[file];
+    var src;
+    try { src = fs.readFileSync(file, "utf8"); } catch (_e) { siteCache[file] = []; return []; }
+    var masked = _maskCodeSpans(src);
+    var dir = path.dirname(file);
+    var sites = [];
+    var m;
+    REQ_LITERAL.lastIndex = 0;
+    while ((m = REQ_LITERAL.exec(src)) !== null) {
+      if (masked.charAt(m.index) !== "r") continue;
+      var r = resolveModule(m[1], dir);
+      if (r) sites.push({ file: r, line: _lineOf(src, m.index) });
+    }
+    REQ_JOIN.lastIndex = 0;
+    while ((m = REQ_JOIN.exec(src)) !== null) {
+      if (masked.charAt(m.index) !== "r") continue;
+      // Only the anchored-at-the-repo-root form is reconstructable; a segment
+      // built from a variable (routes[i]) is skipped rather than guessed.
+      if (!/\b(projectRoot|repoRoot|rootDir|REPO)\b/.test(m[1])) continue;
+      var segs = [];
+      SEGMENT.lastIndex = 0;
+      var s;
+      while ((s = SEGMENT.exec(m[1])) !== null) segs.push(s[1]);
+      if (!segs.length || SOURCE_ROOTS.indexOf(segs[0]) === -1) continue;
+      var joined = path.join.apply(path, [repoRoot].concat(segs));
+      var rj = resolveModule("." + path.sep + path.relative(repoRoot, joined), repoRoot);
+      if (rj) sites.push({ file: rj, line: _lineOf(src, m.index) });
+    }
+    siteCache[file] = sites;
+    return sites;
+  }
+
+  var reaches = {};
+  function reachesDb(file, seen) {
+    if (file === TARGET) return true;
+    if (Object.prototype.hasOwnProperty.call(reaches, file)) return reaches[file];
+    if (seen[file]) return false;             // cycle — this arm contributes nothing
+    seen[file] = true;
+    var deps = requireSites(file);
+    var answer = false;
+    for (var i = 0; i < deps.length && !answer; i++) {
+      var d = deps[i].file;
+      var rel = path.relative(repoRoot, d).replace(/\\/g, "/");
+      if (rel.indexOf("lib/vendor/") === 0) continue;
+      if (d === TARGET) { answer = true; break; }
+      if (!/^(lib|app|routes|middleware|tests)\//.test(rel)) continue;
+      answer = reachesDb(d, seen);
+    }
+    reaches[file] = answer;
+    return answer;
+  }
+
+  // The line the file first pulls lib/db in on, from the same site list that
+  // decided it reaches at all — so a reaching file always has a line.
+  function firstReachingLine(file) {
+    var sites = requireSites(file);
+    var best = -1;
+    for (var i = 0; i < sites.length; i++) {
+      var d = sites[i].file;
+      if (d !== TARGET && !reachesDb(d, {})) continue;
+      if (best === -1 || sites[i].line < best) best = sites[i].line;
+    }
+    return best;
+  }
+
+  var bad = [];
+  var files = _testFiles();
+  for (var fi = 0; fi < files.length; fi++) {
+    if (!/\.test\.js$/.test(files[fi])) continue;
+    var content;
+    try { content = fs.readFileSync(files[fi], "utf8"); } catch (_e) { continue; }
+    if (!reachesDb(files[fi], {})) continue;
+
+    // Line numbers here are 1-based throughout, so the comparison below and the
+    // message agree with what an editor shows.
+    var reachLine = firstReachingLine(files[fi]);
+
+    // Earliest line carrying an escape that actually executes.
+    var masked = _maskCodeSpans(content);
+    var maskedLines = masked.split(/\r?\n/);
+    var escapeLine = -1;
+    function noteEscapeLine(line) {
+      if (line > 0 && (escapeLine === -1 || line < escapeLine)) escapeLine = line;
+    }
+    // Collected separately because the two halves are separate: something has to
+    // move the encrypted path, and something has to move the swept directory.
+    var dataDirLine = -1, dbPathLine = -1, tmpDirLine = -1, sharedRootLine = -1;
+    for (var li = 0; li < maskedLines.length; li++) {
+      var lineText = maskedLines[li].replace(/\s+$/, "");
+      if (ASSIGN_SHARED_ROOT.test(lineText)) {
+        if (sharedRootLine === -1) sharedRootLine = li + 1;
+        continue;                              // not a redirect — see above
+      }
+      if (dataDirLine === -1 && ASSIGN_DATA_DIR.test(lineText)) dataDirLine = li + 1;
+      if (dbPathLine === -1 && ASSIGN_DB_PATH.test(lineText)) dbPathLine = li + 1;
+      if (tmpDirLine === -1 && ASSIGN_TMPDIR.test(lineText)) tmpDirLine = li + 1;
+    }
+    // A helper require satisfies both halves at once, at its own line.
+    var helperLine = -1;
+    ESCAPE_HELPER.lastIndex = 0;
+    var helperMatch;
+    while ((helperMatch = ESCAPE_HELPER.exec(content)) !== null) {
+      if (masked.charAt(helperMatch.index) !== "r") continue;
+      var hl = _lineOf(content, helperMatch.index);
+      if (helperLine === -1 || hl < helperLine) helperLine = hl;
+    }
+
+    // Whichever of DB_PATH / DATA_DIR comes first moves the encrypted path.
+    var encLine = -1;
+    if (dataDirLine !== -1) encLine = dataDirLine;
+    if (dbPathLine !== -1 && (encLine === -1 || dbPathLine < encLine)) encLine = dbPathLine;
+    if (helperLine !== -1 && (encLine === -1 || helperLine < encLine)) encLine = helperLine;
+
+    var tmpLine = tmpDirLine;
+    if (helperLine !== -1 && (tmpLine === -1 || helperLine < tmpLine)) tmpLine = helperLine;
+
+    // In force only once both hold.
+    if (encLine !== -1 && tmpLine !== -1) noteEscapeLine(Math.max(encLine, tmpLine));
+
+    // Not strictly above: requiring a helper IS the redirect, and it happens on
+    // the same line that first reaches lib/db — the helper sets the environment
+    // at its own load, before the modules below it are pulled in.
+    //
+    // A file that reaches lib/db but whose reaching line could not be located is
+    // NOT excused by an escape appearing somewhere: with no line to compare
+    // against there is no evidence the redirect ran first, so it fails.
+    if (escapeLine !== -1 && reachLine !== -1 && escapeLine <= reachLine) continue;
+
+    bad.push({
+      file: path.relative(repoRoot, files[fi]).replace(/\\/g, "/"),
+      line: reachLine === -1 ? 1 : reachLine,
+      content: sharedRootLine !== -1 && escapeLine === -1
+        ? "line " + sharedRootLine + " points the working directory at the shared "
+          + "temp root — every concurrent test process then sweeps it and deletes "
+          + "the others' databases; require(\"../helpers/isolate-db\") for a private one"
+        : escapeLine === -1
+        ? "reaches lib/db without redirecting it — the exit hook re-encrypts the "
+          + "operator's live database; require(\"../helpers/isolate-db\") first"
+        : reachLine === -1
+          ? "reaches lib/db but the require could not be located, so the redirect "
+            + "on line " + escapeLine + " cannot be shown to run first"
+          : "redirects the database on line " + escapeLine + ", below the require "
+            + "that already loaded it — lib/db reads the environment once, at load",
+    });
+  }
+  bad = _filterMarkers(bad, "test-reaches-live-database");
+  _report("no test reaches the live database", bad);
+}
+
 function testReleaseCaptureStatusChecked() {
   // class: release-script-capture-status-unchecked
   //
@@ -5374,6 +5791,8 @@ async function run() {
   testNoStrayConsoleCalls();
   testNoUnresolvedMarkers();
   testNoInvisibleCharacters();
+  testTestScratchOutsideRepo();
+  testTestsDoNotReachLiveDatabase();
   testReleaseCaptureStatusChecked();
   testNoLiteralNulBytesInSource();
   testNoReleaseNamedTestFiles();

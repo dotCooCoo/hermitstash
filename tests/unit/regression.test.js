@@ -3,6 +3,7 @@
  * in production or during code review. If any of these fail, we're
  * re-introducing a previously fixed issue.
  */
+require("../helpers/isolate-db"); // must precede every HermitStash require
 const { describe, it } = require("node:test");
 const assert = require("node:assert");
 const path = require("path");

@@ -10,13 +10,19 @@ var { describe, it, before, after } = require("node:test");
 var assert = require("node:assert");
 var path = require("path");
 var fs = require("fs");
+var os = require("os");
 var crypto = require("crypto");
 var b = require("../../lib/vendor/blamejs");
 
 var testId = b.crypto.generateToken(4);
-var harnessDir = path.join(__dirname, "..", "..", "data", "backup-hardening-test-" + testId);
+var harnessDir = path.join(os.tmpdir(), "hermitstash-backup-hardening-test-" + testId);
 process.env.HERMITSTASH_DATA_DIR = harnessDir;
 process.env.HERMITSTASH_DB_PATH = path.join(harnessDir, "h.db");
+// Also the directory lib/db sweeps at load, deleting every other
+// hermitstash-*.db in it. Redirecting only the data directory leaves that on
+// /dev/shm wherever it exists — which is CI — so concurrent test processes
+// delete each other's databases there.
+process.env.HERMITSTASH_TMPDIR = harnessDir;
 fs.mkdirSync(harnessDir, { recursive: true });
 
 Object.keys(require.cache).forEach(function (k) {

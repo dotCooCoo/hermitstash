@@ -257,7 +257,7 @@ describe("auth integration", function () {
       assert.strictEqual(res.status, 302, "dashboard should redirect when logged out");
     });
 
-    it("session cookie is ML-KEM-768 encrypted (large)", async function () {
+    it("session cookie is ML-KEM-1024 encrypted (large)", async function () {
       client.clearCookies();
       await client.initApiKey();
       await client.post("/auth/login", {

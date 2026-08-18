@@ -1,3 +1,4 @@
+require("../helpers/isolate-db"); // must precede every HermitStash require
 const { describe, it, before } = require("node:test");
 const assert = require("node:assert");
 const path = require("path");

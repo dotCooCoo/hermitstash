@@ -1,3 +1,8 @@
+// Must precede every HermitStash require. Redirecting HERMITSTASH_TMPDIR alone
+// is not enough and is actively worse: it moves the WORKING database to scratch
+// while lib/db keeps its encrypted path pointed at the operator's real file, so
+// the exit hook writes the scratch database over the live one.
+require("../helpers/isolate-db");
 const { describe, it, before } = require("node:test");
 const assert = require("node:assert");
 var http = require("http");
@@ -13,7 +18,7 @@ var { Router } = require("../../lib/vendor/blamejs").router;
 var { sessionMiddleware } = require("../../lib/session");
 var vault = require("../../lib/vault");
 
-describe("session (ML-KEM-768 encrypted cookies)", function () {
+describe("session (ML-KEM-1024 encrypted cookies)", function () {
   before(async function () {
     // b.session.create (v0.9.45+) calls b.vault.getDerivedHashSalt for
     // the userIdHash derived hash. Without an explicit vault.init the
@@ -38,7 +43,7 @@ describe("session (ML-KEM-768 encrypted cookies)", function () {
     });
   });
 
-  it("cookie value is ML-KEM-768 encrypted (large, no dot separator)", function (_, done) {
+  it("cookie value is ML-KEM-1024 encrypted (large, no dot separator)", function (_, done) {
     var app = new Router();
     app.use(sessionMiddleware);
     app.get("/t", function (req, res) { res.json({ ok: true }); });
@@ -47,7 +52,7 @@ describe("session (ML-KEM-768 encrypted cookies)", function () {
         var cookie = res.headers["set-cookie"][0];
         var value = cookie.split("hs_sid=")[1].split(";")[0];
         var decoded = decodeURIComponent(value);
-        // ML-KEM-768 ciphertext is much larger than old HMAC format
+        // ML-KEM ciphertext is much larger than old HMAC format
         assert.ok(decoded.length > 500, "cookie should be large (ML-KEM ciphertext), got length: " + decoded.length);
         // Should NOT have the old sid.hmac dot format
         assert.ok(!decoded.includes(".") || decoded.length > 200, "should not be old HMAC format");

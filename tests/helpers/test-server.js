@@ -18,12 +18,26 @@
  */
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
 const b = require("../../lib/vendor/blamejs");
 
 const projectRoot = path.join(__dirname, "..", "..");
 const testId = b.crypto.generateToken(4);
-const testDataDir = path.join(projectRoot, "data", "test-" + testId);
-const testUploadDir = path.join(projectRoot, "uploads", "test-" + testId);
+
+// Scratch lives in the OS temp directory, not under the repo.
+//
+// It used to be data/test-<id> and uploads/test-<id>, and the teardown could not
+// reliably remove them: on Windows a file-syncing agent holds the directory
+// handle, so every file inside deletes and the rmdir itself raises EPERM. The
+// result was 9,097 abandoned directories in data/ — each holding a vault
+// keypair and a ~400 KB database — sitting beside the live database and the
+// real vault keys, and being replicated to cloud storage.
+//
+// Nothing depended on the location: consumers read testUploadDir and testDbPath
+// from this module. tests/test-server-e2e.js already did it this way.
+const testRoot = path.join(os.tmpdir(), "hermitstash-test-" + testId);
+const testDataDir = path.join(testRoot, "data");
+const testUploadDir = path.join(testRoot, "uploads");
 const testDbPath = path.join(testDataDir, "test.db");
 
 let server = null;
@@ -35,6 +49,15 @@ const ENV_OVERRIDES = {
   UPLOAD_DIR: testUploadDir,
   SESSION_SECRET: "test-secret-" + testId,
   HERMITSTASH_SESSION_DB: "test-session-" + testId + ".db",
+  // A bare filename, not a path — lib/session.js joins it onto /dev/shm where
+  // that exists and onto the data directory where it does not, so the unique
+  // name alone kept the session database inside the repo.
+  //
+  // Pointed at this run's own data directory rather than the shared temp root:
+  // lib/db.js sweeps its working directory at load and deletes every other
+  // hermitstash-*.db in it, so a shared directory has concurrent test processes
+  // deleting each other's databases.
+  HERMITSTASH_TMPDIR: testDataDir,
   LOCAL_AUTH: "true",
   REGISTRATION_OPEN: "true",
   PUBLIC_UPLOAD: "true",
@@ -214,12 +237,49 @@ async function stop() {
     server = null;
   }
   try { fs.rmSync(testUploadDir, { recursive: true, force: true }); } catch {}
+
+  // Close the database before the harness removes the directory holding it.
+  //
+  // Windows refuses to delete a file another handle has open, so harness.stop()
+  // was failing on the still-open test.db and swallowing it — silently, and only
+  // here: Linux unlinks an open file happily, so CI never showed it. Each run
+  // left behind a directory with a vault keypair and a ~400 KB database, and on
+  // a development machine data/ sits inside a synced folder. 9,097 of them had
+  // collected.
+  //
+  // Suppress the exit-time re-encrypt first: it exists to persist the live
+  // database at shutdown, and there is nothing here worth persisting — the
+  // directory is about to be deleted.
+  try {
+    var dbMod = require(path.join(projectRoot, "lib", "db"));
+    if (typeof dbMod.suppressExitEncrypt === "function") dbMod.suppressExitEncrypt();
+    var handle = typeof dbMod.getDb === "function" ? dbMod.getDb() : null;
+    if (handle && typeof handle.close === "function") handle.close();
+  } catch (_e) { /* best effort — a failure here only restores the old littering */ }
+
+  // The session store is a SECOND database, living in this same directory now
+  // that HERMITSTASH_TMPDIR points here, and it holds the directory just as
+  // firmly as the first one.
+  try {
+    var sessionMod = require(path.join(projectRoot, "lib", "session"));
+    if (typeof sessionMod.closeStore === "function") sessionMod.closeStore();
+  } catch (_e) { /* best effort */ }
+
   if (harness) {
-    // harness.stop() restores env + removes the test data directory.
+    // harness.stop() restores env and releases the vault. It does NOT remove
+    // this directory, and the comment here used to say it did: the harness
+    // removes a dataDir only when it created one itself (`weCreatedDataDir`),
+    // and this one is supplied by us. That is the right call on its part — it
+    // does not delete a directory an operator handed it — so removing ours is
+    // ours to do.
     // Reentrant: marked stopped internally, additional calls are no-ops.
     await harness.stop();
     harness = null;
   }
+  // Remove the whole scratch root. In the OS temp directory this succeeds; if a
+  // watcher ever holds the directory itself, the files still go and what is left
+  // is an empty shell the operating system will sweep.
+  try { fs.rmSync(testRoot, { recursive: true, force: true }); } catch {}
 }
 
 function baseUrl() {

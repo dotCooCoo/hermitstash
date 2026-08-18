@@ -14,7 +14,7 @@ var nodeCrypto = require("crypto");
 
 // Isolated test DB so vault loads cleanly (mirrors field-crypto.test.js).
 var testId = nodeCrypto.randomBytes(4).toString("hex");
-var testDbPath = path.join(__dirname, "..", "..", "data", "test-prim-cov-" + testId + ".db");
+var testDbPath = path.join(os.tmpdir(), "hermitstash-test-prim-cov-" + testId + ".db");
 process.env.HERMITSTASH_DB_PATH = testDbPath;
 
 // Clear the cache FIRST, then require the framework + vault, so the `b` we assert

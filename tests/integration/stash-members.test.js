@@ -111,6 +111,65 @@ describe("customer stash members", function () {
     assert.ok(!res.text.includes("Acme Co"), "a non-member must not see another customer's stash");
   });
 
+  it("the member list names who is on it, not just how many", async function () {
+    // The list is what an admin acts on — revoking the wrong person is the cost
+    // of a row that carries only an id.
+    await login("smadmin@test.com", "adminpass123");
+    var list = await client.get("/admin/stash/" + stashId + "/members");
+    assert.strictEqual(list.status, 200);
+    assert.strictEqual(list.json.total, 1);
+    var m = list.json.members[0];
+    assert.strictEqual(m.userId, memberId);
+    assert.strictEqual(m.email, "smmember@test.com", "the email must be unsealed for display");
+    assert.strictEqual(m.displayName, "Stash Member");
+    assert.strictEqual(m.missing, false, "the account exists");
+    assert.ok(m.addedAt, "and the row says when access was granted");
+  });
+
+  it("a member whose account was deleted is shown as missing, not dropped", async function () {
+    // Deleting a user does not remove their stash grants. If the row vanished
+    // from this list the grant would still be in the table with nothing in the
+    // UI to revoke, so it is listed and flagged instead.
+    var { users } = require(path.join(testServer.projectRoot, "lib", "db"));
+    var stashRepo = require(path.join(testServer.projectRoot, "app", "data", "repositories", "stash.repo"));
+    var ghostId = users.insert({
+      email: require(path.join(testServer.projectRoot, "lib", "vault")).seal("smghost@test.com"),
+      emailHash: require(path.join(testServer.projectRoot, "lib", "crypto")).hashEmail("smghost@test.com"),
+      authType: "local", role: "user", status: "active", createdAt: new Date().toISOString(),
+    })._id;
+    stashRepo.addMember(stashId, ghostId);
+    users.remove({ _id: ghostId });
+
+    await login("smadmin@test.com", "adminpass123");
+    var list = await client.get("/admin/stash/" + stashId + "/members");
+    var ghost = list.json.members.filter(function (m) { return m.userId === ghostId; })[0];
+    assert.ok(ghost, "the grant must still be listed so it can be revoked");
+    assert.strictEqual(ghost.missing, true, "and flagged as having no account behind it");
+    assert.strictEqual(ghost.email, null, "with no email to show");
+
+    // Clean up so the counts below are about the real member.
+    await client.post("/admin/stash/" + stashId + "/members/remove", { json: { userId: ghostId } });
+  });
+
+  it("refuses to list, add to, or remove from a stash that does not exist", async function () {
+    // Each of the three has its own lookup. A 404 rather than an empty list is
+    // what keeps a mistyped id from reading as "this stash has no members".
+    await login("smadmin@test.com", "adminpass123");
+    var missingId = "no-such-stash-id";
+    var list = await client.get("/admin/stash/" + missingId + "/members");
+    assert.strictEqual(list.status, 404, "listing a missing stash is not an empty list");
+    var add = await client.post("/admin/stash/" + missingId + "/members/add", { json: { email: "smmember@test.com" } });
+    assert.strictEqual(add.status, 404);
+    var rem = await client.post("/admin/stash/" + missingId + "/members/remove", { json: { userId: memberId } });
+    assert.strictEqual(rem.status, 404);
+  });
+
+  it("refuses a remove with no userId rather than removing nothing quietly", async function () {
+    await login("smadmin@test.com", "adminpass123");
+    var res = await client.post("/admin/stash/" + stashId + "/members/remove", { json: {} });
+    assert.strictEqual(res.status, 400);
+  });
+
   it("admin removes the member; access disappears", async function () {
     await login("smadmin@test.com", "adminpass123");
     var res = await client.post("/admin/stash/" + stashId + "/members/remove", { json: { userId: memberId } });
