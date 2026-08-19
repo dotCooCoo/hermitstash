@@ -21,7 +21,7 @@
         "server": "sha256:f3325f480cb8eb814fcb0baaa19336cbbf2b993f48624c6aa9600ffd69d0be5e",
         "browser": "sha256:0ffd91540bcb586a29b56e52ee1c29df69097b50776beb4036a07558f7a4e12e"
       },
-      "refreshedAt": "2026-08-16T12:19:46.685Z"
+      "refreshedAt": "2026-08-18T14:13:33.454Z"
     },
     "@noble/hashes": {
       "version": "2.3.0",
@@ -48,7 +48,7 @@
       "hashes": {
         "browser": "sha256:dfe4b7ae3c9880e388c8da4b68f44742b229b53afacd1e674179527e33da62b0"
       },
-      "refreshedAt": "2026-08-16T12:19:46.685Z"
+      "refreshedAt": "2026-08-18T14:13:33.454Z"
     },
     "@noble/curves": {
       "version": "2.3.0",
@@ -70,7 +70,7 @@
       "hashes": {
         "server": "sha256:b5fe88d1ea780d0581dee6145d666f89d46fc9531b5db35db2e5b16627840890"
       },
-      "refreshedAt": "2026-08-16T12:19:46.685Z",
+      "refreshedAt": "2026-08-18T14:13:33.454Z",
       "components": {
         "@noble/hashes": {
           "url": "https://github.com/paulmillr/noble-hashes",
@@ -114,7 +114,7 @@
         "server": "sha256:fab7ebe5737793862c473444f4ee5912f79dd1edec86683acbb4eecbca0f5892",
         "browser": "sha256:cae1d5bbdc7184b202b6ca68df6e1db7b0d0f668c77809ded189ca7f271accc9"
       },
-      "refreshedAt": "2026-08-16T12:19:46.685Z",
+      "refreshedAt": "2026-08-18T14:13:33.454Z",
       "components": {
         "@noble/hashes": {
           "url": "https://github.com/paulmillr/noble-hashes",
@@ -148,7 +148,7 @@
       },
       "runtime_artifact": "lib/vendor/common-passwords-top-10000.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-08-16T12:19:46.685Z"
+      "refreshedAt": "2026-08-18T14:13:33.454Z"
     },
     "bimi-trust-anchors": {
       "version": "operator-managed",
@@ -156,7 +156,7 @@
       "license_is_spdx": false,
       "author": "BIMI Group / DigiCert / Entrust",
       "source": "https://bimigroup.org/",
-      "_about": "RFC 9091 BIMI Group Verified Mark trust-anchor bundle (PEM, concatenated). Loaded by lib/mail-bimi.js for VMC + CMC chain validation. Source-tree default is empty-of-PEM — operators populate via the documented refresh procedure in the file header below; call-site overrides via b.mail.bimi.fetchAndVerifyMark({ trustAnchorsPem }) are supported. Refresh procedure pulls https://www.digicert.com/CACerts/DigiCertVerifiedMarkRootCA.pem + https://web.entrust.com/root-certificates/entrust_verified_mark_root_g3.cer and concatenates them into the file. The empty default ships with a runtime warning when b.mail.bimi loads it absent any operator-supplied trustAnchorsPem call-site override — the canary skip is intentional (the dual-hash + SLH-DSA signature cover the threat for a non-empty bundle; an empty bundle has no canary to verify).",
+      "_about": "BIMI (draft-blank-ietf-bimi) Group Verified Mark trust-anchor bundle (PEM, concatenated). Loaded by lib/mail-bimi.js for VMC + CMC chain validation. Source-tree default is empty-of-PEM — operators populate via the documented refresh procedure in the file header below; call-site overrides via b.mail.bimi.fetchAndVerifyMark({ trustAnchorsPem }) are supported. Refresh procedure pulls https://www.digicert.com/CACerts/DigiCertVerifiedMarkRootCA.pem + https://web.entrust.com/root-certificates/entrust_verified_mark_root_g3.cer and concatenates them into the file. The empty default ships with a runtime warning when b.mail.bimi loads it absent any operator-supplied trustAnchorsPem call-site override — the canary skip is intentional (the dual-hash + SLH-DSA signature cover the threat for a non-empty bundle; an empty bundle has no canary to verify).",
       "_warning": "Empty PEM default — populate before invoking b.mail.bimi.fetchAndVerifyMark in production. b.mail.bimi emits a `bimi.trust-anchors.empty` runtime warning when this default is used without an operator-supplied trustAnchorsPem call-site override.",
       "exports": [
         "bimi-vmc-trust-anchors"
@@ -166,14 +166,14 @@
         "data_js": "lib/vendor/bimi-trust-anchors.data.js"
       },
       "bundler": "operator-managed (see file header for refresh procedure)",
-      "bundledAt": "2026-05-13T00:00:00Z",
+      "bundledAt": "2026-08-17T00:00:00Z",
       "hashes": {
-        "server": "sha256:81ff9f5ab3c9774132c845684e783be95cf73146f8b670d964105f0a3765b4b4",
-        "data_js": "sha256:aa7a4d33b65a68422a2a2c1670177689f66fdcaa08bd2514d78798b827bd1608"
+        "server": "sha256:5a2a4c695ff86db813284a35f985db7edf55b221fbd6e7d2ad7eb08344eccd72",
+        "data_js": "sha256:59ab628e10a3e10aa2e189cdb835e5d786939cc45f793e0e0390816ec3e9a0fd"
       },
       "runtime_artifact": "lib/vendor/bimi-trust-anchors.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-08-16T12:19:46.685Z"
+      "refreshedAt": "2026-08-18T14:13:33.454Z"
     },
     "publicsuffix-list": {
       "version": "master",
@@ -186,17 +186,17 @@
         "data_js": "lib/vendor/public-suffix-list.data.js"
       },
       "bundler": "curl https://publicsuffix.org/list/public_suffix_list.dat",
-      "bundledAt": "2026-08-15T00:00:00Z",
+      "bundledAt": "2026-08-17T00:00:00Z",
       "hashes": {
-        "server": "sha256:99017337721c6d3ec351894eb50d1c287113a0a0120c0280114dab5f2e3ce64e",
-        "data_js": "sha256:368d2b20829d20c3d03d7d37f9ba929569dda03bb46453ffef79762ee5076570"
+        "server": "sha256:f7e24ebb8ef6a366c52d2abc66275f68f64255f2650cda0c506035a92cff049a",
+        "data_js": "sha256:4b54a31c8697ee4509a3e1efbee3d155f276a29e15a135d550874024f4780266"
       },
       "runtime_artifact": "lib/vendor/public-suffix-list.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-08-16T12:19:46.685Z"
+      "refreshedAt": "2026-08-18T14:13:33.454Z"
     },
     "@blamejs/pki": {
-      "version": "0.5.7",
+      "version": "0.5.10",
       "license": "Apache-2.0",
       "author": "blamejs",
       "source": "https://github.com/blamejs/pki",
@@ -216,12 +216,12 @@
         "server": "lib/vendor/blamejs-pki.cjs"
       },
       "bundler": "esbuild --format=cjs --platform=node --external:crypto --external:node:crypto",
-      "bundledAt": "2026-08-16T00:00:00Z",
-      "cpe": "cpe:2.3:a:blamejs:pki:0.5.7:*:*:*:*:node.js:*:*",
+      "bundledAt": "2026-08-18T00:00:00Z",
+      "cpe": "cpe:2.3:a:blamejs:pki:0.5.10:*:*:*:*:node.js:*:*",
       "hashes": {
-        "server": "sha256:731ca9709731fbfcfa3b030532e393f511569b0c9729e000a2c3f2b0462373c3"
+        "server": "sha256:c7c7b82d0c5cd604e726c52332de66ff06ffb7877d4a44720d8bbd746c5d6023"
       },
-      "refreshedAt": "2026-08-16T12:19:46.685Z"
+      "refreshedAt": "2026-08-18T14:13:33.454Z"
     }
   }
 }

@@ -74,11 +74,13 @@ var FNAME_OPTS = {
   requireAscii: false, requireSingleDot: false, unicodeNormalization: "none",
   maxBytes: 65536, maxComponents: 1,
 };
-// b.guardFilename's control strip keeps TAB/CR/LF (it treats them as dialect
-// characters) and does not reach DEL; the prior helper stripped the whole
-// C0 + DEL range, so strip the remainder here. < > " ' ` are stripped too so
-// a stored name is safe to render in HTML.
-var RESIDUAL_RE = /[\x09\x0a\x0d\x7f<>"'`]/g;
+// b.guardFilename's control strip keeps TAB/CR/LF — it treats them as dialect
+// characters — so those are stripped here to keep parity with the prior
+// helper, which removed the whole C0 range. DEL is no longer in this class:
+// the primitive's control table covers it, so listing it here would leave two
+// declarations of the same rule to drift apart. < > " ' ` are stripped so a
+// stored name is safe to render in HTML.
+var RESIDUAL_RE = /[\x09\x0a\x0d<>"'`]/g;
 
 function cleanSegment(seg) {
   if (!seg) return "";

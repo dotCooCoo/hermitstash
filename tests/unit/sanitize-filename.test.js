@@ -74,6 +74,25 @@ describe("sanitize-filename — sanitizeFilename: hardening (neutralised, not lo
     assert.strictEqual(sanitizeFilename("zero" + ZWSP + "width.txt"), "zerowidth.txt");
   });
 
+  it("strips the invisible operators U+2061-2064 alongside U+2060", function () {
+    // UAX #31 groups these five, and a name carrying one renders identically to
+    // a name without it — the same display-spoofing shape as the zero-width
+    // space above. WORD JOINER was covered; its four neighbours were not, so a
+    // filename could differ from another only by an invisible operator.
+    assert.strictEqual(sanitizeFilename("word" + ch(0x2060) + "joiner.txt"), "wordjoiner.txt");
+    assert.strictEqual(sanitizeFilename("fn" + ch(0x2061) + "app.txt"), "fnapp.txt");
+    assert.strictEqual(sanitizeFilename("inv" + ch(0x2062) + "times.txt"), "invtimes.txt");
+    assert.strictEqual(sanitizeFilename("inv" + ch(0x2063) + "sep.txt"), "invsep.txt");
+    assert.strictEqual(sanitizeFilename("inv" + ch(0x2064) + "plus.txt"), "invplus.txt");
+  });
+
+  it("collapses two names that differ only by an invisible operator", function () {
+    // The property that matters for storage: an attacker cannot mint a second
+    // name that displays identically to an existing one.
+    assert.strictEqual(sanitizeFilename("report" + ch(0x2062) + ".pdf"),
+      sanitizeFilename("report.pdf"));
+  });
+
   it("strips C0 control characters and NUL bytes", function () {
     assert.strictEqual(sanitizeFilename("ctrl" + BEL + "x.txt"), "ctrlx.txt");
     assert.strictEqual(sanitizeFilename("a" + NUL + "b.txt"), "ab.txt");

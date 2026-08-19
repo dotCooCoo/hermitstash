@@ -225,6 +225,7 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | Admin settings injection | Type-safe settings schema (lib/settings-schema.js) sanitizes on save (strip control chars, trim, type-specific normalization) and validates (format, range, enum) — bad data rejected at the gate with clear error messages |
 | Stale config after admin change | Config reset registry (config.onReset) invalidates every cached client that reads a setting — the S3 client and the resolved upload path among them — when that setting changes at runtime |
 | Timing attack on access codes | SHA3-512 hash comparison uses constant-time `timingSafeEqual` on all security-sensitive comparisons (access codes, CSRF, TOTP) |
+| Timing attack revealing which candidate matched | Where a presented value is checked against a list — two-factor backup codes, passkey credential lookup — every candidate is compared. A loop of constant-time comparisons that stops at the first match reports the match's position, which for an ordered list narrows which credential was presented |
 | Crash during backup restore | Pre-restore snapshots of vault.key, db.key.enc, hermitstash.db.enc enable rollback if restore is interrupted |
 
 Built on Node.js 24.19.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default signature) and ML-DSA-87 (legacy) via OpenSSL 3.5, XChaCha20-Poly1305 and SHAKE256 via vendored blamejs (which bundles @noble/ciphers and @noble/post-quantum), Argon2id via Node 24+'s built-in `crypto.argon2` (no native binding required), WebAuthn via vendored blamejs (which bundles @simplewebauthn/server), and built-in SQLite via `node:sqlite`. Zero npm runtime dependencies.
@@ -1438,7 +1439,7 @@ Managed via `scripts/vendor-update.sh`:
 
 | Vendored | Version | Author | Purpose |
 |----------|---------|--------|---------|
-| [`blamejs`](https://github.com/blamejs/blamejs) | 0.18.33 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, and envelope-bound field crypto. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
+| [`blamejs`](https://github.com/blamejs/blamejs) | 0.18.37 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, and envelope-bound field crypto. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
 | [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) (browser only) | 2.3.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | XChaCha20-Poly1305 in the browser vault + outbox flows |
 | [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (browser only) | 2.3.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | SHAKE256 KDF in the browser |
 | [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) (browser only) | 0.7.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | ML-KEM-1024 in the browser vault flow |

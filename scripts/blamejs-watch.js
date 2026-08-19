@@ -108,6 +108,19 @@ function consumedPrimitives() {
         return;
       }
       if (!/\.(js|mjs|cjs)$/.test(e.name)) return;
+      // This one file is upstream's own source mirrored into the repo — the same
+      // category as lib/vendor, which the directory skip above already covers.
+      // Its text names 74 primitives, `b.ai` and `b.calendar` among them, and
+      // neither repo calls any of those; it quotes the framework's lint rules
+      // rather than using them. Counted as consumption they sit silent until a
+      // release happens to touch one, and then the digest reports a primitive in
+      // use and asks for a decision that isn't there.
+      //
+      // Matched by full path, not by the `.snapshot.js` suffix: the suffix is a
+      // naming convention anyone may reuse, and a future snapshot that really
+      // does call blamejs would be dropped from the digest without a trace —
+      // failing silent, in the direction of missing a release we should act on.
+      if (/[\\/]tests[\\/]lint[\\/]blamejs-codebase-patterns\.snapshot\.js$/.test(full)) return;
       var src;
       try { src = fs.readFileSync(full, "utf8"); } catch (_e2) { return; }
       if (!REQUIRES_BLAMEJS.test(src)) return;

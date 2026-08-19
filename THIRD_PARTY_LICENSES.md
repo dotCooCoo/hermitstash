@@ -11,7 +11,7 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
 
 ---
 
-## blamejs v0.18.33
+## blamejs v0.18.37
 
 - **License:** Apache-2.0
 - **Copyright:** blamejs contributors
@@ -71,7 +71,7 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
   - `tslib` — Apache-2.0, (c) Microsoft Corporation
   - `cbor-x` — MIT
 
-## @blamejs/pki v0.5.7
+## @blamejs/pki v0.5.10
 
 - **License:** Apache-2.0
 - **Copyright:** blamejs contributors
@@ -112,8 +112,11 @@ third-party package, so there is nothing to attribute.
 
 ---
 
-The blamejs framework is vendored as a full source tree (shallow git clone of
-a release tag). The browser `public/js/noble-*` bundles and the nested
-`.cjs` files under `lib/vendor/blamejs/lib/vendor/` are bundled with esbuild
-to eliminate npm runtime dependencies and supply chain risk. Original source
+The blamejs framework is vendored as a full source tree, taken from the
+`@blamejs/core` package published on the npm registry. The tarball's bytes are
+checked against the registry's published sha512 integrity value before anything
+is unpacked, and a version with no published integrity value is refused rather
+than vendored. The browser `public/js/noble-*` bundles and the nested `.cjs`
+files under `lib/vendor/blamejs/lib/vendor/` are bundled with esbuild to
+eliminate npm runtime dependencies and supply chain risk. Original source
 repositories are linked above for license verification.

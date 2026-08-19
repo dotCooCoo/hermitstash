@@ -79,6 +79,21 @@ describe("csv-policy — hardening (only hostile cells are altered, always safer
     assert.strictEqual(one("c", "a" + NUL + "b"), "c\nab\n");
   });
 
+  it("strips DEL, which sits outside the C0 block", function () {
+    // DEL is a forbidden control character but is not in C0, and the control
+    // table used to stop at U+001F — so an export emitted it where it stripped
+    // BEL. It reaches a cell through any sealed field an operator can set.
+    assert.strictEqual(one("c", "a" + ch(0x7f) + "b"), "c\nab\n");
+  });
+
+  it("strips a control character rather than refusing the export", function () {
+    // The disposition matters as much as the stripping: this path serialises
+    // trusted rows for an admin, and a throw would fail a whole export over one
+    // bad byte in one cell. The primitive throws on DEL under a reject policy;
+    // this export is pinned to strip.
+    assert.doesNotThrow(function () { one("c", "a" + ch(0x7f) + "b"); });
+  });
+
   it("apostrophe-prefixes a leading pipe", function () {
     assert.strictEqual(one("c", "|cmd"), qRow("c") + qRow("'|cmd"));
   });

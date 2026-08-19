@@ -176,12 +176,16 @@ module.exports = function (app) {
         ? user.totpBackupCodes
         : b.safeJson.parseOrDefault(user.totpBackupCodes || "[]", []);
       var codeHash = b.crypto.sha3Hash(code);
-      // Constant-time scan: Array.indexOf short-circuits per character, leaking
-      // (via response timing) whether a candidate matched and at which position.
-      // timingSafeEqual compares each stored hash in constant time.
+      // Constant-time scan, in both halves. Array.indexOf short-circuits per
+      // character, so each stored hash is compared with timingSafeEqual — and
+      // the loop compares EVERY one, because stopping at the first match made
+      // the total time report the match's position, which narrows which of the
+      // user's backup codes was presented. The index is kept (the code has to
+      // be consumed by position), so `idx === -1` gates the assignment only,
+      // after the comparison has already run.
       var idx = -1;
       for (var bi = 0; bi < backupCodes.length; bi++) {
-        if (b.crypto.timingSafeEqual(String(backupCodes[bi]), codeHash)) { idx = bi; break; }
+        if (b.crypto.timingSafeEqual(String(backupCodes[bi]), codeHash) && idx === -1) idx = bi;
       }
 
       if (idx !== -1) {

@@ -103,7 +103,11 @@ function listDockerfiles(dir, out, rel) {
     var childRel = rel ? rel + "/" + e.name : e.name;
     if (EXCLUDED_PREFIXES.some(function (p) { return (childRel + "/").indexOf(p) === 0; })) return;
     if (e.isDirectory()) { listDockerfiles(path.join(dir, e.name), out, childRel); return; }
-    if (/^Dockerfile(\..+)?$/.test(e.name)) out.push(childRel);
+    // Carry the absolute path the walk already holds, alongside the relative
+    // one used for reporting. The reader then opens a path built from directory
+    // entries rather than re-deriving one from a string, so there is no join of
+    // caller-supplied text to reason about.
+    if (/^Dockerfile(\..+)?$/.test(e.name)) out.push({ rel: childRel, abs: path.join(dir, e.name) });
   });
   return out;
 }
@@ -116,8 +120,16 @@ function listDockerfiles(dir, out, rel) {
  * portion is (`ARG NODE_VERSION=24.19.0-slim@sha256:...` + `FROM node:${NODE_VERSION}`).
  * Reading the FROM alone would miss the pin in both shapes.
  */
-function parseDockerfile(relPath) {
-  var text = fs.readFileSync(path.join(REPO, relPath), "utf8");
+function parseDockerfile(entry) {
+  var relPath = entry.rel;
+  // The walk supplies the absolute path, so nothing is joined here. Containment
+  // is still verified rather than assumed: this reads a file, and a later caller
+  // that hands over a path from somewhere else should be refused, not trusted.
+  var inside = path.relative(REPO, entry.abs);
+  if (inside === "" || inside.split(path.sep)[0] === ".." || path.isAbsolute(inside)) {
+    throw new Error("refusing to read a Dockerfile outside the repository: " + relPath);
+  }
+  var text = fs.readFileSync(entry.abs, "utf8");
   var lines = text.split(/\r?\n/);
   var args = {};
   var stages = {};
@@ -287,10 +299,10 @@ async function main() {
   var pins = [];
   var parseFailures = [];
 
-  files.forEach(function (rel) {
+  files.forEach(function (entry) {
     var froms;
-    try { froms = parseDockerfile(rel); }
-    catch (err) { parseFailures.push({ file: rel, error: err.message }); return; }
+    try { froms = parseDockerfile(entry); }
+    catch (err) { parseFailures.push({ file: entry.rel, error: err.message }); return; }
     froms.forEach(function (f) { pins.push(f); });
   });
 

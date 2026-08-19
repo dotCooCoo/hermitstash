@@ -157,10 +157,14 @@ module.exports = function (app) {
         var row = allCreds[i];
         var storedB64url = Buffer.from(row.credentialId, "base64").toString("base64url");
         // Constant-time compare so verification timing can't enumerate which
-        // credential IDs exist (=== short-circuits on the first differing byte).
-        if (b.crypto.timingSafeEqual(storedB64url, String(incomingCredId || ""))) {
+        // credential IDs exist (=== short-circuits on the first differing byte),
+        // and EVERY row is compared for the same reason. Returning at the first
+        // hit made the total time report the match's position in the table,
+        // which is registration order — the enumeration signal this compare
+        // exists to deny, reintroduced one line below it. The first match still
+        // wins; the guard sits after the comparison, not in place of it.
+        if (b.crypto.timingSafeEqual(storedB64url, String(incomingCredId || "")) && !matchedCred) {
           matchedCred = row;
-          break;
         }
       }
 

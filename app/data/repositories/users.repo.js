@@ -56,9 +56,16 @@ function consumeBackupCode(id, codeHash) {
     var codes = Array.isArray(user.totpBackupCodes)
       ? user.totpBackupCodes
       : b.safeJson.parseOrDefault(user.totpBackupCodes || "[]", []);
+    // Every stored code is compared, whatever the outcome. Each comparison is
+    // constant time on its own, but stopping at the first match made the total
+    // time report WHERE in the list the code sat — and the list is ordered, so
+    // that narrows which of a user's backup codes was presented. The index is
+    // still needed to remove the used code, so this keeps the first match
+    // rather than folding to a boolean: the `idx === -1` guard runs after the
+    // comparison, never in place of it.
     var idx = -1;
     for (var i = 0; i < codes.length; i++) {
-      if (b.crypto.timingSafeEqual(String(codes[i]), codeHash)) { idx = i; break; }
+      if (b.crypto.timingSafeEqual(String(codes[i]), codeHash) && idx === -1) idx = i;
     }
     if (idx === -1) return false;
     codes.splice(idx, 1);

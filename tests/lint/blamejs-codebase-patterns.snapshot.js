@@ -295,6 +295,77 @@ function _filterMarkers(matches, allowClass) {
   });
 }
 
+// Blank whole lines that OPEN with `//`, `/*` or a jsdoc-body `*`, keeping line
+// NUMBERING intact so a reported line still points at the right place.
+//
+// Deliberately line-at-a-time and deliberately incomplete: it does not track
+// block-comment state, so the interior of a `/* ... */` whose lines don't start
+// with `*` survives. That is the SAFE direction for the catalog entries that use
+// it, which all hunt for a BAD shape — leaving commented-out text visible makes
+// such an entry fire on code that isn't live, which is a false positive, and a
+// false positive is loud. Blanking more aggressively would risk hiding a real
+// violation, which is silent. Do not "fix" this to strip more without checking
+// each consuming entry.
+function _blankCommentLines(src) {
+  return src.split(/\r?\n/).map(function (ln) {
+    if (/^\s*(\*|\/\/|\/\*)/.test(ln)) return "";
+    return ln;
+  }).join("\n");
+}
+
+// Remove comments properly, for checks that assert a construct IS PRESENT.
+//
+// Those invert the risk above: a presence check reading a commented-out
+// occurrence concludes the construct is there and stays silent, which is the
+// exact state it exists to catch. So here it is worth tracking state — block
+// comments spanning lines, and string literals, so a `/*` inside a string is not
+// mistaken for a comment opener.
+//
+// Newlines inside block comments are preserved so line numbers don't shift.
+//
+// LIMIT: regular-expression literals are not tracked, so a regex containing an
+// unescaped `//` or `/*` could be misread as a comment opener. Deciding where a
+// regex literal starts requires implementing the ECMAScript lexical grammar
+// (blamejs/blamejs#599 is the same problem one level up) and the consumers here
+// are integration tests and fuzz harnesses, where such a literal does not occur.
+// A wrong call in that case over-strips, which reports rather than hides.
+function _stripComments(src) {
+  var out = "";
+  var i   = 0;
+  var n   = src.length;
+  while (i < n) {
+    var c = src.charAt(i);
+    var d = src.charAt(i + 1);
+    if (c === "/" && d === "/") {
+      while (i < n && src.charAt(i) !== "\n") i += 1;
+      continue;
+    }
+    if (c === "/" && d === "*") {
+      i += 2;
+      while (i < n && !(src.charAt(i) === "*" && src.charAt(i + 1) === "/")) {
+        if (src.charAt(i) === "\n") out += "\n";
+        i += 1;
+      }
+      i += 2;
+      continue;
+    }
+    if (c === "\"" || c === "'" || c === "`") {
+      out += c;
+      i   += 1;
+      while (i < n) {
+        if (src.charAt(i) === "\\") { out += src.substr(i, 2); i += 2; continue; }
+        out += src.charAt(i);
+        if (src.charAt(i) === c) { i += 1; break; }
+        i += 1;
+      }
+      continue;
+    }
+    out += c;
+    i   += 1;
+  }
+  return out;
+}
+
 var _allViolations = [];
 
 function _report(label, matches) {
@@ -325,6 +396,8 @@ function _report(label, matches) {
 // does not exist — so the underlying violation it was meant to explain ships
 // unflagged. When you add a detector with a new allow-class, register it here.
 var VALID_ALLOW_CLASSES = {
+  "release-script-capture-status-unchecked": 1,
+  "sfv-citation-must-match-referencing-protocol": 1,
   "ai-disclosure-on-request-without-requested-gate": 1,
   "applydefaults-dropped-opt": 1,
   "archive-gz-without-safedecompress": 1,
@@ -578,7 +651,7 @@ function testNoRawByteLiterals() {
       }
       // HTTP status-code comparisons (`statusCode >= 200 && < 300`,
       // `code < 600`, etc.) overlap with multiples of 8 (200, 208, 256,
-      // 264 …). Same RFC 7231 boundary set as the time-literal filter.
+      // 264 …). Same RFC 9110 §15 boundary set as the time-literal filter.
       var statusCmpRe = /[<>!=]=?\s*(?:200|300|400|500|600|399|599)\b|\b(?:200|300|400|500|600|399|599)\s*[<>!=]=?/;
       if (statusCmpRe.test(stripped)) continue;
       // Strip bit-shift operands (`>>> 8`, `<< 16`) — those are bit
@@ -671,7 +744,7 @@ function testNoRawTimeLiterals() {
         // literal (`C.TIME.days(180)`) and that's the canonical form.
         if (/\bC\.TIME\.\w+\(/.test(stripped)) continue;
         // HTTP status-code comparisons (`statusCode >= 200 && < 300`,
-        // `code < 600`, etc.) — these are domain-fixed RFC 7231 status
+        // `code < 600`, etc.) — these are domain-fixed RFC 9110 §15 status
         // class boundaries, not durations. A line where the only
         // multiple-of-60 literal in 200..599 sits in a comparison is
         // not time math.
@@ -1037,7 +1110,10 @@ function testParserPrimitivesHaveFuzzHarness() {
     var content;
     try { content = fs.readFileSync(harnessPath, "utf8"); }
     catch (_e) { content = ""; }
-    if (!/module\.exports\.fuzz\s*=/.test(content)) {
+    // Comments stripped: a harness whose entry point is commented out exports
+    // nothing, and reading raw source would accept the disabled line as proof
+    // the export is there.
+    if (!/module\.exports\.fuzz\s*=/.test(_stripComments(content))) {
       hits.push({
         file: path.relative(repoRoot, harnessPath).replace(/\\/g, "/"), line: 1,
         content: "fuzz harness missing `module.exports.fuzz = function (data) { ... }` — required by jazzer.js / ClusterFuzzLite / OSS-Fuzz",
@@ -1071,6 +1147,378 @@ function testParserPrimitivesHaveFuzzHarness() {
     }
   });
   _report("every lib/safe-*.js / lib/guard-*.js parser-or-validator (plus the untrusted-byte parsers in FUZZ_REQUIRED_EXTRA) has a fuzz/<name>.fuzz.js (or is allowlisted in FUZZ_NOT_REQUIRED), and each FUZZ_REQUIRED_EXTRA parser is wired into both cflite CI matrices",
+    hits);
+}
+
+// ---- Pattern 8b-ii: a constant-time compare inside a loop with an exit ----
+
+// Return the body text of every loop in `src`, paired with the offset the body
+// starts at. Handles `for (…)`, `for await (…)`, `while (…)`, `do { … }`, and
+// single-statement bodies with no braces.
+//
+// This is brace matching on comment-stripped, string-aware source — not a
+// parser. It exists because "is this comparison inside that loop" is a SCOPE
+// question, and the regex attempts at it kept flagging a verifier that merely
+// sat after an unrelated loop: the tempered token only stops at a brace in
+// column zero, and loop bodies close indented.
+//
+// LIMIT: a regular-expression literal containing an unbalanced `{` or `}` (for
+// example `/[{]/`) would skew the depth count. Deciding where a regex literal
+// begins needs the lexical grammar (blamejs/blamejs#599); guard and safe
+// primitives carry no regex literals at all, and elsewhere a skewed count ends
+// the body early, which under-reports rather than inventing a violation.
+function _loopBodies(src) {
+  var out  = [];
+  // `do` takes no head, so it is matched on its own and the body decided below.
+  //
+  // The leading lookbehind keeps a PROPERTY of the same name out: `queue.do(fn)`
+  // and `schema.for(x)` are calls, not loops, and treating one as a loop header
+  // would open a body over whatever followed and report it.
+  var re   = /(?<![.\w$])(?:for|while)\b\s*(?:await\s+)?\(|(?<![.\w$])do\b/g;
+  var m;
+  while ((m = re.exec(src)) !== null) {
+    var i = m.index + m[0].length;
+    if (m[0].charAt(m[0].length - 1) === "(") {
+      // Walk the head to its closing paren; the body starts after it.
+      var pd = 1;
+      while (i < src.length && pd > 0) {
+        var pc = src.charAt(i);
+        if (pc === "(") pd += 1;
+        else if (pc === ")") pd -= 1;
+        i += 1;
+      }
+    }
+    while (i < src.length && /\s/.test(src.charAt(i))) i += 1;
+    if (src.charAt(i) !== "{") {
+      // Brace-less single-statement body. It ends at the first `;` OUTSIDE any
+      // nesting, or at the `}` that closes a block the statement opened —
+      // `for (…) if (x) { work(); }` has no top-level `;` at all, and running on
+      // to the next one would swallow whatever followed the loop.
+      //
+      // Stopping at end-of-line instead would miss the opposite case,
+      // `for (…)\n  if (eq(…))\n    return true;`, where the exit is two lines
+      // below the header.
+      var j  = i;
+      var sd = 0;
+      while (j < src.length) {
+        var cj = src.charAt(j);
+        if (cj === "(" || cj === "[" || cj === "{") sd += 1;
+        // Only a closing BRACE ends the statement. A `)` returning the depth to
+        // zero is just the end of an `if` condition, and breaking there stopped
+        // before the exit the condition guards.
+        else if (cj === ")" || cj === "]") sd -= 1;
+        else if (cj === "}") {
+          sd -= 1;
+          if (sd <= 0) { j += 1; break; }
+        } else if (cj === ";" && sd === 0) { j += 1; break; }
+        j += 1;
+      }
+      out.push({ start: i, body: src.slice(i, j) });
+      continue;
+    }
+    var depth = 0;
+    var start = i;
+    while (i < src.length) {
+      var c = src.charAt(i);
+      if (c === "{") depth += 1;
+      else if (c === "}") {
+        depth -= 1;
+        if (depth === 0) { i += 1; break; }
+      }
+      i += 1;
+    }
+    out.push({ start: start, body: src.slice(start, i) });
+  }
+  return out;
+}
+
+// Replace the INTERIOR of every string and template literal with spaces, keeping
+// the quotes, the length and the newlines. Brace matching counts characters, and
+// a `{` or `}` inside a literal is text rather than syntax — an unmatched one
+// would extend or truncate the loop body it is measuring, attaching a later
+// comparison to the wrong loop or losing a real exit.
+//
+// A `${…}` substitution holds real code and is blanked with the rest. That could
+// hide a comparison written inside one, which under-reports; a comparison inside
+// a template substitution is not a shape this codebase contains, and the
+// alternative is counting the braces that made the blanking necessary.
+function _blankStringBodies(src) {
+  var out = "";
+  var i   = 0;
+  var n   = src.length;
+  while (i < n) {
+    var c = src.charAt(i);
+    if (c === "\"" || c === "'" || c === "`") {
+      out += c;
+      i   += 1;
+      while (i < n) {
+        var ch = src.charAt(i);
+        if (ch === "\\") { out += "  "; i += 2; continue; }
+        if (ch === c)    { out += c;    i += 1; break; }
+        out += (ch === "\n" ? "\n" : " ");
+        i   += 1;
+      }
+      continue;
+    }
+    out += c;
+    i   += 1;
+  }
+  return out;
+}
+
+function testTimingSafeCompareInLoopBody() {
+  // A constant-time comparison inside a loop that can exit early leaks the
+  // matching candidate's POSITION through the iteration count, however
+  // constant-time each individual comparison is. The companion catalog entry
+  // `timing-safe-compare-with-early-exit` covers the loop-free pair; this covers
+  // loop membership, which needs scope rather than a pattern.
+  // Within a loop body: a POSITIVE comparison guarding a `return` or `break`.
+  //
+  // `continue` is NOT an early exit for this purpose — it skips a candidate that
+  // was never eligible (wrong type, wrong length) and the loop still runs to the
+  // end, which is exactly what b.crypto.timingSafeEqualAny does. Treating it as
+  // an exit flagged that primitive as the defect it was written to fix.
+  //
+  // The exit is any `return`, not `return true`: the real sites return a failure
+  // object and a drift step. The `(?![!)])` temper keeps a NEGATED comparison out
+  // — `if (!eq(a, b)) continue;` is a single-pair guard, not a candidate walk.
+  // Scoping to the loop BODY is what the brace matching buys: a verifier sitting
+  // after an unrelated loop is not in any body and cannot match.
+  // `break` may carry a label — `break outer;` leaves an outer loop and is the
+  // same early exit, so the label is optional rather than absent.
+  //
+  // The comparison must be POSITIVE, and that is said directly with a lookbehind
+  // rather than by forbidding `)` before it. Forbidding `)` also threw away
+  // `if (isEligible(c) && eq(want, c)) return true;` — the closing paren of the
+  // first call ended the match — which is a real position oracle and a common
+  // way to write one. The lookbehind covers a member prefix, so `!b.eq(` and
+  // `!eq(` are both excluded while `f(x) && b.eq(` is not.
+  var BODY_HIT = /if\s*\([^\n]{0,160}?(?<![!\w$.])(?:[\w$]+\.)*timingSafeEqual\([\s\S]{0,200}?(?:\breturn\b|\bbreak\b\s*[\w$]*\s*;)/;
+
+  function offending(src) {
+    return _loopBodies(_blankStringBodies(_stripComments(src))).filter(function (b) {
+      return BODY_HIT.test(b.body);
+    });
+  }
+
+  // Self-test first: this decides a security property, so its own behaviour is
+  // pinned rather than assumed. Both directions, since over-reporting is how a
+  // check earns an allowlist entry and under-reporting is how it goes silent.
+  var SELF = [
+    ["for + return true",        "function f() {\n  for (var i=0;i<d.length;i++) {\n    if (nodeCrypto.timingSafeEqual(a, d[i])) {\n      return true;\n    }\n  }\n  return false;\n}", true],
+    ["for + break",              "function f() {\n  for (var s=0;s<g.length;s+=1) {\n    if (bCrypto.timingSafeEqual(e, g[s])) {\n      matched = true;\n      break;\n    }\n  }\n}", true],
+    ["while + return true",      "function f() {\n  while (i < n) {\n    if (bCrypto.timingSafeEqual(p, list[i])) {\n      return true;\n    }\n    i += 1;\n  }\n}", true],
+    ["for await + return true",  "async function f() {\n  for await (var c of stream) {\n    if (bCrypto.timingSafeEqual(p, c)) {\n      return true;\n    }\n  }\n}", true],
+    ["do..while + break",        "function f() {\n  do {\n    if (bCrypto.timingSafeEqual(p, list[i])) {\n      break;\n    }\n    i += 1;\n  } while (i < n);\n}", true],
+    ["brace-less body",          "function f() {\n  for (var i=0;i<n;i++) if (bCrypto.timingSafeEqual(p, l[i])) return true;\n  return false;\n}", true],
+    // The brace-less body WRAPS: the exit is two lines under the header, so
+    // treating end-of-line as end-of-body lost it.
+    ["brace-less body, wrapped",  "function f() {\n  for (var i=0;i<n;i++)\n    if (bCrypto.timingSafeEqual(p, l[i]))\n      return true;\n  return false;\n}", true],
+    // An unbalanced brace inside a literal is text, not syntax. Left counted, it
+    // moves the end of the body and takes the real exit out of scope.
+    ["unbalanced brace in a string", "function f() {\n  for (var i=0;i<n;i++) {\n    log(\"unexpected } here\");\n    if (bCrypto.timingSafeEqual(p, l[i])) {\n      return true;\n    }\n  }\n}", true],
+    ["unbalanced brace in a template", "function f() {\n  for (var i=0;i<n;i++) {\n    log(`stray { brace`);\n    if (bCrypto.timingSafeEqual(p, l[i])) {\n      return true;\n    }\n  }\n}", true],
+    // A literal brace must not invent a loop body where the code has none.
+    ["braces in a string, no loop", "function f() {\n  var s = \"{{{\";\n  if (bCrypto.timingSafeEqual(actual, expected)) return true;\n  return false;\n}", false],
+    // Loop forms and neighbours that no review raised — pinned so a later
+    // narrowing of the loop matcher has to answer for them.
+    ["labelled loop, break label", "outer: for (var i=0;i<n;i++) {\n  if (bCrypto.timingSafeEqual(p, l[i])) {\n    break outer;\n  }\n}", true],
+    ["for..of",                   "function f() {\n  for (var c of cands) {\n    if (bCrypto.timingSafeEqual(p, c)) {\n      return true;\n    }\n  }\n}", true],
+    ["nested loops, inner exit",  "function f() {\n  for (var i=0;i<n;i++) {\n    for (var j=0;j<m;j++) {\n      if (bCrypto.timingSafeEqual(p, g[i][j])) {\n        return true;\n      }\n    }\n  }\n}", true],
+    ["callback inside a loop",    "function f() {\n  for (var i=0;i<n;i++) {\n    items.map(function (x) { return x + 1; });\n    if (bCrypto.timingSafeEqual(p, l[i])) {\n      return true;\n    }\n  }\n}", true],
+    // A loop that ENDS before the verifier must not capture it, whichever form
+    // the loop took — this is what the text pattern kept getting wrong.
+    ["verifier after do..while",  "function f() {\n  do {\n    work();\n  } while (i < n);\n  if (bCrypto.timingSafeEqual(actual, expected)) return true;\n  return false;\n}", false],
+    ["verifier after for..of",    "function f() {\n  for (var c of list) { tally(c); }\n  if (bCrypto.timingSafeEqual(actual, expected)) return true;\n  return false;\n}", false],
+    // A loop keyword that is not code must not open a body.
+    ["loop keyword in a string",  "function f() {\n  log(\"for (i=0;;) {\");\n  if (bCrypto.timingSafeEqual(actual, expected)) return true;\n  return false;\n}", false],
+    ["loop keyword in a comment", "function f() {\n  // for (var i=0;i<n;i++) {\n  if (bCrypto.timingSafeEqual(actual, expected)) return true;\n  return false;\n}", false],
+    // `do` without braces has no head to walk and no block to match.
+    ["brace-less do..while",      "function f() {\n  do if (bCrypto.timingSafeEqual(p, l[i])) return true; while (more);\n}", true],
+    // A brace-less body whose statement OPENS a block ends at that block's
+    // closing brace. There is no top-level `;`, so scanning on to the next one
+    // swallowed the verifier that followed the loop and reported it.
+    ["brace-less body with a block, verifier after",
+      "function f() {\n  for (var i=0;i<n;i++) if (x) { work(i); }\n  if (bCrypto.timingSafeEqual(actual, expected)) return true;\n  return false;\n}", false],
+    ["brace-less body with a block that DOES exit",
+      "function f() {\n  for (var i=0;i<n;i++) if (bCrypto.timingSafeEqual(p, l[i])) { return true; }\n  return false;\n}", true],
+    // A method named like a loop keyword is a call, not a loop header.
+    ["method named do",           "function f() {\n  queue.do(fn);\n  if (bCrypto.timingSafeEqual(actual, expected)) return true;\n  return false;\n}", false],
+    ["method named for",          "function f() {\n  schema.for(x);\n  if (bCrypto.timingSafeEqual(actual, expected)) return true;\n  return false;\n}", false],
+    // A CALL ahead of the comparison in the same condition. Forbidding `)`
+    // before the comparison — the old way of excluding a negated guard — threw
+    // this away, and it is a common way to write the oracle.
+    ["call guard then compare",   "function f() {\n  for (var i=0;i<n;i++) {\n    if (isEligible(l[i]) && bCrypto.timingSafeEqual(want, l[i])) {\n      return true;\n    }\n  }\n}", true],
+    ["length check then compare", "function f() {\n  for (var i=0;i<n;i++) {\n    if (l[i].length === want.length && bCrypto.timingSafeEqual(want, l[i])) return true;\n  }\n}", true],
+    // Still excluded: the comparison is negated, whatever precedes it.
+    ["call guard then NEGATED compare", "function f() {\n  for (var i=0;i<n;i++) {\n    if (isEligible(l[i]) && !bCrypto.timingSafeEqual(want, l[i])) {\n      continue;\n    }\n  }\n}", false],
+    // Must stay quiet.
+    ["verifier AFTER a loop",    "function f() {\n  for (var i=0;i<n;i++) { work(i); }\n  if (bCrypto.timingSafeEqual(actual, expected)) return true;\n  return false;\n}", false],
+    ["loop, no early exit",      "function f() {\n  for (var m=0;m<p.length;m+=1) {\n    if (nodeCrypto.timingSafeEqual(pb, p[m])) {\n      matched = true;\n    }\n  }\n  return matched;\n}", false],
+    ["negated guard in a loop",  "function f() {\n  for (var i=0;i<n;i++) {\n    if (!bCrypto.timingSafeEqual(mac, tags[i])) {\n      continue;\n    }\n  }\n}", false],
+    // The shape of b.crypto.timingSafeEqualAny itself: `continue` skips a
+    // candidate that was never eligible, the loop still runs to the end, and the
+    // result is accumulated rather than returned from inside. Treating
+    // `continue` as an early exit flagged the primitive written to fix this.
+    ["skip-ineligible then accumulate", "function f() {\n  for (var i=0;i<c.length;i+=1) {\n    if (!Buffer.isBuffer(c[i])) continue;\n    if (c[i].length !== p.length) continue;\n    if (nodeCrypto.timingSafeEqual(p, c[i])) matched = true;\n  }\n  return matched;\n}", false],
+    // Real shapes that exit on a match without saying `return true` — a failure
+    // object and a matched step. Both shipped in lib/ and no pattern caught them.
+    ["loop returns a failure value", "function f() {\n  for (var li=0;li<lines.length;li++) {\n    if (timingSafeEqual(Buffer.from(sfx), Buffer.from(want)) && n >= t) {\n      return _fail(\"breached\", n);\n    }\n  }\n}", true],
+    ["loop returns the match index",  "function f() {\n  for (var d=-drift;d<=drift;d++) {\n    if (timingSafeEqual(expectedBuf, userBuf)) {\n      return step;\n    }\n  }\n}", true],
+    ["no compare at all",        "function f() {\n  for (var i=0;i<n;i++) {\n    if (list[i] === want) return true;\n  }\n}", false],
+    ["compare outside any loop", "function f() {\n  if (bCrypto.timingSafeEqual(actual, expected)) return true;\n  return false;\n}", false],
+  ];
+  var hits = [];
+  SELF.forEach(function (c) {
+    var saw = offending(c[1]).length > 0;
+    if (saw !== c[2]) {
+      hits.push({
+        file: "test/layer-0-primitives/codebase-patterns.test.js", line: 1,
+        content: "timing-safe loop-scope check regression on \"" + c[0] + "\": expected " +
+          (c[2] ? "a violation" : "no violation") + ", got the opposite",
+      });
+    }
+  });
+
+  // Loops where the early exit leaks nothing, because NEITHER OPERAND IS SECRET.
+  // The bar is that the comparison's inputs are public, not that the exit is
+  // convenient — a site whose operand derives from a secret belongs in the fix,
+  // not here.
+  var NO_SECRET_OPERAND = {
+    "lib/network-dane.js":
+      "matchCertificate compares a TLSA association (published in DNS) against a " +
+      "digest of the peer's certificate (presented in the handshake). Both sides " +
+      "are public, so the iteration count reveals nothing an observer could not " +
+      "compute — and the function's contract is to report WHICH record matched, " +
+      "returning usage/selector/matchingType and matchedCertIndex to the caller.",
+  };
+
+  var fs = require("node:fs");
+  _libFiles().forEach(function (full) {
+    var src;
+    try { src = fs.readFileSync(full, "utf8"); }
+    catch (_e) { return; }
+    if (src.indexOf("timingSafeEqual") === -1) return;
+    if (NO_SECRET_OPERAND[_relPath(full)]) return;
+    offending(src).forEach(function (b) {
+      // Comment stripping preserves every newline, so an offset into the
+      // stripped text still counts the same number of lines.
+      var line = _stripComments(src).slice(0, b.start).split("\n").length;
+      hits.push({
+        file: _relPath(full),
+        line: line,
+        content: "constant-time comparison inside a loop that exits early — the iteration " +
+          "count reports WHICH candidate matched. Route through b.crypto.timingSafeEqualAny, " +
+          "which compares against every candidate and has no exit to take.",
+      });
+    });
+  });
+  _report("no constant-time comparison sits inside a loop that can exit as soon as one candidate matches",
+    hits);
+}
+
+// ---- Pattern 8b-i: the comment-stripping helper itself ----
+
+function testCommentStripHelper() {
+  // _stripComments decides whether two gates see a construct at all, and both
+  // fail SILENTLY if it under-strips: a commented-out occurrence reads as the
+  // real thing and the gate passes. So its behaviour is pinned here rather than
+  // left to whatever the author happened to try by hand.
+  //
+  // Both directions matter. Under-stripping hides the defect; over-stripping
+  // (treating a `/*` inside a string as a comment opener) reports files that are
+  // fine, which is how a check earns an allowlist entry and stops being read.
+  var PROBE = /getChecks\(\)[^\n]{0,40}checks passed/;
+  var CASES = [
+    ["live call",                   "console.log(\"OK - \" + helpers.getChecks() + \" checks passed\");", true],
+    ["line-commented out",          "// console.log(\"OK\" + helpers.getChecks() + \" checks passed\");", false],
+    ["block comment, starred body", "/*\n * helpers.getChecks() + \" checks passed\"\n */", false],
+    ["block comment, plain body",   "/*\nhelpers.getChecks() + \" checks passed\"\n*/", false],
+    ["inline block comment",        "foo(); /* helpers.getChecks() + \" checks passed\" */ bar();", false],
+    ["trailing line comment",       "run(); // helpers.getChecks() + \" checks passed\"", false],
+    ["live call beside a dead one", "/*\nold getChecks() + \" checks passed\"\n*/\nconsole.log(helpers.getChecks() + \" checks passed\");", true],
+    ["comment opener in a string",  "var s = \"/*\"; console.log(helpers.getChecks() + \" checks passed\");", true],
+    ["url in a string",             "var u = \"https://x/y\"; console.log(helpers.getChecks() + \" checks passed\");", true],
+  ];
+  var hits = [];
+  CASES.forEach(function (c) {
+    var saw = PROBE.test(_stripComments(c[1]));
+    if (saw !== c[2]) {
+      hits.push({
+        file: "test/layer-0-primitives/codebase-patterns.test.js", line: 1,
+        content: "_stripComments regression on \"" + c[0] + "\": expected the probe to " +
+          (c[2] ? "MATCH (live code)" : "MISS (commented out)") + " but it did not",
+      });
+    }
+  });
+  // The line-at-a-time helper keeps its weaker contract on purpose; pin the
+  // difference so a later reader doesn't collapse the two.
+  if (/checks passed/.test(_blankCommentLines("/*\nhelpers.getChecks() + \" checks passed\"\n*/")) !== true) {
+    hits.push({
+      file: "test/layer-0-primitives/codebase-patterns.test.js", line: 1,
+      content: "_blankCommentLines no longer leaves un-starred block-comment bodies visible - " +
+        "catalog entries hunting BAD shapes rely on that (a false positive is loud, a miss is silent); " +
+        "if this changed deliberately, re-check every skipCommentLines entry",
+    });
+  }
+  _report("_stripComments removes line, block and inline comments without stripping comment-like text inside string literals",
+    hits);
+}
+
+// ---- Pattern 8c: integration files must report a non-zero check count ----
+
+function testIntegrationFilesReportCheckCounts() {
+  // scripts/test-integration.js decides a file passed from its exit status and
+  // then prints whatever `OK — <n> checks passed` line the file emitted. A file
+  // that emits nothing gets a blank column, which is indistinguishable from a
+  // pass — and a file whose run() resolves before reaching its assertions exits
+  // 0 exactly like one that ran them. Four of fifty files were in that state,
+  // between them carrying 111 checks nobody could see.
+  //
+  // The runner now refuses a missing or zero count, so this is the fast half of
+  // the same gate: the runner needs the live docker stack and a Keycloak cold
+  // start to say so, this says it during the static gates.
+  //
+  // Requiring `helpers.getChecks()` specifically (rather than any count line)
+  // is deliberate — a hand-maintained literal drifts from the real number the
+  // moment an assertion is added, and a wrong count is worse than none because
+  // it looks verified.
+  var fs   = require("node:fs");
+  var path = require("node:path");
+  var repoRoot = path.resolve(__dirname, "..", "..");
+  var intDir   = path.join(repoRoot, "test", "integration");
+  var hits     = [];
+  var files    = [];
+  try {
+    files = fs.readdirSync(intDir).filter(function (n) { return /\.test\.js$/.test(n); });
+  } catch (_e) { files = []; }
+  files.forEach(function (name) {
+    var rel = "test/integration/" + name;
+    var src;
+    try { src = fs.readFileSync(path.join(intDir, name), "utf8"); }
+    catch (_e) { return; }
+    // The runner reads stdout, so the line has to be reachable from the
+    // `require.main === module` block — each integration file spawns as its own
+    // process. Matching the emitted shape rather than the whole block keeps
+    // this from caring how the file spells its promise handling.
+    // Keyed on getChecks() sitting next to the words the runner greps for, so
+    // concatenation and interpolation both satisfy it. Pinning the `+ " checks
+    // passed"` spelling would refuse a template literal that the runner accepts
+    // at runtime — a check that refuses working code earns an allowlist entry,
+    // and an allowlisted check stops being read.
+    // Comments are stripped first, block comments included. A commented-out
+    // success print contains every token this looks for, and it is the likeliest
+    // way a file ends up silent — so reading raw source would let the gate pass
+    // on exactly the state it exists to catch.
+    if (/getChecks\(\)[^\n]{0,40}checks passed/.test(_stripComments(src))) return;
+    hits.push({
+      file: rel, line: 1,
+      content: "integration file never prints `OK — \" + helpers.getChecks() + \" checks passed` — " +
+        "scripts/test-integration.js cannot tell it from a file that stopped asserting " +
+        "(both exit 0); emit the count from the require.main === module block",
+    });
+  });
+  _report("every test/integration/*.test.js reports its check count so the runner can tell a passing file from a silent one",
     hits);
 }
 
@@ -5500,7 +5948,7 @@ async function testNoDuplicateCodeBlocks() {
         // sharedRequest.requirePresignKey / resolvePresignExpires /
         // resolvePresignUploadMinBytes; only the copy-if-present signing assembly
         // remains, which is shape-only. The getResponse conditional-GET sub-dup
-        // (the RFC 7232/7233 If-Match family headers + the response-object
+        // (the RFC 9110 §13/§14 If-Match family headers + the response-object
         // mapping + the 304 short-circuit, byte-identical across azure/gcs/sigv4
         // getResponse) is now ALSO extracted to
         // sharedRequest.applyConditionalGetHeaders / mapGetResponse /
@@ -5634,6 +6082,17 @@ async function testNoDuplicateCodeBlocks() {
       // byte-identical); gate = buildContentGate composition. No two bodies are
       // byte-identical (the genuine shared constants — DANGEROUS/SAFE_URL_SCHEMES,
       // CHAR_THREATS_REJECT_ALL — are already extracted).
+      //
+      // yaml and email joined the _gateDispositionFor set when they stopped
+      // resolving disposition from SEVERITY and started reading each finding's
+      // policy, which is what the rest of the family already did. Their maps are
+      // divergent for the same reason the others are: yaml binds tag / alias /
+      // merge-key / multi-document / octal / norway-bool, email binds only the
+      // shared character classes and leaves its own vocabulary on severity.
+      // guard-json's _sanitizeTransform is the parse-and-re-serialize repair its
+      // gate already ran, lifted so the gate and the public sanitize cannot
+      // drift; guard-yaml's is a character scrub with no re-emit, because a YAML
+      // document has no faithful round-trip.
       mode:  "family-subset",
       files: [
         "lib/guard-archive.js:<top>",
@@ -5658,6 +6117,7 @@ async function testNoDuplicateCodeBlocks() {
         "lib/guard-markdown.js:_detectIssues",
         "lib/guard-markdown.js:_gateDispositionFor",
         "lib/guard-markdown.js:_sanitizeTransform",
+        "lib/guard-markdown.js:gate",
         "lib/guard-shell.js:_detectIssues",
         "lib/guard-svg.js:<top>",
         "lib/guard-svg.js:_gateDispositionFor",
@@ -5671,8 +6131,13 @@ async function testNoDuplicateCodeBlocks() {
         "lib/guard-xml.js:gate",
         "lib/guard-yaml.js:<top>",
         "lib/guard-yaml.js:_detectIssues",
+        "lib/guard-yaml.js:_gateDispositionFor",
+        "lib/guard-yaml.js:_sanitizeTransform",
         "lib/guard-yaml.js:_scanTags",
         "lib/guard-yaml.js:parse",
+        "lib/guard-email.js:_gateDispositionFor",
+        "lib/guard-email.js:gate",
+        "lib/guard-json.js:_sanitizeTransform",
       ],
     },
     {
@@ -7787,7 +8252,7 @@ var KNOWN_ANTIPATTERNS = [
     reason: "The presign expiry bounds (PRESIGN_MIN/MAX/DEFAULT_EXPIRES_SECONDS) were duplicated across gcs._v4Presign / gcs.presignedUploadPolicy / sigv4._presign / sigv4.presignedUploadPolicy — byte-identical apart from the message prefix and the V4 vs SigV4 hard-cap label. Centralised in http-request.js so a future cap change is one edit and every backend enforces the same ceiling. The distinctive bounds message anchors the inverse guard; only the helper's home is allowlisted.",
   },
   // Object-store conditional-GET request headers + response projection live in
-  // ONE place. azure/gcs/sigv4 getResponse hand-rolled the same RFC 7232/7233
+  // ONE place. azure/gcs/sigv4 getResponse hand-rolled the same RFC 9110 §13/§14 conditional-header 7232/7233
   // If-Match-family header application and the { statusCode, body, etag,
   // lastModified, contentRange, size, contentType } projection; azure/sigv4/
   // http-put head shared the { size, etag, lastModified } projection. Extracted
@@ -8040,20 +8505,20 @@ var KNOWN_ANTIPATTERNS = [
     allowlist: [],
     reason: "v0.15.11 (Codex P2). A non-global String.replace removes only the LEFTMOST match; on `data:text/html,<script>alert(1)</script>` it strips `data:text/html` and leaves the executable <script>, so sanitize mode returns runnable HTML for the exact vector the vbscript:/data:text/html alternation was added to neutralize. The fix is _redactAll(t, <RE>_G): a global replace repeated to a fixpoint so every dangerous token is removed. The _G global variants do NOT match this regex (`RE_G,` has no `\\s*,` right after `RE`), so the fixed call stays silent; a reverted non-global `.replace(DANGEROUS_HTML_RE,` / `.replace(INJECTION_RE,` fires. Empty allowlist.",
   },
-  // v0.15.9 — the RFC 9527 Clear-Site-Data header value must be built via the
+  // v0.15.9 — the W3C Clear-Site-Data header value must be built via the
   // shared middleware/clear-site-data headerValue() helper (which validates
   // each directive against the known set), not a hand-rolled quoted-token
   // string. A literal `setHeader("Clear-Site-Data", '"cookies", ...')` skips
-  // the directive validation and re-hand-rolls the RFC 9527 quoting the
+  // the directive validation and re-hand-rolls the W3C Clear-Site-Data quoting the
   // primitive owns (the b.session.logout extraction lesson).
   {
     id: "clear-site-data-header-hand-rolled",
-    primitive: "build the Clear-Site-Data response header via clearSiteData.headerValue(types) (validated RFC 9527 quoting) — do not hand-roll the quoted-directive string literal in setHeader",
+    primitive: "build the Clear-Site-Data response header via clearSiteData.headerValue(types) (validated W3C Clear-Site-Data quoting) — do not hand-roll the quoted-directive string literal in setHeader",
     scanScope: "lib",
     regex: /setHeader\(\s*["']Clear-Site-Data["']\s*,\s*["']/,
     skipCommentLines: true,
     allowlist: [],
-    reason: "v0.15.9 (Clear-Site-Data logout wiring). The middleware/clear-site-data headerValue() helper is the single builder of the RFC 9527 §3 quoted-token list and validates every directive against KNOWN_TYPES; both emitters (the middleware's create() and b.session.logout) route through it. A literal `setHeader(\"Clear-Site-Data\", '\"cookies\", ...')` hand-rolls the quoting and skips the validation. Fires when the second setHeader arg is a string literal; the live emitters pass a var/call so they stay silent.",
+    reason: "v0.15.9 (Clear-Site-Data logout wiring). The middleware/clear-site-data headerValue() helper is the single builder of the W3C Clear-Site-Data §3 quoted-token list and validates every directive against KNOWN_TYPES; both emitters (the middleware's create() and b.session.logout) route through it. A literal `setHeader(\"Clear-Site-Data\", '\"cookies\", ...')` hand-rolls the quoting and skips the validation. Fires when the second setHeader arg is a string literal; the live emitters pass a var/call so they stay silent.",
   },
   // #131 — the b.middleware.dpop factory must REQUIRE its replayStore at config
   // time. The store is DPoP's jti-replay defense (RFC 9449 §11.1); reading it
@@ -10150,7 +10615,7 @@ var KNOWN_ANTIPATTERNS = [
   // remaining call sites get per-file review in a later patch.
   {
     // Codex P1 (v0.10.13 PR #102) — PQC AlgorithmIdentifier with NULL
-    // parameters. ML-DSA (RFC 9909 §3), SLH-DSA (RFC 9881 §3), and
+    // parameters. ML-DSA (RFC 9881 §3), SLH-DSA (RFC 9909 §3), and
     // ML-KEM (RFC 9936 §3) all specify that the AlgorithmIdentifier's
     // parameters field is ABSENT. Appending `NULL` makes the CMS
     // (or X.509) structure non-conformant — strict CMS / X.509
@@ -12471,6 +12936,159 @@ var KNOWN_ANTIPATTERNS = [
   },
 
   {
+    id: "timing-safe-compare-with-early-exit",
+    primitive: "b.crypto.timingSafeEqualAny",
+    scanScope: "lib",
+    skipCommentLines: true,
+    // A constant-time compare inside a loop that stops at the first match
+    // answers a second question nobody asked: how far down the list the match
+    // was. The caller's own response time then reports it — matching the first
+    // pinned key returns sooner than matching the last, and matching nothing
+    // runs the whole list. Every comparison being individually constant-time
+    // does not help, because the LEAK IS THE ITERATION COUNT.
+    //
+    // Six sites shipped this way, and three of them carried a comment or
+    // docstring asserting the property the code did not have:
+    // crypto.isCertRevoked ("the answer doesn't leak which entry matched",
+    // with a `return true` inside the loop), eat._nonceMatches ("constant-time
+    // compare against each candidate"), and the DPoP nonce pair ("so
+    // server-issued nonce probing can't narrow the rolling-pair bytes via
+    // response-timing"). The other three were webhook-hmac, standard-webhooks
+    // and http-message-signature's Content-Digest member loop.
+    //
+    // A test cannot hold this. Every one of those sites returned the CORRECT
+    // answer — the defect is only in how long it took, which no assertion on
+    // output can observe and no wall-clock measurement can assert reliably
+    // under a parallel runner. That makes the structural check the primary
+    // guard here rather than the usual belt-and-braces, and the reason to
+    // route through a primitive with no exit to take rather than to review
+    // each loop.
+    //
+    // The defect is NOT "a loop with a break". The DPoP nonce pair had no loop
+    // at all — two sequential `if (compare) return true` statements, where the
+    // second comparison only runs when the first misses, which is the same
+    // position oracle. Anchoring on an enclosing loop would have missed it.
+    //
+    // What every true positive shares is a POSITIVE comparison guarding an
+    // early exit. The shape that is fine and must stay quiet is the negated
+    // guard — `if (!timingSafeEqual(a, b)) return false; return true;` — which
+    // has one comparison and so no position to leak; the `(?![!)])` tempered
+    // token is what tells the two apart.
+    //
+    // SCOPE, and why it is this narrow. A `.some` / `.find` callback holding a
+    // comparison is the same defect — those methods stop at the first truthy
+    // result — but this pattern does NOT try to catch it, after seven review
+    // rounds establishing that a regex cannot.
+    //
+    // Every one of those rounds was against the callback branch and none
+    // against the `if` branch here. In order: it refused a single negated
+    // compare; anchoring on an enclosing loop would have missed the DPoP pair,
+    // which has no loop; it ignored arrow callbacks; it broke on one level of
+    // nested parens in a parameter list, then on two; tightening it for arrows
+    // silently dropped named function expressions it had previously caught;
+    // and dropping the head-parse entirely then fired on
+    // `list.some(isEligible) && timingSafeEqual(a, b)`, where the comparison
+    // runs after the call and compares one pair. Each fix opened a hole in the
+    // other direction, because "is this comparison inside that callback" is a
+    // parse question and this is a regex.
+    //
+    // So the claim is narrowed to what can be decided lexically: a POSITIVE
+    // comparison guarding an early exit. That is the shape all six shipped
+    // defects took, and it has been stable and precise across every round. The
+    // callback form is left to `b.crypto.timingSafeEqualAny` being the obvious
+    // thing to reach for and to review — an honest gap beats a pattern that
+    // refuses working code, which is how a detector earns an allowlist entry
+    // and stops being read at all. #599 is the same argument one level up.
+    //
+    // The tempered token cannot cross a function-closing brace at column 0, so
+    // a `break` belonging to a later loop in the same file cannot pair with an
+    // earlier call. The `{0,80}` / `{0,200}` bounds are ReDoS backstops set far
+    // above any real body, not the precision mechanism.
+    //
+    // This entry covers ONE of the two shapes: two comparisons in sequence, each
+    // guarding its own early exit, with no loop at all — the DPoP current/previous
+    // nonce pair. That is a sequence of tokens, so a pattern decides it exactly.
+    //
+    // The LOOP shape is deliberately not here. Whether a comparison sits inside a
+    // particular loop body is a scope question, and answering it with a pattern
+    // flagged an ordinary one-pair verifier that merely followed an unrelated
+    // loop: the tempered token stops only at a brace in column zero, and loop
+    // bodies close indented. testTimingSafeCompareInLoopBody() answers it with
+    // brace matching over comment-stripped source, which also reaches the loop
+    // forms a pattern kept missing — `for await`, `do…while`, and brace-less
+    // single-statement bodies.
+    //
+    // A single positive comparison is not the defect in either place: one
+    // comparison has no position to report.
+    // The second comparison must be POSITIVE, said with a lookbehind rather than
+    // by forbidding `)` ahead of it: forbidding `)` also lost
+    // `if (isFresh(prev) && eq(n, prev.nonce)) return true;`, where the closing
+    // paren of the first call ended the match.
+    regex: new RegExp(
+      "timingSafeEqual\\((?:(?!\\n\\})[\\s\\S]){0,120}?\\breturn\\s+true\\b(?:(?!\\n\\})[\\s\\S]){0,200}?" +
+      "\\bif\\s*\\([^\\n]{0,160}?(?<![!\\w$.])(?:[\\w$]+\\.)*timingSafeEqual\\((?:(?!\\n\\})[\\s\\S]){0,120}?\\breturn\\s+true\\b"
+    ),
+    allowlist: [],
+    reason: "a multi-candidate constant-time compare must run every comparison; " +
+            "stopping at the first match leaks the match's position through timing. " +
+            "Route through b.crypto.timingSafeEqualAny, which has no early exit.",
+    // Precision is pinned, not remembered. Both halves of this pattern were
+    // wrong on the first attempt in opposite directions — it refused a single
+    // negated compare, and a `.find()` locating an NTS extension by type — so
+    // the shapes that decide it are fixtures rather than a comment.
+    fixtures: {
+      fires: [
+        // The DPoP nonce pair: no loop at all. The second comparison runs only
+        // when the first misses, which is the same position oracle.
+        "      if (current && bCrypto.timingSafeEqual(n, current.nonce)) return true;\n      if (previous && bCrypto.timingSafeEqual(n, previous.nonce)) return true;\n      return false;\n",
+        // The guard need not be the whole condition.
+        "  if (kind === \"v1\" && bCrypto.timingSafeEqual(x, cur)) return true;\n  if (kind === \"v1\" && bCrypto.timingSafeEqual(x, prev)) return true;\n  return false;\n",
+        // A CALL ahead of the second comparison. Excluding a negated guard by
+        // forbidding `)` before the comparison lost this shape entirely.
+        "  if (isFresh(cur) && bCrypto.timingSafeEqual(n, cur.nonce)) return true;\n  if (isFresh(prev) && bCrypto.timingSafeEqual(n, prev.nonce)) return true;\n  return false;\n",
+      ],
+      quiet: [
+        // Loop shapes belong to testTimingSafeCompareInLoopBody(), which decides
+        // loop membership by matching braces instead of guessing at it. They are
+        // listed here so a later reader doesn't conclude the loop case went
+        // unguarded when this pattern stays silent on it.
+        "  for (var i=0;i<d.length;i++) {\n    if (nodeCrypto.timingSafeEqual(a, d[i])) {\n      return true;\n    }\n  }\n",
+        "  for (var s=0;s<sigs.length;s+=1) {\n    if (bCrypto.timingSafeEqual(e, sigs[s])) {\n      matched = true;\n      break;\n    }\n  }\n",
+        // One comparison, so no position to leak. The negated guard is the
+        // shape the first review flagged this pattern for refusing.
+        "  if (!bCrypto.timingSafeEqual(a, b)) return false;\n  return true;\n}",
+        // The POSITIVE single compare — an ordinary one-pair verifier. No loop
+        // and no second comparison, so nothing about the timing says where a
+        // match was. An earlier version of this pattern refused it, which would
+        // have sent correct code to timingSafeEqualAny for no reason.
+        "  if (bCrypto.timingSafeEqual(actual, expected)) return true;\n  return false;\n}",
+        "  if (!bCrypto.timingSafeEqual(sig, exp)) {\n    throw new Error(\"bad\");\n  }\n  return true;\n}",
+        // A `.find()` locating a record BY TYPE with the comparison after it —
+        // lib/network-nts.js. Three call syntaxes, because every attempt to
+        // reach INTO a callback ended up refusing one of them.
+        "  var ext = exts.find(function (e) { return e.type === UNIQUE_ID; });\n  if (!ext || !timingSafeEqual(ext.body, unique)) {\n    done(err);\n    return;\n  }\n",
+        "  var ext = exts.find(e => e.type === UNIQUE_ID);\n  if (!ext || !timingSafeEqual(ext.body, unique)) {\n    done(err);\n    return;\n  }\n",
+        "  var ext = exts.find(function byType(e) { return e.type === UNIQUE_ID; });\n  if (!ext || !timingSafeEqual(ext.body, unique)) {\n    done(err);\n    return;\n  }\n",
+        // A predicate call and a single comparison in one expression. The
+        // `.some(` is a function REFERENCE, not a callback body, and the
+        // comparison runs after it against one pair.
+        "  return candidates.some(isEligible) && timingSafeEqual(actual, expected);\n",
+        // The correct loop: every candidate compared, no exit to take.
+        "    for (var mi=0;mi<p.length;mi+=1) {\n      if (nodeCrypto.timingSafeEqual(peerBuf, p[mi])) {\n        matched = true;\n      }\n    }\n",
+        "  return nodeCrypto.timingSafeEqual(bufA, bufB);\n}",
+        // OUT OF SCOPE, deliberately: a comparison inside a `.some` / `.find`
+        // callback is the same defect, and this pattern does not claim it. Seven
+        // rounds of trying to reach into a callback with a regex produced a
+        // false positive or a miss every time. Listed here so the gap is a
+        // decision on the record rather than something a later reader assumes
+        // was covered.
+        "  return cands.some(c => bCrypto.timingSafeEqual(c, exp));\n",
+        "  return cands.some(function matches(c) {\n    return bCrypto.timingSafeEqual(c, exp);\n  });\n",
+      ],
+    },
+  },
+
+  {
     id: "char-threat-strip-without-the-reject-assert",
     primitive: "b.codepointClass.scrubCharThreats",
     scanScope: "lib",
@@ -13166,13 +13784,13 @@ function testNoNaiveSuffixAlignment() {
           content: "naive text-suffix alignment — separately-registered " +
                    "confusables (`evil-bank.com` vs `bank.com`) pass. Use " +
                    "`publicSuffix.organizationalDomain(d)` and compare org-" +
-                   "domains (RFC 7489 §3.1.1).",
+                   "domains (RFC 9989 §4.4.1).",
         });
       }
     }
   }
   bad = _filterMarkers(bad, "naive-suffix-alignment");
-  _report("relaxed-mode alignment MUST use publicSuffix.organizationalDomain, not naive text-suffix slice (RFC 7489 §3.1.1)",
+  _report("relaxed-mode alignment MUST use publicSuffix.organizationalDomain, not naive text-suffix slice (RFC 9989 §4.4.1)",
     bad);
 }
 
@@ -16661,17 +17279,7 @@ function testKnownAntipatterns() {
       // antipatterns (regexes that span lines) MUST NOT set this opt
       // — those need raw content. Per-entry opt-in.
       var subject = content;
-      if (ap.skipCommentLines === true) {
-        subject = content.split(/\r?\n/).map(function (ln) {
-          // Keep `*` lines that are clearly NOT jsdoc bodies (e.g.
-          // a leading-`*` in a star-pattern wildcard outside a
-          // comment block) by only blanking lines where `*` is the
-          // first non-whitespace and the trimmed line starts with
-          // `*` (i.e. ` * ...` or `/* ...` or `*/`).
-          if (/^\s*(\*|\/\/|\/\*)/.test(ln)) return "";
-          return ln;
-        }).join("\n");
-      }
+      if (ap.skipCommentLines === true) subject = _blankCommentLines(content);
       var m = ap.regex.exec(subject);
       if (!m) continue;
       // Companion `requires` check — if the same file content names
@@ -17164,93 +17772,47 @@ function testNoInternalNarrativeComments() {
 // for one. There is no allowlist — a genuine need for a pattern in this
 // family is a signal that a walk primitive is missing, not that this gate
 // should grow an entry.
-function testNoRegexInGuardAndSafeFamily() {
-  // class: regex-in-guard-or-safe-primitive
-  var OPERAND_MAY_FOLLOW = "=(,:[!&|?{};+-*%<>~^";
-
-  function regexLiteralLines(src) {
-    var hits = [];
-    var prev = "";
-    var line = 1;
-    for (var i = 0; i < src.length; i += 1) {
-      var c = src.charAt(i);
-      if (c === "\n") { line += 1; continue; }
-      if (c === "/" && src.charAt(i + 1) === "/") {
-        while (i < src.length && src.charAt(i) !== "\n") i += 1;
-        line += 1;
-        continue;
+// A detector needs false-positive PRECISION as much as it needs coverage, and
+// a pattern that has only ever been checked against the code it was written for
+// has been checked in one direction. Any KNOWN_ANTIPATTERNS entry may carry
+// `fixtures: { fires: [...], quiet: [...] }`, and this runs them.
+//
+// The entry that prompted it got both directions wrong on the first attempt:
+// it refused a single negated comparison (one compare, nothing to leak), and
+// separately refused a `.find()` locating a record by type merely because a
+// comparison appeared nearby. Neither was visible from the code the pattern was
+// written against — only from shapes deliberately chosen to sit just outside
+// it. Writing those down is cheaper than rediscovering them.
+function testAntipatternFixturesHold() {
+  var wrong = [];
+  var probed = 0;
+  KNOWN_ANTIPATTERNS.forEach(function (entry) {
+    if (!entry.fixtures) return;
+    var re = entry.regex;
+    (entry.fixtures.fires || []).forEach(function (sample, i) {
+      probed += 1;
+      re.lastIndex = 0;
+      if (!re.test(sample)) {
+        wrong.push(entry.id + " fires[" + i + "] did NOT fire: " +
+                   sample.replace(/\s+/g, " ").slice(0, 70));
       }
-      if (c === "/" && src.charAt(i + 1) === "*") {
-        var close = src.indexOf("*/", i + 2);
-        if (close === -1) break;
-        for (var q = i; q < close; q += 1) if (src.charAt(q) === "\n") line += 1;
-        i = close + 1;
-        continue;
+    });
+    (entry.fixtures.quiet || []).forEach(function (sample, i) {
+      probed += 1;
+      re.lastIndex = 0;
+      if (re.test(sample)) {
+        wrong.push(entry.id + " quiet[" + i + "] FALSE POSITIVE: " +
+                   sample.replace(/\s+/g, " ").slice(0, 70));
       }
-      if (c === "\"" || c === "'" || c === "`") {
-        var quote = c;
-        i += 1;
-        while (i < src.length && src.charAt(i) !== quote) {
-          if (src.charAt(i) === "\\") i += 1;
-          if (src.charAt(i) === "\n") line += 1;
-          i += 1;
-        }
-        prev = quote === "`" ? "`" : "\"";
-        continue;
-      }
-      if (c === "/" && (prev === "" || OPERAND_MAY_FOLLOW.indexOf(prev) !== -1)) {
-        var j = i + 1;
-        var inClass = false;
-        var closed = false;
-        for (; j < src.length; j += 1) {
-          var d = src.charAt(j);
-          if (d === "\\") { j += 1; continue; }
-          if (d === "\n") break;
-          if (d === "[") inClass = true;
-          else if (d === "]") inClass = false;
-          else if (d === "/" && !inClass) { closed = true; break; }
-        }
-        if (closed) {
-          hits.push({ line: line, text: src.slice(i, j + 1) });
-          i = j;
-          prev = "/";
-          continue;
-        }
-      }
-      if (c !== " " && c !== "\t" && c !== "\r") prev = c;
-    }
-    return hits;
-  }
-
-  // guard-regex is the one member exempt from the SPIRIT as well as the
-  // letter: it exists to screen operator-supplied patterns, so a pattern is
-  // its subject matter. It carries none as literals either, and this gate
-  // covers it — the note is here so a future reader knows the exemption was
-  // considered and not needed.
-  var files = _libFiles().filter(function (full) {
-    return /^lib\/(safe-|guard-)[^/]+\.js$/.test(_relPath(full));
+    });
   });
-
-  var bad = [];
-  for (var fi = 0; fi < files.length; fi += 1) {
-    var rel = _relPath(files[fi]);
-    var hits = regexLiteralLines(fs.readFileSync(files[fi], "utf8"));
-    for (var h = 0; h < hits.length; h += 1) {
-      bad.push({
-        file:    rel,
-        line:    hits[h].line,
-        content: "regular expression `" + hits[h].text.slice(0, 60) + "` in a " +
-                 "content-safety primitive — screen the characters instead " +
-                 "(codepointClass.isRunOf / indexOfAny / firstInRanges, " +
-                 "markupTokenizer for markup, safeBuffer for byte shapes), or " +
-                 "run it on b.regexLinear when a pattern is genuinely the input",
-      });
-    }
-  }
-  bad = _filterMarkers(bad, "regex-in-guard-or-safe-primitive");
-  _report("guard-* / safe-* primitives screen input by walking characters, " +
-          "never with a regular expression", bad);
+  check("every antipattern fixture holds — each pattern fires on the shape it " +
+        "guards and stays quiet on the shape it must not refuse",
+        wrong.length === 0, wrong.slice(0, 6).join("; "));
+  check("antipattern fixtures probed at least eight samples", probed >= 8,
+        "probed " + probed);
 }
+
 
 // A captured shell-out reports `stdout: ""` for BOTH "the command succeeded
 // and printed nothing" and "the command never ran". Reading `.stdout` without
@@ -17440,7 +18002,7 @@ function testSfvCitationMatchesReferencingProtocol() {
 async function run() {
   testPrimitiveReachability();
   testDenyPathComposesDenyResponse();
-  testNoRegexInGuardAndSafeFamily();
+  testAntipatternFixturesHold();
   testCaptureStatusChecked();
   testSfvCitationMatchesReferencingProtocol();
   testNoInternalNarrativeComments();
@@ -17457,6 +18019,9 @@ async function run() {
   testNoStaleDefers();
   testNoLiteralNulBytesInSource();
   testParserPrimitivesHaveFuzzHarness();
+  testCommentStripHelper();
+  testTimingSafeCompareInLoopBody();
+  testIntegrationFilesReportCheckCounts();
   testSafeGuardWiredInIndex();
   testSafeGuardHasMustComposeDetector();
   testNoTierTerminologyInLib();

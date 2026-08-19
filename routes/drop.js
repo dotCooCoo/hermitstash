@@ -14,6 +14,37 @@ var { resolveUploadConfig, handleFileUpload, handleChunkUpload, handleFinalize }
 var idempotency = require("../middleware/idempotency");
 var { AppError, ValidationError, ForbiddenError, NotFoundError } = require("../app/shared/errors");
 
+// PUBLIC_UPLOAD applied to publication, for the callers it actually governs.
+//
+// Finalize is the step that publishes — it mints the share URL, mails the
+// uploader, notifies the admins and fires the webhooks — so an operator who
+// switches the portal off to stop abuse would not expect a bundle staged
+// moments earlier to go out anyway. Nothing new can be staged while the switch
+// is off (init, file and chunk all refuse), so the only bundle this reaches is
+// one staged BEFORE the flip: precisely the case the switch was reached for.
+//
+// Scoped to ANONYMOUS bundles, because that is what the setting governs —
+// .env.example calls it "Allow anonymous file uploads (no login required)". A
+// bundle with an owner is a signed-in user's, or a sync client's, and neither
+// is an anonymous upload; refusing those would take the switch beyond what it
+// says it does and would stop sync clients completing work they had every right
+// to. `ownerId` is null exactly when nobody was signed in at init.
+//
+// Placed in front of the idempotency cache rather than inside the handler. That
+// cache stores 4xx as well as 2xx — the framework treats a client error as the
+// caller's own mistake and therefore replayable — but this refusal is the
+// server's state and the operator can flip it back. Behind the cache, a client
+// retrying with the same key would be told "disabled" for the full
+// twenty-four-hour window even after uploads were re-enabled, turning a pause
+// into a day-long outage for that key. The bundle lookup here costs nothing in
+// the ordinary case: it only runs once the switch is already off.
+function requirePublicUpload(req, res, next) {
+  if (config.publicUpload) return next();
+  var existing = bundlesRepo.findById(req.params.bundleId);
+  if (existing && existing.ownerId) return next();   // owned — not an anonymous upload
+  throw new ForbiddenError("Disabled.");
+}
+
 module.exports = function (app) {
   // Drop page
   app.get("/drop", (req, res) => {
@@ -156,7 +187,7 @@ module.exports = function (app) {
   });
 
   // Finalize bundle
-  app.post("/drop/finalize/:bundleId", rateLimit.guard({ max: 20, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), idempotency, requireScope("upload"), async (req, res) => {
+  app.post("/drop/finalize/:bundleId", rateLimit.guard({ max: 20, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), requirePublicUpload, idempotency, requireScope("upload"), async (req, res) => {
     var existing = bundlesRepo.findById(req.params.bundleId);
     if (!existing) throw new NotFoundError("Bundle not found.");
     if (existing.stashId && !(req.apiKey && req.apiKey.boundStashId === existing.stashId)) {
