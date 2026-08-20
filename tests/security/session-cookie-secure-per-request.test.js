@@ -35,8 +35,9 @@ process.env.HERMITSTASH_SESSION_DB = "test-session-secure-"
 process.env.RP_ORIGIN = "https://files.example.com";
 process.env.TRUST_PROXY = "10.0.0.0/8";
 
-var { Router } = require("../../lib/vendor/blamejs").router;
-var { sessionMiddleware } = require("../../lib/session");
+var b = require("../../lib/vendor/blamejs");
+var { Router } = b.router;
+var { sessionMiddleware, secureLogout } = require("../../lib/session");
 var clientIp = require("../../lib/client-ip");
 var vault = require("../../lib/vault");
 
@@ -122,5 +123,71 @@ describe("session cookie Secure flag follows the request, not the configured ori
     // Fail closed: no request means no evidence of TLS.
     assert.strictEqual(clientIp.isSecureRequest(null), false);
     assert.strictEqual(clientIp.isSecureRequest(undefined), false);
+  });
+});
+
+// The cookie that ENDS the session has to agree with the one that started it.
+//
+// b.session.logout built its expiry cookie with Secure hardcoded until blamejs
+// 0.18.41. A browser refuses a Secure cookie arriving over plain HTTP, so on a
+// cleartext deployment — a proxy that does not terminate TLS, which is the
+// umbrel shape — the header was dropped and the cookie the logout existed to
+// clear stayed in the jar. Never a bypass, because the session row is destroyed
+// first and the survivor is dead; but it is sent on every later request.
+//
+// The flag comes from clientIp, not from handing the framework `req`. Both are
+// peer-gated, but the framework's copy does not know HS's TRUST_PROXY list, so
+// behind a TLS-terminating proxy it reads the socket, sees cleartext, and
+// answers false — disagreeing with _setSessionCookie for the same request.
+describe("logout's expiry cookie follows the request scheme too", function () {
+  before(async function () {
+    await vault.init();
+  });
+
+  // Drive the real secureLogout and report the hs_sid cookie it queued.
+  async function expiryCookie(reqLike) {
+    var headers = {};
+    var res = {
+      setHeader: function (k, v) { headers[k] = v; },
+      getHeader: function (k) { return headers[k]; },
+    };
+    var token = await b.session.create({ userId: "logout-probe" }, { req: reqLike });
+    await secureLogout(res, token, reqLike);
+    return [].concat(headers["Set-Cookie"] || [])
+      .filter(function (c) { return c.startsWith("hs_sid="); })[0] || "";
+  }
+
+  it("omits Secure on a plain-HTTP logout, so the cookie actually clears", async function () {
+    var c = await expiryCookie({ headers: {}, socket: { encrypted: false, remoteAddress: "203.0.113.9" } });
+    assert.ok(c, "an expiry cookie should be queued");
+    assert.match(c, /Max-Age=0/, "it must expire the cookie: " + c);
+    assert.ok(!/;\s*Secure/i.test(c),
+      "a Secure expiry cookie over plain HTTP is discarded by the browser, leaving the "
+      + "cookie it was meant to clear. Got: " + c);
+  });
+
+  it("keeps Secure when the request arrived over TLS", async function () {
+    var c = await expiryCookie({ headers: {}, socket: { encrypted: true, remoteAddress: "203.0.113.9" } });
+    assert.match(c, /;\s*Secure/i, "a TLS logout should still mark the expiry cookie Secure: " + c);
+  });
+
+  it("keeps Secure behind a declared trusted proxy", async function () {
+    // The case the framework's own req-resolution gets wrong, because it is not
+    // given TRUST_PROXY: it would read the socket and answer false here.
+    var c = await expiryCookie({
+      headers: { "x-forwarded-proto": "https" },
+      socket: { encrypted: false, remoteAddress: "10.0.0.5" },
+    });
+    assert.match(c, /;\s*Secure/i,
+      "a trusted proxy's forwarded https must reach the expiry cookie: " + c);
+  });
+
+  it("ignores a forged X-Forwarded-Proto from an untrusted peer", async function () {
+    var c = await expiryCookie({
+      headers: { "x-forwarded-proto": "https" },
+      socket: { encrypted: false, remoteAddress: "203.0.113.9" },
+    });
+    assert.ok(!/;\s*Secure/i.test(c),
+      "an untrusted caller must not steer the expiry cookie's attributes: " + c);
   });
 });

@@ -1,0 +1,26 @@
+{
+  "version": "1.15.1",
+  "date": "2026-08-20",
+  "headline": "Signing out clears the session cookie on a plain-HTTP deployment",
+  "summary": "If you reach HermitStash over plain HTTP — behind a proxy that terminates TLS elsewhere, or on a local network — signing out left the session cookie in the browser. The session itself was always destroyed, so the leftover cookie was dead rather than usable, but it was sent on every later request and it did not disappear when the user expected it to.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Clear the session cookie when the connection is not HTTPS",
+          "body": "The cookie that expires the session was always marked Secure, and a browser refuses a Secure cookie that arrives over plain HTTP. On a cleartext deployment the browser therefore discarded it and kept the cookie the sign-out was meant to remove. The flag now follows the scheme the request actually used, resolved against the same trusted-proxy list as the client address, so a proxy that terminates TLS still produces a Secure cookie and a caller cannot choose the attributes by sending a forwarded header. A session was never left usable by this: the server destroys the session before writing the cookie, so anything that survived in the browser was already revoked."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Vendored blamejs moves to 0.18.41",
+          "body": "Carries the framework side of the fix above, and routes every cookie the framework writes through one validating writer rather than through per-call string building. The second change closes a header-injection path in the framework's CSRF middleware for deployments that configure a cookie path; HermitStash does not reach it, because it runs that middleware in token-lookup mode and configures no cookie."
+        }
+      ]
+    }
+  ]
+}

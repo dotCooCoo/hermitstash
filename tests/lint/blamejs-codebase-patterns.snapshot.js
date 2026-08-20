@@ -7337,6 +7337,15 @@ function testStateStampScanningDeferred() {
 //      patterns split across lines still match.
 var KNOWN_ANTIPATTERNS = [
   {
+    id: "set-cookie-must-compose-b-cookies",
+    primitive: "b.cookies.serialize",
+    scanScope: "lib",
+    skipCommentLines: true,
+    regex: /setHeader\s*\(\s*["']Set-Cookie["']|appendHeader\s*\(\s*["']Set-Cookie["']/i,
+    allowlist: ["lib/cookies.js"],
+    reason: "Set-Cookie is written ONLY through b.cookies — serialize() to build the header, appendSetCookie() to queue it. Two files were emitting it themselves and each lost a different guarantee. b.session.logout concatenated a literal with Secure and SameSite=Strict hardcoded: a browser refuses a Secure cookie set over plain HTTP, so on a cleartext deployment the logout could not clear the session cookie it was written to clear (#606), and because it used setHeader rather than appending, it also discarded any cookie the route had already queued. b.middleware.csrfProtect had its own formatter that interpolated the operator's cookie.path with no CRLF scrub, so a configured path carrying a bare CR split the response header and appended one of the attacker's -- or the operator's -- choosing; a comment above its boot check even recorded that it 'builds its own Set-Cookie header rather than routing through b.cookies.serialize'. serialize() validates the name as an RFC 6265 token, refuses CRLF/NUL in the value, scrubs Domain and Path, and enforces the RFC 6265bis __Host-/__Secure- prefix invariants at the point the header is built, which is the only point that sees the resolved attributes. Only lib/cookies.js may call setHeader/appendHeader for this header, because it is the one implementing them.",
+  },
+  {
     id: "gate-context-rebind-must-not-flatten-the-chain",
     primitive: "b.gateContract.defineGate",
     scanScope: "lib",

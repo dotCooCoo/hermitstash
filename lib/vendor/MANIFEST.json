@@ -53,8 +53,8 @@
       "bundledAt": "2026-08-20"
     },
     "blamejs": {
-      "version": "0.18.40",
-      "tag": "v0.18.40",
+      "version": "0.18.41",
+      "tag": "v0.18.41",
       "license": "Apache-2.0",
       "author": "blamejs contributors",
       "source": "https://github.com/blamejs/blamejs",
@@ -194,7 +194,7 @@
           "file": "lib/vendor/blamejs/lib/vendor/blamejs-pki.cjs"
         }
       },
-      "integrity": "sha512-fksZDkKA5v7q8D+Eln9XLdqXtZleHFt53KwQFZIVJ0HHi9yKLWIrc7Hqpsk+PIbZp6U0pBHgniVg9WNOvR0jbQ=="
+      "integrity": "sha512-VZPFAJV4oc6UuDoXqr+f0t0D0h5AWwIY3psqFazmLes4EItkAH+rdm2RPtS4ofnp+nWDbBhVDVSCc8U2nwOWxg=="
     }
   }
 }

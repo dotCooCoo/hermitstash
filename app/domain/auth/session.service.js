@@ -110,7 +110,7 @@ async function completeLogin(req, userId) {
 async function logoutUser(req, res) {
   Object.keys(req.session).forEach(function (k) { delete req.session[k]; });
   if (res) {
-    await secureLogout(res, req.sessionId);
+    await secureLogout(res, req.sessionId, req);
   } else {
     await clearSessionById(req.sessionId);
   }
