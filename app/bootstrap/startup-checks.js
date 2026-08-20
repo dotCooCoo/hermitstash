@@ -117,9 +117,8 @@ function run() {
       // is the same unreadable notice as a corrupt file.
       if (flagData && flagData.at && s.caGenerationBefore != null && s.caGenerationAfter != null) {
         // Browser certificates are issued by a separate CA and keep working
-        // across a sync-CA regeneration. This used to tell admins to re-download
-        // them, which was true before the two CAs were split apart and is now
-        // an afternoon of unnecessary work.
+        // across a sync-CA regeneration, so the notice says so rather than
+        // sending admins to replace certificates the regeneration never touched.
         warnings.push("mTLS CA was regenerated at " + flagData.at + " (v" + s.caGenerationBefore + " → v" + s.caGenerationAfter + "). Acked: " + (s.syncClientsAcked || 0) + "/" + (s.syncClientsConnected || 0) + " live sync clients. " + (s.syncClientsOffline || 0) + " offline clients need re-enrollment. Browser certificates are unaffected — they are issued by a separate CA.");
       } else {
         // The file existing is still evidence something wrote it, so staying

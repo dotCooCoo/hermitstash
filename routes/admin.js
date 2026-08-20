@@ -517,14 +517,13 @@ module.exports = function (app) {
       var tlsSealedExists = nodeFs.existsSync(tlsKeyPath + ".sealed");
 
       // Whether TLS is serving comes from the process that decided it, not from
-      // a second reading of the same files. This panel used to look at the key
-      // and not the certificate, so a key mounted ahead of its chain showed a
-      // green "TLS: enabled" row on a server that had logged "starting in HTTP
-      // mode" — the worst thing this panel can get wrong, since an operator
-      // reads it to decide whether the deployment is safe to expose. Deriving it
-      // again from more predicates only moves the drift: the listener also
-      // depends on the key loading under the configured sealed-key mode, and
-      // reimplementing that here is how the copy diverges next time.
+      // a second reading of the same files. Judging it from the key alone would
+      // show a green "TLS: enabled" row for a key mounted ahead of its chain on
+      // a server running in HTTP mode — the worst thing this panel can get
+      // wrong, since an operator reads it to decide whether the deployment is
+      // safe to expose. Deriving it from more predicates only moves the drift:
+      // the listener also depends on the key loading under the configured
+      // sealed-key mode, and reimplementing that here is how a copy diverges.
       //
       // The file checks below survive only to explain a "no" — which half is
       // missing — never to decide one.

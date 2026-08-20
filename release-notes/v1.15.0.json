@@ -1,0 +1,34 @@
+{
+  "version": "1.15.0",
+  "date": "2026-08-20",
+  "headline": "Two superseded standards references corrected, and the API reference renders its columns",
+  "summary": "A documentation-accuracy release. If you have been reading the threat model or the API reference, two of the standards it cited were superseded and two endpoint tables were rendering a column that had no content in any row. Nothing about how the server behaves changes.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Vendored blamejs moves to 0.18.40",
+          "body": "Upstream corrected DMARC policy discovery: the resolver queried the Author Domain and the organizational domain, where RFC 9989 specifies a walk over every ancestor label, so a p=reject published at an intermediate label was read as none. This server evaluates no inbound DMARC and reaches none of that path. Taken to keep the vendored copy current."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Cite the standards that are current",
+          "body": "The threat model and the certificate-authority code named RFC 9579 for PBMAC1 in PKCS#12. RFC 9879 obsoleted it in September 2025 under the same title, so the older number is no longer the document to read for current behaviour. The README named RFC 5987 for HTTP header parameter encoding, obsoleted by RFC 8187. Both now point at the current text. No behaviour changes — the mechanisms these describe are unaltered, and only the reference was stale."
+        },
+        {
+          "title": "Render both API endpoint tables correctly",
+          "body": "The upload and admin endpoint tables declared three columns while every row supplied two, because each row's method is written as part of the endpoint. Renderers misalign a row whose cell count disagrees with the header, so the tables were harder to read than they should have been throughout. The redundant column is gone and the method stays where it already was."
+        },
+        {
+          "title": "Documented patterns and commands that could not be copied",
+          "body": "Three code spans in the reference material carried a single-character ellipsis where a shell needs three dots, so a copied command would fail on a character it cannot parse. One of those also misdescribed what it documented: a repetition count applied to an ellipsis rather than to the character class the check actually matches."
+        }
+      ]
+    }
+  ]
+}

@@ -65,13 +65,12 @@ function sourcesOfTruth(repoRoot) {
   }
 
   // A primitive's browser asset and the copy blamejs vendors for the server
-  // must name the same upstream release. They used to be built separately and
-  // drifted; the browser asset is now copied out of the framework and its
-  // recorded version written from the framework manifest, so this should be
-  // impossible rather than merely unlikely. The check stays as the thing that
-  // notices if that wiring breaks — a silent mismatch here is what let the
-  // previous split run for two refreshes. A mismatch is reported rather than
-  // thrown so --fix can still correct the plain version references.
+  // must name the same upstream release. The browser asset is copied out of the
+  // framework and its recorded version written from the framework manifest, so
+  // a mismatch means that wiring is broken rather than that someone forgot a
+  // bump. It stays checked because the failure is silent otherwise: the two
+  // halves keep working separately while reporting different releases. Reported
+  // rather than thrown, so --fix can still correct the plain version references.
   var nested = (pkgs.blamejs && pkgs.blamejs.components) || {};
   var skew = [];
   ["@noble/ciphers", "@noble/hashes", "@noble/post-quantum"].forEach(function (name) {

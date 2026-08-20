@@ -353,9 +353,9 @@ function runSchemaDriftCheck(oldKeys) {
   // The schema-drift probe needs the FULLY DECRYPTED database on disk briefly.
   // Write it owner-only and symlink-refusing (b.atomicFile.writeSync → O_EXCL |
   // O_NOFOLLOW, 0o600) under DATA_DIR (HermitStash-controlled) with an
-  // unpredictable name — the old code wrote plaintext to a predictable
-  // .schema-check-<Date.now()>.db in the world-traversable PARENT of DATA_DIR
-  // with the umask default mode, exposing the entire plaintext DB.
+  // unpredictable name. Each of those matters on its own: a predictable name in
+  // the world-traversable parent of DATA_DIR, written at the umask default,
+  // exposes the entire plaintext database for as long as the probe runs.
   var tmpPath = path.join(DATA_DIR, ".schema-check-" + b.crypto.generateToken(16) + ".db");
   b.atomicFile.writeSync(tmpPath, plain, { fileMode: 0o600 });
   var db = new DatabaseSync(tmpPath);

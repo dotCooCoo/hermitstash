@@ -389,7 +389,7 @@ Decrypt inverts: `encapsulate` → server-stored ciphertext becomes `decapsulate
 HermitStash acts as its own Certificate Authority for mTLS. It runs **two** CAs, because sync clients and browsers have incompatible capabilities:
 
 - **Sync CA** (`data/ca.crt`, `lib/mtls-ca.js`) signs the client certs machine sync clients present. It is **post-quantum by default — ML-DSA-87 (FIPS 204)**. Sync clients run on Node/OpenSSL 3.5, which completes a real ML-DSA mutual-auth TLS handshake (chain verification *and* the client CertificateVerify).
-- **Browser CA** (`data/ca-browser.crt`, `lib/mtls-ca-browser.js`) signs the PKCS#12 client certs humans import into a browser / OS keystore to reach the web UI under Enforce mTLS. It is pinned **classical — ECDSA-P384-SHA384** on purpose: today's browsers and OS keystores can neither complete an ML-DSA TLS client-auth handshake nor import a post-quantum (PBMAC1, RFC 9579) PKCS#12.
+- **Browser CA** (`data/ca-browser.crt`, `lib/mtls-ca-browser.js`) signs the PKCS#12 client certs humans import into a browser / OS keystore to reach the web UI under Enforce mTLS. It is pinned **classical — ECDSA-P384-SHA384** on purpose: today's browsers and OS keystores can neither complete an ML-DSA TLS client-auth handshake nor import a post-quantum (PBMAC1, RFC 9879) PKCS#12.
 
 The TLS server trusts **both** CA certs in its mTLS `ca` trust bundle (`server-main.js`), so a machine sync client and a browser-imported cert both authenticate. During a sync-CA migration the superseded CA (`data/ca.prev.crt`) is trusted too (§5.8.2). Each CA has its own generation counter, on-disk files, and revocation registry, so it rotates and revokes independently.
 

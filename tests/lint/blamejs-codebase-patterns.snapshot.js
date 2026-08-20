@@ -6423,6 +6423,15 @@ async function testNoDuplicateCodeBlocks() {
       // each guard's _gateDispositionFor is its own exhaustive per-issue policy
       // map and each sanitize() its own transform. Correct composition + per-guard
       // policy data, not duplication.
+      //
+      // guard-filename and guard-yaml joined the _gateDispositionFor members
+      // when their gates stopped resolving the action from severity: the shared
+      // two lines are the charThreatDisposition delegation every member makes,
+      // and the bodies below them map entirely different kinds (path-traversal /
+      // ntfs-ads / reserved-name for filename; core-tag / merge-key /
+      // norway-implicit-bool for yaml) onto entirely different policy options.
+      // Extracting the delegation would leave each guard's real content — the
+      // kind-to-policy map — exactly where it is.
       mode:  "family-subset",
       files: [
         "lib/guard-auth.js:gate",
@@ -6439,11 +6448,13 @@ async function testNoDuplicateCodeBlocks() {
         "lib/guard-regex.js:gate",
         "lib/guard-xml.js:gate",
         "lib/guard-csv.js:_gateDispositionFor",
+        "lib/guard-filename.js:_gateDispositionFor",
         "lib/guard-html.js:_gateDispositionFor",
         "lib/guard-json.js:_gateDispositionFor",
         "lib/guard-markdown.js:_gateDispositionFor",
         "lib/guard-svg.js:_gateDispositionFor",
         "lib/guard-xml.js:_gateDispositionFor",
+        "lib/guard-yaml.js:_gateDispositionFor",
         "lib/guard-filename.js:sanitize",
         "lib/guard-html.js:sanitize",
         "lib/guard-svg.js:sanitize",
@@ -7325,6 +7336,24 @@ function testStateStampScanningDeferred() {
 //   4. The catalog scans whole-file content (multiline regex) so
 //      patterns split across lines still match.
 var KNOWN_ANTIPATTERNS = [
+  {
+    id: "gate-context-rebind-must-not-flatten-the-chain",
+    primitive: "b.gateContract.defineGate",
+    scanScope: "lib",
+    skipCommentLines: true,
+    regex: /Object\.assign\s*\(\s*\{\s*\}\s*,\s*ctx\b|Object\.create\s*\(\s*ctx\s*\)/,
+    allowlist: [],
+    reason: "Build a gate context ONLY with _deriveContext. A context is not required to be a plain object, and each shortcut breaks a different kind of one. Object.assign({}, ctx, ...) copies own enumerable properties, so a class instance whose fields come from prototype getters arrives with them missing — a fail-open, because a guard reading an absent subject as nothing-to-inspect SERVES bytes it previously examined. Object.create(ctx) preserves those reads but runs inherited getters with the DERIVED object as `this`, so a getter returning a private field throws and a valid context is refused instead. Assigning overrides onto either one performs [[Set]], which walks the chain: an inherited non-writable property throws (overriding a field of a frozen context failed) and an inherited setter runs, writing into the very object the derivation exists to leave alone. _deriveContext forwards reads to the original receiver and installs overrides with [[DefineOwnProperty]]. All three shapes shipped in this one file across successive fixes, each passing the whole guard family, so the empty allowlist is deliberate.",
+  },
+  {
+    id: "domain-labels-must-not-drop-empty-labels",
+    primitive: "b.network.dns",
+    scanScope: "lib",
+    skipCommentLines: true,
+    regex: /split\s*\(\s*["']\.["']\s*\)[^\n]*\.filter\s*\(\s*Boolean\s*\)/,
+    allowlist: [],
+    reason: "Splitting a domain name on '.' and filtering out the empty strings silently REPAIRS a malformed name into a different, real one: `evil..example.com` becomes `evil.example.com`, so the code goes on to query, cache, or apply the policy of a domain the caller never named. It shipped three times — the DMARC tree walk applied a neighbouring domain's record and reported it as the Author Domain's own, and both DNS wire encoders sent a question for a name other than the one asked for. An empty label is not a typo to fix; it makes the name invalid, and the caller has to be told (dns/bad-host, mail-auth/dmarc-bad-from). Only a single trailing root dot may be removed, which is a slice of one character and does not match this shape. Where the inputs are already validated, splitting without the filter is both correct and free — that is what mail-auth's _labelBelow does. Empty allowlist: a name with an empty label has no legitimate reading.",
+  },
   {
     id: "use-makeProfileResolver-not-handrolled",
     primitive: "b.gateContract.makeProfileResolver",

@@ -1,0 +1,1057 @@
+{
+  "minor": "1.14",
+  "releases": [
+    {
+      "version": "1.14.29",
+      "date": "2026-08-20",
+      "headline": "Correct the trusted-proxy setting, and answer on more than one hostname",
+      "summary": "If you run behind a reverse proxy, check TRUST_PROXY before upgrading. The documentation and every deployment example set it to \"true\", which the server does not accept — it takes the addresses your proxy connects from. A rejected value means requests are attributed to the proxy rather than the caller, and this release adds one more consequence: HSTS is no longer sent for a proxy the server has not been told to trust.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Accept requests on hostnames besides the configured origin",
+              "body": "ADDITIONAL_ORIGINS lists other origins the app answers on, such as a LAN name beside a public one, or a tailnet MagicDNS name. Reached on a hostname that was not RP_ORIGIN, the server previously refused every sign-in, upload and settings save with a 403 while ordinary page loads kept working; adding the name to CORS_ORIGINS did not help, because that governs which origins may read a response rather than which may change state. Empty by default, and an origin you have not listed is still rejected. RP_ORIGIN remains the origin used to build share links, email links and sitemap.xml, and each hostname keeps its own session."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "HSTS follows the request rather than the configured origin",
+              "body": "Strict-Transport-Security is sent on requests that arrived over HTTPS. It was previously sent whenever RP_ORIGIN was an HTTPS URL, which meant it went out on plain-HTTP responses as well — browsers ignore those — while a visitor reaching the server over real TLS got no HSTS at all if RP_ORIGIN was not HTTPS. A proxy's X-Forwarded-Proto counts as HTTPS only when that proxy's address is in TRUST_PROXY, so a TLS-terminating proxy the server has not been told to trust now receives no HSTS. Setting TRUST_PROXY restores it, along with correct client addresses."
+            },
+            {
+              "title": "Pin the container's runtime user and group ids",
+              "body": "The image created its runtime user without fixed ids, so the base image chose them, currently 999 and 122. A base rebuild that adds or removes a system account would shift those, leaving an existing install's data directory owned by nobody the container runs as, surfacing as a permission error. The ids are now recorded as the values they already have, so an upgrade changes no ownership on disk. A base that has claimed either id now fails the build instead of moving them silently."
+            },
+            {
+              "title": "Vendored blamejs moves to 0.18.39",
+              "body": "Two releases of SQL-guard fixes: a COPY ... TO STDIN statement was read as server-side file access when it carried more than one space, and a PRAGMA trusted_schema detector could be driven into quadratic time by a run of spaces. Neither path is reachable from this server; taken to keep the vendored copy current."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Document the value TRUST_PROXY actually takes",
+              "body": "TRUST_PROXY takes IP addresses or CIDR ranges, meaning the addresses your proxy connects from, and rejects \"true\" with a line at boot naming the discarded entry. Fifteen places across the README, the deployment examples, the compose files, the Kubernetes and Ansible manifests, the Terraform deployment and the Unraid template told you to set it to \"true\". A rejected value attributes every request to the proxy: one rate-limit bucket shared by all clients, the proxy's address in the audit log, and ADMIN_ALLOWED_CIDRS matched against the proxy rather than the administrator. Loopback is trusted by default, so a proxy that reaches the server on 127.0.0.1 needs nothing set; a proxy in its own container connects from the Docker network and needs that network's range."
+            },
+            {
+              "title": "Set the session cookie's Secure flag from the request",
+              "body": "The flag was derived from RP_ORIGIN. Passkeys require an HTTPS origin, so a visitor arriving over plain HTTP was sent a Secure cookie, which the browser declines to store — the next request arrived unauthenticated and sign-in looped with nothing reported. It now follows the scheme the request actually used, resolved against the same trusted-proxy list as the client address, so a caller cannot mark its own cookie Secure by sending a forwarded header."
+            },
+            {
+              "title": "Stop reporting a valid timezone as invalid",
+              "body": "The container checked TZ against files under /usr/share/zoneinfo, which the runtime base does not ship, so every value was reported as not a valid IANA timezone with a warning that the container would fall back to UTC. Neither was true: the zone was being applied correctly throughout. The check now asks Node, which is what interprets the value, so a genuine typo still warns."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Write the audit re-anchor marker without following a symlink",
+              "body": "The marker was written with a plain file write, which follows a symlink planted at that path. It now uses the atomic, symlink-refusing write the restore worker and session store already use. The data directory is the one directory an operator hands to the container, and the sealed-key reads and logo fetch already refused a symlinked source there."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Check TRUST_PROXY if you run behind a reverse proxy",
+              "body": "Replace TRUST_PROXY=true with the addresses or CIDR ranges your proxy connects from, or remove it if the proxy reaches the server over loopback. Leaving it as \"true\" is not newly broken — the value has never been accepted — but from this release it also costs the deployment its HSTS header. Docker Compose and Kubernetes users whose proxy runs in a separate container want that network's range, for example 172.18.0.0/16."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.28",
+      "date": "2026-08-19",
+      "headline": "Stop two-factor and passkey verification reporting which credential matched",
+      "summary": "A constant-time comparison answers one question without leaking anything. A loop of them that stops at the first match answers a second question nobody asked: how far down the list the match was. Three verification paths did that, and each carried a comment asserting the property the early exit removed. Also here: turning public uploads off now stops a bundle staged beforehand from publishing, and the vendored framework moves forward four releases carrying its own fixes of the same shape.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Two-factor backup codes are compared against every stored code",
+              "body": "Redeeming a backup code compared the presented value against each stored hash and stopped at the first match. Each comparison was constant time, but the total time reported where in the list the match sat — and the list is ordered, so that narrows which of a user's backup codes was presented. Every stored code is now compared. The code is still consumed by position and the first match still wins; what changed is that the answer no longer arrives sooner for an earlier code."
+            },
+            {
+              "title": "Passkey lookup no longer reports a credential's position",
+              "body": "Resolving an assertion to a stored credential compared the presented credential id against each row and returned on the first hit, so response time reported the credential's position in the table — which is registration order. The comment above the comparison said it existed so timing could not enumerate which credential ids exist, which is what the early return gave back. Every row is now compared."
+            },
+            {
+              "title": "The framework closes the same class in eight more places",
+              "body": "blamejs 0.18.36 fixes multi-candidate comparisons that exited on the first match in certificate revocation checks, webhook signature verification, HTTP message signatures, attestation nonces, the DPoP nonce window, time-based one-time-password drift, and breached-password range checks. The one-time-password path is the one HermitStash uses: its drift loop reported the clock offset between authenticator and server through response time."
+            },
+            {
+              "title": "Parsers that read untrusted bytes carry no pattern literals",
+              "body": "blamejs 0.18.37 removes 55 regular expressions from the YAML, TOML, INI, .env and XML parsers, so a screen costs the length of its input and the byte cap that bounds the input bounds the screen. Behaviour is unchanged except that a YAML tag beginning with a digit is now refused, as the surrounding rule always described."
+            },
+            {
+              "title": "Uploaded filenames drop four more invisible characters",
+              "body": "A stored filename carrying U+2061 through U+2064 is stripped of it. U+2060 WORD JOINER was already removed and its four neighbours were not, so two names that render identically on screen could be stored as different bytes. Admin CSV exports drop DEL from a cell for the same reason, rather than emitting it."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Turning public uploads off stops a staged bundle publishing",
+              "body": "Three of the four routes behind the public portal read the setting; the one that publishes did not. An operator switching the portal off to stop abuse could still have a bundle staged moments earlier go out — minting its share URL, mailing the uploader, notifying admins and firing webhooks. Nothing new can be staged while the switch is off, and a held bundle publishes normally once it is back on. Bundles owned by a signed-in user or a sync client are unaffected, since the setting governs anonymous uploads."
+            },
+            {
+              "title": "Third-party licence notice names the real source of the framework",
+              "body": "The notice described the vendored framework as a shallow git clone of a release tag. It is the published @blamejs/core package, whose bytes are checked against the registry's sha512 before anything is unpacked, and a version publishing no integrity value is refused rather than vendored."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Vendored framework moves to blamejs 0.18.37",
+              "body": "Four releases forward from 0.18.33. Beyond the fixes above: a guard now applies the character policy it declares rather than deciding by a finding's severity, the public-suffix list ranks a wildcard rule by label count as the specification requires, the session store releases its file handle when one store replaces another, and citations across the framework move to the documents that replaced RFC 7230-7235, 7489 and 4122."
+            },
+            {
+              "title": "Runtime base image moves to the current build",
+              "body": "The pinned Chainguard wolfi-base digest is refreshed. That image is rebuilt whenever upstream fixes land, so a pin left in place falls behind on patches without anything changing here."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "CVE-2021-42574 — Trojan Source",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2021-42574"
+        },
+        {
+          "label": "Unicode Standard Annex #31",
+          "url": "https://www.unicode.org/reports/tr31/"
+        },
+        {
+          "label": "RFC 6238 — TOTP",
+          "url": "https://www.rfc-editor.org/rfc/rfc6238"
+        }
+      ]
+    },
+    {
+      "version": "1.14.27",
+      "date": "2026-08-18",
+      "headline": "Rate limit the email-verification links, and correct the documented login limit",
+      "summary": "One route pair gains a limit it should always have had, and the security documentation stops describing a login throttle that is not the one in the code.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "The documented login rate limit did not match the one enforced",
+              "body": "The README described login as fifteen minutes of cooldown after five attempts. The limit in the code is fifteen attempts per five minutes — the two numbers had been transposed, in both the security table and the feature list. An operator sizing an incident response, or deciding whether the default is strict enough for their deployment, was reading the wrong figure. Corrected, along with the note that IPv6 clients are keyed by their /64 so rotating an address does not reset the counter, and the list now includes email verification and password reset."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Email-verification links are rate limited",
+              "body": "Both routes that redeem a verification token — the link opened from the email, and the request that consumes it — accepted unlimited attempts, while every comparable flow was already limited. This is not about guessing the token: it is 256 bits and the route rejects anything that is not 64 hexadecimal characters before it looks anything up. Each rejected token writes an audit record, so an unauthenticated caller could write those without bound, filling the audit table and burying the events an operator turns to first after an incident. Both routes now take the same ceiling as the password-reset link they mirror: ten attempts per fifteen minutes."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.26",
+      "date": "2026-08-18",
+      "headline": "Escape link URLs in outgoing email, and enforce the chunk-staging path checks",
+      "summary": "Three defensive changes. None of them is reachable by an attacker in this release; each is a place where a later change could have made one so, or where a wrong request was answered as though it were a different one.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "A malformed chunk identifier is refused rather than reported as a missing chunk",
+              "body": "Staging a chunked upload validates the bundle and file identifiers, and the chunk index, before touching the filesystem. Two of those calls sat inside the error handling that exists to tolerate a chunk which has already been removed, so the refusal was swallowed and the caller was told the chunk did not exist. A client waiting on that answer waits for a chunk that can never arrive."
+            },
+            {
+              "title": "An absent chunk index no longer means the first chunk",
+              "body": "The index was converted to a number before its type was checked, and null, an empty string, false and an empty array all convert to zero — so a request naming no index operated on chunk zero. Numbers and numeric strings are both still accepted, because the index arrives as a string on the request; anything else is refused."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Link URLs in outgoing email are escaped for attribute context",
+              "body": "The button in every message — verify your address, reset your password, accept an invite, view your upload — placed its URL straight into a quoted HTML attribute. Every one of those URLs is built from the configured origin plus a server-generated token, and the origin is read from configuration rather than the request's Host header, so nothing an attacker supplies reaches it today. The value now goes through the attribute-context escaper regardless, so a quote or a backtick can no longer end the attribute. An escaped URL decodes back to exactly what was passed in, so links are unchanged for recipients."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.25",
+      "date": "2026-08-16",
+      "headline": "Correct the standards this server cites, and the characters that do not show",
+      "summary": "Nine standards citations named a document other than the one they described, five more had been obsoleted, and two security tests carried invisible characters that made their own source misrender. Nothing changes about how the server behaves. If you have carried any of these references into a control matrix or an audit response, they are worth correcting there too.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Standards references now resolve to the documents they name",
+              "body": "Out of 93 citations, nine pointed elsewhere. The logout header that clears browser state was attributed to RFC 9527, which specifies DHCPv6 options for home-network naming — Clear-Site-Data is a W3C specification and has no RFC. The CADF audit export cited ISO/IEC 19395, a data-centre resource-monitoring standard, rather than DMTF DSP0262. The release signing key cited the RFC for SLH-DSA while using an ML-DSA key. BIMI was credited to RFC 9091 in the third-party licence file and to RFC 9165 elsewhere; the first is Public Suffix Domain DMARC and the second defines CDDL control operators — BIMI has no RFC. The VEX builder cited the CSAF section that held vulnerability statements in 2.0 rather than the one that holds them in 2.1. Five further references had simply been superseded: the Content-Disposition encoding for non-ASCII filenames is RFC 8187, the requirement that a 401 carry a challenge is RFC 9110, JSON is RFC 8259, UUIDs are RFC 9562, and DMARC is RFC 9989."
+            },
+            {
+              "title": "Invisible characters no longer sit in shipped text",
+              "body": "Two security tests contained a right-to-left override written as itself. Because it had no terminating character, it reordered the remainder of its line for anyone reading the file, which is the very attack the test exercises. Alongside it were zero-width and Tag-block codepoints that showed as nothing at all. Each is now built from its number, so the guards are still handed the real character and the source can be read and searched. A check refuses the class across the server code, the release tooling and the rendered pages, so it cannot return unnoticed."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "The vendored framework moves to 0.18.33",
+              "body": "An accuracy release upstream with no change to how the framework behaves. Its two edits outside comments were verified here rather than assumed: the log redactor's control-character set matches the same twelve codepoints written a different way, and the audit export's byte-order mark is the same character either way."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.24",
+      "date": "2026-08-16",
+      "headline": "Stop the CA regeneration asking for certificates it does not touch",
+      "summary": "Regenerating the mutual-TLS CA reported that every browser certificate had been invalidated and had to be re-downloaded. Browser certificates are issued by a separate CA and are unaffected, which the documentation has always said. Following the panel instead cost a re-issue and a re-import for every browser certificate in the deployment.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "A CA regeneration no longer asks for browser certificates to be replaced",
+              "body": "Two certificate authorities run here: the sync CA that issues post-quantum client certificates, and a separate classical CA for browser certificates that today's keystores can import. Regenerating the sync CA leaves browser certificates valid — it does not delete or supersede them. Five places said otherwise: the warning before you confirm, the description on the panel, the description that replaces it once the panel loads, the summary shown afterwards, and the notice printed at the next boot. Two of them also read a count that nothing writes, so the panel reported \"Browser certs invalidated: undefined\". Offline sync clients still need to re-enroll, which is unchanged."
+            },
+            {
+              "title": "A damaged regeneration notice is reported as damaged",
+              "body": "The record written before the restart is read back at boot to print what happened. A truncated or incomplete record still produced a notice — \"regenerated at undefined (v undefined → v undefined)\" — which reads like a real one and carries nothing to act on. Boot now requires the timestamp and both generation numbers before printing the notice, and reports an unreadable record as unreadable, with the file path and what to check."
+            },
+            {
+              "title": "Release gates no longer answer from a lookup that never ran",
+              "body": "The release tooling asked git questions and read the output without checking the command had run. Since git reports failures on its error stream, a lookup that failed left no output, and every gate read that as the permissive answer: an unreadable working tree as a clean one, an unreadable remote as a tag that had not been published. The clean-tree check runs immediately after the public tree is rebuilt, where \"clean\" means \"nothing to commit\" — so a failed lookup would have left that tree uncommitted and tagged the previous content. Each gate now stops and says which lookup failed, and a check refuses the shape so it cannot return."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "The vendored framework moves to 0.18.32",
+              "body": "Not one line of the framework's runtime code changes across this bump — the release reworks how a blamejs release is produced, so that a publish which cannot find its packaged archive stops rather than publishing the working directory in its place. It is vendored because this server keeps its framework current as a release requirement, not because anything here needed it."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.23",
+      "date": "2026-08-16",
+      "headline": "Bound the work an input screen can be made to do",
+      "summary": "The checks applied to uploaded filenames, media types, SVG and archive contents, the name and message attached to an upload, and the audit CSV export no longer run regular expressions. A value that fits inside its size limit can no longer decide how long checking it takes.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Screening an input now costs in proportion to its size",
+              "body": "A size limit caps the bytes a caller may send; a pattern decides how much work those bytes cause. Between the two the sender picks the bytes, so a value well inside its limit could hold a check for far longer than its length suggests. Every screen in the vendored framework's guard and safe primitives is now a single pass over the characters, which is bounded by the length already capped. This server reaches those screens wherever an outsider supplies the value: upload filenames, declared media types, SVG and archive contents, the uploader name and message stored with a bundle, and the CSV form of an audit export. No configuration changes, and nothing needs re-uploading."
+            },
+            {
+              "title": "The ambiguous certificate signature can no longer be produced, not just rejected",
+              "body": "The toolkit behind mutual-TLS issuance, passkey verification and the TLS certificate paths moves to 0.5.7. v1.14.22 picked up the half that refuses to verify a signature re-presented over content its signer never approved; this release adds the half that refuses to mint the ambiguous signature which makes that construction possible in the first place. Signing over a byte argument whose backing store has been handed to another thread is also refused rather than read as empty, which had allowed a signature to be produced over no content at all."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.22",
+      "date": "2026-08-16",
+      "headline": "Pick up a signature-forgery fix in the certificate toolkit",
+      "summary": "The vendored certificate toolkit had a flaw that let a signature from a trusted signer be re-presented over content they never signed. Upgrade when convenient; nothing in this server is known to be reachable through it.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "A signature could be re-presented over content its signer never approved",
+              "body": "The certificate toolkit behind mutual-TLS issuance, passkey verification and the TLS certificate paths handled a signed message by exposing the signed byte range, the signature and the certificates as separate parts. That allowed a message genuinely signed by a trusted signer to be rebuilt with the signature's own input as the content, and it would verify — as something the signer never approved. Building a certificate bundle with no password is refused rather than quietly produced under an empty one, and the work factor for unlocking a bundle is now charged on the modern key-derivation path as well as the legacy one. This server reaches none of these through a path an outsider controls, so the upgrade is precautionary rather than urgent; no configuration or client needs changing."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "The vendored framework moves to 0.18.30",
+              "body": "Alongside the toolkit upgrade, nine of its input screens are reimplemented internally — address validation, media types, shell and template metacharacters, and the mail line protocols among them. Each ships with a test comparing the new implementation against the one it replaces across that screen's own body of examples. The behaviour this server depends on is unchanged, which was verified rather than assumed: spreadsheet-formula disarming in exports, direction-override stripping in uploader-supplied names and messages, address validation, and certificate issuance all behave exactly as before."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.21",
+      "date": "2026-08-16",
+      "headline": "Keep health checks passing during maintenance, and stop CA regeneration reporting success before it commits",
+      "summary": "Two failures an operator would meet at the worst moment: turning on maintenance mode made orchestrators restart the container, and a failed certificate-authority rotation was reported as having worked.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Maintenance mode no longer makes orchestrators restart the container",
+              "body": "The health endpoint answered the maintenance page, and every deployment recipe here treats anything other than a 200 on that path as a dead process — the container health checks exit non-zero on it, and the Kubernetes manifest wires it to the liveness, readiness and startup probes alike. Switching maintenance on therefore had the orchestrator kill and restart the deployment, over and over, for as long as it stayed on. Maintenance withholds the site from visitors; it is not a statement that the process has stopped, and the endpoint now says so. It keeps reporting status ok and carries a maintenance flag alongside, so a person or a dashboard can still tell the difference."
+            },
+            {
+              "title": "A failed certificate-authority rotation is no longer reported as a success",
+              "body": "Regenerating the sync certificate authority issues fresh client certificates and rewrites the stored fingerprint on every affected API key before writing the new authority to disk. The reply was sent first and the write happened after it, so a write that failed was recorded in the log and nothing else. That leaves the worst possible state: the certificates and their stored fingerprints have moved to an authority that was never written, the server continues on the old one, and the operator has been told it succeeded — after which those clients cannot connect and nothing indicates why. The write now happens first, and a failure is returned as an error naming the cause. A preview run still changes nothing and now says so rather than reporting a restart."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "The vendored framework moves to 0.18.29",
+              "body": "Character-class screening across the guard family is reimplemented internally. The behaviour this depends on — spreadsheet-formula disarming in exports, direction-override stripping in uploader-supplied text, and filename and path handling — is unchanged, which was checked rather than assumed."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.20",
+      "date": "2026-08-16",
+      "headline": "Refuse database queries that cannot be answered, and report TLS from the listener rather than the files",
+      "summary": "A query against an encrypted column used to return the wrong rows rather than an error, and the admin security panel could report protections the server was not applying. Both are corrected, and the vendored framework moves to 0.18.28.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "A query over an encrypted column no longer returns the wrong rows",
+              "body": "Most columns are stored encrypted. A few also carry a searchable index, and an exact match or a list match against those can be answered. Anything else cannot: comparing a value against ciphertext produces a comparison that is quietly wrong rather than an error. A check for that existed but only covered the indexed columns, so a query against any other encrypted column was answered incorrectly and silently — an exact match found nothing, and a not-equal match returned every row including the one it was written to exclude. It now refuses, and says to decrypt and filter instead. Empty and blank values keep returning no rows, as they always did, so a submitted-but-empty search or sign-in field is unaffected. No existing screen or endpoint issued such a query, so nothing changes in day-to-day use."
+            },
+            {
+              "title": "Admin → Security reported HTTPS and mutual TLS the server was not running",
+              "body": "The panel decided whether HTTPS was on by looking for a private key. The server starts TLS only when the certificate is present as well, and otherwise runs plain HTTP — so a key installed ahead of its certificate, or a renewal that replaced one and not the other, showed a green HTTPS row on a server serving unencrypted traffic. The mutual-TLS row separately reported handshake-level enforcement, which is a property of the TLS listener, on servers that had no listener at all. Both now report what the server did when it started rather than re-reading the same files, and when enforcement is configured but cannot apply, the panel says which part is missing instead of repeating advice already followed."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "The vendored framework moves to 0.18.28",
+              "body": "A row of an exported CSV that contains a disarmed spreadsheet formula is now written fully quoted, with the neutralising character inside the quotes where a spreadsheet treats it as literal text. Rows with nothing to disarm are unchanged. Exports were already neutralising every trigger, including one in the first column, so this is a stronger form of a protection that was working rather than a fix for a gap. The text screening applied to uploader-supplied names and messages is unchanged."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.19",
+      "date": "2026-08-15",
+      "headline": "Correct the advice boot gives about a damaged vault key, and stop background timers holding short-lived processes open",
+      "summary": "Two fixes an operator can see. One changes what the server tells you when the key that decrypts everything is unreadable; the other stops any command that touches the audit subsystem from sitting idle for a minute before it exits.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "A corrupt vault key is no longer reported as an old one",
+              "body": "The vault key decrypts everything the server stores, so what boot says about a bad one is the instruction you follow at the worst possible moment. A truncated or empty key file was described as being in a superseded format, with the advice to run the migration tool — which converts a readable key and cannot repair a damaged one. The server now distinguishes a key it cannot parse, which needs a restore from backup, from a genuinely older key, which is what the migration tool is for. It also says so without quoting the file: a parser error repeats a window of what it was reading, and that file is mostly private key material."
+            },
+            {
+              "title": "Background timers no longer keep a process alive after its work is done",
+              "body": "Three schedulers start with the audit subsystem — retention cleanup, the archival check and chain checkpointing. Each runs once shortly after start and then repeats, and while the repeat was marked as not keeping the process alive, the first run was not. Anything short-lived that loaded the audit subsystem therefore waited for that first timer before exiting, up to a minute. A running server is unaffected, and every schedule keeps its timing; what changes is that a command which has finished its work now ends."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Regression cover for three access rules that had none",
+              "body": "The rule deciding who a gated stash admits — an exact address, or a whole domain, and never an address carrying a second @ that would let one domain pass as another. The confinement on audit archive downloads, where the requested archive names a file. And a check that every administrative route refuses a caller who is not an administrator, applied to the routes as they are written rather than to a list someone has to keep current. All three behaved correctly; none of them was covered, so nothing would have reported it if that changed."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.18",
+      "date": "2026-08-15",
+      "headline": "Screen what anonymous uploaders send, and remove a session-key wrap that stopped working",
+      "summary": "Three values an unauthenticated visitor controls were stored and served back with only their length checked. Separately, a mechanism for delivering session keys to certificate-authenticated clients has been unable to run since v1.14.0, and the documentation still described it as active.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "An uploaded file's declared type can no longer make it permanently unfetchable",
+              "body": "The type came from a form field, was stored exactly as sent, and was later written back as a response header. A value containing a carriage return made writing that header fail — and fail on every later attempt, so a single upload to a public stash could leave a file that never downloaded again while its download counter still advanced on each try. Node's own header checks are what kept this from becoming header injection; the damage was availability, and it was permanent. The declared type is now screened when it is chosen, and anything malformed is served as a generic binary type instead. Ordinary types are unaffected, and a file declared as an image whose bytes are not an image is still forced to download rather than displayed."
+            },
+            {
+              "title": "Uploader name and message are screened for disguising characters",
+              "body": "Both are set by whoever uploads, need no account, and are shown to every visitor of the bundle page and placed in the notification email — including its subject line, which carries them with no escaping. Escaping is the wrong tool here: it handles markup and does nothing about a right-to-left override that reverses how a name reads, or zero-width and Tag-block characters that do not appear on screen at all. Those characters are now stripped from both fields, matching what already happened to uploaded filenames. Names in non-Latin scripts pass through untouched."
+            },
+            {
+              "title": "A typo in the trusted-proxy list no longer discards the whole list",
+              "body": "TRUST_PROXY names the proxies whose forwarded-client-IP headers are believed. One malformed entry made the entire setting fail to load, leaving only loopback trusted, with nothing logged. Behind a reverse proxy that means every client resolves to the proxy's own address: per-client rate limits and IP blocks collapse onto a single bucket, and because the admin network fence reads that same address, an operator whose fence allows their internal network would admit every caller reaching the proxy. Entries are now checked one at a time — a bad one is dropped and named in the log, the rest keep working. A bare address without a prefix length is accepted and treated as a single host."
+            },
+            {
+              "title": "The admin fence now rejects a malformed range instead of ignoring it",
+              "body": "ADMIN_ALLOWED_CIDRS restricts the admin area to named networks. It was checked at startup with a helper that answers no for an unparseable range rather than reporting an error, so nothing was ever rejected and a typo simply removed that part of the fence with no sign. An address written without a prefix length was worse: it matched nothing at all, not even itself, so an operator who fenced the admin area to their own address was locked out with no explanation. Startup now refuses a malformed entry and names it, and a bare address is treated as a single host."
+            }
+          ]
+        },
+        {
+          "heading": "Removed",
+          "items": [
+            {
+              "title": "The hybrid ECIES session-key wrap, which has been unable to run since v1.14.0",
+              "body": "The first response to a certificate-authenticated client used to carry a wrapped copy of its session key, protected by a key derived from post-quantum encapsulation combined with Diffie-Hellman against the P-384 key in the client's certificate. Certificates became post-quantum in v1.14.0 and carry a signature key with no Diffie-Hellman counterpart, so the second half of that derivation could no longer be computed; the failure was caught and logged, and the wrap silently stopped being sent. It could not be repaired by dropping the certificate half, because that was the only part tying the wrap to the authenticated client rather than to a key supplied in a request header. Nothing consumed it: browsers receive their session key in the page template, and clients using an API key take a different path with its own post-quantum key exchange against the server's published key. No key was ever exposed — the wrap simply stopped being sent — and the property it existed for now holds outright, because a response carries no session key in any form."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Documentation described the removed wrap, and one adjacent claim, as current",
+              "body": "The README listed it as the protection against session-key interception, the threat model diagrammed the construction, and the landing page advertised it. Those now describe how session keys actually reach clients. The threat model's open question asking cryptographers to review that construction is marked withdrawn rather than left standing against code that no longer exists, and its note that a particular key-derivation function is still used in that path is corrected — it is no longer used anywhere. Two places also described the browser payload path as a key exchange it never performed; it is a per-session symmetric envelope."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.17",
+      "date": "2026-08-15",
+      "headline": "Inspect uploaded archives instead of only checking what they claim to be",
+      "summary": "An uploaded .zip was verified to actually be a zip and then stored without anything looking inside it. This server never extracts an upload, so a hostile archive could not hurt the server — but it was handed to whoever downloaded it, and they extract it. Archive contents are now inspected at upload. v1.14.16 carries these same changes and produced nothing: its build failed on an unrelated check after the tag was pushed, so no image or release page exists for it.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "An archive whose entries escape the extraction directory is refused at upload",
+              "body": "Archives are accepted by default and were checked only for agreement between extension and magic bytes — a file claiming to be a zip had to be one, and nothing more was asked. An entry named to write outside the directory it is extracted into passed that check, was stored, and was served to the recipient, who would extract it. Entry names are now inspected on both upload paths and an archive is refused if any entry escapes its directory, is an absolute path, is a symlink or hardlink pointing outside it, duplicates another name, or hides direction-changing, control, null or zero-width characters in its name. A link whose destination cannot be determined is also refused rather than assumed harmless — a zip keeps that destination in the entry body rather than its index, so it is not visible to an inspection that reads only the index. Compressed tar archives are decompressed under expansion caps and inspected too, since a gzip stream announces itself and not the tar inside it. A legacy tar is inspected on the strength of its extension, because that format carries no marker to recognise it by. An archive whose structure cannot be read at all is refused rather than stored: the magic bytes already said it was an archive, and accepting what could not be examined is how a crafted file passes a check that a real extractor will happily open."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "What archive inspection deliberately still accepts",
+              "body": "A password-protected archive, because sending one is ordinary use and refusing it would refuse the point of the product. An archive nested inside another, because that is what zipping a folder that already contains one produces. Archives of up to ten thousand entries and a gigabyte in total, rather than the hundred-entry limit that would have turned away any ordinary project folder or photo directory. A single compressed file with no archive inside it, which has no entries to examine. What is refused for size is a compressed archive expanding beyond a quarter of a gigabyte, which is turned away as too large to inspect rather than inspected at any cost, because inspecting it means holding the decompressed bytes in memory while doing so. Formats with no reader — 7z, RAR, bzip2 — are still checked against their magic bytes, but their contents cannot be examined, so an operator who allows them is trusting the sender as before."
+            },
+            {
+              "title": "The vendored framework moves to 0.18.27",
+              "body": "Passkey verification moves onto the certificate toolkit already vendored here, and the separate WebAuthn library it used is gone from the tree. A registration or sign-in performed inside a frame belonging to another site is now refused unless the deployment opts in; this server sets a policy that forbids being framed at all, so the case cannot arise and the change is a second line rather than a new behaviour. Manufacturer attestations are anchored to pinned vendor roots, binary fields in a response must be canonically encoded, and a response must name the one credential type the specification defines."
+            },
+            {
+              "title": "The runtime base image moves to the current Chainguard rebuild",
+              "body": "The pinned digest had been superseded upstream. Bumping it picks up whatever package fixes landed in the rebuild."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.16",
+      "date": "2026-08-15",
+      "headline": "Inspect uploaded archives instead of only checking what they claim to be",
+      "summary": "An uploaded .zip was verified to actually be a zip and then stored without anything looking inside it. This server never extracts an upload, so a hostile archive could not hurt the server — but it was handed to whoever downloaded it, and they extract it. Archive contents are now inspected at upload.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "An archive whose entries escape the extraction directory is refused at upload",
+              "body": "Archives are accepted by default and were checked only for agreement between extension and magic bytes — a file claiming to be a zip had to be one, and nothing more was asked. An entry named to write outside the directory it is extracted into passed that check, was stored, and was served to the recipient, who would extract it. Entry names are now inspected on both upload paths and an archive is refused if any entry escapes its directory, is an absolute path, is a symlink or hardlink pointing outside it, duplicates another name, or hides direction-changing, control, null or zero-width characters in its name. What is deliberately still accepted matters as much: a password-protected archive, because sending one is ordinary use; an archive nested inside another, because that is what zipping a folder that already contains one produces; and archives of up to ten thousand entries and a gigabyte, rather than the hundred-entry limit that would have turned away any ordinary project folder. A compressed archive that expands beyond a quarter of a gigabyte is refused as too large to inspect rather than inspected at any cost, since inspecting it means holding the decompressed bytes in memory while doing so. Compressed tar archives are decompressed under the framework's expansion caps and inspected as well, since a gzip stream announces itself and not the tar inside it — otherwise compressing the archive first would have been a way past the check for a whole accepted format. A single gzipped file with no archive inside it has no entries to examine and is accepted. An archive whose structure cannot be read at all is refused rather than stored: the magic bytes already said it was an archive, and accepting what could not be examined is how a crafted file passes a check that a real extractor will happily open. Formats with no reader here — 7z, RAR, bzip2 — are still checked against their magic bytes, but their contents cannot be examined, so an operator who allows them is trusting the sender as before. The reason given to the uploader does not repeat the offending entry name, which is text the sender chose; the audit log records which rule fired."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "The vendored framework moves to 0.18.27",
+              "body": "Passkey verification moves onto the certificate toolkit already vendored here, and the separate WebAuthn library it used is gone from the tree. A registration or sign-in performed inside a frame belonging to another site is now refused unless the deployment opts in; this server sets a policy that forbids being framed at all, so the case cannot arise and the change is a second line rather than a new behaviour. Manufacturer attestations are anchored to pinned vendor roots, binary fields in a response must be canonically encoded, and a response must name the one credential type the specification defines."
+            },
+            {
+              "title": "The runtime base image moves to the current Chainguard rebuild",
+              "body": "The pinned digest had been superseded upstream. Bumping it picks up whatever package fixes landed in the rebuild."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.15",
+      "date": "2026-08-10",
+      "headline": "Serve one copy of each crypto primitive instead of two",
+      "summary": "The browser assets and the server code were separate builds of the same upstream packages, installed and versioned independently, and they drifted. The framework now publishes browser builds, so both halves come from it. Two earlier tags carry these changes and produced nothing — v1.14.13 and v1.14.14 each failed a build-time check after tagging, so no image or release page exists for either; this is the version to use.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "The browser crypto assets come from the vendored framework",
+              "body": "`/js/noble-ciphers.js`, `/js/noble-hashes.js` and `/js/noble-pq.js` were each bundled here from their own package install, alongside the copy the framework vendors for the server: two builds of one package, resolved separately, versioned separately, and listed separately in the inventory. That drifted in the obvious way — the browser halves sat on @noble/ciphers 2.2.0 and @noble/post-quantum 0.6.1 while the server halves had moved to 2.3.0 and 0.7.0, and every version reference in the documentation agreed with whichever half it happened to name. The framework now publishes browser builds of the same primitives, so those three assets are copied from it and their recorded versions written from its manifest on every refresh rather than restated here. Exported names, algorithms and the URLs the pages load are unchanged, and encapsulation, sealing and key derivation were each checked against the server halves in both directions. The files are larger — roughly 50 KB more across the three, uncompressed and cached after first load — because the framework's builds carry more of each package than this project calls."
+            },
+            {
+              "title": "The vendored framework moves to 0.18.21",
+              "body": "Beyond the browser builds above, a response that had already committed its status line no longer has a second status written over it, and the streaming helper stopped replacing a content type the route had set. Neither is reachable here: this server registers its own error handler and none of its routes stream a response in parts."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "The shell-script check runs before a tag is pushed",
+              "body": "It only ran during the build, so a shell edit could pass every local check and fail after tagging — and a tag cannot be moved, so the release has to be re-cut under a new number. That is what happened to v1.14.13, over a single note-level finding in the vendoring script. The check now runs in the pre-release checks at the same strictness the build uses. It reads each script as it will be committed, including ones not yet tracked, with line endings normalised the way they are stored — linting the index instead would have passed while unstaged or untracked content went into the tag unchecked, which is the failure it exists to prevent."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.14",
+      "date": "2026-08-10",
+      "headline": "Ship the browser-asset consolidation that v1.14.13 could not publish",
+      "summary": "v1.14.13 was tagged but produced no image and no release page: a shell-script check that only runs during the build rejected a note-level finding in the vendoring script, and that check gates everything after it. Use this version instead — it carries the same changes plus the fix. The v1.14.13 tag exists and has nothing attached to it.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "The vendoring script passes the shell-script check again",
+              "body": "A short program embedded in the script referred to a regular-expression capture group in a way the checker reads as a shell variable that will silently not expand. It was harmless — the program runs under a quoting style where nothing expands, which is the point — but the check runs at its strictest setting and treats the note as a failure, and it gates the image build. Rewritten so there is no such reference."
+            },
+            {
+              "title": "That check now runs before a tag is pushed",
+              "body": "It only ran during the build, so a shell edit could pass every local gate and fail after tagging — and a tag cannot be moved, so the whole release has to be re-cut under a new number. It now runs in the pre-release checks at the same strictness. It reads each script from the git index rather than the working copy, because on a Windows checkout the working copies carry different line endings than the committed bytes and the checker reports on every line of them; linting what will actually be built avoids both the noise and the temptation to filter it."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "The browser crypto assets come from the vendored framework",
+              "body": "`/js/noble-ciphers.js`, `/js/noble-hashes.js` and `/js/noble-pq.js` were each bundled here from their own package install, alongside the copy the framework vendors for the server: two builds of one package, resolved separately, versioned separately, and listed separately in the inventory. That drifted in the obvious way — the browser halves sat on @noble/ciphers 2.2.0 and @noble/post-quantum 0.6.1 while the server halves had moved to 2.3.0 and 0.7.0. The framework now publishes browser builds of the same primitives, so those three assets are copied from it and their recorded versions written from its manifest on every refresh rather than restated here. Exported names, algorithms and the URLs the pages load are unchanged, and encapsulation, sealing and key derivation were checked against the server halves in both directions. The files are larger — roughly 50 KB more across the three, uncompressed and cached after first load — because the framework's builds carry more of each package than this project calls."
+            },
+            {
+              "title": "The vendored framework moves to 0.18.20",
+              "body": "Beyond the browser builds above, a response that had already committed its status line no longer has a second status written over it, and the streaming helper stopped replacing a content type the route had set. Neither is reachable here: this server registers its own error handler and none of its routes stream a response in parts."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.13",
+      "date": "2026-08-10",
+      "headline": "Serve one copy of each crypto primitive instead of two",
+      "summary": "The browser assets and the server code were separate builds of the same upstream packages, installed and versioned independently. They drifted — a framework refresh moved the server halves and left the browser halves a release behind. The framework now publishes browser builds, so both halves come from it.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "The browser crypto assets come from the vendored framework",
+              "body": "`/js/noble-ciphers.js`, `/js/noble-hashes.js` and `/js/noble-pq.js` were each bundled here from their own npm install, alongside the copy the framework vendors for the server: two builds of one package, resolved separately, versioned separately, and listed separately in the SBOM. That arrangement drifted in the obvious way — the browser halves sat on @noble/ciphers 2.2.0 and @noble/post-quantum 0.6.1 while the server halves had moved to 2.3.0 and 0.7.0. The framework now publishes browser builds of the same primitives, so those three assets are copied from it, and their recorded versions are written from its manifest on every refresh rather than restated here. The exported names, the algorithms and the URLs the pages load are unchanged, and encapsulation, sealing and key derivation were checked against the server halves in both directions. The files are larger, because the framework's builds carry more of each package than this project calls — roughly 50 KB more across the three, uncompressed and cached after first load, against a class of drift that is otherwise only caught by looking for it."
+            },
+            {
+              "title": "The vendored framework moves to 0.18.20",
+              "body": "Beyond the browser builds above, a response that had already committed its status line no longer has a second status written over it, and the streaming helper stopped replacing a content type the route had set — a download arrived with the right filename and the wrong type. Neither is reachable here: this server registers its own error handler and none of its routes stream a response in parts."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.12",
+      "date": "2026-08-10",
+      "headline": "Refresh the vendored framework and the runtime base image",
+      "summary": "The framework moves to 0.18.19. Nothing in this server's own code changes; the refresh brings a response-handling fix, a matcher that runs an operator's pattern without backtracking, and the current Chainguard base rebuild.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "The vendored framework moves to 0.18.19",
+              "body": "A request that failed after its first byte was already on the wire used to be finished off as though it had succeeded — the status line and headers cannot be replaced once sent, so an attempt to write a 500 threw and the handler fell through to appending an error string to a partial body. A client reading that sees a complete, successful response whose last line is odd. In one path the same attempt happened inside a promise rejection with nothing to catch it, which ended the process and every request in flight with it. Neither path could be reached here — this server registers its own error handler, and none of its routes write a response in parts — but the framework no longer has the hazard. The release also adds a matcher that runs a pattern without backtracking, so a pattern's cost is bounded by the length of what it is matched against rather than screened and hoped for, and the screen that remains no longer refuses the published semver and email patterns it used to."
+            },
+            {
+              "title": "The runtime base image moves to the current Chainguard rebuild",
+              "body": "The pinned digest had been superseded upstream. Bumping it picks up whatever package fixes landed in the rebuild."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.11",
+      "date": "2026-08-09",
+      "headline": "Stop the certificate-reload test standing up a listener that accepts unverified clients",
+      "summary": "The regression test added in v1.14.10 asked its throwaway listener to request a client certificate and then accept the connection regardless, so it could read the verification verdict off the socket. Code scanning reports that as a listener with certificate validation disabled, which is exactly the posture the rest of this project exists to prevent.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "The reload test refuses an unverified peer instead of accepting and inspecting it",
+              "body": "The listener now rejects a client it cannot verify, and the case where the trust bundle has been dropped is observed as the handshake failing rather than as a flag on an accepted connection. That is both a stronger assertion — it proves the peer is actually turned away, not merely marked — and what an operator would see. Nothing outside the test suite changes; the server's own listener always refused unverified peers under enforcement, and the certificate-reload fix this test guards is unchanged and still verified by it."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.10",
+      "date": "2026-08-09",
+      "headline": "Keep client certificates verifying across a certificate renewal",
+      "summary": "Reloading the certificate after a renewal rebuilt the TLS context from the certificate and key alone. Every other option was reset in the process, including the mTLS trust bundle, so client certificates stopped verifying from the first renewal onward while the server carried on reporting mTLS as configured.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "A certificate reload no longer disarms client-certificate verification",
+              "body": "Replacing the TLS context supplies a whole new one — anything the caller leaves out is cleared rather than carried over from the context the listener started with. The reload passed only the certificate and key, so the trust bundle was dropped and every sync client and browser-imported client certificate silently failed verification until the process was restarted. Certificate compression was cleared the same way, which matters here because the chain being compressed is an ML-DSA-87 one. Both are now supplied on every reload. The bundle is read through each authority's locked snapshot rather than from a startup copy, so a rotation reaches the running listener instead of waiting for a restart, and a reload landing between the two writes a rotation makes cannot install the old root alongside the already-retired one. Deployments using automatic renewal were affected on every renewal; the request-certificate and reject-unauthorized settings are properties of the listener rather than the context and were never lost."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Webhook signature documentation matches what the server sends",
+              "body": "The documented scheme was a plain hex HMAC-SHA3-512 over the request body under an `X-Webhook-Signature` header. Deliveries have not been signed that way for some time: they use the Standard Webhooks scheme, sending `webhook-id`, `webhook-timestamp` and `webhook-signature: v1,<base64>`, where the MAC covers the identifier, the timestamp and the body together. Receiver code written from the old documentation rejects every genuine delivery. The reference verifiers for Node and Python have been rewritten against the shipping signer, and now show the timestamp check that bounds replay and the handling of multiple signatures during a secret rotation. If you built a receiver from the previous documentation and it has never accepted a delivery, this is why."
+            },
+            {
+              "title": "Removed a documented environment variable that no longer exists",
+              "body": "`PQC_OUTBOUND_ENFORCE` was listed as a way to permit classical fallback on outbound connections. Nothing has read it since v1.4.0, so setting it did nothing. The outbound posture is described as it actually behaves: the hybrid groups are offered ahead of classical X25519, an upstream offering no hybrid still connects, and each such handshake is recorded as an audit event naming the group and host."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "The listener names SecP384r1MLKEM1024 first when it selects the group",
+              "body": "A client sends key shares for a guess at what the server will pick, and the runtime uses the client's share whenever it names a group the listener accepts — so a client that key-shares X25519MLKEM768 still negotiates X25519MLKEM768, unchanged by this release. The listener's own order applies only when none of the client's key shares are acceptable, which is what happens with post-quantum enforcement on and a client that guessed a classical group: the server answers with a HelloRetryRequest naming its first preference. That retry was already unavoidable in that case, so this adds no round trip to any handshake and changes only which group those retries land on. No group the framework offers is dropped — one added in a later release keeps its relative position and is still offered rather than being silently excluded by a list that stopped being maintained."
+            },
+            {
+              "title": "The vendored framework moves to 0.18.18",
+              "body": "A handshake refused by the outbound posture — the dials to object storage, SMTP and webhook endpoints — now reports which clause refused it and against which peer, rather than surfacing a bare alert that named neither and was commonly read as the wrong cause. The screen that checks patterns for catastrophic backtracking before they are allowed to run was rebuilt around a single parser, closing several shapes it previously let through. The post-quantum primitives behind ML-KEM, ML-DSA and SLH-DSA refresh to @noble/post-quantum 0.7.0, an arithmetic and allocation rework whose outputs were compared byte-for-byte against the previous release; the certificate toolkit behind the mTLS CA and the PKCS#12 engine moves to @blamejs/pki 0.4.11. The browser bundles of the same primitives move with their server counterparts, so both halves of an exchange stay on one upstream release."
+            },
+            {
+              "title": "Outbound mail follows the shared TLS posture",
+              "body": "The SMTP transport was handed an explicit key-exchange group list, which overrode the shared outbound posture wholesale with the same value it already carried. Removing it changes nothing on the wire today and means a later change to that posture reaches the mail dial instead of stopping at a copy of the old list."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.9",
+      "date": "2026-08-08",
+      "headline": "Vendor the framework from a verified published package",
+      "summary": "The vendored framework arrived by way of a shallow clone, which checks nothing about what it fetched. It now comes from the published package and its bytes are verified against the registry's advertised digest before anything is unpacked.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "The vendored framework is verified against a published digest",
+              "body": "It was previously fetched with a shallow clone of a release tag, which trusts whatever that tag resolves to at the moment of the fetch and leaves no way to tell afterwards whether the tree matches anything upstream published. The bytes are now checked against the registry's advertised SHA-512 before being unpacked, the run stops rather than vendoring on a mismatch, and that digest is recorded alongside the version so the tree stays traceable to a specific published artifact. End-of-line handling is pinned for the vendored tree as part of this, since a checkout that rewrites line endings would leave the recorded digest describing something other than what is on disk."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "The image no longer carries the framework's test and example trees",
+              "body": "The published package contains only what actually runs, so the repository's test, example, documentation, benchmark and fuzzing trees are no longer vendored or shipped. Roughly a thousand files leave the image. Nothing that HermitStash calls is affected — the framework surface is unchanged."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.8",
+      "date": "2026-08-08",
+      "headline": "Refresh the container base image for upstream glibc fixes",
+      "summary": "The base image was pinned to a rebuild from seven weeks earlier and had missed the glibc updates published since. The pin now points at a current rebuild.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Refreshed the container base image",
+              "body": "The image is pinned to an immutable base digest so builds stay reproducible and a republished tag cannot swap the base underneath a signed image. The cost of that guarantee is that a pin does not pick up upstream rebuilds on its own, and this one had fallen seven weeks behind — long enough to miss several glibc updates, including CVE-2026-6791. The pin now points at a current rebuild carrying glibc 2.43-r12. Pull the new image to take the fix; nothing else changes."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "The release checks whether base-image pins have gone stale",
+              "body": "Each pinned base image is compared against the digest its tag resolves to now, and drift is reported with the replacement digest ready to paste. Drift is a warning rather than a failure: these bases rebuild continuously, so failing on drift would block nearly every release and encourage bumping the pin blindly to quiet the check. What does fail is a pin that no longer resolves, a base image carrying no digest at all, or a file the check cannot read — each means either the build is already broken or the check is not actually running. This is the gap that let the pin above age unnoticed."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.7",
+      "date": "2026-08-08",
+      "headline": "Hold the container runtime on the long-term-support Node line",
+      "summary": "The image took its Node from a base that tracked whichever major version was newest, which had moved the runtime onto a release outside long-term support. It now installs Node from the 24 package and holds there.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "The container image holds Node on the 24 long-term-support line",
+              "body": "The image previously used a Node base image that follows whichever major version is current, which had put the runtime on a release outside long-term support. Those releases stop receiving security updates within months of shipping. Node now comes from the nodejs-24 package on the same continuously-rebuilt wolfi base, so the runtime stays on 24.x — the version this project already requires — while still picking up that line's security patches. The published image is a drop-in replacement and needs no operator action."
+            },
+            {
+              "title": "The container image no longer contains npm",
+              "body": "Nothing in the image used it: every dependency is vendored and there is no install step at build or run time. Removing it takes npm's bundled-dependency advisories out of any scan of this image, which is where several of its recent base-image findings came from."
+            }
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Sync clients can reconnect without waiting for their previous connection to be reaped",
+              "body": "A sync client may now identify its installation when it opens the sync WebSocket. When it does, the server closes that same installation's earlier connection before applying the per-key connection limit, so a client reconnecting after a network drop or a restart is no longer refused because its own stale socket has not yet expired. Connections belonging to other installations that share an API key are left alone, and a client that sends no identifier behaves exactly as it did before."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.6",
+      "date": "2026-08-08",
+      "headline": "Post-quantum key exchange is now actually enforced on incoming connections",
+      "summary": "The server's post-quantum key-exchange preference was never reaching the TLS listener, so incoming connections were negotiating a classical key exchange. This release fixes that and raises the Node.js floor to 24.19.0. Operators running with post-quantum enforcement on should read the note below.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "The post-quantum group preference now reaches the TLS listener",
+              "body": "The listener was configured with a `groups` option. Node has no such option — it is accepted and discarded without error — so the preference never applied and the listener fell back to OpenSSL's defaults, which exclude the ML-KEM hybrids. The effect was the opposite of the intent: a client offering only a post-quantum group was refused outright, and a client offering both a hybrid and a classical group negotiated the classical one. Incoming TLS connections were therefore classically keyed, and are not protected against store-now-decrypt-later attacks, even though the startup banner reported post-quantum as enforced. The preference is now supplied as `ecdhCurve`, which the runtime validates, so an incorrect value fails at startup instead of degrading silently. The ClientHello gate that refuses clients not offering a post-quantum group was working and is unchanged — it inspects what a client offers, which is why it could not detect what was actually negotiated."
+            },
+            {
+              "title": "With enforcement on, the classical fallback is no longer offered",
+              "body": "Key-exchange selection draws from the set both sides support, so leaving the classical last-resort in the list let a client that lists it first negotiate classical despite also offering a post-quantum group. With enforcement on (the default) the list is now post-quantum only, making the negotiated group post-quantum whenever the handshake completes. No client is newly refused: the ClientHello gate already rejects any client that does not offer a post-quantum group before the handshake begins. With enforcement disabled the full list, including the classical fallback, is unchanged."
+            },
+            {
+              "title": "The startup banner reports the groups actually configured",
+              "body": "Both startup lines named the framework's full preference list regardless of what the listener received, which is how the previous behaviour went unnoticed. They now report the list that was actually applied."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Raised the Node.js floor to 24.19.0",
+              "body": "24.19.0 is the current long-term-support release; it bundles SQLite 3.53.3 and reports the negotiated TLS key-exchange group, which is what makes the post-quantum posture above verifiable rather than assumed. The boot check, the installer, the container image, and the continuous-integration matrix all move together."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.5",
+      "date": "2026-08-07",
+      "headline": "Refresh the vendored dependencies and record the browser bundles",
+      "summary": "A maintenance release that brings the vendored framework and the browser-side crypto bundles to their current versions, and closes the gap that let one of those bundles fall behind unnoticed.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Refreshed the vendored blamejs framework to 0.18.15",
+              "body": "Brings the vendored framework current, including its refreshed elliptic-curve and certificate-authority bundles."
+            },
+            {
+              "title": "Refreshed the browser SHAKE256 bundle to @noble/hashes 2.3.0",
+              "body": "The browser half of the vault key derivation was still on 2.2.0. The refreshed bundle produces identical digests — it was verified against the platform's own SHAKE256 — so there is no change to stored or shared data."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Vendoring a browser bundle now records the version it installed",
+              "body": "Updating any bundle other than the framework rebuilt the file and then aborted before writing the new version to the vendor manifest, because it referenced a value only the framework path sets. The manifest kept reporting the previous version indefinitely, so an update looked un-applied and the currency report stayed wrong no matter how often it was run."
+            },
+            {
+              "title": "The vendored-dependency report covers what is actually vendored",
+              "body": "The report worked from a hardcoded list written before the crypto dependencies were consolidated into the framework. It still named a native password-hashing binding that is now the platform's built-in and a package that now ships inside the framework, while omitting the three browser bundles entirely — printing a question mark for their versions, which made a genuinely outdated bundle indistinguishable from the noise. The list is now derived from the vendor manifest, and the browser bundles are recorded there in their own right."
+            },
+            {
+              "title": "A refreshed dependency's platform identifier is re-stamped with its new version",
+              "body": "The vendor manifest records a CPE identifier for each dependency, which is what vulnerability scanners match advisories against. Refreshing a dependency updated its version but left that identifier naming the previous one, so scanning silently evaluated the release that had just been replaced."
+            },
+            {
+              "title": "Refreshing the browser cipher bundle no longer emits an unused server copy",
+              "body": "It also wrote a CommonJS build that nothing loads — the server side uses the framework's own copy — leaving an orphaned file that appeared in the dependency inventory as a component the release does not actually ship."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.4",
+      "date": "2026-08-05",
+      "headline": "Refresh the vendored blamejs framework",
+      "summary": "A maintenance release that brings the vendored framework to its current version.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Refreshed the vendored blamejs framework to 0.18.11",
+              "body": "Brings the vendored framework to its current release. For the asset server this means a static file that is a symlink at its final path component now returns a clean 404 rather than surfacing an uncaught filesystem error; the symlink is still not served."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.3",
+      "date": "2026-08-03",
+      "headline": "Sign in with Tailscale and an opt-in tailnet sidecar",
+      "summary": "HermitStash can now expose itself over a Tailscale tailnet and let tailnet members sign in with their Tailscale identity. The whole feature is opt-in and off by default — nothing about Tailscale runs, and nothing is installed, unless you enable it.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Sign in with Tailscale",
+              "body": "Tailnet members can authenticate with their Tailscale identity, read from the tailscale serve headers and trusted only from the loopback serve proxy — a forged copy from any other peer is stripped. Account creation is admin-gated: a tailnet user is auto-provisioned only when they carry a required capability grant or are on an allowlist, and an enabled TOTP second factor is still enforced. Under Funnel a public visitor carries no identity and falls back to the other sign-in methods."
+            },
+            {
+              "title": "Opt-in tailnet sidecar",
+              "body": "When enabled, the container installs and starts Tailscale at boot from the signature-verified Wolfi package repository, runs tailscaled in userspace-networking mode with no extra capabilities, and fronts the app with tailscale serve or funnel. Nothing is installed unless the feature is turned on, and every step is non-fatal — the app starts even if the tailnet front does not."
+            },
+            {
+              "title": "Tailnet hostname auto-config",
+              "body": "With Tailscale enabled and no explicit origin set, the WebAuthn relying-party origin and share-URL base are derived from the node's MagicDNS name. An operator-set RP_ORIGIN is never overridden."
+            },
+            {
+              "title": "Tailscale settings in the admin panel",
+              "body": "The Auth tab exposes the Tailscale switches — enable, sign-in, the provisioning allowlist and capability grant, hostname auto-config, and the tailscaled socket path — so the integration can be configured without environment variables."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.2",
+      "date": "2026-08-01",
+      "headline": "Patch a high-severity npm advisory in the container base image",
+      "summary": "This patch re-pins the container base image to clear a fixable high-severity advisory. It carries the post-quantum certificate migration and security hardening of the v1.14 line unchanged.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Bump the container base image to clear CVE-2026-14257",
+              "body": "The runtime base image is re-pinned to a Chainguard rebuild carrying npm 12.0.1-r2, clearing a fixable high-severity brace-expansion denial-of-service advisory (CVE-2026-14257) bundled in npm. npm is not used at runtime; the image ships no known fixable high-severity vulnerabilities."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "CVE-2026-14257",
+          "url": "https://avd.aquasec.com/nvd/cve-2026-14257"
+        }
+      ]
+    },
+    {
+      "version": "1.14.1",
+      "date": "2026-08-01",
+      "headline": "Restore the container image build",
+      "summary": "This patch corrects the Dockerfile so the container image builds under stricter linting. It carries the post-quantum certificate migration and security hardening from v1.14.0 unchanged.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Build the container image under stricter Dockerfile linting",
+              "body": "The runtime user is declared by its numeric UID and the container healthcheck uses JSON-form command arguments, so the image build passes Dockerfile linting. There is no change to the running image's behavior."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.0",
+      "date": "2026-08-01",
+      "headline": "Post-quantum mTLS certificates with automatic migration and broad security hardening",
+      "summary": "The mTLS certificate authority moves to post-quantum ML-DSA-87, an existing classical certificate authority migrates itself automatically on a capable runtime, and a broad hardening of the upload, audit, authentication, and request-security surfaces lands alongside it.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            {
+              "title": "Migrate an existing classical sync CA to the post-quantum default automatically",
+              "body": "On a runtime whose TLS stack can verify an ML-DSA certificate chain (OpenSSL 3.5 or newer), an existing ECDSA sync certificate authority migrates to ML-DSA-87 at startup. The rotation is crash-atomic — an interrupted migration rolls back to the previous, still-usable authority rather than stranding a broken CA. The superseded authority is trusted for a 30-day grace window so existing sync certificates keep connecting while their owners re-enroll; straggler certificates are revoked when the window closes. Set MTLS_CA_ALGORITHM=ECDSA-P384-SHA384 to keep the sync CA classical, or MTLS_AUTO_MIGRATE=false to defer the migration."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Rebuild the mTLS certificate stack on the zero-dependency @blamejs/pki toolkit",
+              "body": "Certificate-authority operations — CA generation, client-certificate signing, PKCS#12 packaging, and CRLs — now run on the vendored @blamejs/pki toolkit, and certificates are issued under ML-DSA-87 (FIPS 204) by default. Certificate-authority rotation, retention of a superseded root, and the runtime TLS-verification self-test run through the toolkit's own audited primitives."
+            },
+            {
+              "title": "Split mTLS into a post-quantum sync CA and a classical browser CA",
+              "body": "Sync and machine client certificates are signed by an ML-DSA-87 certificate authority, while the PKCS#12 certificates a person imports into a browser or OS keystore are signed by a separate classical ECDSA-P384-SHA384 authority — today's browsers cannot complete an ML-DSA client-auth handshake. The server trusts both, and each authority rotates and revokes independently."
+            }
+          ]
+        },
+        {
+          "heading": "Removed",
+          "items": [
+            {
+              "title": "Drop the @peculiar/x509 + pkijs certificate bundle",
+              "body": "The previous pure-JS certificate bundle is no longer vendored; the single zero-dependency @blamejs/pki toolkit replaces it."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Deliver the 413 response on an oversized encrypted request",
+              "body": "An oversized request on an encrypted session now receives the Payload Too Large response instead of a connection reset."
+            },
+            {
+              "title": "Keep the envelope migration from aborting on a stray value",
+              "body": "A boot-time envelope migration no longer aborts when a non-sealed column holds a value that begins with the seal prefix."
+            },
+            {
+              "title": "Fall back to the default on a negative numeric setting",
+              "body": "A negative numeric configuration value — for example a mistyped maximum file size — falls back to its default instead of disabling the upload surface."
+            },
+            {
+              "title": "Count access-code attempts atomically",
+              "body": "Wrong access-code attempts are counted atomically, so the attempt cap can no longer be bypassed by parallel submissions."
+            },
+            {
+              "title": "Guard download streams against a mid-stream error",
+              "body": "A storage-backend error partway through a download no longer crashes the process."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Enforce certificate binding and stash confinement on file and bundle mutation routes",
+              "body": "Renaming or deleting a file or bundle with an API key now enforces the key's mTLS certificate binding and its stash and bundle confinement, so a bearer token presented without its client certificate can no longer reach the key owner's resources."
+            },
+            {
+              "title": "Protect the shared sync bundle from anonymous overwrite",
+              "body": "The shared bundle behind a public sync stash can no longer be overwritten by an unauthenticated request. The bundle is provisioned and bound to the stash when an operator issues the sync token, so an anonymous caller cannot claim or replace it."
+            },
+            {
+              "title": "Bound chunked-upload reassembly memory",
+              "body": "A completed chunked upload is capped before it is reassembled in memory, even under a No-limit policy, and concurrent reassemblies are bounded, so a synchronized burst of large uploads can no longer exhaust process memory."
+            },
+            {
+              "title": "Serialize audit retention against encrypted archival",
+              "body": "The tamper-evident audit chain's retention cleanup and encrypted archival can no longer interleave, which previously could leave the chain reporting a permanent false tamper alarm. The live chain is also periodically signed with a post-quantum checkpoint, and the archive signature covers the full manifest."
+            },
+            {
+              "title": "Adopt replay-protected webhook signatures",
+              "body": "Outbound webhooks are signed under the Standard Webhooks scheme — a versioned signature over the message id, timestamp, and body — giving receivers replay protection and algorithm agility."
+            },
+            {
+              "title": "Sanitize operator-supplied legal-policy HTML",
+              "body": "Privacy, terms, and cookie policy text is HTML-sanitized before it is rendered on the public policy pages."
+            },
+            {
+              "title": "Close account-enumeration timing oracles",
+              "body": "Password-reset, email-verification, and bundle access-code requests no longer wait on the outbound email before responding, so response timing no longer reveals whether an address exists."
+            },
+            {
+              "title": "Harden the authentication surfaces",
+              "body": "The soft mTLS gate validates a presented bearer token, passkey verification runs before any account-status check, and repeated second-factor failures now count against the pending sign-in rather than only per source address."
+            },
+            {
+              "title": "Route secret-bearing JSON parsing through a non-leaking parser",
+              "body": "Parsing of key material and other sensitive JSON no longer risks echoing input bytes into an error message."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Pin the classical CA for pre-OpenSSL-3.5 mTLS peers",
+              "body": "A deployment whose mTLS peers cannot verify ML-DSA should set MTLS_CA_ALGORITHM=ECDSA-P384-SHA384 to keep the sync CA classical."
+            },
+            {
+              "title": "Re-enroll sync clients after the CA migration",
+              "body": "After the sync CA migrates to ML-DSA-87, existing sync clients re-enroll onto the new certificate authority within the 30-day grace window."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "FIPS 204 (ML-DSA)",
+          "url": "https://csrc.nist.gov/pubs/fips/204/final"
+        },
+        {
+          "label": "Standard Webhooks",
+          "url": "https://www.standardwebhooks.com/"
+        }
+      ]
+    }
+  ]
+}

@@ -97,8 +97,8 @@ function validateToken(session, req, body) {
            || (body && body._csrf)
            || (req.query && req.query._csrf);
   // b.forms.verifyCsrfToken performs the constant-time compare plus the
-  // non-string / mismatched-length / empty-token guards (via timingSafeEqual) —
-  // the exact checks this used to hand-roll, now in the canonical primitive.
+  // non-string / mismatched-length / empty-token guards (via timingSafeEqual),
+  // so those checks live in the canonical primitive rather than here.
   return b.forms.verifyCsrfToken(token, expected);
 }
 

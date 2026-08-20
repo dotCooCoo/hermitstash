@@ -11,7 +11,7 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
 
 ---
 
-## blamejs v0.18.39
+## blamejs v0.18.40
 
 - **License:** Apache-2.0
 - **Copyright:** blamejs contributors
@@ -71,7 +71,7 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
   - `tslib` — Apache-2.0, (c) Microsoft Corporation
   - `cbor-x` — MIT
 
-## @blamejs/pki v0.5.11
+## @blamejs/pki v0.5.16
 
 - **License:** Apache-2.0
 - **Copyright:** blamejs contributors

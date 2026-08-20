@@ -73,7 +73,7 @@ HermitStash is composed on top of [**blamejs**](https://blamejs.com) — a Node 
 - `b.session` — sessions with PQC sealed cookies, /24 IPv4 + /64 IPv6 fingerprint binding, tmpfs-backed `localDbThin` storage, sid-rotation on login
 - `b.mtlsCa` + `b.mtlsEngine` — mTLS CA generation, client cert issuance, sealed-PEM at-rest, generation tracking
 - `b.middleware.{apiEncrypt, rateLimit, bodyParser, cors, csrfProtect, securityHeaders, botGuard}` — the request pipeline
-- `b.parsers.{json, multipart}` — RFC 7578 / RFC 5987 / POISONED_KEYS / HPE_* hardened body parsing
+- `b.parsers.{json, multipart}` — RFC 7578 / RFC 8187 / POISONED_KEYS / HPE_* hardened body parsing
 - `b.objectStore` — SigV4 S3-compatible backend (AWS, DigitalOcean Spaces, MinIO, Backblaze)
 - `b.scheduler`, `b.backup`, `b.router`, `b.websocket`, `b.auth.password` (Argon2id), `b.auth.totp` (SHA-512), `b.safeUrl`, `b.sanitize`, `b.atomicFile`, `b.requestHelpers`, `b.constants`
 
@@ -221,7 +221,7 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | HTML injection into outgoing email | Uploader names, file paths, skip reasons and access codes HTML-escaped before templating; link URLs escaped for attribute context so a quote cannot end the `href` |
 | Weak bundle/stash passwords | Minimum 4-character requirement enforced server-side |
 | Automated scanners and bots | Request fingerprinting (missing Accept-Language + known automation User-Agents) blocks non-browser clients on public routes — survives PQC TLS adoption |
-| NPM supply chain | All dependencies vendored as committed bundles — zero npm runtime packages |
+| npm supply chain | All dependencies vendored as committed bundles — zero npm runtime packages |
 | Admin settings injection | Type-safe settings schema (lib/settings-schema.js) sanitizes on save (strip control chars, trim, type-specific normalization) and validates (format, range, enum) — bad data rejected at the gate with clear error messages |
 | Stale config after admin change | Config reset registry (config.onReset) invalidates every cached client that reads a setting — the S3 client and the resolved upload path among them — when that setting changes at runtime |
 | Timing attack on access codes | SHA3-512 hash comparison uses constant-time `timingSafeEqual` on all security-sensitive comparisons (access codes, CSRF, TOTP) |
@@ -313,7 +313,7 @@ Built on Node.js 24.19.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - Audit log -- searchable (by action, details, email, IP, or path), filterable, date range; click any entry for the full who / what / when / where / how (performer, target, source IP, method + path, auth type, user-agent, request id). Sealed at rest and shown decrypted to admins
 - Audit export -- download the decrypted trail (honoring the current filters) as CSV (formula-injection-safe), JSON, or CADF (Cloud Auditing Data Federation event batch for SIEM / compliance). Each export is itself audited
 - Audit archival -- optional size-based rotation: when the log exceeds a row threshold, the oldest entries are moved to a passphrase-encrypted (Argon2id + XChaCha20-Poly1305), post-quantum-signed bundle on disk and pruned from the database, with the tamper chain re-anchored. Archives can be listed, verified (signature + checksum + chain recompute), and decrypted for export. Each bundle is verified before any rows are pruned, so a bad write never loses data
-- SIEM forwarding -- stream every audit event to a SIEM in real time over RFC 5424 syslog (udp / tcp / tls) or an HTTP webhook (Splunk HEC, Datadog, Grafana Loki, or any JSON-ingest endpoint, with bearer / basic / header auth). Security failures forward at `warn` so the SIEM can alert; secret- and PII-shaped values are stripped before anything leaves the host. A built-in connectivity test sends a probe event without waiting for an audit action. Off by default; enabling it forces full-IP and user-agent capture on so the forwarded stream is forensically complete
+- SIEM forwarding -- stream every audit event to a SIEM in real time over RFC 5424 syslog (`udp` / `tcp` / `tls`) or an HTTP webhook (Splunk HEC, Datadog, Grafana Loki, or any JSON-ingest endpoint, with bearer / basic / header auth). Security failures forward at `warn` so the SIEM can alert; secret- and PII-shaped values are stripped before anything leaves the host. A built-in connectivity test sends a probe event without waiting for an audit action. Off by default; enabling it forces full-IP and user-agent capture on so the forwarded stream is forensically complete
 - Audit Log settings -- retention period (or keep indefinitely), record full IP addresses for investigations (off by default, where the source IP is stored as a one-way hash the operator cannot reverse), capture the client user-agent, and the tamper-evidence chain + encrypted archival. IP and user-agent changes apply to new entries only
 - Settings panel -- 11 tabs (Branding, General, Auth, Uploads, Storage, Theme, Email, Security, Environment, Backup, Audit Log)
 - API keys with scoped permissions (upload, read, admin) validated against a canonical enum and enforced on read and mutating routes
@@ -539,7 +539,7 @@ Tags published per release:
 
 Pick the level of stability you want — `:1` is the recommended default for production deployments.
 
-Or with docker compose (using pre-built image):
+Or with `docker compose` (using pre-built image):
 
 ```yaml
 services:
@@ -778,7 +778,7 @@ docker exec hermitstash node scripts/vault-key-rotate.js --dry-run
 The tool builds a complete rotated copy of `data/` at `data.rotating/`, verifies it round-trips, then atomically swaps `data/` → `data.old.<ISO timestamp>/` and `data.rotating/` → `data/`. A crash at any point leaves `data/` either fully pre-rotation or fully post-rotation, never partial — server boot recovery handles every interruption point.
 
 After success:
-1. `data.old.<ISO timestamp>/` is retained (delete with `rm -rf` once you've verified the rotated state)
+1. `data.old.<ISO timestamp>/` is retained — once you've verified the rotated state, remove that directory by name rather than by a shell glob
 2. If the passphrase changed, update `VAULT_PASSPHRASE` / `VAULT_PASSPHRASE_FILE` to the new value
 3. Restart the server
 4. Verify access: `docker exec hermitstash node scripts/vault-key-verify.js`
@@ -1011,7 +1011,7 @@ bash deploy/podman.sh
 ```
 Drop-in Docker alternative — works rootless or rootful. Automatically generates a systemd unit via `podman generate systemd` (user unit for rootless, system unit for rootful). Volumes use `:Z` for SELinux relabeling. Pass `AUTO_UPDATE=true` to opt into `podman-auto-update.timer`. See [`deploy/podman.sh`](deploy/podman.sh).
 
-**Systemd (manual):** If you already have Node.js 24+ installed, copy [`deploy/hermitstash.service`](deploy/hermitstash.service) to `/etc/systemd/system/` and adjust paths. The unit includes `NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`, and scoped `ReadWritePaths`.
+**systemd (manual):** If you already have Node.js 24+ installed, copy [`deploy/hermitstash.service`](deploy/hermitstash.service) to `/etc/systemd/system/` and adjust paths. The unit includes `NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`, and scoped `ReadWritePaths`.
 
 ### Upgrading
 
@@ -1062,7 +1062,7 @@ Container orchestrators with aggressive startup health-check timeouts: raise the
 Auto-update is off by default on every deployment method. Turn it on when you want it.
 
 **Docker / Compose:** a 3-line root cron is enough — no extra container, no Docker socket to mount:
-```cron
+```crontab
 # /etc/cron.d/hermitstash-update  (root)
 17 4 * * *  cd /opt/hermitstash && docker compose pull && docker compose up -d --remove-orphans
 ```
@@ -1297,10 +1297,10 @@ Authorization: Bearer hs_a1b2c3d4e5f6...
 
 ### Upload endpoints
 
-Public upload endpoints accept API key authentication. When authenticated, uploads are assigned to the key owner's account.
+Public upload endpoints accept API key authentication. When authenticated, uploads are assigned to the key owner's account. Each row's method is part of the endpoint.
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
+| Endpoint | Description |
+|----------|-------------|
 | `GET  /.well-known/blamejs-pubkey` | Server keypair for the blamejs apiEncrypt envelope. Plain JSON `{publicKey, ecPublicKey, kemId, cipherId, kdfId}`. No auth, no encryption. Cache at the client; re-fetch only when the server keypair rotates |
 | `POST /drop/init` | Initialize a bundle. **Blamejs-encrypted.** Decrypted body: `{ uploaderName, uploaderEmail, password, message, bundleName, expiryDays, fileCount, ... }`. Decrypted response: `{ bundleId, shareId, finalizeToken }` |
 | `POST /drop/file/:bundleId` | Upload a file (multipart/form-data, field: `file`). Body bypasses encryption (multipart not JSON). Response is plaintext JSON for Bearer clients |
@@ -1341,8 +1341,8 @@ console.log("Share link: https://your-domain/b/" + shareId);
 
 All require `admin` scope:
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
+| Endpoint | Description |
+|----------|-------------|
 | `GET /admin/apikeys/api` | List all API keys (hashes hidden) |
 | `POST /admin/apikeys/create` | Generate new key. Body: `{ "name": "...", "permissions": "upload" }` |
 | `POST /admin/apikeys/:id/revoke` | Revoke a key permanently |
@@ -1486,7 +1486,7 @@ Managed via `scripts/vendor-update.sh`:
 
 | Vendored | Version | Author | Purpose |
 |----------|---------|--------|---------|
-| [`blamejs`](https://github.com/blamejs/blamejs) | 0.18.39 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, and envelope-bound field crypto. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
+| [`blamejs`](https://github.com/blamejs/blamejs) | 0.18.40 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, and envelope-bound field crypto. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
 | [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) (browser only) | 2.3.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | XChaCha20-Poly1305 in the browser vault + outbox flows |
 | [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (browser only) | 2.3.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | SHAKE256 KDF in the browser |
 | [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) (browser only) | 0.7.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | ML-KEM-1024 in the browser vault flow |
