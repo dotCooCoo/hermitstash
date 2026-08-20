@@ -467,6 +467,7 @@ function vendorGate() {
 // elsewhere — excluded from the advisory so it stays signal. Reviewed 2026-05-30;
 // when blamejs adds a detector that lands here purely as N/A, add it (with reason).
 var PATTERNS_NA = {
+  "timing-safe-compare-with-early-exit": "HS enforces this as an ESLint rule (hermitstash/no-early-exit-timing-compare in eslint.config.js), not a patterns detector. The check needs the parsed tree: whether a comparison is negated, where its guarded branch ends, whether a return leaves the loop or a callback inside it, whether a break targets this loop or a nested construct, and whether an identifier is the binding holding the result. A source-scanning version got each of those wrong in turn, which is also why upstream replaced its own scanner with an ESLint rule. Covered by tests/lint/eslint-timing-compare-rule.test.js",
   "ai-disclosure-on-request-without-requested-gate": "blamejs AI-agent surface; HS has none",
   "archive-gz-without-safedecompress": "HS never decompresses untrusted input",
   "archive-wrap-partial-recipient": "blamejs multi-recipient archive; N/A to HS",
@@ -725,7 +726,13 @@ function eslintGate() {
 // something different. These run in-process against the source on disk.
 function unitTestGate() {
   process.stdout.write("  test suites … ");
-  var globs = ["tests/unit/*.test.js", "tests/security/*.test.js", "tests/integration/*.test.js"];
+  // tests/lint/ is NOT globbed: codebase-patterns.test.js and test-coverage.test.js
+  // are standalone scripts with their own runners, and preflight invokes those
+  // directly. The rule test below is a node:test file and has to be named, or it
+  // sits in the tree running nowhere — which is the failure this comment block
+  // already describes.
+  var globs = ["tests/unit/*.test.js", "tests/security/*.test.js", "tests/integration/*.test.js",
+    "tests/lint/eslint-timing-compare-rule.test.js"];
   try {
     // --test-reporter=dot keeps a passing run to a few lines; the failure path
     // below prints the real output, which is what anyone reading this needs.

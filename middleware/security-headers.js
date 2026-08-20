@@ -26,6 +26,7 @@
  */
 var b = require("../lib/vendor/blamejs");
 var config = require("../lib/config");
+var clientIp = require("../lib/client-ip");
 
 // Extract analytics domains (for script-src / connect-src / img-src)
 // from the admin-configured analytics script snippet. Operators may
@@ -126,9 +127,23 @@ function buildCsp() {
 // COOP/CORP: same-origin, Origin-Agent-Cluster: ?1, X-DNS-Prefetch-
 // Control: off, Document-Policy: document-write=?0 / unsized-media=?0
 // / oversized-images=?0). Accepting these matches OWASP-strict.
+// HSTS is the framework's, not hand-rolled. Its default value is exactly the
+// posture HS wants — 2-year max-age + includeSubDomains + preload, matching the
+// hstspreload.org submission policy — and it already emits the header only when
+// the request arrived over HTTPS, which is the rule RFC 6797 §8.1 states from
+// the other side: a user agent MUST ignore an HSTS header received over
+// insecure transport.
+//
+// protocolResolver rather than trustedProxies: this instance is built once at
+// module load, so a trustedProxies list captured here would go stale the moment
+// an operator changed TRUST_PROXY. Delegating to clientIp reads the live list on
+// every request, and keeps ONE trusted-proxy list behind the client address, the
+// session cookie's Secure flag and this header.
 var bSecurityHeaders = b.middleware.securityHeaders({
-  csp:  false,
-  hsts: false,
+  csp: false,
+  protocolResolver: function (req) {
+    return clientIp.isSecureRequest(req) ? "https" : "http";
+  },
 });
 
 module.exports = function securityHeaders(req, res, next) {
@@ -141,17 +156,6 @@ module.exports = function securityHeaders(req, res, next) {
 
   // Compute CSP per request (hot-reloads with admin config changes).
   res.setHeader("Content-Security-Policy", buildCsp());
-
-  // HSTS gate on rpOrigin scheme — only emit for HTTPS deployments.
-  // 2-year max-age + includeSubDomains + preload matches the
-  // framework's recommended posture and the hstspreload.org policy
-  // (1-year was the older minimum; preload submission requires 2-year).
-  // Sent only over HTTPS — emitting HSTS on a plain-HTTP origin is
-  // useless (browsers ignore) and harmful (locks browsers into HTTPS
-  // for an origin the operator hasn't yet TLS-enabled).
-  if (config.rpOrigin && config.rpOrigin.startsWith("https")) {
-    res.setHeader("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
-  }
 
   // Dynamic-page Cache-Control. Static assets (CSS/JS/images/fonts)
   // skip these because the static handler already manages cache headers

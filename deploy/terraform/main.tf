@@ -75,14 +75,15 @@ resource "digitalocean_droplet" "hermitstash" {
     # Create data directories
     mkdir -p /opt/hermitstash/data /opt/hermitstash/uploads
 
-    # Run HermitStash
+    # Run HermitStash. No TRUST_PROXY here: this instance is reached directly,
+    # so no forwarded header should be believed. Add it — with the proxy's own
+    # address or CIDR — only once a proxy is actually in front.
     docker run -d --name hermitstash \
       --restart unless-stopped \
       -p 3000:3000 \
       -v /opt/hermitstash/data:/app/data \
       -v /opt/hermitstash/uploads:/app/uploads \
       --shm-size=256m \
-      -e TRUST_PROXY=true \
       -e RP_ORIGIN=${var.domain != "" ? "https://${var.domain}" : ""} \
       ghcr.io/dotcoocoo/hermitstash:1
   CLOUD_INIT

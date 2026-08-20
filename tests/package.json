@@ -9,7 +9,7 @@
     "eslint-plugin-security": "^4.0.0"
   },
   "scripts": {
-    "test": "NODE_ENV=test node --test --test-isolation=process --test-concurrency=8 unit/*.test.js integration/*.test.js security/*.test.js performance/performance.test.js",
+    "test": "NODE_ENV=test node --test --test-isolation=process --test-concurrency=8 unit/*.test.js integration/*.test.js security/*.test.js performance/performance.test.js lint/eslint-timing-compare-rule.test.js",
     "test:unit": "NODE_ENV=test node --test --test-isolation=process --test-concurrency=8 unit/*.test.js",
     "test:integration": "NODE_ENV=test node --test --test-isolation=process --test-concurrency=4 integration/*.test.js",
     "test:security": "NODE_ENV=test node --test --test-isolation=process --test-concurrency=4 security/*.test.js",

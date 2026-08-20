@@ -43,9 +43,12 @@ services:
       NODE_ENV: production
       HERMITSTASH_TMPDIR: /dev/shm
       PORT: 3000
-      TRUST_PROXY: "true"        # set if behind a reverse proxy
+      # Addresses a reverse proxy connects FROM, as IPs or CIDRs — not "true".
+      # Loopback is trusted already; a proxy in its own container needs that
+      # network, e.g. "172.18.0.0/16".
+      TRUST_PROXY: ""
 
-      # Required for passkeys + HSTS — set to your full domain URL
+      # Required for passkeys — set to your full domain URL
       RP_ORIGIN: ""              # e.g. https://files.example.com
 
       # Auth (defaults work for getting started)

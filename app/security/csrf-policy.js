@@ -158,9 +158,20 @@ function csrfMiddleware(req, res, next) {
     // refused (nor a cross-site one accepted) over a case / default-port /
     // trailing-dot / IDN difference between the browser Origin and the operator's
     // configured rpOrigin — both sides run through the same host canonicalizer.
+    // Accepted set, not a single origin: a deployment answering on more than one
+    // hostname (a LAN name alongside a tailnet MagicDNS name) would otherwise
+    // have every state-changing request from the second one refused. Only
+    // origins the operator declared are in the set — an undeclared cross-site
+    // origin is still rejected, which is the whole point of the gate.
+    //
+    // canonicalOrigin runs over BOTH sides, so an operator entry with a trailing
+    // dot, odd case, an explicit default port or an IDN host still matches the
+    // browser's Origin. An entry that fails to parse canonicalizes to "", which
+    // matches nothing — a malformed setting cannot widen acceptance.
     var reqOrigin = canonicalOrigin(origin);
-    var configuredOrigin = canonicalOrigin(originPolicy.getOrigin());
-    if (origin && reqOrigin !== configuredOrigin) {
+    var accepted = originPolicy.acceptedOrigins().map(canonicalOrigin)
+      .filter(function (o) { return o !== ""; });
+    if (origin && accepted.indexOf(reqOrigin) === -1) {
       // emitError routes problem+json through the encrypting res.json on an
       // api-encrypt cookie session — a direct b.problemDetails.send would ship
       // this 403 in CLEARTEXT on a session the client negotiated as encrypted

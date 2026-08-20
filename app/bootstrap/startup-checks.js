@@ -69,8 +69,17 @@ function run() {
     } catch (_e) { _rpLoopback = false; }
   }
   if (config.rpOrigin && !config.rpOrigin.startsWith("https://") && !_rpLoopback) {
-    warnings.push("rpOrigin is not HTTPS. Session cookies may not be secure. Use HTTPS in production.");
+    warnings.push("rpOrigin is not HTTPS. Traffic to this origin is unencrypted and passkeys are unavailable — a browser offers WebAuthn only in a secure context. Use HTTPS in production.");
   }
+
+  // No "rpOrigin is HTTPS but TRUST_PROXY is empty" warning here, though the
+  // combination does cost a deployment its HSTS along with correct client
+  // addresses. It cannot be made sound at boot: loopback is trusted by default,
+  // so the most common topology — a proxy on 127.0.0.1 — is correct with the
+  // setting empty, and nothing available at startup separates that from a proxy
+  // on a container network, which needs it. A check would fire on the working
+  // case. The setting is documented instead, and the misconfiguration shows up
+  // as every request sharing one client address in the audit log.
 
   // ---- Warning: weak Argon2 parameters ----
   if (process.env.ARGON2_FAST === "1") {

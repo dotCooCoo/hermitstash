@@ -77,8 +77,13 @@ spec:
               value: /dev/shm
             - name: PORT
               value: "3000"
+            # The ingress controller reaches this pod from the cluster's pod
+            # network, never loopback, so this needs that CIDR — "true" is
+            # discarded at boot and every request would be attributed to the
+            # ingress. Take it from the cluster's podCIDR (kubectl get nodes
+            # -o jsonpath='{.items[*].spec.podCIDR}').
             - name: TRUST_PROXY
-              value: "true"
+              value: ""   # e.g. 10.244.0.0/16
             # Container user — mirrors compose defaults. Set 1000:1000 for
             # standard Linux, 99:100 for Unraid-style nobody:users.
             - name: PUID
@@ -91,7 +96,7 @@ spec:
             # explicitly overridden via BACKUP_TIMEZONE.
             - name: TZ
               value: "Etc/UTC"
-            # Set to your ingress URL (required for passkeys + HSTS)
+            # Set to your ingress URL (required for passkeys)
             - name: RP_ORIGIN
               value: ""   # e.g. https://files.example.com
             # ── Vault passphrase protection (opt-in, v1.9+) ───────────────

@@ -34,7 +34,10 @@ services:
       HERMITSTASH_TMPDIR: /dev/shm
       PORT: 3000
       SITE_NAME: HermitStash
-      TRUST_PROXY: "true"
+      # Addresses a reverse proxy connects FROM, as IPs or CIDRs — not "true".
+      # Empty is right when the proxy reaches the server over loopback; a proxy
+      # in its own container needs that network, e.g. "172.18.0.0/16".
+      TRUST_PROXY: ""
 
       # ── Vault passphrase protection (opt-in) ────────────────────────────
       # Default: disabled (vault.key is plaintext JSON at rest, protected

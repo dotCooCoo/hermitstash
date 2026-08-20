@@ -19,6 +19,27 @@ function getOrigin() {
 }
 
 /**
+ * Every origin this deployment answers on: the canonical one, plus any the
+ * operator declared in additionalOrigins (a LAN hostname, a tailnet MagicDNS
+ * name). For ACCEPTANCE decisions only — "may a request from here change
+ * state?" — never for generating a URL.
+ *
+ * getOrigin() stays single-valued on purpose. A share link, a verification
+ * email and a sitemap entry each need exactly one origin, and there is no
+ * sensible way to pick from a set; returning one would silently make those
+ * URLs depend on list order.
+ *
+ * Entries are returned raw. The caller canonicalizes, because the comparison
+ * is only sound when both sides run through the same canonicalizer.
+ */
+function acceptedOrigins() {
+  var extra = config.additionalOrigins || [];
+  return [getOrigin()].concat(extra.filter(function (o) {
+    return typeof o === "string" && o.length > 0;
+  }));
+}
+
+/**
  * Build an absolute URL from a path using the canonical origin.
  * Always use this instead of req.headers.host.
  */
@@ -33,4 +54,4 @@ function absoluteUrl(pathname) {
 // foot-gun. A redirect validator, if ever needed, should be reintroduced with
 // full URL canonicalization and rejected on any non-"/" or control-char input.)
 
-module.exports = { getOrigin, absoluteUrl };
+module.exports = { getOrigin, acceptedOrigins, absoluteUrl };

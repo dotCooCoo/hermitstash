@@ -12,7 +12,7 @@
 # date below — that digest bump IS the intended CVE-response path. Resolve the current
 # digest with:
 #   docker buildx imagetools inspect cgr.dev/chainguard/wolfi-base:latest
-ARG RUNTIME_BASE=cgr.dev/chainguard/wolfi-base@sha256:8e8fe4b9b989b03daaa4305dba54a1b480f63716c56dc6bb074e5a6057bf3c73  # wolfi-base 2026-08-18
+ARG RUNTIME_BASE=cgr.dev/chainguard/wolfi-base@sha256:fdcd31a2db35958c251ea22e80cda72a8222228114e736ec7dd9c94452a2dc51  # wolfi-base 2026-08-20
 FROM ${RUNTIME_BASE}
 # Chainguard wolfi-base — glibc-dynamic (not musl), continuously rebuilt when
 # upstream CVE fixes land. CVE count at any given digest is typically near-zero;
@@ -92,7 +92,20 @@ RUN apk add --no-cache nodejs-24 shadow su-exec
 
 # Security: non-root user for runtime. PUID/PGID env vars remap UID/GID at
 # runtime via groupmod/usermod (installed above); setpriv then drops privs.
-RUN groupadd -r hermit && useradd -r -g hermit -s /bin/sh hermit
+#
+# The ids are PINNED to the values the unpinned form has been assigning (999 and
+# 122). Without them the base decides: `-r` takes the next free system id, so a
+# rebuild of wolfi-base that adds or removes a system account silently shifts
+# what /app and the data directory are owned by, and an existing install's
+# bind-mounted files stop being readable by the user that is supposed to own
+# them. Nothing here noticed such a move, which is the problem — it surfaces as
+# a permission error on somebody's server.
+#
+# 999:122 rather than a rounder number because those are what is already on
+# disk in every existing deployment. Changing the value to tidy it up would
+# orphan exactly the data this pin exists to protect. A future base that has
+# already taken either id fails the build loudly, which is the outcome to want.
+RUN groupadd -r -g 122 hermit && useradd -r -u 999 -g hermit -s /bin/sh hermit
 
 WORKDIR /app
 

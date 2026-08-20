@@ -63,7 +63,10 @@
             env:
               NODE_ENV: production
               HERMITSTASH_TMPDIR: /dev/shm
-              TRUST_PROXY: "true"
+              # Addresses a reverse proxy connects FROM, as IPs or CIDRs — not
+              # "true". Loopback is trusted already; a proxy in its own
+              # container needs that network, e.g. "172.18.0.0/16".
+              TRUST_PROXY: ""
               RP_ORIGIN: "{{ 'https://' + hermitstash_domain if hermitstash_domain else '' }}"
               # Vault passphrase protection (opt-in). Default disabled.
               # To enable: set hermitstash_vault_passphrase in your playbook

@@ -381,7 +381,7 @@ Built on Node.js 24.19.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 
 **Security Hardening**
 - Security headers on all responses (CSP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy, COOP, CORP)
-- HSTS with preload auto-enabled when rpOrigin uses HTTPS
+- HSTS with preload, sent on requests that arrive over HTTPS — a proxy's forwarded scheme counts only from an address named in `TRUST_PROXY`
 - Content Security Policy with no external domains -- fonts vendored locally, `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`
 - 256-bit SHA3-derived share IDs (no brute-force, no collisions)
 - CSRF protection: JSON requests bound by per-session encryption key; form POSTs validated with constant-time CSRF token; non-JSON/non-exempt POSTs rejected
@@ -557,7 +557,7 @@ services:
       PUID: "99"                   # default 99 (Unraid). Set 1000 for standard Linux.
       PGID: "100"                  # default 100 (Unraid). Set 1000 for standard Linux.
       TZ: "Etc/UTC"                # e.g. America/New_York
-      TRUST_PROXY: "true"
+      TRUST_PROXY: ""            # proxy IPs/CIDRs, e.g. 172.18.0.0/16. Loopback is trusted already.
       RP_ORIGIN: ""              # https://your-domain.com
     restart: unless-stopped
 ```
@@ -618,8 +618,8 @@ services:
       NODE_ENV: production
       HERMITSTASH_TMPDIR: /dev/shm
       PORT: 3000
-      TRUST_PROXY: "true"       # set if behind nginx/Cloudflare/Coolify
-      RP_ORIGIN: ""             # https://your-domain.com (required for passkeys + HSTS)
+      TRUST_PROXY: ""           # proxy IPs/CIDRs if the proxy is off-host. Loopback is trusted already.
+      RP_ORIGIN: ""             # https://your-domain.com (required for passkeys)
     restart: unless-stopped
 ```
 
@@ -641,8 +641,55 @@ Works out of the box with Coolify, Portainer, CapRover, and similar platforms:
 
 The server can terminate TLS itself (for PQC enforcement) or sit behind a reverse proxy:
 
-- **Behind Cloudflare/nginx (recommended):** Set `TRUST_PROXY=true`. The proxy terminates TLS; the server runs HTTP internally. PQC TLS between browser and Cloudflare is handled by Cloudflare's edge. Set `PQC_ENFORCE=false` if the proxy→server leg is plain HTTP.
+- **Behind Cloudflare/nginx (recommended):** The proxy terminates TLS; the server runs HTTP internally. PQC TLS between browser and Cloudflare is handled by Cloudflare's edge. Set `PQC_ENFORCE=false` if the proxy→server leg is plain HTTP.
+
+  `TRUST_PROXY` takes IP addresses or CIDR ranges — the addresses your proxy connects from. It does not take `true`. A value that is not an address is discarded with a `TRUST_PROXY entry ignored` line at boot, and every request is then attributed to the proxy instead of the caller: one rate-limit bucket shared by all clients, the proxy's address in the audit log, and `ADMIN_ALLOWED_CIDRS` matched against the proxy rather than the admin.
+
+  `127.0.0.1/32` and `::1/128` are trusted already, so **a proxy that reaches the server over loopback needs no setting**. What matters is the address the proxy connects *from*, not whether it runs on the same machine: a proxy in its own container arrives from the Docker network even when the host is shared, and does need the setting. Give it the network or the hosts it connects from:
+
+  ```bash
+  TRUST_PROXY=172.18.0.0/16          # the Docker network your proxy is on
+  TRUST_PROXY=10.0.0.5,10.0.0.6      # specific proxy hosts
+  ```
+
+  A bare address is taken as a single host (`/32`, or `/128` for IPv6). Check the boot log after changing it: an unusable entry is named in the line that discards it.
+
+  This also decides HSTS. `Strict-Transport-Security` is sent on requests that arrived over HTTPS, and a proxy's `X-Forwarded-Proto` counts as HTTPS only from a trusted proxy — so a TLS-terminating proxy on a container network that is not listed here costs the deployment its HSTS as well as its client addresses. A proxy on loopback is trusted already and needs nothing.
 - **Direct TLS (PQC enforced):** Mount TLS certs at `/app/data/tls/fullchain.pem` and `/app/data/tls/privkey.pem` (or set `TLS_CERT` and `TLS_KEY` env vars). The PQC gate inspects ClientHello and rejects non-PQC connections. The server negotiates `SecP384r1MLKEM1024 > X25519MLKEM768 > SecP256r1MLKEM768` (strongest available hybrid group). Certificate auto-reload on Let's Encrypt renewal (file poll every minute via `fs.watchFile`).
+
+### Answering on more than one hostname
+
+`RP_ORIGIN` names one origin, and state-changing requests are accepted from that
+origin alone. Reach the app on a second hostname — a LAN name beside a public
+one, a tailnet MagicDNS name — and every sign-in, upload and settings save from
+it is refused with `403`, while ordinary page loads keep working. Adding the
+hostname to `CORS_ORIGINS` does not help: that governs which origins may read a
+response, not which may change state.
+
+`ADDITIONAL_ORIGINS` names the others. Full origins, comma-separated, scheme and
+port included:
+
+```bash
+ADDITIONAL_ORIGINS=http://hermitstash.local:3081, https://box.tail1a2b3c.ts.net
+```
+
+Empty by default, so a single-origin deployment behaves exactly as before. An
+origin nobody listed is still rejected — this widens the gate to hostnames you
+declare, not to any caller. Entries are matched case-insensitively and ignore a
+trailing dot or an explicit default port; one that cannot be parsed matches
+nothing rather than matching everything.
+
+`RP_ORIGIN` stays the canonical origin regardless: share links, verification
+emails and `sitemap.xml` are all built from it, since each needs one address
+rather than a set. Sessions are per-origin, so signing in on one hostname does
+not sign you in on the other.
+
+Two limits worth knowing before you rely on it. Passkeys bind to the origin's
+registrable domain, so a credential enrolled on one hostname will not verify on
+an unrelated one — `hermitstash.local` and a `.ts.net` name share no suffix, and
+a passkey registered on either works only there. And a browser offers WebAuthn
+only in a secure context, so on a plain-HTTP hostname passkeys are unavailable
+whatever this setting says; password and TOTP sign-in still work.
 
 ### Persistent data
 
@@ -885,7 +932,7 @@ Probes from the same origin as the app (container HEALTHCHECK on `localhost`, a 
 
 ### Reverse proxy
 
-Drop-in configs for the three common proxies live in [`deploy/reverse-proxy/`](deploy/reverse-proxy/) — [`Caddyfile`](deploy/reverse-proxy/Caddyfile), [`nginx.conf`](deploy/reverse-proxy/nginx.conf), and [`apache.conf`](deploy/reverse-proxy/apache.conf). All three terminate TLS, forward `/sync/ws` WebSocket upgrades, match the 100 MiB upload limit, and pass `X-Forwarded-*` headers through for `TRUST_PROXY=true`.
+Drop-in configs for the three common proxies live in [`deploy/reverse-proxy/`](deploy/reverse-proxy/) — [`Caddyfile`](deploy/reverse-proxy/Caddyfile), [`nginx.conf`](deploy/reverse-proxy/nginx.conf), and [`apache.conf`](deploy/reverse-proxy/apache.conf). All three terminate TLS, forward `/sync/ws` WebSocket upgrades, match the 100 MiB upload limit, and pass `X-Forwarded-*` headers through.
 
 The admin panel (Settings > Uploads) auto-detects your proxy and generates a ready-to-paste snippet reflecting your current `MAX_FILE_SIZE` if you'd rather tune body limits from the UI.
 
@@ -901,7 +948,7 @@ Configure S3-compatible storage (AWS, MinIO, Cloudflare R2, DigitalOcean Spaces,
 
 **Umbrel:** Available in the [Umbrel App Store](https://apps.umbrel.com/app/hermitstash) — open the App Store on your Umbrel, search HermitStash, and click Install. Volumes, ports, and shared memory are configured automatically.
 
-**Coolify / Portainer:** Paste `ghcr.io/dotcoocoo/hermitstash:1` as the image. Set port 3000, mount `/app/data` and `/app/uploads` as persistent volumes, set shared memory to 256 MiB, add `TRUST_PROXY=true` and `RP_ORIGIN=https://your-domain.com`.
+**Coolify / Portainer:** Paste `ghcr.io/dotcoocoo/hermitstash:1` as the image. Set port 3000, mount `/app/data` and `/app/uploads` as persistent volumes, set shared memory to 256 MiB, and add `RP_ORIGIN=https://your-domain.com`. If the platform's proxy reaches the container over the Docker network rather than loopback, add `TRUST_PROXY` with that network's CIDR — see [TLS / HTTPS](#tls--https).
 
 **Unraid:** Docker → Add Container → paste this template URL:
 ```text
@@ -1439,7 +1486,7 @@ Managed via `scripts/vendor-update.sh`:
 
 | Vendored | Version | Author | Purpose |
 |----------|---------|--------|---------|
-| [`blamejs`](https://github.com/blamejs/blamejs) | 0.18.37 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, and envelope-bound field crypto. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
+| [`blamejs`](https://github.com/blamejs/blamejs) | 0.18.39 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, and envelope-bound field crypto. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
 | [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) (browser only) | 2.3.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | XChaCha20-Poly1305 in the browser vault + outbox flows |
 | [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (browser only) | 2.3.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | SHAKE256 KDF in the browser |
 | [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) (browser only) | 0.7.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | ML-KEM-1024 in the browser vault flow |

@@ -5241,7 +5241,22 @@ function testTrimBeforeControlByteScan() {
         var rawNameEscaped = bnd.raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         var rawCcRe = new RegExp("\\b" + rawNameEscaped + "\\.charCodeAt\\(");
         var rawSfRe = new RegExp("structuredFields\\.(?:refuseControlBytes|containsControlBytes)\\s*\\(\\s*" + rawNameEscaped + "\\b");
-        if (rawCcRe.test(combined) || rawSfRe.test(combined)) continue;
+        // b.codepointClass.firstControlCharOffset is the framework's own
+        // string scanner and is the preferred form: a hand-rolled
+        // `cc < 32 || cc === 127` encodes one reading of "control byte" and
+        // cannot pick up a class the shared predicate later adds. Accepting
+        // only charCodeAt made this gate refuse the better spelling — what it
+        // demands is that the RAW value be scanned, not that it be scanned a
+        // particular way.
+        //
+        // isForbiddenControlChar is deliberately NOT accepted here. It takes a
+        // CODE POINT, not a string, and returns true for any string handed to
+        // it — clean or not — so `isForbiddenControlChar(rawValue)` scans
+        // nothing while looking like it does. Accepting it would let a trimmed-
+        // value validator add one inert call and pass this gate with raw
+        // control bytes still reaching the parser.
+        var rawCpRe = new RegExp("codepointClass\\.firstControlCharOffset\\s*\\(\\s*" + rawNameEscaped + "\\b");
+        if (rawCcRe.test(combined) || rawSfRe.test(combined) || rawCpRe.test(combined)) continue;
         bad.push({
           file:    rel,
           line:    li + 1,

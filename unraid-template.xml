@@ -33,8 +33,8 @@
     <Config Name="Timezone" Target="TZ" Default="" Description="Container timezone, e.g. America/New_York." Type="Variable" Display="always" Required="false" Mask="false"/>
 
     <!-- Core settings -->
-    <Config Name="Trust Proxy" Target="TRUST_PROXY" Default="true" Description="Enable if behind a reverse proxy (Nginx Proxy Manager, Traefik, etc.)." Type="Variable" Display="always" Required="false" Mask="false"/>
-    <Config Name="Passkey Origin" Target="RP_ORIGIN" Default="" Description="Full URL for passkeys and HSTS, e.g. https://files.example.com. Required if using a domain." Type="Variable" Display="always" Required="false" Mask="false"/>
+    <Config Name="Trust Proxy" Target="TRUST_PROXY" Default="" Description="Addresses your reverse proxy connects FROM, as IPs or CIDRs — not 'true', which is discarded at boot. Leave empty if the proxy reaches this container over loopback. Nginx Proxy Manager or Traefik in its own container connects from a Docker network instead: enter that network's CIDR, e.g. 172.18.0.0/16. A bare IP is treated as a single host." Type="Variable" Display="always" Required="false" Mask="false"/>
+    <Config Name="Passkey Origin" Target="RP_ORIGIN" Default="" Description="Full URL used for passkeys and for generated links (share URLs, email), e.g. https://files.example.com. Required if using a domain." Type="Variable" Display="always" Required="false" Mask="false"/>
 
     <!-- Auth -->
     <Config Name="Local Auth" Target="LOCAL_AUTH" Default="true" Description="Enable username/password login." Type="Variable" Display="always" Required="false" Mask="false"/>

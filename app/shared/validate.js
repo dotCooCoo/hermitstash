@@ -3,6 +3,8 @@
  * All auth/profile/admin/invite flows should use these.
  */
 
+var b = require("../../lib/vendor/blamejs");
+
 // Simple email check — no nested quantifiers to avoid ReDoS
 var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -12,12 +14,17 @@ var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  */
 function validateEmail(email) {
   if (!email || typeof email !== "string") return { valid: false, reason: "Email is required." };
-  // Refuse control bytes on the RAW value before trim(): an addr-spec
-  // permits none, and checking the trimmed value would let edge C0/DEL
-  // bytes slip past the format regex.
-  for (var ci = 0; ci < email.length; ci++) {
-    var cc = email.charCodeAt(ci);
-    if (cc < 32 || cc === 127) return { valid: false, reason: "Invalid email format." };
+  // Refuse control bytes on the RAW value before trim(): an addr-spec permits
+  // none, and checking the trimmed value would let edge C0/DEL bytes slip past
+  // the format regex.
+  //
+  // The predicate is the framework's rather than a `cc < 32 || cc === 127`
+  // loop. Both answer the same today — verified across NUL, DEL, TAB, LF and
+  // CR — but the hand-rolled form encodes one reading of "control byte" and
+  // cannot pick up a class the shared predicate later adds. forbidTab is set
+  // because an addr-spec permits no folding whitespace here.
+  if (b.codepointClass.firstControlCharOffset(email, { forbidTab: true }) !== -1) {
+    return { valid: false, reason: "Invalid email format." };
   }
   var trimmed = email.trim().toLowerCase();
   if (trimmed.length === 0) return { valid: false, reason: "Email is required." };

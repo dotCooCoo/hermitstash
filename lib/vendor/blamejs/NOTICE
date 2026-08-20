@@ -68,7 +68,7 @@ Used for:    FIPS 203 ML-KEM (ml_kem_512 / ml_kem_768 / ml_kem_1024),
              reference implementation.
 --------------------------------------------------------------------------------
 Component:   @blamejs/pki
-Version:     0.5.10
+Version:     0.5.11
 Source:      https://github.com/blamejs/pki
 License:     Apache-2.0
 Copyright:   Copyright (c) blamejs contributors

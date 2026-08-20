@@ -53,9 +53,13 @@ services:
       NODE_ENV: production
       HERMITSTASH_TMPDIR: /dev/shm
       PORT: 3000
-      TRUST_PROXY: "true"
+      # Coolify's Traefik runs in its own container, so it reaches this one over
+      # a Docker network rather than loopback — set the CIDR of that network, as
+      # "true" is discarded at boot and would attribute every request to Traefik.
+      # Find it with: docker network inspect coolify -f '{{(index .IPAM.Config 0).Subnet}}'
+      TRUST_PROXY: ""            # e.g. 10.0.1.0/24
 
-      # Set to your Coolify-assigned domain (required for passkeys + HSTS)
+      # Set to your Coolify-assigned domain (required for passkeys)
       RP_ORIGIN: ""              # e.g. https://files.example.com
 
       # Auth (defaults work for getting started)

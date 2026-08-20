@@ -2,7 +2,16 @@
 
 Three drop-in configs that put a TLS-terminating proxy in front of HermitStash.
 All three assume the same backend: HermitStash on `127.0.0.1:3000` with
-`TRUST_PROXY=true` and `RP_ORIGIN=https://files.example.com`.
+`RP_ORIGIN=https://files.example.com`.
+
+`TRUST_PROXY` is not needed for this layout. It names the addresses a proxy
+connects from, and loopback (`127.0.0.1/32`, `::1/128`) is trusted by default —
+which is what these configs use, reaching the backend on `127.0.0.1:3000`.
+
+Run the proxy in its own container and that stops being true: it then connects
+from the Docker network rather than loopback, and needs that network's CIDR
+(`TRUST_PROXY=172.18.0.0/16`). A value that is not an address is discarded at
+boot, and every request is then attributed to the proxy instead of the caller.
 
 | File | Use when |
 |------|----------|
@@ -16,7 +25,7 @@ Each config:
 - Forwards `/sync/ws` WebSocket upgrades (used by the companion sync client)
 - Matches the 100 MiB `MAX_FILE_SIZE` default — bump the value in both places if you raise it
 - Disables response buffering so streamed ciphertext doesn't spool to disk
-- Passes `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host` through so `TRUST_PROXY=true` can honor them
+- Passes `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host` through so HermitStash can honor them
 - Leaves security headers to HermitStash — adding HSTS/CSP at the proxy will collide with the app's own headers
 
 ## mTLS sync clients

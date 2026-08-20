@@ -23,13 +23,27 @@ fi
 # for operators who typo'd a zone name and didn't notice their backups
 # were running at the wrong time.
 if [ -n "$TZ" ]; then
-  if [ -f "/usr/share/zoneinfo/$TZ" ]; then
-    ln -sf "/usr/share/zoneinfo/$TZ" /etc/localtime
-    echo "$TZ" > /etc/timezone
+  # Ask the runtime, not the filesystem. This image ships no /usr/share/zoneinfo
+  # — the runtime base does not carry tzdata — so a `-f` test against that path
+  # answered "invalid" for EVERY zone, including the correct ones, and then said
+  # the container would fall back to UTC. Neither half was true: Node resolves
+  # TZ through its bundled ICU, so America/New_York was being applied correctly
+  # while the operator was told their zone name was wrong.
+  #
+  # Node is the thing that will interpret TZ, so Node decides whether it parses.
+  # That keeps the check the warning was written for — a typo'd zone silently
+  # running backups at the wrong time — without inventing a failure.
+  if node -e 'new Intl.DateTimeFormat("en-US",{timeZone:process.env.TZ}).format(new Date())' 2>/dev/null; then
+    # Only symlink when the zone files exist; their absence is not an error,
+    # because nothing in this image reads /etc/localtime.
+    if [ -f "/usr/share/zoneinfo/$TZ" ]; then
+      ln -sf "/usr/share/zoneinfo/$TZ" /etc/localtime
+      echo "$TZ" > /etc/timezone
+    fi
   else
     echo ""
-    echo "  WARNING: TZ='$TZ' is not a valid IANA timezone name."
-    echo "  Container will use UTC. Valid examples: America/New_York, Europe/London, Asia/Tokyo."
+    echo "  WARNING: TZ='$TZ' is not a timezone this runtime recognises."
+    echo "  Timestamps will use UTC. Valid examples: America/New_York, Europe/London, Etc/UTC."
     echo ""
   fi
 fi

@@ -6,7 +6,8 @@
 # Install: sudo apt install caddy   (or see https://caddyserver.com/docs/install)
 # Reload:  sudo systemctl reload caddy
 #
-# Assumes HermitStash runs on 127.0.0.1:3000 with TRUST_PROXY=true.
+# Assumes HermitStash runs on 127.0.0.1:3000. Proxying from loopback needs no
+# TRUST_PROXY — see README.md in this directory.
 # Set RP_ORIGIN=https://files.example.com in the HermitStash environment.
 
 files.example.com {
@@ -25,8 +26,8 @@ files.example.com {
 		# nothing special to preserve across the upgrade.
 
 		# Caddy sets X-Forwarded-For, X-Forwarded-Proto, and X-Forwarded-Host by
-		# default when reverse-proxying. HermitStash honors these when
-		# TRUST_PROXY=true.
+		# default when reverse-proxying. HermitStash honors these from a trusted
+		# forwarder, and loopback is trusted by default.
 
 		transport http {
 			read_timeout   5m
