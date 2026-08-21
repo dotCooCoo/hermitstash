@@ -1,0 +1,26 @@
+{
+  "version": "1.15.2",
+  "date": "2026-08-20",
+  "headline": "Public pages no longer answer 403 to search-engine crawlers",
+  "summary": "If anything you host is meant to be found — a public stash portal, a share link, a landing page — this is worth taking. The bot filter refused any request that omitted an Accept-Language header, and every major search-engine crawler omits it. A browser was served normally, so the refusal was invisible unless you looked at what a crawler received.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Stop refusing requests that omit Accept-Language",
+          "body": "The bot filter treated a missing Accept-Language header as grounds for a 403. Google documents that Googlebot sends requests without setting it, and bingbot behaves the same, so every public page answered 403 to a crawler while a browser sailed through. Uptime monitors, link previewers and feed readers were refused the same way. The header's absence is now an advisory signal, matching how the same filter already treats a missing Sec-Fetch-Mode.\n\nWhat still refuses a request has not been loosened. Automation libraries are refused by their User-Agent, and a request carrying no User-Agent at all is refused too — a crawler identifies itself in that header, so the empty case stays blocked without taking the crawlers with it. A raw header-less GET to a page route is still turned away."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Vendored blamejs moves to 0.18.43",
+          "body": "Carries the framework side of the fix above. The nested certificate toolkit moves to 0.5.17, where a failed integrity check now destroys the plaintext it had recovered instead of returning it, and an authenticated-encryption container validates the attributes it is asked to authenticate. Neither path is reachable from this server, which uses the toolkit for its certificate authorities rather than for message containers."
+        }
+      ]
+    }
+  ]
+}

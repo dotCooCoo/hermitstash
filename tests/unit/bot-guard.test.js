@@ -7,8 +7,9 @@
  * proxies) omits Sec-Fetch-* entirely — those headers are sent only to a
  * secure context per the Fetch Metadata spec. A missing Sec-Fetch-Mode must
  * therefore NOT be read as a bot signal: doing so 403'd real users opening
- * the landing page. Genuine bots stay blocked by the missing-Accept-Language
- * and User-Agent heuristics.
+ * the landing page. The same reasoning holds for Accept-Language, which entire
+ * client families omit — every major search-engine crawler among them. What
+ * distinguishes automation here is the User-Agent deny-list.
  */
 const { describe, it } = require("node:test");
 const assert = require("node:assert");
@@ -68,9 +69,40 @@ describe("bot-guard wrapper", function () {
     assert.strictEqual(r.problem.title, "Forbidden");
   });
 
-  it("still blocks a request missing Accept-Language", function () {
+  // A missing Accept-Language is an advisory signal, not grounds for a 403.
+  // Google documents that Googlebot sends requests without setting the header
+  // and bingbot behaves the same, so refusing on it alone answered 403 to every
+  // crawler while a browser was served normally — on every public page, since
+  // the share and stash routes are not in the wrapper's skipPaths. Uptime
+  // monitors, link previewers and feed readers are refused the same way.
+  //
+  // What still distinguishes automation is the User-Agent deny-list, which the
+  // case above pins. Separating a crawler from an abuser is a rate-limiting
+  // question rather than a header one.
+  it("lets a crawler through when Accept-Language is absent", function () {
+    var r = dispatch({
+      "user-agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+      "host": "files.example.com",
+    });
+    assert.strictEqual(r.nexted, true, "a crawler omitting Accept-Language must reach the app");
+    assert.notStrictEqual(r.status, 403);
+  });
+
+  it("lets a browser through when Accept-Language is absent", function () {
+    // Not only crawlers: whole client families omit the header, and the guard
+    // must not refuse them wholesale.
     var r = dispatch({ "user-agent": CHROME, "host": "umbrel-dev.local:3080" });
-    assert.strictEqual(r.nexted, false);
+    assert.strictEqual(r.nexted, true);
+    assert.notStrictEqual(r.status, 403);
+  });
+
+  it("still blocks a raw header-less GET (no User-Agent at all)", function () {
+    // The signal that survived. An absent User-Agent is not the same as an
+    // absent Accept-Language: crawlers identify themselves in the User-Agent,
+    // so blocking the empty case keeps a raw GET to a page route refused
+    // without refusing the clients the Accept-Language rule was taking down.
+    var r = dispatch({ "host": "umbrel-dev.local:3080" });
+    assert.strictEqual(r.nexted, false, "a header-less GET must not reach a page route");
     assert.strictEqual(r.status, 403);
     assert.strictEqual(r.problem.status, 403);
   });

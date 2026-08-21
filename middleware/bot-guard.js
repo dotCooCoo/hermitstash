@@ -29,6 +29,16 @@ var b = require("../lib/vendor/blamejs");
 module.exports = b.middleware.botGuard({
   mode: "block",
   onlyForHtml: true,
+  // An ABSENT User-Agent, which is a different signal from an absent
+  // Accept-Language. The framework stopped blocking on the latter because every
+  // major search-engine crawler omits it — Googlebot and bingbot both — so
+  // refusing on it answered 403 to crawlers while serving browsers normally.
+  // Nothing legitimate omits the User-Agent entirely: crawlers identify
+  // themselves in it, and it is what the deny-list below matches on. Blocking
+  // the empty case keeps a raw header-less GET to a page route refused, which
+  // is the posture these public routes are meant to have, without taking the
+  // crawlers down with it.
+  blockedAgents: [/^$/],
   problemDetails: true, // emit the 403 as RFC 9457 application/problem+json, not a text/plain "Forbidden"
   skipPaths: [
     "/health",          // health probes
