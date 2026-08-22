@@ -1,0 +1,30 @@
+{
+  "version": "1.15.3",
+  "date": "2026-08-22",
+  "headline": "The container image picks up an OpenSSL denial-of-service fix",
+  "summary": "A high-severity OpenSSL flaw was disclosed after the previous release shipped, so the image that release was built on carries it. Chainguard has rebuilt the base with the patched OpenSSL and this version pins that rebuild. If you run the container, pulling this release is the whole of the fix — nothing in your configuration changes, and there is no migration.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Rebuild on a base image with the patched OpenSSL",
+          "body": "CVE-2026-14456 is a denial of service through unbounded memory in OpenSSL, affecting the libcrypto3 and libssl3 packages at 3.6.3-r4 and fixed upstream in 3.6.3-r5. It was disclosed after v1.15.2 was built, so that image scanned clean when it shipped and does not now.\n\nOpenSSL is what this server's post-quantum key exchange runs on, so the runtime image is pinned by digest specifically to make this kind of fix a deliberate, reviewable step rather than something that drifts in unnoticed. The pinned digest now names the Chainguard rebuild that carries the patch, and the image scans clean at every severity — including findings with no fix available."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Vendored blamejs moves to 0.18.47",
+          "body": "Hostname canonicalization stops returning names that cannot exist. A label longer than the 63 octets RFC 1035 permits was accepted as a domain, and characters no DNS name may carry survived canonicalization because the underlying call maps a name without validating it as a host.\n\nThis server reaches that function when it compares a request's Origin against the origins you have configured. Both sides pass through the same canonicalizer, so a malformed host could never match one and the comparison already refused it — this narrows the input rather than closing a way past the check.\n\nAlso in this range: a character-handling policy set to a value outside its vocabulary is now refused where options are resolved rather than read leniently at runtime, and the two spellings of the audit disposition stop disagreeing about severity. This server names those policies in code rather than exposing them as settings, so nothing you configure is affected. The vendored certificate toolkit moves to 0.5.25 alongside, whose breaking change is to an interface this server does not use."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "CVE-2026-14456", "url": "https://www.cve.org/CVERecord?id=CVE-2026-14456" },
+    { "label": "RFC 1035 §2.3.4", "url": "https://www.rfc-editor.org/rfc/rfc1035#section-2.3.4" }
+  ]
+}

@@ -31,13 +31,11 @@ function _getIpQuota() {
   return _ipQuota;
 }
 
-// Per-IP quota bucket key. b.requestHelpers.ipKey keeps IPv4 exact but collapses
-// IPv6 to its /64 — an end-site is allocated a whole /64 (RFC 6177 / RFC 4291
-// §2.5.4) and rotates the low 64 bits at will, so keying the rolling-24h byte
-// budget on the full /128 lets it mint unlimited fresh buckets and upload
-// unbounded anonymous bytes past the cap. ipKey returns "" for an unparseable
-// input; byteQuota throws on an empty key, so fall back to the raw canonical IP
-// (which is exactly today's behavior for a degenerate input).
+// IPv4 exact, IPv6 collapsed to its /64. An end site is allocated a whole /64
+// (RFC 6177, RFC 4291 §2.5.4) and rotates the low bits at will, so keying the
+// rolling budget on a full address lets it mint unlimited fresh buckets. The
+// fallback exists because ipKey returns "" for an unparseable input and the
+// quota throws on an empty key.
 function _ipQuotaKey(req) {
   var ip = clientIp.getIp(req);
   return b.requestHelpers.ipKey(ip, { ipv6Bits: 64 }) || ip; // allow:raw-byte-literal — IPv6 routing prefix length (RFC 4291 §2.5.4), not a byte size
@@ -61,12 +59,10 @@ function auditDetail(obj) {
  * Pass null for stash to get global config.
  */
 function resolveUploadConfig(stash, user) {
-  // Both a stash's limits and a user's per-user overrides share the same three-state
-  // model. Each numeric field: 0 / null = "not set" → fall back to the global; -1 =
-  // "No limit" → resolve to 0, which every downstream validator treats as no cap (the
-  // guards are `if (limit && ...)`); any positive value = that explicit cap. The
-  // extension allowlist mirrors it: "*" = "No limit" → an empty list, which the
-  // validator treats as "allow any extension".
+  // Stash limits and per-user overrides share one three-state model: 0 or null
+  // means "not set" and falls back to the global, -1 means "no limit" and
+  // resolves to 0, which every downstream guard reads as no cap, and a positive
+  // value is the cap itself. "*" is the allowlist's spelling of "no limit".
   if (stash) {
     // Stash uploads use the stash's own limits regardless of who uploads — per-user
     // overrides do NOT apply on a stash page.
@@ -124,13 +120,10 @@ function _perUserQuotaCap(ownerId) {
   return config.perUserQuotaBytes > 0 ? config.perUserQuotaBytes : 0;
 }
 
-// Refund a previously-reserved per-IP byte debit when the upload it was
-// reserved for fails downstream (validation, save, or a post-write cap breach).
-// b.network.byteQuota.record refuses negative byte counts, so the refund goes
-// through the documented internal backend seam (the same counter record()
-// mutates) with a negative delta. Best-effort: a missed refund only over-counts
-// the uploader's OWN rolling-24h budget (fail-closed) and self-heals as bins
-// slide, so a refund failure never grants extra quota.
+// Returns a reserved debit when the upload it was reserved for fails. record()
+// refuses a negative count, so this goes through the backend seam it mutates.
+// Best-effort: a missed refund only over-counts the uploader's own budget and
+// self-heals as the window slides, so failing here never grants extra quota.
 function _refundIpQuota(req, bytes) {
   if (!(config.publicIpQuotaBytes > 0) || !bytes) return;
   try {
@@ -142,16 +135,12 @@ function _refundIpQuota(req, bytes) {
 }
 
 /**
- * Check all quotas (storage, per-user, per-IP) for a file upload.
+ * Storage, per-user and per-IP quotas for one file upload.
  *
- * The per-IP byte budget is RESERVED (debited) here the instant its check
- * passes — not after the save resolves — so concurrent in-flight uploads see
- * each other's debits and can't all pass a stale pre-write total and overrun
- * the cap (read-check-then-record TOCTOU). The reservation is released via
- * _refundIpQuota if the upload subsequently fails. The returned `ipReserved`
- * byte count tells the caller exactly how much to refund on a later failure.
- *
- * Returns { allowed: true, ipReserved } or { allowed: false, error, reason }.
+ * The per-IP budget is debited the instant its check passes, not after the save
+ * resolves, so concurrent uploads see each other's debits rather than all
+ * passing the same stale total. `ipReserved` is what the caller must hand to
+ * _refundIpQuota if the upload later fails.
  */
 async function checkAllQuotas(fileSize, bundle, req) {
   // Storage quota
@@ -189,15 +178,12 @@ async function checkAllQuotas(fileSize, bundle, req) {
   return { allowed: true, ipReserved: ipReserved };
 }
 
-// Authoritative post-write recheck of the GLOBAL + PER-USER storage caps on the
-// COMMITTED totals. The pre-write checks in checkAllQuotas read a stale snapshot
-// (the file row isn't persisted until after the awaited storage write), so N
-// concurrent uploads each pass before any commits and overshoot the cap by the
-// in-flight concurrency — the same TOCTOU the per-bundle cap already closes
-// below. The file row is committed by the time this runs, so SUM(size) and the
-// per-owner sum reflect this write; return a rejection reason to roll back if
-// THIS write pushed a cap over. Each cap is gated on its config being > 0, so a
-// deployment that leaves a cap unset (the default) pays nothing.
+// Re-checks the global and per-user storage caps against committed totals. The
+// pre-write check reads a snapshot taken before the file row exists, so N
+// concurrent uploads all pass it and overshoot the cap by the in-flight
+// concurrency. By the time this runs the row is committed, so a returned reason
+// means THIS write pushed a cap over and must be rolled back. Every cap is
+// gated on being configured, so an unset one costs nothing.
 function _postWriteQuotaReason(bundle) {
   if (config.storageQuotaBytes > 0) {
     try { bundleService.checkStorageQuota(0, config.storageQuotaBytes); }
@@ -290,12 +276,9 @@ async function handleFileUpload(ctx) {
     if (existing.length > 0) {
       var old = existing[0];
       oldSize = old.size || 0;
-      // Save the new blob, but do NOT delete the old blob yet: the authoritative
-      // post-write cap check below can still reject this write, and destroying the
-      // old content before the write is known to commit turns a rejected replace
-      // into silent data loss (the client is told it failed while the old file is
-      // already gone). The old blob is deleted only on the success path; on
-      // rejection the record is pointed back at it (see the rollback below).
+      // The old blob stays until the post-write cap check has passed. Deleting
+      // it first would turn a rejected replace into silent data loss: the client
+      // is told the upload failed while its previous file is already gone.
       var ext = nodePath.extname(file.filename).toLowerCase();
       fileShareId = b.crypto.generateToken(32);
       var storagePath = "bundles/" + bundle.shareId + "/" + Date.now() + "-" + fileShareId + ext;
@@ -306,12 +289,9 @@ async function handleFileUpload(ctx) {
     }
   }
 
-  // Atomically increment bundle.seq — must happen AFTER storage.saveFile
-  // (which yields the event loop), so the seq we assign to the file + event
-  // matches the final DB state even under concurrent uploads. Previously
-  // three call sites each computed `(bundle.seq || 0) + 1` from the stale
-  // in-memory value, which under concurrency produced duplicate seq numbers
-  // and silently dropped events on the WS catch-up nodePath.
+  // After saveFile, which yields the event loop, so the seq assigned here
+  // matches the final state under concurrency. Computing it from the in-memory
+  // value produced duplicate numbers and silently dropped catch-up events.
   var newSeq = bundlesRepo.incrementSeq(bundle._id);
 
   var now = new Date().toISOString();
@@ -340,10 +320,8 @@ async function handleFileUpload(ctx) {
     createdFileId = result.doc ? result.doc._id : null;
   }
 
-  // Per-IP byte quota was already debited at reservation time inside
-  // checkAllQuotas (reserve-then-confirm), so there's no post-save record here —
-  // recording again would double-count. A downstream failure refunds via
-  // _refundIpQuota(quota.ipReserved).
+  // No post-save record: checkAllQuotas already debited the per-IP budget, and
+  // recording again would double-count.
 
   var action = replaced ? "file_replaced" : "file_added";
   audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: bundle._id, details: auditDetail({ action: action, bundleId: bundle._id, file: file.filename, relativePath: cleanRelPath, size: file.size, checksum: checksum }), req: ctx.req });
@@ -355,15 +333,12 @@ async function handleFileUpload(ctx) {
   var fileCountChange = replaced ? 0 : 1;
   var counters = bundlesRepo.incrementCounters(bundle._id, fileCountChange, sizeChange);
 
-  // Authoritative limit enforcement on the POST-write value. The pre-save
-  // validateBundleLimits check (above) reads a stale snapshot, so N concurrent
-  // uploads each see the same pre-read receivedFiles/totalSize and all pass —
-  // overshooting maxFiles/maxBundleSize by the in-flight concurrency. The atomic
-  // incrementCounters RETURNING gives the true committed value; re-check it here
-  // and, if THIS write pushed the bundle over a cap, undo the increment, delete
-  // the just-saved blob + record, and reject. A replace adds no file and net
-  // size delta is bounded by the per-file cap, but it can still grow totalSize,
-  // so the size cap is re-checked on both paths.
+  // The same post-write recheck, for the per-bundle caps: the pre-save check
+  // reads a snapshot every concurrent upload shares, so all of them pass it. The
+  // atomic increment returns the true committed value, and if this write pushed
+  // the bundle over, the increment is undone and the blob and record deleted. A
+  // replace adds no file but can still grow the total, so the size cap is
+  // re-checked on both paths.
   if (counters) {
     // Per-bundle caps re-checked on the atomic committed value; the global +
     // per-user caps are re-checked on the committed SUM(size) the same way, so a
@@ -378,11 +353,9 @@ async function handleFileUpload(ctx) {
         try { if (saved && saved.path) { await storage.deleteFile(saved.path); } } catch (_e) { /* cleanup — blob may already be gone on S3 */ }
         try { if (createdFileId) { filesRepo.remove(createdFileId); } } catch (_e) { /* cleanup — record removal best-effort */ }
       } else {
-        // Replace: fully reverse it. The old blob was intentionally NOT deleted
-        // yet, so point the record back at it and delete the new blob — the file
-        // reverts to exactly its pre-upload content and the counter (undone above)
-        // stays consistent, instead of reporting failure while committing the new
-        // bytes and leaking a size delta.
+        // The old blob is still there, so the record points back at it and the
+        // new blob goes — the file reverts to exactly its previous content
+        // rather than reporting failure while committing the new bytes.
         try {
           filesRepo.update(old._id, { $set: {
             originalName: old.originalName, storagePath: old.storagePath,
@@ -418,14 +391,11 @@ async function handleFileUpload(ctx) {
   return { success: true, replaced: replaced, received: counters ? counters.receivedFiles : (bundle.receivedFiles + fileCountChange), total: bundle.expectedFiles };
 }
 
-// Module-level ceiling on concurrent in-memory chunk reassemblies. The final
-// chunk of a chunked upload triggers a Buffer.concat of the whole plaintext file,
-// then holds it across the re-encryption await in saveAndCreateFileRecord;
-// unbounded concurrency multiplies peak memory by the per-file ceiling. An
-// attacker can pre-stage many uploads (every chunk but the last) and release the
-// final chunks together for a synchronized reassembly burst the per-subnet rate
-// limit does not bound. This counter caps simultaneous reassemblies; the excess
-// is refused with a retryable 503 and its chunks are left staged for retry.
+// A final chunk concatenates the whole plaintext file and holds it across the
+// re-encryption await, so unbounded concurrency multiplies peak memory by the
+// per-file ceiling — and an attacker can stage many uploads short of their last
+// chunk, then release those together for a burst the rate limit does not bound.
+// The excess is refused with a retryable 503, its chunks left staged.
 var _activeReassemblies = 0;
 
 /**
@@ -462,22 +432,17 @@ async function handleChunkUpload(ctx) {
     return { error: "Chunk too large." };
   }
 
-  // Aggregate scratch caps. The per-chunk cap above bounds ONE chunk, but the
-  // reassembly-time quota check only runs once ALL chunks arrive — so an attacker
-  // could stage many chunks (and never send the last) to fill the scratch disk.
-  // Two caps close that, both enforced BEFORE this chunk is written:
+  // The per-chunk cap bounds one chunk, and the reassembly quota check runs
+  // only once every chunk has arrived — so staging many chunks and never
+  // sending the last would fill the scratch disk. Two aggregate caps close
+  // that, both enforced before this chunk is written: this file's staged bytes
+  // against the per-file ceiling, and the whole bundle's against a backstop
+  // that applies whatever the policy caps say, so partial assemblies spread
+  // across many file ids cannot accumulate past it. When the operator sets no
+  // per-file limit, the per-file ceiling falls back to that same backstop.
   //
-  //  1. Per-file: sum this file's already-staged chunks (this index excluded, so a
-  //     re-upload replaces rather than double-counts) plus this chunk, against the
-  //     per-file ceiling. When the operator set a maxFileSize that IS the ceiling;
-  //     when they set "no limit" (0) the ceiling falls back to the always-on
-  //     per-bundle scratch bound so a single fileId still can't stage unbounded.
-  //  2. Per-bundle: sum ALL chunks staged for this bundle across every in-flight
-  //     fileId plus this chunk, against MAX_BUNDLE_SCRATCH_BYTES. This runs
-  //     regardless of the policy caps, so staging many partial assemblies under
-  //     distinct fileIds can't accumulate past the bundle backstop.
-  // Re-uploading an already-present index overwrites it, so exclude its current
-  // bytes from both post-write sums rather than double-counting.
+  // Re-uploading an index overwrites it, so its current bytes are excluded
+  // from both sums rather than counted twice.
   var oldChunkStat = storage.statChunk(bundle.shareId, fileId, chunkIndex);
   var oldChunkSize = oldChunkStat ? oldChunkStat.size : 0;
   var perFileCeiling = limits.maxFileSize > 0 ? limits.maxFileSize : C.UPLOAD.MAX_BUNDLE_SCRATCH_BYTES;
@@ -538,12 +503,8 @@ async function handleChunkUpload(ctx) {
     return { error: quota.error };
   }
 
-  // E-1: bound concurrent in-memory reassemblies before the Buffer.concat below.
-  // Each in-flight reassembly holds the whole plaintext file across the
-  // re-encryption await, so a synchronized burst of pre-staged final chunks can
-  // drive peak memory past what the per-subnet rate limit bounds. Over the cap,
-  // refuse with a retryable 503 — release the per-IP byte reservation made just
-  // above and leave the staged chunks in place so the client can retry.
+  // Checked before the concat below. Over the cap, the per-IP reservation made
+  // just above is released and the staged chunks are left for a retry.
   if (_activeReassemblies >= C.UPLOAD.MAX_CONCURRENT_REASSEMBLY) {
     _refundIpQuota(ctx.req, quota.ipReserved);
     return { error: "Server is busy assembling uploads; please retry.", status: 503 };

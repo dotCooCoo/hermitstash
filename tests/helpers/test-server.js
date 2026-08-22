@@ -199,6 +199,11 @@ function _continueStart(opts) {
     // POST routes that expect CSRF validation would always 403 in tests.
     app.use(require(path.join(projectRoot, "app", "security", "csrf-policy")).csrfMiddleware);
 
+    // Same position server-main.js mounts it, and a no-op unless the run turns
+    // maintenance on. It was missing here, which is why the /health exemption
+    // — the one an orchestrator restarts the container over — had no coverage.
+    app.use(require(path.join(projectRoot, "middleware", "maintenance")));
+
     var routes = opts.routes || allRoutes;
     for (var i = 0; i < routes.length; i++) {
       require(path.join(projectRoot, "routes", routes[i]))(app);

@@ -114,14 +114,9 @@
     console.warn("[ntp] boot check failed to run: " + (e && e.message));
   }
 
-  // Boot-time auto-migrate (Phase 2): if the on-disk envelope is still
-  // 0xE1, convert it to 0xE2 before any subsequent module calls
-  // vault.unseal (which post-Phase-2 refuses 0xE1). Idempotent — the
-  // module's isAlreadyMigrated() probe short-circuits when data is
-  // already 0xE2. Logs progress with [envelope-migrate] lines so an
-  // operator watching `docker logs` sees the conversion happen on
-  // first boot after the v1.9.17 → v1.9.18 upgrade. Subsequent boots
-  // are a no-op.
+  // Converts any remaining 0xE1 envelope to 0xE2 before another module can
+  // call vault.unseal, which now refuses 0xE1. Idempotent, and a no-op once
+  // the data is already converted.
   try {
     var migrate = require("./lib/legacy-envelope-migrate");
     if (!migrate.isAlreadyMigrated()) {

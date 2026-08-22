@@ -1,26 +1,14 @@
 /**
- * Shared gate logic for /sync/* endpoints.
+ * The gate chain every /sync/* endpoint shares: sync or admin scope, then the
+ * key's bundle binding, then its certificate binding.
  *
- * Three independent sync endpoints (POST /sync/rename, POST /sync/renew-cert,
- * plus the /sync/ws upgrade handler) each need the same chain of checks:
+ * These checks were once inlined at each call site, and each of two separate
+ * regressions came from one endpoint missing a check the others had. A new
+ * /sync/* endpoint imports from here so it cannot repeat that.
  *
- *   1. Bearer token valid → req.apiKey attached (done by api-auth middleware)
- *   2. apiKey has "sync" or "admin" permission
- *   3. If apiKey.boundBundleId is set, the target bundleId matches it
- *   4. If apiKey.certFingerprint is set, the caller's mTLS cert matches it
- *
- * Previously these checks were inlined at each call site. Two separate
- * scope-enforcement bugs (v1.8.12 boundBundleId missing on /sync/rename;
- * v1.8.13 certFingerprint missing on /sync/rename) proved that copy-paste
- * across three endpoints is error-prone. This module is now the one place
- * new /sync/* endpoints import from — if a check exists here, every
- * consumer gets it.
- *
- * Two API shapes:
- *   - enforceXxx(...) → helper functions used by the /sync/ws upgrade
- *     handler, which writes to a raw socket (not an Express res).
- *   - requireSyncAuth({ requireBundle, requireOwner }) → 3-arg middleware
- *     for app.post() routes. Composes the helpers and handles the response.
+ * The enforceXxx helpers return { status, error } for the /sync/ws upgrade
+ * handler, which answers on a raw socket. requireSyncAuth composes them into
+ * 3-arg middleware for the ordinary routes.
  */
 var b = require("../lib/vendor/blamejs");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
@@ -29,9 +17,8 @@ var { certFingerprintSha3 } = require("../lib/cert-utils");
 var { AuthenticationError, ForbiddenError, NotFoundError, ValidationError } = require("../app/shared/errors");
 
 /**
- * Compute the canonical SHA3-512 fingerprint for a TLS peer certificate.
- * Wraps the DER bytes in a PEM envelope and routes through
- * certFingerprintSha3 so issuance and verification hash identical bytes.
+ * The peer certificate's SHA3-512 fingerprint. Re-wraps the DER in a PEM
+ * envelope so issuance and verification hash identical bytes.
  */
 function peerCertFingerprintSha3(peerCert) {
   if (!peerCert || !peerCert.raw) return "";
@@ -39,10 +26,7 @@ function peerCertFingerprintSha3(peerCert) {
   return certFingerprintSha3("-----BEGIN CERTIFICATE-----\n" + derB64 + "\n-----END CERTIFICATE-----");
 }
 
-/**
- * Require apiKey to have "sync" or "admin" permission.
- * Returns null on pass, { status, error } on fail.
- */
+/** Null on pass, { status, error } on fail. */
 function enforceSyncScope(apiKey) {
   if (!apiKey) return { status: 401, error: "Unauthorized." };
   if (!hasScope(apiKey, "sync") && !hasScope(apiKey, "admin")) {
@@ -51,11 +35,7 @@ function enforceSyncScope(apiKey) {
   return null;
 }
 
-/**
- * If apiKey.boundBundleId is set, the request's target bundleId must match.
- * Pass null bundleId for endpoints not tied to a specific bundle.
- * Returns null on pass, { status, error } on fail.
- */
+/** Pass a null bundleId for an endpoint not tied to one. */
 function enforceBundleBinding(apiKey, bundleId) {
   if (!apiKey || !apiKey.boundBundleId) return null;
   if (!bundleId || apiKey.boundBundleId !== bundleId) {
@@ -64,13 +44,7 @@ function enforceBundleBinding(apiKey, bundleId) {
   return null;
 }
 
-/**
- * If apiKey.certFingerprint is set, the caller must present a cert whose
- * SHA3-512 PEM hash matches. The socket must also be TLS-authorized.
- *
- * Returns null on pass, { status, error } on fail.
- * socket: Node TLSSocket (from req.socket)
- */
+/** The socket must be TLS-authorized as well as presenting a matching cert. */
 function enforceCertBinding(apiKey, socket) {
   if (!apiKey || !apiKey.certFingerprint) return null;
   if (!socket || typeof socket.getPeerCertificate !== "function" || !socket.authorized) {
@@ -90,28 +64,21 @@ function enforceCertBinding(apiKey, socket) {
 }
 
 /**
- * Bundle-ownership check — the apiKey's user must strictly own the target
- * bundle. No admin-scope bypass: /sync/* endpoints are sync-client APIs,
- * not admin UIs, so even an admin-scoped API key can't rename/alter
- * another user's bundle through this path. (Admin routes that legitimately
- * need cross-user access live under /admin/*, not /sync/*.)
+ * Strict ownership, with no admin-scope bypass: these are sync-client APIs, so
+ * even an admin-scoped key cannot reach another user's bundle here. Cross-user
+ * admin access lives under /admin/*.
  *
- * Stash-bound keys (boundStashId set) authenticate against the stash, not
- * a user — they're allowed any bundle whose stashId matches their binding.
- * Stash-issued bundles often have ownerId=null because they're created via
- * the public stash endpoint where there's no logged-in owner; without this
- * branch, every sync client of a stash would 403 on its own bundle.
- *
- * Returns null on pass, { status, error } on fail.
+ * A stash-bound key authenticates against its stash rather than a user, and
+ * stash-issued bundles often carry ownerId=null because they are created with
+ * nobody signed in — without that branch every stash sync client would be
+ * refused its own bundle.
  */
 function enforceBundleOwnership(apiKey, bundle) {
   if (!bundle) return { status: 404, error: "Bundle not found." };
   if (apiKey.boundStashId) {
-    // Stash-scoped tokens are confined to their stash, period — they must NOT
-    // fall through to the issuing user's personal-bundle ownership. A stash key
-    // carries the creating admin's userId (stash.js issuance), so the old
-    // fall-through let a stash-X token reach the admin's own non-stash bundles
-    // (rename/download/delete). Mirror the strict WS upgrade gate (server-main.js).
+    // Confined to the stash, with no fall-through to the issuing user's own
+    // bundles: a stash key carries the creating admin's userId, so falling
+    // through would let a stash token rename and delete the admin's own files.
     return (bundle.stashId === apiKey.boundStashId)
       ? null
       : { status: 403, error: "Forbidden." };
@@ -123,79 +90,51 @@ function enforceBundleOwnership(apiKey, bundle) {
 }
 
 /**
- * Enforce an API-key principal's mTLS cert-binding + stash/bundle confinement
- * on a cookie-UI mutation route (POST /files/:shareId/rename|delete,
- * /bundles/:shareId/... ) that also serves session callers. These routes gate
- * with requireScope + canEditOwned only; without this, a cert- or stash-bound
- * SYNC key presented as a bare Bearer token — WITHOUT its client certificate —
- * reaches the key-owner's resources through the cookie path, defeating both the
- * certFingerprint binding and the boundStashId/boundBundleId confinement (the
- * same copy-paste class as the v1.8.12/v1.8.13 /sync/rename regressions).
+ * Applies the same bindings on the cookie-UI mutation routes, which also accept
+ * API-key callers but gate only on scope and ownership. Without this, a cert-
+ * or stash-bound sync key presented as a bare Bearer token — with no client
+ * certificate — reaches its owner's resources through the cookie path, past
+ * both the certificate binding and the stash confinement.
  *
- * Session callers (no req.apiKey) are a deliberate no-op — their authorization
- * is the route's own role/ownership check. For an API-key caller this throws an
- * AppError subclass on any binding failure; returns void on pass. `bundle` is
- * the resource's owning bundle (null for a standalone file with no bundle).
+ * A session caller is a deliberate no-op: the route's own ownership check
+ * governs there. `bundle` is null for a standalone file.
  */
 function enforceApiKeyResourceBinding(req, bundle) {
   var apiKey = req && req.apiKey;
   if (!apiKey) return; // session caller — route ownership check governs
-  // A cert-bound key MUST present the matching client certificate.
   var certErr = enforceCertBinding(apiKey, req.socket);
   if (certErr) throw new ForbiddenError(certErr.error);
-  // A bundle-bound key can only touch its bound bundle.
   var bindErr = enforceBundleBinding(apiKey, bundle && bundle._id);
   if (bindErr) throw new ForbiddenError(bindErr.error);
-  // A stash-bound key is confined to its stash: a resource with no bundle, or a
-  // bundle in a different stash, is out of scope. (Mirrors enforceBundleOwnership's
-  // stash branch, but without 404-ing an UNbound key operating on a standalone
-  // file, which the route's own canEditOwned check legitimately governs.)
+  // Unlike enforceBundleOwnership this does not 404 an unbound key working on a
+  // standalone file, which the route's own check governs.
   if (apiKey.boundStashId && (!bundle || bundle.stashId !== apiKey.boundStashId)) {
     throw new ForbiddenError("Forbidden.");
   }
 }
 
 /**
- * Express-style 3-arg middleware composing the above gates.
- *
- * Options:
- *   requireBundle: true  — read `req.body.bundleId` (must be called AFTER
- *                           parseJson has populated req.body, OR the middleware
- *                           reads the id via req.params.bundleId as a fallback).
- *                           On success, attaches req.syncBundle = <bundle>.
- *
- * Usage:
- *   app.post("/sync/rename",
- *     rateLimit.middleware(...),
- *     requireSyncAuth({ requireBundle: true }),
- *     async function (req, res) { ... }
- *   );
- *
- * Because /sync/rename reads bundleId from a JSON body, callers must parse
- * the body before the middleware runs. To keep that one-liner, the
- * middleware parses on demand if req.body is missing.
+ * The gates above as 3-arg middleware. With requireBundle, the bundle id is
+ * read from the body, the route params or the query string, and the resolved
+ * bundle is attached as req.syncBundle. The body is parsed on demand when it
+ * has not been already, so a route can mount this as a one-liner.
  */
 function requireSyncAuth(opts) {
   opts = opts || {};
   return async function syncAuthMiddleware(req, res, next) {
-    // Throw at the boundary rather than writing the problem document here.
-    // On /sync/rename the response is wrapped by blamejs apiEncrypt, so the
-    // centralized error handler routes the thrown AppError through res.json
-    // (encrypted) — a direct b.problemDetails.send would ship cleartext via
-    // res.end on a session the client negotiated as encrypted.
+    // Thrown rather than answered here: on an apiEncrypt session res.json is
+    // the encrypting wrap, and problemDetails.send would ship cleartext.
 
-    // Scope first — cheapest check, fastest reject
+    // Scope first — the cheapest check.
     var scopeErr = enforceSyncScope(req.apiKey);
     if (scopeErr) {
       if (scopeErr.status === 401) throw new AuthenticationError(scopeErr.error);
       throw new ForbiddenError(scopeErr.error);
     }
 
-    // Bundle resolution
     var bundleId = null;
     var bundle = null;
     if (opts.requireBundle) {
-      // Prefer parsed body, then route params, then query string
       if (!req.body) {
         try {
           req.body = (await b.parsers.json(req)) || {};
@@ -212,11 +151,10 @@ function requireSyncAuth(opts) {
       req.syncBundle = bundle;
     }
 
-    // Bundle binding (runs regardless — a key without boundBundleId passes)
     var bindErr = enforceBundleBinding(req.apiKey, bundleId);
     if (bindErr) throw new ForbiddenError(bindErr.error);
 
-    // Cert binding (last — involves DER parse + SHA3, most expensive)
+    // Last, because a DER parse plus SHA3 is the most expensive check here.
     var certErr = enforceCertBinding(req.apiKey, req.socket);
     if (certErr) throw new ForbiddenError(certErr.error);
 

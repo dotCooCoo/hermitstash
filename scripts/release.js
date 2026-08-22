@@ -295,10 +295,38 @@ function parseWorkflowUses() {
   return uses;
 }
 
+var SEMVER_TAG = /^v?\d+\.\d+\.\d+$/;
+
 var _resolveCache = {};
 function resolveLatest(ownerRepo) {
   if (_resolveCache[ownerRepo] !== undefined) return _resolveCache[ownerRepo];
   var tag = ghApi("repos/" + ownerRepo + "/releases/latest", ".tag_name");
+
+  // GitHub's "latest release" marker is not always the action's newest version.
+  // github/codeql-action publishes two channels from one repository — versioned
+  // releases (v4.37.8) and CodeQL bundle releases (codeql-bundle-v2.26.3) — and
+  // the marker sat on a bundle release eleven days older than the newest v4.
+  // Following it pinned a security-scanning action a month backwards and then
+  // reported the correct pin as stale, which is the worst thing a currency gate
+  // can do: argue confidently for the wrong answer.
+  //
+  // So a non-semver marker is not trusted. Every other action here publishes a
+  // semver-shaped latest release and takes the unchanged path above.
+  if (tag && !SEMVER_TAG.test(tag)) {
+    // Dropped before the lookup, not after. Keeping it as a fallback would hand
+    // back the rejected tag whenever the request fails or the page holds no
+    // semver release — the exact answer this rejects — and would skip the tag
+    // walk below, which is the honest last resort.
+    tag = null;
+    var rel = ghApi("repos/" + ownerRepo + "/releases?per_page=100", ".[].tag_name");
+    if (rel) {
+      var relTags = rel.split("\n").map(function (t) { return t.trim(); })
+        .filter(function (t) { return SEMVER_TAG.test(t); });
+      relTags.sort(semverCmp);
+      if (relTags.length) tag = relTags[relTags.length - 1];
+    }
+  }
+
   if (!tag) {
     // No GitHub Release — pick the highest semver tag (not the newest-created).
     var raw = ghApi("repos/" + ownerRepo + "/tags?per_page=100", ".[].name");
@@ -467,6 +495,8 @@ function vendorGate() {
 // elsewhere — excluded from the advisory so it stays signal. Reviewed 2026-05-30;
 // when blamejs adds a detector that lands here purely as N/A, add it (with reason).
 var PATTERNS_NA = {
+  "tls-group-preference-under-an-inert-key": "Verified false positive, twice. It matches a local variable named `groups` in server-main.js and the comment block above it — the comment that exists to say the option MUST be `ecdhCurve`, because Node has no `groups` TLS option and silently discards one. The detector is pattern-matching the word in the explanation of the very bug it looks for. The fix is intact; do not re-chase it.",
+  "db-handle-hand-rolled-dml": "HS owns its query layer and uses no blamejs DB layer — a standing architectural decision, not an oversight. The two concatenated statements in lib/db.js quote the table through b.safeSql.quoteIdentifier and admit a column name only when it is already in that table's declared column set, so the concatenation is identifier-quoted and allowlist-gated rather than interpolated.",
   "timing-safe-compare-with-early-exit": "HS enforces this as an ESLint rule (hermitstash/no-early-exit-timing-compare in eslint.config.js), not a patterns detector. The check needs the parsed tree: whether a comparison is negated, where its guarded branch ends, whether a return leaves the loop or a callback inside it, whether a break targets this loop or a nested construct, and whether an identifier is the binding holding the result. A source-scanning version got each of those wrong in turn, which is also why upstream replaced its own scanner with an ESLint rule. Covered by tests/lint/eslint-timing-compare-rule.test.js",
   "ai-disclosure-on-request-without-requested-gate": "blamejs AI-agent surface; HS has none",
   "archive-gz-without-safedecompress": "HS never decompresses untrusted input",

@@ -1,13 +1,10 @@
 /**
  * Idempotency-Key middleware mount-ready instance.
  *
- * Composes `b.middleware.bodyParser` -> `b.middleware.idempotencyKey` so
- * the body fingerprint is populated by the time the idempotency cache
- * lookup runs. Upstream's v0.10.0 `bodyFingerprintFallback: "deny"`
- * default refuses body-bearing requests that arrive without parsed-body
- * data; mounting the parser inline guarantees `req.body` is set before
- * fingerprinting and closes the same-key-different-body 422 detection
- * that the legacy "parse-inside-handler" pattern couldn't support.
+ * The body parser is composed in front, so the fingerprint is populated by the
+ * time the cache lookup runs. Without it a body-bearing request arrives with
+ * nothing to fingerprint and is refused — and the same-key-different-body case
+ * cannot be detected at all, which is most of the point.
  *
  * Mounted on mutating POST endpoints where a network retry would
  * otherwise create a duplicate resource (apikeys create, webhooks

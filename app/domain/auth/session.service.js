@@ -1,10 +1,6 @@
 /**
- * Session Service — business logic for session lifecycle.
- *
- * `req.regenerateSession`, `clearSessionsForUser`, `clearSessionById`,
- * and `clearAllSessions` all became async when lib/session.js migrated
- * to `b.session` in v1.9.29. Every helper here is async; callers
- * (route handlers) await accordingly.
+ * Session lifecycle. Every helper here is async, because the underlying
+ * session store is.
  */
 var { clearSessionsForUser, clearAllSessions, clearSessionById, secureLogout } = require("../../../lib/session");
 var { TIME } = require("../../../lib/constants");

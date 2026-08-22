@@ -90,11 +90,9 @@ function walkDiskUsage(dir) {
   return total;
 }
 
-// Dashboard renders need diskUsage, but the walk is O(n_files) and synchronous.
-// On installs with tens of thousands of files this stalled the admin page.
-// Use a 5-minute TTL cache with lazy background refresh: the first request
-// seeds the cache, subsequent requests read the cached number and kick off a
-// fresh walk in the background when the TTL expires.
+// The disk walk is synchronous and proportional to file count, which stalled
+// the admin page on installs holding tens of thousands. Cached, and refreshed
+// in the background once the entry is stale.
 var _diskUsageCache = { bytes: 0, computedAt: 0, computing: false };
 var DISK_USAGE_TTL_MS = C.TIME.minutes(5);
 
@@ -131,19 +129,17 @@ module.exports = function (app) {
     if (!requireAdmin(req, res)) return;
     var totalUsers = usersRepo.count({});
 
-    // Live files: exclude tombstones (storagePath cleared, deletedAt set), in-progress
-    // chunked uploads, and vault-encrypted system files. Tombstones still carry their
-    // pre-delete `size` on the record — counting them inflates the displayed storage and
-    // hides the discrepancy between this dashboard and the storage migration preview.
+    // A tombstone keeps its pre-delete `size`, so counting one inflates the
+    // figure shown here and hides the gap against the migration preview.
     var liveFiles = filesRepo.findAll({ status: { $ne: "chunking" }, vaultEncrypted: { $ne: "true" } })
       .filter(function (f) { return !f.deletedAt; });
     var totalFiles = liveFiles.length;
     var totalDownloads = liveFiles.reduce(function(s, f) { return s + (f.downloads || 0); }, 0);
 
-    // Storage = bytes physically used. S3 portion comes from the file table (HEAD per
-    // object would be too slow on every dashboard view). Local portion is a directory
-    // walk so we capture chunks, orphan files, and empty bundle dirs that aren't in
-    // the file table — i.e. the actual disk footprint, not just the accounted footprint.
+    // The S3 figure comes from the file table, because a HEAD per object would
+    // be far too slow here. The local one is a directory walk, so it counts the
+    // chunks, orphans and empty bundle directories the table does not know
+    // about — the real footprint rather than the accounted one.
     var s3Bytes = liveFiles
       .filter(function (f) { return f.storagePath && f.storagePath.indexOf("s3://") === 0; })
       .reduce(function(s, f) { return s + (f.size || 0); }, 0);
@@ -194,12 +190,9 @@ module.exports = function (app) {
     var opts = { limit: limit, offset: (page - 1) * limit, orderBy: "createdAt", orderDir: "DESC" };
     var result;
 
-    // Encrypted/derived fields can't be searched via SQL LIKE — originalName,
-    // relativePath and uploaderEmail are sealed at rest, and shareIdHash is a
-    // keyed-MAC index (a filename fragment is never a substring of the digest).
-    // Fetch a bounded window, then filter the in-memory unsealed rows in JS,
-    // mirroring the user-search path in routes/users.js. 500 rows bounds the
-    // per-request unseal cost for any realistic corpus.
+    // LIKE cannot search a sealed column, and a filename fragment is never a
+    // substring of a keyed-MAC digest — so a bounded window is unsealed and
+    // filtered in JS, as the user search does. The bound caps the unseal cost.
     var FILE_SEARCH_SCAN_LIMIT = 500;
     if (q) {
       result = filesRepo.findPaginated(
@@ -219,13 +212,10 @@ module.exports = function (app) {
     }
     var pages = Math.ceil(result.total / limit) || 1;
 
-    // Enrich files with uploader attribution when missing, then project each
-    // row to an explicit allowlist of UI-consumed fields. Sealed file rows are
-    // fully unsealed by findPaginated (encryptionKey, storagePath, checksum,
-    // vaultEncapsulatedKey, vaultIv — the per-file content key and at-rest
-    // material — are all plaintext here); the admin browser must never receive
-    // them. A positive allowlist (not delete-from-a-copy) guarantees a future
-    // sealed column added to the files table cannot silently re-leak.
+    // findPaginated returns every sealed column unsealed, so the per-file
+    // content key and the rest of the at-rest material are plaintext here. The
+    // projection below is a positive allowlist rather than a delete-from-a-copy
+    // so a sealed column added to this table later cannot leak by omission.
     var userCache = {};
     var mapped = result.data.map(function (f) {
       var uploaderEmail = f.uploaderEmail || "";
@@ -271,16 +261,10 @@ module.exports = function (app) {
     var opts = { limit: limit, offset: (page - 1) * limit, orderBy: "createdAt", orderDir: "DESC" };
     var result = bundlesRepo.findPaginated({ status: "complete" }, opts);
     var pages = Math.ceil(result.total / limit) || 1;
-    // Enrich each bundle with live file count + size computed from the files
-    // table directly. Avoids displaying stale bundle.receivedFiles /
-    // bundle.totalSize when counter maintenance has fallen out of sync
-    // (e.g. legacy admin-deletes that didn't decrement totalSize).
-    // Project each bundle to an explicit allowlist of UI-consumed fields.
-    // findPaginated unseals every sealed column, so passwordHash (Argon2id
-    // bundle-unlock hash), finalizeTokenHash, and allowedEmails (recipient PII)
-    // are plaintext here and must not cross to the admin browser. A positive
-    // allowlist (not delete-from-a-copy) keeps any future sealed column from
-    // silently re-leaking.
+    // Count and size are recomputed from the files table rather than read off
+    // the bundle, whose counters drift when maintenance misses one. As above,
+    // the projection is a positive allowlist: the unlock hash, the finalize
+    // token hash and the recipient addresses are all plaintext at this point.
     var enriched = result.data.map(function (bundle) {
       var bundleFiles = filesRepo.findAll({ bundleId: bundle._id })
         .filter(function (f) { return !f.deletedAt; });
@@ -319,10 +303,8 @@ module.exports = function (app) {
     if (doc.bundleId) {
       var bundle = bundlesRepo.findById(doc.bundleId);
       if (bundle) {
-        // Decrement BOTH counters. Previously only receivedFiles was updated,
-        // leaving bundle.totalSize stale — admin-deleted files would vanish
-        // from the count but their bytes stuck around in the cached total,
-        // producing "0 files / 899 KB" zombies in the bundle list.
+        // Both counters, or the bundle list shows "0 files / 899 KB": the file
+        // leaves the count while its bytes stay in the cached total.
         bundlesRepo.update(doc.bundleId, { $set: {
           receivedFiles: Math.max(0, (bundle.receivedFiles || 0) - 1),
           totalSize: Math.max(0, (bundle.totalSize || 0) - (doc.size || 0)),
@@ -461,10 +443,8 @@ module.exports = function (app) {
 
   app.get("/admin/backup/history", async (req, res) => {
     if (!requireAdmin(req, res)) return;
-    // Compute current status FIRST (synchronous, just config inspection) so
-    // we can surface diagnostics even when getBackupHistory throws because
-    // S3 isn't configured. Without this, an admin with broken S3 config
-    // sees a generic error toast and no clue what to fix.
+    // Before getBackupHistory, which throws when S3 is misconfigured — the
+    // case where an admin most needs the diagnostics rather than a toast.
     var status;
     try { status = backup.getBackupStatus(); } catch (_e) { status = null; }
     try {
@@ -491,11 +471,9 @@ module.exports = function (app) {
     }
   });
 
-  // v1.9.5 — Security overview surface for the new admin Security tab.
-  // Read-only summary of every security-related setting + its current state,
-  // with operator-facing guidance for each. Boot-time secrets (vault
-  // passphrase, sealed-key passphrases) are NOT in the response — they're
-  // exclusively env-driven and shouldn't ever surface in an admin API.
+  // A read-only summary of every security setting and its current state. The
+  // boot-time secrets are deliberately absent: they are env-driven and have no
+  // business on an admin API.
   app.get("/admin/security/status", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
@@ -508,25 +486,19 @@ module.exports = function (app) {
       var caExists = mtlsCa.exists();
 
       var tlsKeyMode = (process.env.TLS_KEY_SEALED || "auto").toLowerCase();
-      // Resolved exactly as server-main.js does: TLS_KEY, then its ".sealed"
-      // sibling derived from that same path. Reading the fixed default for the
-      // sealed one meant an operator who moved TLS_KEY outside data/tls and
-      // sealed it had a running TLS listener reported as disabled.
+      // Derived from TLS_KEY exactly as server-main.js does. Reading the fixed
+      // default for the sealed sibling reported a running listener as disabled
+      // whenever an operator had moved the key out of data/tls.
       var tlsKeyPath = process.env.TLS_KEY || nodePath.join(C.PATHS.TLS_DIR, "privkey.pem");
       var tlsPlainExists = nodeFs.existsSync(tlsKeyPath);
       var tlsSealedExists = nodeFs.existsSync(tlsKeyPath + ".sealed");
 
-      // Whether TLS is serving comes from the process that decided it, not from
-      // a second reading of the same files. Judging it from the key alone would
-      // show a green "TLS: enabled" row for a key mounted ahead of its chain on
-      // a server running in HTTP mode — the worst thing this panel can get
-      // wrong, since an operator reads it to decide whether the deployment is
-      // safe to expose. Deriving it from more predicates only moves the drift:
-      // the listener also depends on the key loading under the configured
-      // sealed-key mode, and reimplementing that here is how a copy diverges.
-      //
-      // The file checks below survive only to explain a "no" — which half is
-      // missing — never to decide one.
+      // Whether TLS is serving comes from the process that decided it, never
+      // from a second reading of the same files. An operator reads this panel
+      // to judge whether the deployment is safe to expose, and a key mounted
+      // ahead of its chain would otherwise show a green row on a server running
+      // plain HTTP. The file checks below only explain a "no" — which half is
+      // missing — and never decide one.
       var tlsCertExists = nodeFs.existsSync(process.env.TLS_CERT ||
         nodePath.join(C.PATHS.TLS_DIR, "fullchain.pem"));
       var tlsKeyExists = tlsPlainExists || tlsSealedExists;
@@ -536,23 +508,19 @@ module.exports = function (app) {
       var tlsServing = tlsReported === null ? (tlsCertExists && tlsKeyExists) : tlsReported;
 
       var enforceMtlsStrict = process.env.ENFORCE_MTLS_STRICT;
-      // Hard enforcement is `rejectUnauthorized` on the TLS listener, so it can
-      // only be in force when there is a listener. Without one the process
-      // requires no client certificate anywhere — ENFORCE_MTLS_STRICT=true does
-      // not turn the soft app-layer check on — and reporting it as active tells
-      // an operator a gate is closed while it is wide open.
+      // Hard enforcement lives on the TLS listener, so it cannot be in force
+      // without one — and ENFORCE_MTLS_STRICT does not turn the soft check on
+      // in its place. Reporting it active would tell an operator a gate is shut
+      // while it stands open.
       var hardReported = runtimeState.get("hardMtls");
       var mtlsHardEnforced = hardReported === null
         ? (enforceMtlsStrict === "true" && caExists && tlsServing)
         : hardReported;
       var mtlsSoftEnforced = enforceMtlsStrict !== "false" && config.enforceMtls;
 
-      // What each row claims about this state is decided in
-      // app/domain/admin/security-status.service.js. An operator reads these
-      // rows to judge whether the deployment is safe to expose, and the claims
-      // are a matrix over the booleans gathered above — kept where the whole
-      // matrix can be exercised rather than only the state a running server
-      // happens to be in.
+      // The claims are a matrix over the booleans gathered above, and they live
+      // in their own module so the whole matrix can be exercised rather than
+      // only the state a running server happens to be in.
       var report = securityStatus.buildReport({
         vaultMode: vaultMode,
         vaultSealedExists: vaultSealedExists,
@@ -580,12 +548,9 @@ module.exports = function (app) {
     }
   });
 
-  // v1.9.9 — admin UI seal/unseal action endpoints. Six routes total
-  // (3 seal + 3 unseal) for vault passphrase, CA key, TLS key. Each is a
-  // thin wrapper around lib primitives that the CLIs also call. Concurrency
-  // protected by a per-process lock — the underlying file operations are
-  // crash-safe individually, but two concurrent runs against the same files
-  // could race the .tmp + rename dance.
+  // Seal and unseal for the vault passphrase, the CA key and the TLS key, over
+  // the same primitives the CLIs use. The lock is because each file operation
+  // is crash-safe on its own, but two concurrent runs race the rename.
   var _securityOpRunning = false;
   function _withSecurityLock(res, fn) {
     if (_securityOpRunning) {
@@ -812,10 +777,8 @@ module.exports = function (app) {
     var passphrase = String(body.passphrase || "");
     var timestamp = String(body.timestamp || "");
     if (!passphrase || !timestamp) throw new ValidationError("passphrase and timestamp required");
-    // dryRun: download + decrypt + checksum-verify every file, but skip
-    // all writes + the process.exit restart. Used by E2E tests to validate
-    // the restore crypto/integrity path without mutating on-disk state.
-    // Operators can also use it to preview a restore before committing.
+    // Downloads, decrypts and checksum-verifies every file, then stops short of
+    // any write or the restart — a preview of a restore before committing one.
     var dryRun = body.dryRun === true;
 
     // Verify passphrase if hash is set
@@ -835,11 +798,9 @@ module.exports = function (app) {
       var result = await backup.runRestore(passphrase, timestamp, { dryRun: dryRun });
       res.json({ success: true, restarting: !dryRun, dryRun: dryRun, stats: result.stats });
       if (!dryRun) {
-        // The restore worker wrote a fresh, authoritative db.enc / db.key.enc to
-        // disk. Suppress the exit-time (and periodic) re-encrypt so the graceful
-        // shutdown below can't clobber those bytes with the stale in-memory tmpfs
-        // DB re-encrypted under the OLD key (which would revert the restore, or
-        // brick the next boot when db.key.enc changed).
+        // The worker has written authoritative bytes, so the shutdown below
+        // must not re-encrypt the stale tmpfs database over them under the old
+        // key — which reverts the restore, or bricks the next boot.
         db.suppressExitEncrypt();
         // Graceful shutdown — let the response flush, then exit so Docker/systemd restarts
         setTimeout(function () { process.exit(0); }, C.TIME.seconds(0.5));
@@ -847,10 +808,9 @@ module.exports = function (app) {
     } catch (err) {
       if (err && err.isAppError) throw err;
       logger.error("Restore failed", { error: err.message });
-      // The restore worker raises curated, user-actionable failures (missing
-      // backup, wrong passphrase, corrupt archive). Surface those as a 4xx the
-      // operator can act on — a 5xx suppresses the detail. The raw err.message
-      // stays in the log, never in the response.
+      // The worker raises actionable failures — missing backup, wrong
+      // passphrase, corrupt archive — and a 5xx would suppress their detail.
+      // The raw message stays in the log and never in the response.
       var rmsg = String((err && err.message) || "");
       if (/not found|no such|does not exist/i.test(rmsg)) {
         throw new NotFoundError("Backup not found for timestamp " + timestamp + ".");
@@ -979,10 +939,8 @@ module.exports = function (app) {
     }
   });
 
-  // Logo upload — with magic byte validation and SVG sanitization.
-  // Stored in DATA_DIR (writable volume), served via explicit GET /img/custom/:name
-  // route in server.js. The app source tree is a read-only image layer in Docker,
-  // so writes into public/img/ fail with EACCES on fresh deployments.
+  // Under DATA_DIR because the source tree is a read-only image layer in
+  // Docker, where a write into public/img/ fails with EACCES.
   var LOGO_DIR = PATHS.CUSTOM_LOGO_DIR;
   var { detectContentType } = require("../app/http/validators/upload.validator");
 
@@ -1016,10 +974,9 @@ module.exports = function (app) {
       } catch (_e) { /* LOGO_DIR may not exist on first upload */ }
 
       var filename = "logo" + ext;
-      // Atomic, symlink-refusing write (temp + fsync + rename, O_EXCL|O_NOFOLLOW):
-      // the destination is a predictable path under a world-traversable web root,
-      // so a plain writeFileSync could follow a planted symlink or serve a torn
-      // logo to a concurrent reader.
+      // The destination is a predictable path under a served directory, so a
+      // plain write could follow a planted symlink, or hand a torn file to a
+      // concurrent reader.
       b.atomicFile.writeSync(nodePath.join(LOGO_DIR, filename), data, { fileMode: 0o600 });
 
       var logoPath = "/img/custom/" + filename;
@@ -1049,12 +1006,8 @@ module.exports = function (app) {
     }
   });
 
-  // Toggle the enforceMtls setting. Reachable via:
-  //   - admin session (standard cookie auth) — through the Auth pane toggle
-  //   - Bearer admin API key — for sync-client / CLI tooling that needs to
-  //     re-enable the web UI when the admin is locked out of the browser.
-  // This is also on the web-guard's always-allowed list so a Bearer admin
-  // can always reach it even while enforceMtls is on.
+  // Also reachable with a Bearer admin key, and on web-guard's always-allowed
+  // list, so an admin locked out of the browser can still turn this off.
   app.post("/admin/api/enforce-mtls", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
@@ -1085,12 +1038,9 @@ module.exports = function (app) {
     }
   }
 
-  // CA status — exposes whether the on-disk CA is current-generation or legacy,
-  // the resolved sync-CA algorithm label (mtlsCa.status().algorithm: "ML-DSA-87"
-  // after the PQC migration, "ECDSA-P384-SHA384" before), any in-flight migration
-  // grace window, and the separate classical browser CA's status — so the Danger
-  // Zone card can show "sync CA: ML-DSA-87 / browser CA: ECDSA-P384" and
-  // conditionally surface the "regeneration recommended" banner.
+  // Reports each certificate authority separately — the sync CA's algorithm and
+  // generation, any in-flight migration window, and the classical browser CA —
+  // because the two are independent and the panel names both.
   app.get("/admin/api/mtls-ca/status", (req, res) => {
     if (!requireAdmin(req, res)) return;
     // status() already carries `algorithm` + `keyType` (the b.mtlsCa canonical
@@ -1112,23 +1062,16 @@ module.exports = function (app) {
     res.json(status);
   });
 
-  // Regenerate the mTLS CA. Used when the algorithm envelope in lib/mtls-ca.js
-  // is upgraded (CA_GENERATION bump) and the existing CA needs to be lifted
-  // to the new generation. Orchestration:
-  //   1. Pre-generate a new CA keypair in memory (no disk write yet)
-  //   2. For every live sync WS connection, issue a new client cert signed by
-  //      the new CA and push it via `ca:rotation` message. The existing
-  //      TLS/WS connection stays open (uses the OLD cert) through the ack
-  //      window, so clients can persist new credentials without reconnecting.
-  //   3. Wait up to ACK_TIMEOUT_MS for clients to confirm via `ca:rotation-ack`
-  //   4. Commit the new CA to disk (atomic rename)
-  //   5. Browser certs are signed by the SEPARATE classical browser CA
-  //      (ca-browser.crt), so a sync-CA regeneration leaves them valid — they
-  //      are reported as unaffected, not deleted (pre-split, one CA signed both).
-  //   6. Write a regen flag so post-restart admin UI can surface a banner
-  //   7. process.exit(0) so Docker/systemd restarts us with the new CA loaded
-  // Offline sync clients miss the rotation — their certs become invalid and
-  // they must re-enroll via /sync/enroll with a fresh enrollment code.
+  // Lifts an existing CA to a new algorithm generation. The new keypair is
+  // built in memory first and only committed once every live sync client has
+  // been issued a certificate under it and acknowledged persisting one — the
+  // old connection stays open on the old certificate throughout, so nobody has
+  // to reconnect to receive their replacement. The process then exits for the
+  // supervisor to restart it with the new CA loaded.
+  //
+  // Browser certificates are signed by a separate classical CA and survive
+  // untouched. A sync client that was offline does not: its certificate is
+  // invalid afterwards and it must re-enrol with a fresh code.
   app.post("/admin/api/mtls-ca/regenerate", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
@@ -1139,38 +1082,25 @@ module.exports = function (app) {
       if (!mtlsCa.exists()) {
         throw new ValidationError("No CA exists yet. Nothing to regenerate.");
       }
-      // skipRestart: run the full orchestration (version check → in-memory CA
-      // generation → WS broadcast → ack collection → summary response) but do
-      // NOT commit to disk and do NOT exit. Useful for:
-      //   1. E2E tests that need to verify the rotation protocol against a
-      //      shared server without destroying the old CA (which would break
-      //      client certs already issued by it).
-      //   2. Operators who want to preview what rotation would do and trigger
-      //      the commit + restart themselves via a separate mechanism.
+      // Runs the whole rotation but commits nothing and does not exit, so the
+      // protocol can be exercised against a shared server, or previewed, with
+      // the old CA still in place and its certificates still valid.
       var skipRestart = body.skipRestart === true;
 
-      // Grace-window anchor, captured BEFORE any client cert is re-issued below,
-      // so certs re-issued to live clients during this rotation (certIssuedAt >
-      // this instant) are NOT mistaken for superseded old-CA certs when the
-      // grace window later closes out.
+      // Captured before any certificate is re-issued, so the close-out cannot
+      // mistake one issued during this rotation for a superseded old-CA cert.
       var caMigrationStartedAt = Date.now();
 
       var ACK_TIMEOUT_MS = C.TIME.seconds(15);
       var RESTART_DELAY_MS = C.TIME.seconds(1); // gap between ack-window close and process.exit
 
-      // Generate the new CA in memory — not yet written to disk.
-      // Bypass the singleton so the staging PEMs are isolated from the
-      // live instance's loaded state until commit lands.
-      // Preserve the CURRENT CA's algorithm on a routine regeneration — a rotation
-      // must not silently flip a classical (ECDSA-P384) CA to the ML-DSA-87 default
-      // and strand sync clients that can't yet complete an ML-DSA mutual-TLS
-      // handshake. The post-quantum upgrade is the separate boot auto-migration
-      // (lib/mtls-migrate); an explicit MTLS_CA_ALGORITHM pin still wins here.
+      // Built outside the singleton, so the staged material stays isolated from
+      // the live instance until the commit lands.
       var regenAlgorithm = process.env.MTLS_CA_ALGORITHM;
-      // Preserve a classical CA on a routine regen (status().keyType === "ec")
-      // rather than silently flipping it to the ML-DSA-87 default — that flip is
-      // the separate boot auto-migration (lib/mtls-migrate). An explicit
-      // MTLS_CA_ALGORITHM pin still wins.
+      // A routine regeneration keeps a classical CA classical: flipping it to
+      // the ML-DSA-87 default would strand clients that cannot yet complete an
+      // ML-DSA handshake. That upgrade is the boot auto-migration's job, and an
+      // explicit MTLS_CA_ALGORITHM still wins over both.
       if (!regenAlgorithm && mtlsCa.status().keyType === "ec") {
         regenAlgorithm = "ECDSA-P384-SHA384";
       }
@@ -1204,36 +1134,24 @@ module.exports = function (app) {
         restartInMs: 0,
       };
 
-      // Commit the new CA. Returns true when the caller should then restart.
-      //
-      // This runs BEFORE the response, and that ordering is the point. It used
-      // to run after: the handler answered {ok:true, "Committing and
-      // restarting."} and only then committed, so a commit that threw was
-      // caught by a handler whose headers were already sent and swallowed by
-      // `if (res.headersSent) return;`. The admin was told the rotation
-      // succeeded while the server stayed up on the old CA — and the client
-      // certificates and their stored fingerprints had already been rotated to
-      // a CA that was never written, so those clients could no longer
-      // authenticate against the CA that was still live.
-      //
-      // commit() throws on a real condition: a still-retained prior root makes
-      // it refuse (mtls-ca/retained-root-exists). Letting that propagate turns
-      // the worst outcome — a silent half-rotation — into a 500 that names it.
+      // Must run BEFORE the response, and the ordering is the whole point.
+      // Committing afterwards meant a throw was caught by a handler whose
+      // headers were already sent and swallowed: the admin was told the
+      // rotation succeeded while the server stayed up on the old CA, with the
+      // client certificates and their fingerprints already moved to a CA that
+      // was never written. commit() refuses on a real condition — a still
+      // retained prior root — and letting that propagate turns a silent
+      // half-rotation into a 500 that names it.
       async function commitCa(note) {
         if (skipRestart) {
-          // Dry-run mode: skip commit and skip exit. The in-memory new CA and
-          // the pre-signed client certs are
-          // discarded. The DB-side fingerprint updates on connected clients
-          // still happened (already issued above) — callers using skipRestart
-          // should understand this mutates api_keys.certFingerprint.
+          // The staged CA and its certificates are discarded here, but the
+          // fingerprint updates on connected clients already happened — this
+          // path still mutates api_keys.certFingerprint.
           audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "mTLS CA regenerate dry-run (skipRestart): " + JSON.stringify(summary), req: req });
           logger.info("[mTLS] CA regenerate dry-run — not committing, not exiting", { summary: summary, note: note });
           return false;
         }
-        // Write a flag file so startup-checks can show a post-restart banner.
-        // Atomic, symlink-refusing write to a predictable DATA_DIR path (a planted
-        // symlink would otherwise redirect the write; a torn file could break the
-        // startup read).
+        // Read by startup-checks after the restart, to raise a banner.
         try {
           b.atomicFile.writeSync(nodePath.join(PATHS.DATA_DIR, "ca-regen-flag.json"), Buffer.from(JSON.stringify({
             at: new Date().toISOString(),
@@ -1241,16 +1159,13 @@ module.exports = function (app) {
             byUser: req.session && req.session.userId ? req.session.userId : null,
           })), { fileMode: 0o600 });
         } catch (_e) { /* regen flag file is best-effort — startup banner only */ }
-        // End any still-open prior grace window first: 0.18.3 refuses a second
-        // retained rotation (mtls-ca/retained-root-exists), and one retained
-        // generation at a time is the model — the prior superseded certs are
-        // already locked out (their CA leaves the trust bundle) and re-enroll
-        // onto the newest CA; the new window's close-out still sweeps them.
+        // One retained generation at a time is the model, and a second
+        // retained rotation is refused. Certificates from the window being
+        // closed re-enrol onto the newest CA; the new close-out sweeps them.
         try { await mtlsCa.dropRetained(); } catch (_e) { /* no prior retained root */ }
-        // Write the grace CLOCK marker (from the outgoing CA) BEFORE committing,
-        // so existing sync certs keep verifying through the grace window and
-        // close-out revokes the stragglers — the same grace the boot
-        // auto-migration establishes.
+        // Written from the outgoing CA before the commit, so existing sync
+        // certificates keep verifying through the window and close-out revokes
+        // whatever is left.
         try {
           mtlsMigrate.beginGrace({ now: caMigrationStartedAt });
         } catch (_e) { /* grace marker best-effort — commit + trust bundle still apply */ }

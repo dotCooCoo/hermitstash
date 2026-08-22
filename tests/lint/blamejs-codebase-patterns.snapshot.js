@@ -317,54 +317,16 @@ function _blankCommentLines(src) {
 //
 // Those invert the risk above: a presence check reading a commented-out
 // occurrence concludes the construct is there and stays silent, which is the
-// exact state it exists to catch. So here it is worth tracking state — block
-// comments spanning lines, and string literals, so a `/*` inside a string is not
-// mistaken for a comment opener.
+// exact state it exists to catch.
 //
-// Newlines inside block comments are preserved so line numbers don't shift.
+// The implementation is a lexer, and it lives in test/helpers/_shape-match.js
+// beside the tokenizer that resolves the same regex-or-division ambiguity one
+// level up. It is shared with the audit-namespace gate rather than copied:
+// both are presence checks over the same tree, and the copy that existed there
+// used two blind replaces, which deleted a real emission from its scan.
 //
-// LIMIT: regular-expression literals are not tracked, so a regex containing an
-// unescaped `//` or `/*` could be misread as a comment opener. Deciding where a
-// regex literal starts requires implementing the ECMAScript lexical grammar
-// (blamejs/blamejs#599 is the same problem one level up) and the consumers here
-// are integration tests and fuzz harnesses, where such a literal does not occur.
-// A wrong call in that case over-strips, which reports rather than hides.
-function _stripComments(src) {
-  var out = "";
-  var i   = 0;
-  var n   = src.length;
-  while (i < n) {
-    var c = src.charAt(i);
-    var d = src.charAt(i + 1);
-    if (c === "/" && d === "/") {
-      while (i < n && src.charAt(i) !== "\n") i += 1;
-      continue;
-    }
-    if (c === "/" && d === "*") {
-      i += 2;
-      while (i < n && !(src.charAt(i) === "*" && src.charAt(i + 1) === "/")) {
-        if (src.charAt(i) === "\n") out += "\n";
-        i += 1;
-      }
-      i += 2;
-      continue;
-    }
-    if (c === "\"" || c === "'" || c === "`") {
-      out += c;
-      i   += 1;
-      while (i < n) {
-        if (src.charAt(i) === "\\") { out += src.substr(i, 2); i += 2; continue; }
-        out += src.charAt(i);
-        if (src.charAt(i) === c) { i += 1; break; }
-        i += 1;
-      }
-      continue;
-    }
-    out += c;
-    i   += 1;
-  }
-  return out;
-}
+// testCommentStripHelper below pins both directions of its behaviour.
+var _stripComments = require("../helpers/_shape-match").stripComments;
 
 var _allViolations = [];
 
@@ -1417,6 +1379,91 @@ function testTimingSafeCompareInLoopBody() {
     hits);
 }
 
+// ---- Pattern 8b-0: a gate must not be silenced by a comment ----
+
+function testExemptingSkipGuardsReadStrippedSource() {
+  // Some gates skip a file when a token says it is ALREADY safe — `assertSafe(`
+  // means the regex was ReDoS-screened, `SKIP LOCKED` means the queue claim is
+  // competing-consumer safe, `cache.update(` means the read-modify-write is
+  // atomic. Read off the RAW source, that token counts wherever it appears,
+  // including inside a comment. So a file carrying `// TODO: wrap this in
+  // assertSafe()` exempts itself from the ReDoS gate while doing nothing of the
+  // kind, and the gate reports zero findings for it forever.
+  //
+  // This is the inverse of the helper test below. That one asks whether
+  // _stripComments works; this one asks whether the gates USE it where being
+  // wrong is silent.
+  //
+  // The negative form is deliberately not flagged. `if (!SINK.test(content))
+  // continue` is a precondition — "does this file even touch a DB?" — and a
+  // comment there causes an EXTRA check, never a skipped one. Only the
+  // exempting direction can hide a finding.
+  // Matched over the whole COMMENT-STRIPPED source, by STATEMENT rather than by
+  // line. Two earlier versions of this check matched a line at a time and were
+  // blind first to a named regex (`if (someRe.test(src)) continue`) and then to
+  // any guard an author had wrapped across lines — the same class of hole it
+  // exists to close, one level up. The unit of the rule is the guard statement,
+  // so that is the unit to match.
+  //
+  // Its own source is stripped for the same reason every gate's input is: the
+  // comment two paragraphs up spells out `if (someRe.test(src)) continue`, and
+  // a check that read raw source would report itself.
+  var selfCode = _stripComments(fs.readFileSync(__filename, "utf8"));
+  // `[^;{}]` spans newlines, so this matches a guard however it is wrapped; the
+  // class stops at a statement or block boundary so one guard cannot run into
+  // the next.
+  var GUARD = /if\s*\(([^;{}]*?\.test\s*\(\s*(?:content|src)\s*\)[^;{}]*?|[^;{}]*?(?:content|src)\.indexOf\([^;{}]*?\)\s*!==\s*-1[^;{}]*?)\)\s*(?:continue|return)\b/g;
+  var raw = [];
+  var m;
+  while ((m = GUARD.exec(selfCode)) !== null) {
+    var cond = m[1];
+    // Already reading stripped source — the shape this asks for.
+    if (/_stripComments|_blankStringBodies/.test(cond)) continue;
+    // The NEGATIVE form is a precondition ("does this file even do X?"), not an
+    // exemption: a comment there causes an extra check, never a skipped one.
+    if (/^\s*!/.test(cond)) continue;
+    raw.push({
+      file:    _relPath(__filename),
+      line:    selfCode.slice(0, m.index).split("\n").length,
+      content: m[0].replace(/\s+/g, " ").slice(0, 100),
+    });
+  }
+  _report("an exempting skip-guard reads comment-stripped source, so a mention " +
+          "in a comment cannot silence a gate", raw);
+
+  // The `requires` companion rule has TWO sources, and a green suite proves
+  // neither on its own — an antipattern that never fired looks the same as one
+  // whose marker was honoured. So the rule is exercised directly here.
+  //
+  // A CODE companion must be code. A registered `allow:<class>` marker must
+  // keep working from a comment, because that is the only place it is ever
+  // written.
+  function _companionExempts(requiresRe, content) {
+    if (requiresRe.test(_stripComments(content))) return true;
+    var marks = requiresRe.source.match(/allow:[A-Za-z0-9._-]+/g) || [];
+    return marks.some(function (mk) { return content.indexOf(mk) !== -1; });
+  }
+  var BOTH = /maxOutputLength|allow:archive-gz-without-safedecompress/;
+  var mismatches = [];
+  [
+    ["a code companion in CODE exempts",
+     "var x = { maxOutputLength: 1024 };", true],
+    ["a code companion in a COMMENT does not exempt",
+     "// TODO: pass maxOutputLength here\nvar x = 1;", false],
+    ["a registered allow marker in a COMMENT still exempts",
+     "var x = 1;   // allow:archive-gz-without-safedecompress - reviewed", true],
+    ["neither present does not exempt",
+     "var x = 1;", false],
+  ].forEach(function (c) {
+    if (_companionExempts(BOTH, c[1]) !== c[2]) mismatches.push(c[0]);
+  });
+  _report("the requires companion reads CODE for a code companion and the raw " +
+          "source for a registered allow marker",
+    mismatches.map(function (label) {
+      return { file: _relPath(__filename), line: 0, content: label };
+    }));
+}
+
 // ---- Pattern 8b-i: the comment-stripping helper itself ----
 
 function testCommentStripHelper() {
@@ -1439,9 +1486,210 @@ function testCommentStripHelper() {
     ["live call beside a dead one", "/*\nold getChecks() + \" checks passed\"\n*/\nconsole.log(helpers.getChecks() + \" checks passed\");", true],
     ["comment opener in a string",  "var s = \"/*\"; console.log(helpers.getChecks() + \" checks passed\");", true],
     ["url in a string",             "var u = \"https://x/y\"; console.log(helpers.getChecks() + \" checks passed\");", true],
+    // A template literal is not one opaque string: `${...}` is CODE, so a
+    // comment written there is a comment and must strip. The text outside the
+    // interpolations is a string and must not. Consuming to the closing
+    // backtick got both wrong in the same direction — it preserved the comment,
+    // which is the silent half.
+    ["block comment in ${}",
+     "var t = `" + "${(function(){ /* helpers.getChecks() + \" checks passed\" */ return 1; })()}" + "`;", false],
+    ["line comment in ${}",
+     "var t = `" + "${(function(){ // helpers.getChecks() + \" checks passed\"\n return 1; })()}" + "`;", false],
+    ["comment in ${} with nested braces",
+     "var t = `" + "${ {a: 1}.a /* helpers.getChecks() + \" checks passed\" */ }" + "`;", false],
+    ["template TEXT is a string, not code",
+     "var t = `" + "before helpers.getChecks() + \" checks passed\" after" + "`;", true],
+    ["live call INSIDE ${} survives",
+     "var t = `" + "${helpers.getChecks() + \" checks passed\"}" + "`;", true],
+    ["a ${} does not leak into the next template",
+     "var a = `" + "${x}" + "`; /* helpers.getChecks() + \" checks passed\" */ var b = `" + "y" + "`;", false],
+    // A `}` inside a quoted string is not the end of the interpolation. Reading
+    // it as one handed the following comment back to template mode, where it
+    // was preserved — the silent direction again.
+    ["quoted brace inside ${}",
+     "var t = `" + "${\"}\" /* helpers.getChecks() + \" checks passed\" */}" + "`;", false],
+    ["nested template inside ${}",
+     "var t = `" + "${ `" + "${ 1 }" + "` /* helpers.getChecks() + \" checks passed\" */ }" + "`;", false],
+    ["object literal inside ${}",
+     "var t = `" + "${ JSON.stringify({ a: { b: 1 } }) /* helpers.getChecks() + \" checks passed\" */ }" + "`;", false],
+    ["a nested template's TEXT is still a string",
+     "var t = `" + "${ `" + "helpers.getChecks() + \" checks passed\"" + "` }" + "`;", true],
+    // A REGEX LITERAL is a lexical unit. Its slashes are not a comment opener
+    // and its braces do not end an interpolation. Both directions are pinned:
+    // a comment AFTER a regex must still strip, and code after a regex that
+    // contains comment characters must survive — the original stripper ate
+    // everything following `/a\/\/b/`.
+    ["regex holding a brace inside ${}",
+     "var t = `" + "${/}/.test(x) /* helpers.getChecks() + \" checks passed\" */}" + "`;", false],
+    ["regex holding // in plain code",
+     "var re = /a\\/\\/b/; console.log(helpers.getChecks() + \" checks passed\");", true],
+    ["regex holding /* in plain code",
+     "var re = /a\\/\\*b/; console.log(helpers.getChecks() + \" checks passed\");", true],
+    ["regex character class holding a slash",
+     "var re = /[/}]/; console.log(helpers.getChecks() + \" checks passed\");", true],
+    ["comment after a regex still strips",
+     "var re = /ab/; // helpers.getChecks() + \" checks passed\"", false],
+    // DIVISION is not a regex. Reading `a / b` as one would swallow the rest of
+    // the line and take the live call with it.
+    ["division is not a regex",
+     "var q = total / count; console.log(helpers.getChecks() + \" checks passed\");", true],
+    ["a division chain is not a regex",
+     "var q = a / b / c; console.log(helpers.getChecks() + \" checks passed\");", true],
+    ["division after a paren is not a regex",
+     "var q = (a + b) / c; console.log(helpers.getChecks() + \" checks passed\");", true],
+    // Division after a token whose LAST character is an operator. Reading
+    // either as a pattern opener consumes into the trailing comment and leaves
+    // it in the source a presence check then reads — an exemption token in a
+    // comment silently skipping a real violation is the whole failure this
+    // stripper exists to prevent.
+    ["division after a postfix increment is not a regex",
+     "i++ / count; // helpers.getChecks() + \" checks passed\"", false],
+    ["division after a postfix decrement is not a regex",
+     "i-- / count; // helpers.getChecks() + \" checks passed\"", false],
+    ["dividing a regex result is not a second regex",
+     "var q = /a/ / n; // helpers.getChecks() + \" checks passed\"", false],
+    ["a prefix increment still leaves the division readable",
+     "var q = ++i / n; console.log(helpers.getChecks() + \" checks passed\");", true],
+    // The `)` that closes a control-flow HEADER is followed by a statement,
+    // and a statement may begin with a pattern. Reading that slash as division
+    // put a `/*` inside the pattern back in play as a comment opener, which
+    // deletes source through to the next `*/` — potentially the end of file.
+    ["a regex statement after an if header keeps the code after it",
+     "if (ok) /[/*]/.test(x); console.log(helpers.getChecks() + \" checks passed\");", true],
+    ["a regex statement after a while header keeps the code after it",
+     "while (ok) /[/*]/.test(x); console.log(helpers.getChecks() + \" checks passed\");", true],
+    ["a regex statement after a for header keeps the code after it",
+     "for (;;) /[/*]/.test(x); console.log(helpers.getChecks() + \" checks passed\");", true],
+    ["a comment after an if-header regex statement still strips",
+     "if (ok) /ab/.test(x); // helpers.getChecks() + \" checks passed\"", false],
+    // The control: a `)` that closes a grouped expression is NOT a header, and
+    // the slash after it still divides.
+    ["a grouping paren still divides",
+     "var q = (a + b) / c; // helpers.getChecks() + \" checks passed\"", false],
+    ["a call's closing paren still divides",
+     "var q = f(a) / c; // helpers.getChecks() + \" checks passed\"", false],
+    // A brace is a value when it closed an OBJECT and an open statement
+    // position when it closed a BLOCK. Both readings are wrong for the other
+    // case, so both directions are pinned here.
+    ["a regex statement after a block keeps the code after it",
+     "if (ok) {} /[/*]/.test(x); console.log(helpers.getChecks() + \" checks passed\");", true],
+    ["a regex statement after a function body keeps the code after it",
+     "function f() {} /[/*]/.test(x); console.log(helpers.getChecks() + \" checks passed\");", true],
+    ["an object literal still divides",
+     "var q = { a: 1 } / 2; // helpers.getChecks() + \" checks passed\"", false],
+    ["an object holding a function body still divides",
+     "var q = { m: function () { return 1; } } / 2; // helpers.getChecks() + \" checks passed\"", false],
+    ["an arrow body is a block, not an object",
+     "var f = () => {}; /[/*]/.test(x); console.log(helpers.getChecks() + \" checks passed\");", true],
+    ["an else body is a block, not an object",
+     "if (a) { b(); } else {} /[/*]/.test(x); console.log(helpers.getChecks() + \" checks passed\");", true],
+    ["a returned object still divides",
+     "function f() { return { a: 1 } / 2; } // helpers.getChecks() + \" checks passed\"", false],
+    // An identifier is any run of non-punctuation, not an ASCII letter list:
+    // a Unicode name read as punctuation leaves the division after it looking
+    // like a pattern, and the trailing comment survives.
+    ["division after a non-ASCII identifier is not a regex",
+     "var π = 4; var q = π / 2; // helpers.getChecks() + \" checks passed\"", false],
+    ["division after an accented identifier is not a regex",
+     "var café = 4; var q = café / 2; // helpers.getChecks() + \" checks passed\"", false],
+    ["a keyword is still a keyword next to non-ASCII names",
+     "var π = 1; function f() { return /[/*]/.test(x); } " +
+     "console.log(helpers.getChecks() + \" checks passed\");", true],
+    // A colon closes a ternary, separates a property from its value, or ends a
+    // label. Only the first two are followed by a value.
+    ["a ternary branch object still divides",
+     "var q = (c ? 1 : { a: 1 }) / 2; // helpers.getChecks() + \" checks passed\"", false],
+    ["a labelled block is a block, not an object",
+     "outer: {} /[/*]/.test(x); console.log(helpers.getChecks() + \" checks passed\");", true],
+    ["a switch case body is a statement position",
+     "switch (v) { case 1: /[/*]/.test(x); } " +
+     "console.log(helpers.getChecks() + \" checks passed\");", true],
+    ["optional chaining is not a ternary",
+     "var q = o?.a / 2; // helpers.getChecks() + \" checks passed\"", false],
+    ["nullish coalescing is not a ternary",
+     "var q = (o ?? d) / 2; // helpers.getChecks() + \" checks passed\"", false],
+    // A function or class EXPRESSION has a block for a body and is still a
+    // value; a DECLARATION with the same body is not.
+    ["a function expression still divides",
+     "var q = function () {} / 2; // helpers.getChecks() + \" checks passed\"", false],
+    ["a class expression still divides",
+     "var q = class {} / 2; // helpers.getChecks() + \" checks passed\"", false],
+    ["a function declaration is not a value",
+     "function f() {} /[/*]/.test(x); console.log(helpers.getChecks() + \" checks passed\");", true],
+    ["a class declaration is not a value",
+     "class C {} /[/*]/.test(x); console.log(helpers.getChecks() + \" checks passed\");", true],
+    ["a function expression as an argument still divides",
+     "var q = g(function () {}) / 2; // helpers.getChecks() + \" checks passed\"", false],
+    ["a parameter default brace is not the function body",
+     "var q = function (a = {}) {} / 2; // helpers.getChecks() + \" checks passed\"", false],
+    ["a nested function expression in a parameter default still divides",
+     "var q = function (cb = function () {}) {} / 2; " +
+     "// helpers.getChecks() + \" checks passed\"", false],
+    ["a declaration with a parameter default is still not a value",
+     "function f(a = {}) {} /[/*]/.test(x); " +
+     "console.log(helpers.getChecks() + \" checks passed\");", true],
+    ["an object in a ternary branch does not close the ternary",
+     "var q = cond ? { a: 1 } : {} / 2; // helpers.getChecks() + \" checks passed\"", false],
+    ["a ternary inside an object still closes",
+     "var o = { a: c ? 1 : 2 }; var q = o.a / 2; " +
+     "// helpers.getChecks() + \" checks passed\"", false],
+    // An arrow function and an async function expression are values, and their
+    // bodies are blocks — the two bits differ, so both are pinned.
+    ["a bare arrow body still divides",
+     "var q = () => {} / 2; // helpers.getChecks() + \" checks passed\"", false],
+    ["a parenthesized arrow still divides",
+     "var q = (() => {}) / 2; // helpers.getChecks() + \" checks passed\"", false],
+    ["an async function expression still divides",
+     "var q = async function () {} / 2; // helpers.getChecks() + \" checks passed\"", false],
+    ["an async arrow still divides",
+     "var q = async () => {} / 2; // helpers.getChecks() + \" checks passed\"", false],
+    ["an async function declaration is not a value",
+     "async function f() {} /[/*]/.test(x); " +
+     "console.log(helpers.getChecks() + \" checks passed\");", true],
+    // A numeric literal's LAST character varies by spelling — a dot, a letter,
+    // an `n` — so the whole literal is one token and every spelling divides.
+    ["a trailing-dot number still divides",
+     "var q = 1. / 2; // helpers.getChecks() + \" checks passed\"", false],
+    ["a leading-dot number still divides",
+     "var q = .5 / 2; // helpers.getChecks() + \" checks passed\"", false],
+    ["a hexadecimal number still divides",
+     "var q = 0x1F / 2; // helpers.getChecks() + \" checks passed\"", false],
+    ["an exponent number still divides",
+     "var q = 1e3 / 2; // helpers.getChecks() + \" checks passed\"", false],
+    ["a negative exponent number still divides",
+     "var q = 1e-3 / 2; // helpers.getChecks() + \" checks passed\"", false],
+    ["a separated number still divides",
+     "var q = 1_000 / 2; // helpers.getChecks() + \" checks passed\"", false],
+    ["a bigint still divides",
+     "var q = 10n / 2n; // helpers.getChecks() + \" checks passed\"", false],
+    ["a for-await header keeps the statement after it",
+     "async function p(it, x) { for await (var v of it) /[/*]/.test(x); } " +
+     "console.log(helpers.getChecks() + \" checks passed\");", true],
+    // The HTML-like comment forms a script still accepts. Node reads these as
+    // comments, so anything inside one must not read as live code here.
+    ["an HTML-open comment is a comment",
+     "<!-- helpers.getChecks() + \" checks passed\"", false],
+    ["an HTML-open comment after code is still a comment",
+     "var a = 1; <!-- helpers.getChecks() + \" checks passed\"", false],
+    ["an HTML-close comment opening a line is a comment",
+     "var a = 1;\n--> helpers.getChecks() + \" checks passed\"", false],
+    ["a decrement against a comparison is not a comment",
+     "while (i-->0) { console.log(helpers.getChecks() + \" checks passed\"); }", true],
   ];
   var hits = [];
   CASES.forEach(function (c) {
+    // A case expecting the probe to MISS proves nothing unless the probe was
+    // there to begin with: a typo in the fixture removes the text the probe
+    // looks for, and the case then passes without exercising the stripper at
+    // all. Every fixture must carry the probe BEFORE stripping.
+    if (!PROBE.test(c[1])) {
+      hits.push({
+        file: "test/layer-0-primitives/codebase-patterns.test.js", line: 1,
+        content: "_stripComments case \"" + c[0] + "\" does not contain the probe text in " +
+          "its own fixture, so it passes whatever the stripper does — fix the fixture",
+      });
+      return;
+    }
     var saw = PROBE.test(_stripComments(c[1]));
     if (saw !== c[2]) {
       hits.push({
@@ -1451,6 +1699,39 @@ function testCommentStripHelper() {
       });
     }
   });
+  // What a removed block comment leaves BEHIND, asserted on the exact output
+  // rather than through the probe: the probe cannot see this, because a
+  // fixture written to exercise it no longer contains the probe text.
+  //
+  // Both directions matter and they pull opposite ways. A comment separating
+  // two words has to leave a separator, or `key/* n */in obj` fuses into
+  // `keyin obj` — a different program. A comment against punctuation must
+  // leave nothing, because the detectors match source shapes and an inserted
+  // space makes an adjacency pattern stop matching, which is a miss and so
+  // silent.
+  var SPACING = [
+    ["separates two words",          "if (key/* n */in obj) {}", "if (key in obj) {}"],
+    ["separates a keyword operand",  "var r = typeof/* n */x;",  "var r = typeof x;"],
+    ["leaves nothing before a paren", "f(a/* n */);",            "f(a);"],
+    ["leaves nothing after a paren",  "f(/* n */a);",            "f(a);"],
+    ["leaves nothing around a dot",   "a/* n */.b;",             "a.b;"],
+    // Punctuation fuses too, and into a different operator.
+    ["separates two plus signs",     "var r = a +/* n */+b;",    "var r = a + +b;"],
+    ["separates two minus signs",    "var r = a -/* n */-b;",    "var r = a - -b;"],
+    ["separates an equals from a gt", "var r = a =/* n */>b;",   "var r = a = >b;"],
+    ["leaves nothing between a comma and a name", "f(a,/* n */b);", "f(a,b);"],
+  ];
+  SPACING.forEach(function (c) {
+    var got = _stripComments(c[1]);
+    if (got === c[2]) return;
+    hits.push({
+      file: "test/layer-0-primitives/codebase-patterns.test.js", line: 1,
+      content: "_stripComments spacing regression (" + c[0] + "): " +
+        JSON.stringify(c[1]) + " became " + JSON.stringify(got) +
+        " rather than " + JSON.stringify(c[2]),
+    });
+  });
+
   // The line-at-a-time helper keeps its weaker contract on purpose; pin the
   // difference so a later reader doesn't collapse the two.
   if (/checks passed/.test(_blankCommentLines("/*\nhelpers.getChecks() + \" checks passed\"\n*/")) !== true) {
@@ -1463,6 +1744,323 @@ function testCommentStripHelper() {
   }
   _report("_stripComments removes line, block and inline comments without stripping comment-like text inside string literals",
     hits);
+}
+
+// ---- Pattern 7d: stripping comments may not change whether source parses ----
+
+function testCommentStripPreservesParseability() {
+  // The case table above pins the shapes someone thought to write down. This
+  // asks the question the table cannot: did the stripper delete anything that
+  // was not a comment, ANYWHERE in the tree?
+  //
+  // Removing comments cannot change whether source parses. So if the stripped
+  // text stops parsing, the stripper took syntax with it — which is the whole
+  // failure class, found and not-yet-found, in one assertion. It is worth
+  // having because the alternative is a list of the tokens that may precede a
+  // slash, and that list has been open-ended every time it has been written:
+  // the same enumeration in the regex-literal gate was replaced for exactly
+  // this reason (#599), and each shape added here arrived as a separate report
+  // — a postfix increment, then a control-flow header, then a statement block.
+  //
+  // Not vacuous: the stripper as it stood before it lexed patterns breaks
+  // parsing in ten lib/ files, `/^curl\//i` in the blocked-agent list among
+  // them, and the statement-block shape deleted a file from the brace to EOF.
+  //
+  // What it covers, exactly: the direction where a slash that DIVIDES is read
+  // as opening a pattern deletes code. The opposite mistake — reading a
+  // pattern's opening slash as a division, which leaves a real comment behind
+  // — still parses, so this cannot see it. That direction is pinned by the
+  // case table above instead, and it is bounded: the pattern scan stops at a
+  // newline, so at most the rest of one line survives, where a phantom block
+  // comment runs to the next `*/` or to end of file.
+  //
+  // Compiled, never executed, and wrapped the way Node wraps a CommonJS module
+  // so a top-level `return` is legal. A file that does not parse as it stands
+  // says nothing about the stripper and is skipped.
+  var vm = require("node:vm");
+  var hits = [];
+  var checked = 0;
+
+  function wrap(text) {
+    return "(function (exports, require, module, __filename, __dirname) {" +
+      text + "\n})";
+  }
+  function parses(text, name) {
+    try { new vm.Script(wrap(text), { filename: name }); return true; }
+    catch (_e) { return false; }
+  }
+
+  _libFiles().concat(_testFiles()).forEach(function (full) {
+    var rel = _relPath(full);
+    var src;
+    try { src = fs.readFileSync(full, "utf8"); } catch (_e) { return; }
+    if (!parses(src, rel)) return;                  // not parseable as-is
+    checked += 1;
+    if (parses(_stripComments(src), rel)) return;
+    hits.push({
+      file: rel, line: 1,
+      content: "comment stripping made this file unparseable — it removed code, not just " +
+        "comments. The usual cause is a `/` classified as division where it opened a " +
+        "pattern: the characters inside then read as a comment opener and everything to " +
+        "the next `*/`, or to end of line, is deleted from what the presence gates see.",
+    });
+  });
+
+  if (checked < 500) {
+    hits.push({
+      file: "test/layer-0-primitives/codebase-patterns.test.js", line: 1,
+      content: "comment-strip parse check reached only " + checked + " files — it is " +
+        "supposed to cover lib/ and test/, so the walk or the parse wrapper regressed " +
+        "and the check is passing because it looked almost nowhere",
+    });
+  }
+
+  // The tree can only exercise the keywords the tree happens to use. Which
+  // keyword may be followed by a pattern is a property of the LANGUAGE, so it
+  // is asked of the whole reserved list instead of one word at a time — the
+  // list below is the reserved set, and each entry that forms valid source
+  // must survive stripping.
+  //
+  // This exists because the answer arrived one word at a time otherwise:
+  // `break` was missing, and `while (x) { break` followed by a pattern holding
+  // `/*` lost the rest of the file to a phantom comment.
+  //
+  // A keyword that cannot legally precede a pattern makes an unparseable
+  // fixture and is skipped, so the sweep needs no separate list of exclusions
+  // and cannot fall out of date as the language grows.
+  var RESERVED = [
+    "await", "break", "case", "catch", "class", "const", "continue", "debugger",
+    "default", "delete", "do", "else", "enum", "export", "extends", "false",
+    "finally", "for", "function", "if", "import", "in", "instanceof", "let",
+    "new", "null", "of", "return", "static", "super", "switch", "this", "throw",
+    "true", "try", "typeof", "var", "void", "while", "with", "yield",
+  ];
+  var keywordHits = [];
+  var exercised = 0;
+  RESERVED.forEach(function (kw) {
+    // Inside a generator inside a loop, so `yield`, `await`, `break` and
+    // `continue` are all legal where they are written.
+    var fixture = "async function* probe(x) { while (x) { " + kw + "\n" +
+      "/[/*]/.test(x); var after = 1; return after; } }";
+    if (!parses(fixture, "keyword-" + kw)) return;      // not valid source
+    exercised += 1;
+    var stripped = _stripComments(fixture);
+    if (parses(stripped, "keyword-" + kw) && /var after = 1/.test(stripped)) return;
+    keywordHits.push({
+      file: "test/helpers/_shape-match.js", line: 1,
+      content: "a pattern written after `" + kw + "` is read as division, so the `/*` " +
+        "inside it opens a phantom comment and the source after it is deleted — " +
+        "classify `" + kw + "` in _REGEX_LEADING_KEYWORDS by what it leaves behind it",
+    });
+  });
+  if (exercised < 5) {
+    keywordHits.push({
+      file: "test/layer-0-primitives/codebase-patterns.test.js", line: 1,
+      content: "keyword sweep exercised only " + exercised + " reserved words that form " +
+        "valid source — the fixture template stopped parsing, so the sweep is passing " +
+        "because every case was skipped",
+    });
+  }
+
+  // Whether a pattern may follow a KEYWORD and whether one may follow the BODY
+  // that keyword introduces are different questions, and answering only the
+  // first is what let this regress: `try` ends a statement, so it was listed as
+  // one — and that alone made `try {` read as an object literal, whose closing
+  // brace then became a value and swallowed the pattern statement after it.
+  //
+  // Written out as whole constructs rather than derived from the reserved list,
+  // because most of them are not valid with a bare body: `try {}` alone is a
+  // syntax error, and a sweep built by pasting a keyword in front of `{}`
+  // silently skips every case that matters. Each entry must parse — a form that
+  // does not is reported, not skipped, since these are hand-written.
+  var BODY_FORMS = [
+    "{}",
+    "if (x) {}",
+    "if (x) {} else {}",
+    "while (x) {}",
+    "for (;;) {}",
+    "for (var k in o) {}",
+    "for (var v of a) {}",
+    "try {} catch (e) {}",
+    "try {} finally {}",
+    "try {} catch (e) {} finally {}",
+    "switch (x) {}",
+    "function inner() {}",
+    "class C {}",
+    "label: {}",
+  ];
+  // The sweep above writes each keyword into a STATEMENT, which is the only
+  // place most of them are legal — and that is also its blind spot. A keyword
+  // valid only in some other position makes an unparseable fixture there and
+  // is skipped, silently: `extends` was skipped for exactly that reason while
+  // `class X extends /[/*]/.constructor {}` deleted the rest of the file.
+  //
+  // So the positions that sweep cannot reach are written out as whole
+  // constructs. Each must parse — a form that does not is reported, not
+  // skipped, which is the failure this list exists to correct.
+  var CONTEXT_FORMS = [
+    "class X extends /[/*]/.constructor {}",
+    "var o = { get a() { return /[/*]/.test(x); } };",
+    "for (var k in /[/*]/.source) {}",
+    "var r = [/[/*]/][0];",
+    "switch (/[/*]/.source) { case /[/*]/.source: break; }",
+    // A two-token header: the paren is preceded by `await`, not by `for`.
+    "for await (var v of [/[/*]/]) {}",
+    "var q = async function () { return /[/*]/.test(x); };",
+  ];
+  CONTEXT_FORMS.forEach(function (form) {
+    var fixture = "async function probe(x) { " + form + " var after = 1; return after; }";
+    if (!parses(fixture, "context-" + form)) {
+      keywordHits.push({
+        file: "test/layer-0-primitives/codebase-patterns.test.js", line: 1,
+        content: "context form `" + form + "` is not valid source, so it asserts " +
+          "nothing — fix the fixture rather than leaving a case that cannot fail",
+      });
+      return;
+    }
+    var stripped = _stripComments(fixture);
+    if (parses(stripped, "context-" + form) && /var after = 1/.test(stripped)) return;
+    keywordHits.push({
+      file: "test/helpers/_shape-match.js", line: 1,
+      content: "a pattern in `" + form + "` is read as division, so the `/*` inside it " +
+        "opens a phantom comment and the source after it is deleted — this position " +
+        "leaves an expression open and the classifier is treating it as a value",
+    });
+  });
+
+  // The two sweeps above ask what a keyword leaves behind it. Neither asks
+  // whether the word IS the keyword it spells, and in two positions it is not.
+  //
+  // After `break` or `continue` the word is a LABEL, and the jump statement
+  // ends there: `break outer / x` is not a continuation, so a newline inserts
+  // the semicolon and a slash on the next line opens a pattern. Reading the
+  // label as an ordinary name made that slash divide, and the `/*` inside the
+  // pattern then opened a phantom comment that ran to the end of the file.
+  //
+  // After a dot the word is a PROPERTY NAME, so a slash after it divides
+  // however the bare word would read. `o.default / 2` was read as `default`
+  // ending a statement, so the slash opened a pattern that ran to the first
+  // slash of the trailing `//` comment — which left the comment behind as code,
+  // the direction that fails silently.
+  //
+  // Both are asked of the whole reserved list, because the review that found
+  // the first named one word and the sweep found twenty-one more.
+  //
+  // Each role gets the word list its position ACCEPTS, not the reserved list
+  // twice: a reserved word cannot be a label, so sweeping labels over it skips
+  // every case — which is what the vacuity guard below reported when it was
+  // written that way. A label is an ordinary identifier, and the ones worth
+  // sweeping are those that read like keywords without being reserved.
+  var LABEL_WORDS = [
+    "outer", "inner", "loop", "scan", "of", "get", "set", "async", "from",
+    "target", "as", "let", "statik",
+  ];
+  var WORD_ROLE_FORMS = [
+    { role: "break label", words: LABEL_WORDS,
+      build: function (kw) {
+        // The word labels the loop AND names the jump: a `break` naming a label
+        // no enclosing statement carries is an early error, so a fixture that
+        // hardcoded one label and swept the other skipped every word but that
+        // one — which is what the guard below reported.
+        return kw + ": while (x) { break " + kw + "\n/[/*]/.test(x); var after = 1; }";
+      },
+      why: "is a LABEL after `break`, which ends the jump statement, so the pattern " +
+        "after it was read as division and the source after that deleted" },
+    { role: "continue label", words: LABEL_WORDS,
+      build: function (kw) {
+        return kw + ": while (x) { continue " + kw + "\n/[/*]/.test(x); var after = 1; }";
+      },
+      why: "is a LABEL after `continue`, which ends the jump statement, so the pattern " +
+        "after it was read as division and the source after that deleted" },
+    { role: "property", words: RESERVED.concat(["get", "set", "async", "plain"]),
+      build: function (kw) {
+        return "var o = {}; var q = o." + kw + " / 2; /* note */ var after = 1;";
+      },
+      why: "is a PROPERTY NAME after a dot, which is a value, so the division after it " +
+        "was read as opening a pattern and the comment after that survived as code" },
+  ];
+  WORD_ROLE_FORMS.forEach(function (form) {
+    var exercisedHere = 0;
+    form.words.forEach(function (kw) {
+      var body = form.build(kw);
+      var fixture = "function probe(x) { " + body + " }";
+      if (!parses(fixture, "role-" + form.role + "-" + kw)) return;   // not valid there
+      exercisedHere += 1;
+      var stripped = _stripComments(fixture);
+      if (parses(stripped, "role-" + form.role + "-" + kw) &&
+          /var after = 1/.test(stripped) && !/note/.test(stripped)) return;
+      keywordHits.push({
+        file: "test/helpers/_shape-match.js", line: 1,
+        content: "`" + kw + "` " + form.why + " — a word's role is decided by what " +
+          "precedes it, not by the word alone",
+      });
+    });
+    if (exercisedHere < 5) {
+      keywordHits.push({
+        file: "test/layer-0-primitives/codebase-patterns.test.js", line: 1,
+        content: "the " + form.role + " sweep exercised only " + exercisedHere +
+          " words that form valid source — the fixture template stopped parsing, so " +
+          "it is passing because every case was skipped",
+      });
+    }
+  });
+
+  // A block comment can be the only thing SEPARATING two tokens. Removing it
+  // outright fuses them — `key/* note */in obj` becomes `keyin obj`, a
+  // different program — and the parse check is where that shows up, since the
+  // fused form is a syntax error rather than a subtly different match.
+  var SEPARATOR_FORMS = [
+    "var r = key/* note */in obj; var after = 1; return after;",
+    "var r = typeof/* note */x; var after = 1; return after;",
+    "var r = 1/* note */+ 2; var after = 1; return after;",
+    "var r = a/* note */.b; var after = 1; return after;",
+    "var r = a +/* note */+key; var after = 1; return after;",
+    "var r = a -/* note */-key; var after = 1; return after;",
+  ];
+  SEPARATOR_FORMS.forEach(function (form) {
+    var fixture = "function probe(x, key, obj, a) { " + form + " }";
+    if (!parses(fixture, "sep-" + form)) {
+      keywordHits.push({
+        file: "test/layer-0-primitives/codebase-patterns.test.js", line: 1,
+        content: "separator form `" + form + "` is not valid source, so it asserts " +
+          "nothing — fix the fixture rather than leaving a case that cannot fail",
+      });
+      return;
+    }
+    var stripped = _stripComments(fixture);
+    if (parses(stripped, "sep-" + form) && /var after = 1/.test(stripped)) return;
+    keywordHits.push({
+      file: "test/helpers/_shape-match.js", line: 1,
+      content: "removing the block comment in `" + form + "` fused the tokens on either " +
+        "side into one, which is a different program — a comment that separates two " +
+        "words has to leave a separator behind",
+    });
+  });
+
+  BODY_FORMS.forEach(function (form) {
+    var fixture = "function probe(x, o, a) { " + form + " " +
+      "/[/*]/.test(x); var after = 1; return after; }";
+    if (!parses(fixture, "body-" + form)) {
+      keywordHits.push({
+        file: "test/layer-0-primitives/codebase-patterns.test.js", line: 1,
+        content: "body form `" + form + "` is not valid source, so it asserts nothing — " +
+          "fix the fixture rather than leaving a case that cannot fail",
+      });
+      return;
+    }
+    var stripped = _stripComments(fixture);
+    if (parses(stripped, "body-" + form) && /var after = 1/.test(stripped)) return;
+    keywordHits.push({
+      file: "test/helpers/_shape-match.js", line: 1,
+      content: "a pattern statement after `" + form + "` is read as division, so the `/*` " +
+        "inside it opens a phantom comment and the source after it is deleted — the " +
+        "brace opening that body is being classified as an object literal, so its " +
+        "closing brace reads as a value",
+    });
+  });
+  hits = hits.concat(keywordHits);
+
+  _report("stripping comments never changes whether a file parses", hits);
 }
 
 // ---- Pattern 8c: integration files must report a non-zero check count ----
@@ -2707,7 +3305,10 @@ function testOperatorRegexScreenedForReDoS() {
     catch (_e) { continue; }
     if (!/instanceof RegExp/.test(content)) continue;             // accepts an operator RegExp opt
     if (!/\.(?:test|exec|match)\s*\(/.test(content)) continue;    // and executes a regex
-    if (/\bassertSafe\s*\(/.test(content)) continue;              // already ReDoS-screened
+    // Comment-stripped: `assertSafe(` means this file SCREENED its regex, and
+    // a mention of it in a comment would otherwise exempt the file from the
+    // ReDoS gate while doing nothing of the kind.
+    if (/\bassertSafe\s*\(/.test(_stripComments(content))) continue;
     var lines = content.split(/\r?\n/);
     for (var li = 0; li < lines.length; li++) {
       if (/instanceof RegExp/.test(lines[li])) {
@@ -2741,7 +3342,8 @@ function testModuleLoadListMatchesNativeModuleNaming() {
     try { content = fs.readFileSync(files[fi], "utf8"); }
     catch (_e) { continue; }
     if (!/moduleLoadList/.test(content)) continue;
-    if (/NativeModule/.test(content)) continue;            // matches the Node 20+ form
+    // Comment-stripped — an exemption named in a comment is not an exemption.
+    if (/NativeModule/.test(_stripComments(content))) continue;   // the Node 20+ form
     var lines = content.split(/\r?\n/);
     for (var li = 0; li < lines.length; li++) {
       if (/moduleLoadList/.test(lines[li])) {
@@ -2796,7 +3398,8 @@ function testCompetingConsumerClaimUsesSkipLocked() {
     var selectsPending = /status\s*=\s*'pending'/.test(content)
       || /\.where\(\s*["']status["']\s*,\s*["']pending["']/.test(content);
     if (!selectsPending) continue;
-    if (/skipLocked|SKIP LOCKED/.test(content)) continue;     // competing-consumer safe
+    // Comment-stripped — an exemption named in a comment is not an exemption.
+    if (/skipLocked|SKIP LOCKED/.test(_stripComments(content))) continue;
     var lines = content.split(/\r?\n/);
     for (var li = 0; li < lines.length; li++) {
       if (/status:\s*["']in-?flight["']|["']status["']\s*,\s*["']in-?flight["']/.test(lines[li])) {
@@ -2839,7 +3442,8 @@ function testCacheCounterUsesAtomicUpdate() {
     try { content = fs.readFileSync(files[fi], "utf8"); } catch (_e) { continue; }
     if (!/\bcache\.get\s*\(/.test(content)) continue;
     if (!/\bcache\.set\s*\(/.test(content)) continue;
-    if (/\bcache\.update\s*\(/.test(content)) continue;     // already atomic
+    // Comment-stripped — an exemption named in a comment is not an exemption.
+    if (/\bcache\.update\s*\(/.test(_stripComments(content))) continue;   // atomic
     var lines = content.split(/\r?\n/);
     for (var li = 0; li < lines.length; li++) {
       if (/\bcache\.set\s*\(/.test(lines[li])) {
@@ -2874,7 +3478,8 @@ function testRegistryCheckThenCreateSerialized() {
     if (!/\/duplicate["']/.test(content)) continue;             // throws a duplicate error
     if (!/backend\.get\s*\(/.test(content)) continue;           // the check
     if (!/backend\.set\s*\(/.test(content)) continue;           // the create
-    if (/keyedSerializer|registrySerializer/.test(content)) continue;  // serialized per key
+    // Comment-stripped — an exemption named in a comment is not an exemption.
+    if (/keyedSerializer|registrySerializer/.test(_stripComments(content))) continue;
     var lines = content.split(/\r?\n/);
     for (var li = 0; li < lines.length; li++) {
       if (/\/duplicate["']/.test(lines[li])) {
@@ -3274,8 +3879,12 @@ function testClockSkewOptsAreFiniteGuarded() {
         if (guardRe.test(lines[w])) { guarded = true; break; }
       }
       if (guarded) continue;
-      // (c) the opt is validated at create() via a non-negative-finite validateOpts schema.
-      if (new RegExp("\\b" + opt + "\\b\\s*:\\s*\"optional-non-negative").test(content)) continue;
+      // (c) the opt is validated at create() via a non-negative-finite
+      // validateOpts schema. Comment-stripped: the schema entry EXISTING is
+      // what exempts the opt, and one written in a comment does not validate
+      // anything.
+      if (new RegExp("\\b" + opt + "\\b\\s*:\\s*\"optional-non-negative")
+            .test(_stripComments(content))) continue;
       bad.push({
         file:    rel,
         line:    li + 1,
@@ -3687,8 +4296,9 @@ function testNoHandrolledBufferCollect() {
     catch (_e) { continue; }
     if (!/Buffer\.concat\s*\(\s*\w*chunks?\b/.test(content)) continue;
     if (!/var\s+\w*chunks?\s*=\s*\[\s*\]/.test(content)) continue;
-    // Skip editable-buffer patterns (push + pop in same file).
-    if (/\bchunks?\s*\.\s*pop\s*\(/.test(content)) continue;
+    // Skip editable-buffer patterns (push + pop in same file). Comment-stripped
+    // — an exemption named in a comment is not an exemption.
+    if (/\bchunks?\s*\.\s*pop\s*\(/.test(_stripComments(content))) continue;
     var lines = content.split(/\r?\n/);
     for (var li = 0; li < lines.length; li++) {
       // Skip JSDoc / block-comment continuation lines — operator-facing
@@ -4390,6 +5000,26 @@ async function testNoDuplicateCodeBlocks() {
       ],
     },
     {
+      // validateOpts.shape SCHEMA LITERALS — the extraction already happened.
+      // What repeats is a run of `<field>: { rule: "<token>", code: "<code>" }`
+      // entries, which is the call syntax of the shared primitive rather than
+      // shared behaviour: cloud-events.wrap declares CloudEvents §3 context
+      // attributes, fdx.consentReceipt declares FDX consent-receipt fields, and
+      // time.monotonicClock declares a clock's source / drift / label opts. The
+      // fields differ, the rules differ, and every code is namespaced to its own
+      // primitive. Collapsing them would mean one schema for three unrelated
+      // specs. Reaching for a hand-rolled `if (typeof x !== ...)` preamble
+      // instead is what the dup detector originally fired on and what
+      // validateOpts.shape exists to end, so the allowlist has to end here
+      // rather than push callers back off the primitive.
+      mode:  "family-subset",
+      files: [
+        "lib/cloud-events.js:wrap",
+        "lib/fdx.js:consentReceipt",
+        "lib/time.js:monotonicClock",
+      ],
+    },
+    {
       // Own-property lookup guard — a JS language idiom, not shared behaviour.
       // `if (!Object.prototype.hasOwnProperty.call(TABLE, key)) throw XError(
       // code, msg + key); var v = TABLE[key];` is the framework's canonical way
@@ -4589,6 +5219,7 @@ async function testNoDuplicateCodeBlocks() {
         "lib/guard-agent-registry.js:<top>",
         "lib/guard-archive.js:<top>",
         "lib/guard-cidr.js:<top>",
+        "lib/guard-country.js:<top>",
         "lib/guard-domain.js:<top>",
         "lib/guard-email.js:<top>",
         "lib/guard-event-bus-topic.js:<top>",
@@ -4617,13 +5248,14 @@ async function testNoDuplicateCodeBlocks() {
     },
     {
       // Per-guard PROFILES threat-policy tables — shape-only after the one
-      // genuine invariant was extracted. The 12 identifier guards' strict /
+      // genuine invariant was extracted. The 13 identifier guards' strict /
       // balanced / permissive tiers share a STRUCTURE (a run of
       // `<axis>: "<disposition>"` policy lines, then `maxBytes` + `maxRuntimeMs`,
       // then the next tier) but the CONTENT is per-guard security config:
       // the threat axes diverge entirely (guard-domain ldhPolicy / punycodePolicy /
       // dgaPolicy / mixedScriptPolicy vs guard-cidr networkAlignmentPolicy /
-      // reservedRangesPolicy vs guard-jwt's own set), and `maxBytes` is per-guard
+      // reservedRangesPolicy vs guard-country reservedPolicy / userAssignedPolicy /
+      // formerlyUsedPolicy vs guard-jwt's own set), and `maxBytes` is per-guard
       // (64 B … 512 KiB). The only byte-identical invariant — the four char-threat
       // axes all "reject" — is already extracted to gateContract.CHAR_THREATS_REJECT_ALL
       // (its own, now-cleared fingerprint). `maxRuntimeMs: C.TIME.seconds(2)` is
@@ -4632,6 +5264,7 @@ async function testNoDuplicateCodeBlocks() {
       mode:  "family-subset",
       files: [
         "lib/guard-cidr.js:_ipv4ToUint32",
+        "lib/guard-country.js:<top>",
         "lib/guard-domain.js:_shannonEntropy",
         "lib/guard-graphql.js:<top>",
         "lib/guard-jsonpath.js:<top>",
@@ -6286,8 +6919,20 @@ async function testNoDuplicateCodeBlocks() {
       // operators vs regex ReDoS shapes vs shell metacharacters vs template
       // injection vs XML XXE vs YAML anchors. Templating the bodies would couple
       // unrelated security grammars; only the push-with-severity shape coincides.
+      //
+      // guard-auth's _detectIssues and guard-regex's _detectNestedExtglob joined
+      // when four identical `_sanitizeTransform` bodies were replaced by the
+      // shared gateContract.identitySanitize. Removing those lines moved the
+      // shingle window forward onto the detection bodies, which is where this
+      // class already sits — the pairing is the same coincidence of push-with-
+      // severity shape over an auth-bundle grammar, a GraphQL request grammar,
+      // an OAuth parameter grammar and a glob grammar. They are allowlisted
+      // here rather than under the sanitize class, because those four bodies
+      // WERE byte-identical and were extracted instead of excused.
       mode:  "family-subset",
       files: [
+        "lib/guard-auth.js:_detectIssues",
+        "lib/guard-regex.js:_detectNestedExtglob",
         "lib/guard-cidr.js:_detectIssues",
         "lib/guard-email.js:_detectAddressIssues",
         "lib/guard-email.js:_detectMessageIssues",
@@ -8725,9 +9370,9 @@ var KNOWN_ANTIPATTERNS = [
     id: "defineguard-defaultgate-skips-profile-posture-resolution",
     primitive: "defineGuard's defaultGate must resolve profile + posture (resolveProfileAndPosture) before passing opts to buildGuardGate — otherwise the gate reads forensicSnippetBytes / maxRuntimeMs from RAW opts, dropping the profile's runtime cap and the posture's forensic-snippet cap",
     scanScope: "lib",
-    regex: /function defaultGate\s*\([^)]*\)\s*\{(?:(?!resolveProfileAndPosture)[\s\S]){0,2000}?return buildGuardGate/,
+    regex: /function defaultGate\s*\([^)]*\)\s*\{(?:(?!resolveProfileAndPosture|_resolveGuardOpts)[\s\S]){0,2000}?return buildGuardGate/,
     allowlist: [],
-    reason: "#109 — defineGuard's defaultGate passed RAW opts straight to buildGuardGate, which reads opts.forensicSnippetBytes / opts.maxRuntimeMs directly. Those caps live in the resolved PROFILE (maxRuntimeMs) and POSTURE (forensicSnippetBytes), not the raw caller opts — so gate({ compliancePosture: \"hipaa\" }) dropped the 128-byte forensic cap to 0 (forensic snapshots disabled on a regulated-posture refusal) and dropped the profile's runtime cap to uncapped. The hand-written gates call resolveProfileAndPosture(opts, ...) first; the default gate must too. The span anchors on the single defaultGate and fires if its body reaches `return buildGuardGate` without a resolveProfileAndPosture call; the {0,2000} bound is a ReDoS backstop above the ~700-char body.",
+    reason: "#109 — defineGuard's defaultGate passed RAW opts straight to buildGuardGate, which reads opts.forensicSnippetBytes / opts.maxRuntimeMs directly. Those caps live in the resolved PROFILE (maxRuntimeMs) and POSTURE (forensicSnippetBytes), not the raw caller opts — so gate({ compliancePosture: \"hipaa\" }) dropped the 128-byte forensic cap to 0 (forensic snapshots disabled on a regulated-posture refusal) and dropped the profile's runtime cap to uncapped. The hand-written gates call resolveProfileAndPosture(opts, ...) first; the default gate must too. The span anchors on the single defaultGate and fires if its body reaches `return buildGuardGate` without resolving; the {0,2000} bound is a ReDoS backstop above the ~700-char body. `_resolveGuardOpts` counts as resolving and is now the PREFERRED shape: it is defineGuard's own binder, so it calls resolveProfileAndPosture AND carries the guard's cap and vocabulary lists — the inline copy this detector originally described carried neither, which let gate() accept a malformed limit or a misspelled policy that validate() refused. Accepting only the literal call would have pushed the code back to the weaker of the two.",
   },
   // #129 — session.rotate must re-key the sid-bound device fingerprint.
   {
@@ -12163,6 +12808,26 @@ var KNOWN_ANTIPATTERNS = [
     reason: "0.18.21 — the same drain was copied into 31 test files, differing only in the label except for two that quietly differed in substance: one also waited for UDPWrap and swallowed its own timeout in a catch, which is what hid a real per-query datagram-socket leak in the NTS and NTP clients, and one also waited for FSReqCallback, so consolidating on the majority shape would have dropped an in-flight file read from the static suite's check. The shared list is the UNION for that reason — anything that keeps the worker alive past run() belongs in it, and which file happened to need which type is an accident. The 5s budget was a latency guess rather than a leak verdict, and the failure identified nothing, so a timeout under SMOKE_PARALLEL=64 was unattributable: measurement put the real cost at 25-28ms both idle and with 64 network-heavy copies running at once on 32 cores. helpers.drainOpenHandles(label) holds one ceiling set as a leak verdict and names the surviving handles with addresses and states, or says why none is reachable. Anchored on a waitUntil whose body names TCPSocketWrap and tempered so it cannot cross a function-closing brace at column 0; the helper's own wait reads a named predicate instead, so it needs no allowlist. Fires on any re-hand-rolled drain; silent on the whole migrated tree.",
   },
   {
+    // Having ONE drain made the next defect visible: where it is CALLED FROM.
+    // `try { ...tests... } finally { await drain() }` reads as correct and is
+    // not. When the body throws, every teardown after the throw is skipped, so
+    // the drain finds the servers those teardowns would have closed and throws
+    // too — and a throw from a `finally` REPLACES the body's error. What
+    // surfaces is "a handle leaked", which is the consequence; the check that
+    // actually failed is discarded, which is why this class reads as an
+    // unexplained flake. helpers.withDrain(label, body, teardown?) runs the same
+    // drain with the body's error winning and the others appended to it.
+    // Structural — every copy behaves identically until the day a test fails
+    // inside one, which is the day the diagnostic is needed and gone.
+    id: "test-masking-finally-around-handle-drain",
+    primitive: "a handle drain at the end of a run must go through helpers.withDrain(label, body, teardown?) — a `finally` that drains replaces the body's error with its own, so the check that failed is lost and the leak its skipped teardown caused is all that gets reported",
+    scanScope: "test",
+    regex: /\bfinally\s*\{(?:(?!\n\})[\s\S]){0,400}?\w*drainOpenHandles\s*\(/,
+    skipCommentLines: true,
+    allowlist: [],
+    reason: "0.18.46 — 30 files ran their tests inside a `try` whose `finally` drained, so a failing check was reported as a handle leak. Two spellings, and the second is why the first count was wrong: 24 called helpers.drainOpenHandles directly, and 6 (network-dns, static, ws-client, tls-exporter, testing-request, mail-server-jmap) called a local `_drainOpenHandles` wrapper that does file-specific teardown — destroying the global agent, closing websocket clients and their detached sockets, resetting module state — before delegating to the shared drain. Those six are not hand-rolled drains and not an exemption; they are the WORSE instance, doing more throwable work in the `finally` and so having more ways to replace the failure. withDrain took an optional pre-drain teardown rather than the six taking an exception, so the wrapper's work runs inside the structure that preserves the error. Anchored on the `finally` + drain pair, tempered so it cannot cross a function-closing brace at column 0, and matching `\\w*drainOpenHandles` because a bare word boundary misses `_drainOpenHandles` — which is exactly how those six went uncounted. The {0,400} is a ReDoS backstop far above any real `finally` body, not the precision mechanism. The helper's own drain call sits in a try/catch, not a finally, so it needs no allowlist entry.",
+  },
+  {
     // A test that asserts a raw ECDSA signature's first byte is NOT 0x30 (the
     // DER SEQUENCE tag) to prove "this is raw, not DER" is NONDETERMINISTIC: the
     // first byte of an IEEE-P1363 r||s signature is r's high octet, which equals
@@ -13433,8 +14098,10 @@ function testTenantScopeShapeValidated() {
     if (!/try\s*\{[\s\S]{0,200}tenantScope\.check\s*\(/.test(content)) continue;
     // Acceptable: the file validates `typeof opts.tenantScope.check`
     // at create() time.
-    if (/typeof\s+opts\.tenantScope\.check\s*!==\s*["']function["']/.test(content)) continue;
-    if (/typeof\s+tenantScope\.check\s*!==\s*["']function["']/.test(content)) continue;
+    // Comment-stripped — an exemption named in a comment is not an exemption.
+    var _code = _stripComments(content);
+    if (/typeof\s+opts\.tenantScope\.check\s*!==\s*["']function["']/.test(_code)) continue;
+    if (/typeof\s+tenantScope\.check\s*!==\s*["']function["']/.test(_code)) continue;
     var m = content.match(/opts\.tenantScope/);
     var lineNum = content.slice(0, m.index).split("\n").length;
     bad.push({
@@ -13667,7 +14334,9 @@ function testScopedContextBindingUsed() {
     for (var ci = 0; ci < captures.length; ci++) {
       var name = captures[ci];
       var useRe = new RegExp("\\b" + name + "\\b\\s*(?:!==|===|!=|==|\\.localeCompare\\b)|(?:!==|===|!=|==)\\s*" + name + "\\b");
-      if (useRe.test(content)) continue;
+      // Comment-stripped: the capture being USED is what exempts it, and a use
+      // shown in a comment is not a use.
+      if (useRe.test(_stripComments(content))) continue;
       var lines = content.split(/\r?\n/);
       var hitLine = 0;
       for (var li2 = 0; li2 < lines.length; li2++) {
@@ -15490,6 +16159,51 @@ function testResidencyGatesWired() {
   check("external-db wires the row residency gate on query AND transaction", extCalls >= 2);
   check("external-db replica reads honor the row tag",
         edb.indexOf("REPLICA_RESIDENCY_INCOMPATIBLE") !== -1);
+}
+
+// The Keycloak realm fixture is imported at container start, and a single
+// value too long for its column aborts the WHOLE import — Keycloak then
+// refuses to start, and federation-auth.test.js has no OP to talk to.
+//
+// That failure is invisible until someone recreates the container: a realm
+// edited today keeps working against a container that imported an OLDER file,
+// so the federation gate goes on reporting green while the fixture that
+// defines it can no longer be loaded. It stayed broken that way until a
+// `docker compose down` destroyed the container and the import ran fresh.
+//
+// Keycloak's schema gives these columns VARCHAR(255).
+var KEYCLOAK_REALM_COLUMN_LIMITS = {
+  description: 255, name: 255, clientId: 255,
+  rootUrl: 255, baseUrl: 255, adminUrl: 255,
+};
+
+function testKeycloakRealmFitsItsColumns() {
+  var realm;
+  try { realm = JSON.parse(fs.readFileSync("docker/keycloak/realm-blamejs-test.json", "utf8")); }
+  catch (_e) { return; }
+
+  var tooLong = [];
+  (function walk(node, trail) {
+    if (node === null || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      for (var i = 0; i < node.length; i += 1) walk(node[i], trail + "[" + i + "]");
+      return;
+    }
+    Object.keys(node).forEach(function (k) {
+      var v = node[k];
+      if (typeof v === "string" &&
+          Object.prototype.hasOwnProperty.call(KEYCLOAK_REALM_COLUMN_LIMITS, k) &&
+          v.length > KEYCLOAK_REALM_COLUMN_LIMITS[k]) {
+        tooLong.push(trail + "." + k + " (" + v.length + " > " +
+                     KEYCLOAK_REALM_COLUMN_LIMITS[k] + ")");
+      }
+      walk(v, trail + "." + k);
+    });
+  })(realm, "realm");
+
+  check("keycloak realm: no value exceeds its column width" +
+        (tooLong.length ? " — " + tooLong.join("; ") : ""),
+        tooLong.length === 0);
 }
 
 function testWikiPortAgreesAcrossArtifacts() {
@@ -17323,10 +18037,31 @@ function testKnownAntipatterns() {
       // Companion `requires` check — if the same file content names
       // the companion shape, the discipline is satisfied even though
       // the antipattern regex matched (e.g. gunzip + maxOutputLength
-      // in the same file = bounded decompression). Test against
-      // ORIGINAL content (not the comment-stripped subject) so the
-      // companion can appear anywhere in the file.
-      if (ap.requires && ap.requires.test(content)) continue;
+      // in the same file = bounded decompression). Tested against the
+      // WHOLE file rather than the matched span, so the companion can
+      // appear anywhere in it.
+      //
+      // Two KINDS of companion, and they read different sources.
+      //
+      // A companion in CODE (`maxOutputLength`, `ssrfGuard.classify`)
+      // exempts the file because it is THERE doing the work, so it is
+      // matched against comment-stripped source — one named in a comment
+      // bounds nothing. A declared `allow:<class>` marker is the opposite:
+      // it is a registered suppression and is WRITTEN in a comment by
+      // design, so it is matched against the raw source, and only the
+      // marker alternative is.
+      //
+      // Reading the whole `requires` off raw source would let a code
+      // companion be satisfied from a comment; reading it all off stripped
+      // source would delete the fifteen registered allow markers. Neither
+      // is right for both.
+      var _apCode = _stripComments(content);
+      var _apExempt = ap.requires ? ap.requires.test(_apCode) : false;
+      if (ap.requires && !_apExempt) {
+        var _markers = ap.requires.source.match(/allow:[A-Za-z0-9._-]+/g) || [];
+        _apExempt = _markers.some(function (mk) { return content.indexOf(mk) !== -1; });
+      }
+      if (ap.requires && _apExempt) continue;
       // Compute line number from match index against subject — but
       // subject preserves newlines so line numbers stay accurate.
       var lineNum = subject.slice(0, m.index).split(/\r?\n/).length;
@@ -17705,7 +18440,9 @@ function testDenyPathComposesDenyResponse() {
     if (NOT_DENY_PATH[rel]) continue;
     var src = fs.readFileSync(path.join(MW_ROOT, files[i]), "utf8");
     if (!denyStatusRe.test(src)) continue;       // doesn't write a deny status
-    if (composesRe.test(src)) continue;          // routes through the helper
+    // Comment-stripped — routing through the helper is what exempts the file,
+    // and a mention of the helper in a comment is not routing through it.
+    if (composesRe.test(_stripComments(src))) continue;
     var lines = src.split("\n");
     var ln = 1;
     for (var L = 0; L < lines.length; L += 1) {
@@ -18057,7 +18794,9 @@ async function run() {
   testNoStaleDefers();
   testNoLiteralNulBytesInSource();
   testParserPrimitivesHaveFuzzHarness();
+  testExemptingSkipGuardsReadStrippedSource();
   testCommentStripHelper();
+  testCommentStripPreservesParseability();
   testTimingSafeCompareInLoopBody();
   testIntegrationFilesReportCheckCounts();
   testSafeGuardWiredInIndex();
@@ -18214,6 +18953,7 @@ async function run() {
   // v0.11.44 wiki-port cross-artifact detector: the Dockerfile's
   // WIKI_PORT default must match the release-container.yml smoke
   // step's port mapping + curl host.
+  testKeycloakRealmFitsItsColumns();
   testWikiPortAgreesAcrossArtifacts();
   testReleasePushPathsRunLiveIntegration();
   testReleaseUnresolvedThreadsFailClosedAtPageCap();

@@ -1,25 +1,18 @@
 /**
- * API payload encryption middleware.
+ * Payload encryption for cookie-authenticated sessions: a per-session
+ * XChaCha20-Poly1305 key, sealed at rest, that decrypts incoming JSON bodies
+ * and encrypts outgoing ones through a wrapped res.json.
  *
- * - Generates a per-session XChaCha20-Poly1305 key (vault-sealed at rest)
- * - Decrypts incoming JSON POST bodies ({_e: "encrypted"})
- * - Wraps res.json() to encrypt outgoing responses
- * - Rejects requests with stale timestamps (anti-replay)
- * - Skips encryption for non-JSON routes (HTML pages, file downloads)
+ * No session key ever goes in a response body, wrapped or otherwise. Browsers
+ * receive it embedded in the page template over TLS; an API-key client bypasses
+ * this layer and takes its payload protection from the framework's own
+ * ML-KEM-1024 exchange against the server's published public key.
  *
- * No session key is ever placed in a response body, wrapped or otherwise.
- * Browser clients receive it via template embedding (res._apiKey) over TLS;
- * clients authenticating with an API key bypass this layer entirely and take
- * their payload protection from the framework's encrypted wrapper, which runs
- * its own ML-KEM-1024 exchange against the server's published public key.
- *
- * A hybrid ECIES wrap used to ride along on the first response to an mTLS
- * client, deriving a wrapping key from ML-KEM-1024 encapsulation plus ECDH
- * against the P-384 key in the peer's certificate. Certificates are now
- * post-quantum and carry a signature key with no ECDH counterpart, so that
- * wrap could no longer be computed; the ECDH leg was also the only thing
- * binding the wrap to the authenticated peer rather than to whatever key a
- * caller put in a header, so there was nothing to fall back to.
+ * Do not reintroduce a key wrap here. The hybrid ECIES wrap that once rode
+ * along on the first response to an mTLS client cannot be computed against a
+ * post-quantum certificate, which carries a signature key with no ECDH
+ * counterpart — and that ECDH leg was the only thing binding the wrap to the
+ * authenticated peer rather than to whatever key a caller named in a header.
  */
 var b = require("../lib/vendor/blamejs");
 var vault = require("../lib/vault");
@@ -27,39 +20,27 @@ var config = require("../lib/config");
 var { encryptPayload, decryptPayload, generateApiKey, FUTURE_SKEW_MS } = require("../lib/api-crypto");
 var replayNonce = require("../lib/replay-nonce");
 
-var REPLAY_WINDOW = 30000; // 30 seconds
-// The single-use nonce must outlive the maximum inner-AEAD freshness lifetime.
-// A freshly-stamped `_t` may lead server time by up to FUTURE_SKEW_MS, so the
-// freshness window stays open until receiveTime + REPLAY_WINDOW + FUTURE_SKEW_MS.
-// Claiming the nonce for only REPLAY_WINDOW would let it expire ~FUTURE_SKEW_MS
-// before that ceiling, re-opening an in-window replay gap. Bind the two values
-// to one constant (FUTURE_SKEW_MS from lib/api-crypto) so the future-skew
-// tolerance and the nonce TTL can never drift apart.
+var REPLAY_WINDOW = 30000;
+// The single-use nonce has to outlive the freshness window, which stays open
+// until receiveTime + REPLAY_WINDOW + FUTURE_SKEW_MS because a fresh `_t` may
+// lead server time. A nonce expiring earlier would re-open an in-window replay.
 var NONCE_TTL = REPLAY_WINDOW + FUTURE_SKEW_MS;
 
 module.exports = function apiEncrypt(req, res, next) {
-  // Ensure session has an API encryption key (vault-sealed for PQC at rest)
   if (!req.session.apiKey) {
     req.session.apiKey = vault.seal(generateApiKey());
   }
 
-  // Unseal the key for this request's crypto operations
   var apiKey = vault.unseal(req.session.apiKey);
 
-  // Expose plaintext key to send() middleware for template embedding (browser clients)
+  // send() reads this to embed the key in the page template.
   res._apiKey = apiKey;
 
-  // Bearer-authenticated clients (sync, API key holders) bypass the
-  // legacy `_e/_t` envelope. The session apiKey above is cookie-bound,
-  // and a Bearer client has no way to learn it — so wrapping a body
-  // with it would be dead-end ciphertext for them. Bearer auth
-  // implies mTLS + API-key transport security; encryption-grade JSON
-  // payloads route through blamejs apiEncrypt instead. Bypass here
-  // means: no body interception, no res.json wrap. Browser cookie-
-  // auth flows (no req.apiKey) continue with legacy encryption.
+  // The session key is cookie-bound, so a Bearer client has no way to learn it
+  // and a body wrapped with it would be ciphertext it can never open. Those
+  // clients take their payload protection from the framework layer instead.
   if (req.apiKey) return next();
 
-  // Decrypt incoming JSON body if encrypted
   if (req.method === "POST") {
     var contentType = req.headers["content-type"] || "";
     if (contentType.includes("application/json")) {
@@ -85,18 +66,14 @@ module.exports = function apiEncrypt(req, res, next) {
           collector.push(c);
         } catch (_e) {
           aborted = true;
-          // res.json (wrapped below) encrypts on this cookie session. Emit the
-          // rejection through it so the body isn't shipped cleartext via
-          // res.end. A throw here would escape the request-stream callback as
-          // an uncaughtException — it never reaches the route error boundary —
-          // so write directly, mirroring the wrapped res.json error path.
+          // Written directly rather than thrown: a throw from a request-stream
+          // callback becomes an uncaughtException and never reaches the route
+          // error boundary. It goes through the wrapped res.json so the body
+          // stays encrypted.
           //
-          // Deliver the 413 BEFORE tearing down the stream: req.destroy() takes
-          // the shared socket down with it, so destroying first would make this
-          // res.json write land on a dead socket and the client would see an
-          // ECONNRESET instead of the encrypted 413. Send the response, then
-          // stop consuming the oversized upload once the response has flushed
-          // (the aborted guard already drops any further chunks meanwhile).
+          // The response must flush before req.destroy(), which takes the
+          // shared socket with it — destroying first would turn the 413 into an
+          // ECONNRESET.
           res.statusCode = 413;
           res.setHeader("Cache-Control", "no-store");
           res.json({
@@ -113,34 +90,22 @@ module.exports = function apiEncrypt(req, res, next) {
       origOn("end", async function () {
         if (aborted) return;
         var raw = collector.result().toString();
-        // b.safeJson.parseOrDefault — bounded depth + key-count + null-
-        // prototype output object that defends against __proto__ /
-        // constructor / prototype keys polluting the chain before
-        // downstream property reads. Pass maxBytes=MAX_JSON_BODY so
-        // vault uploads (which legitimately exceed safeJson's 16 MiB
-        // default) parse — the stream-side cap above already refuses
-        // bodies larger than MAX_JSON_BODY before they reach here.
+        // maxBytes is raised to match the stream cap above, so a vault upload
+        // exceeding safeJson's own default still parses.
         var body = b.safeJson.parseOrDefault(raw, null, { maxBytes: MAX_JSON_BODY });
 
         if (body && body._e) {
           try {
             var decrypted = decryptPayload(body._e, apiKey, REPLAY_WINDOW, MAX_JSON_BODY);
             if (decrypted === null || decrypted === undefined) throw new Error("Invalid payload");
-            // Atomic single-use claim of the exact envelope bytes. A replayed
-            // request re-sends a byte-identical _e (the XChaCha20 nonce lives
-            // inside the ciphertext), so claiming sha3(_e) within the staleness
-            // window refuses an in-window replay — the _t timestamp check alone
-            // admits unlimited replays for the whole 30s window (CWE-367). The
-            // TTL is REPLAY_WINDOW + FUTURE_SKEW_MS (not just REPLAY_WINDOW) so
-            // the nonce outlives a future-dated _t's freshness ceiling.
+            // A replay re-sends byte-identical `_e`, so claiming it once
+            // refuses one. The `_t` check alone admits unlimited replays for
+            // the whole window (CWE-367).
             if (!(await replayNonce.claimOnce("apienc:" + body._e, NONCE_TTL))) {
               throw new Error("Replayed request");
             }
             raw = JSON.stringify(decrypted);
           } catch (_e) {
-            // Encrypted cookie session: route the rejection through the wrapped
-            // res.json (set below) so it isn't shipped cleartext via res.end.
-            // Emit directly — a throw escapes this request-stream callback.
             res.statusCode = 400;
             res.setHeader("Cache-Control", "no-store");
             res.json({
@@ -164,25 +129,20 @@ module.exports = function apiEncrypt(req, res, next) {
     }
   }
 
-  // Wrap res.json to encrypt outgoing responses
   var origJson = res.json;
   res.json = function (data) {
     var encrypted = encryptPayload(data, apiKey);
-    // The body carries the encrypted payload and its timestamp, and nothing
-    // else. In particular it carries no copy of the session key, wrapped to a
-    // peer certificate or otherwise — see the note at the top of this file.
+    // The payload and its timestamp, and nothing else — in particular no copy
+    // of the session key. See the note at the top of this file.
     var response = { _e: encrypted, _t: Date.now() };
 
     origJson.call(res, response);
   };
 
-  // Signal the centralized error handler that res.json on this (cookie-
-  // authenticated) session encrypts the body. The error handler must route
-  // problem-details through res.json rather than b.problemDetails' raw
-  // res.end — otherwise an error on a session the client established as
-  // encrypted ships its problem+json body in cleartext (and unauthenticated),
-  // which matters most where this layer is the only on-wire payload
-  // confidentiality (an HTTP-mode deployment with no fronting TLS).
+  // Tells the error handler to route problem documents through res.json rather
+  // than res.end, so an error on a session the client established as encrypted
+  // does not ship its body in cleartext. That is the whole of the on-wire
+  // payload confidentiality on a deployment with no TLS in front of it.
   res._apiEncryptJson = true;
 
   next();

@@ -330,6 +330,29 @@ case "$PKG" in
     fi
     echo "Snapshotted upstream patterns gate for $TAG ($(wc -c < "$PATTERNS_SNAPSHOT") bytes)"
 
+    # The gate stopped being a single file at 0.18.45, which moved its
+    # comment-stripping into a shared helper and imported it. Nothing here
+    # EXECUTES the snapshot — the advisory reads it as text — so a missing
+    # helper breaks nothing that runs. It still leaves a file in the tree that
+    # throws the moment anyone requires it, which is a trap for whoever tries.
+    # Fetch it from the same tag so the snapshot is coherent on its own terms.
+    PATTERNS_HELPER="tests/helpers/_shape-match.js"
+    PATTERNS_HELPER_URL="https://raw.githubusercontent.com/blamejs/blamejs/$TAG/test/helpers/_shape-match.js"
+    mkdir -p "$(dirname "$PATTERNS_HELPER")"
+    if curl -fsSL --retry 3 --max-time 60 "$PATTERNS_HELPER_URL" -o "$PATTERNS_HELPER"; then
+      echo "Snapshotted its shape-match helper ($(wc -c < "$PATTERNS_HELPER") bytes)"
+    else
+      # Older tags have no such helper, and the snapshot for those does not
+      # import one. Absence is only a problem if the snapshot asks for it.
+      rm -f "$PATTERNS_HELPER"
+      if grep -q '_shape-match' "$PATTERNS_SNAPSHOT"; then
+        echo "ERROR: the $TAG patterns gate imports the shape-match helper, which did not fetch."
+        echo "       URL: $PATTERNS_HELPER_URL"
+        exit 1
+      fi
+      echo "No shape-match helper at $TAG — the snapshot does not import one."
+    fi
+
     if [ ! -f "$DEST/package.json" ]; then
       echo "ERROR: extract failed — $DEST/package.json missing."
       exit 1

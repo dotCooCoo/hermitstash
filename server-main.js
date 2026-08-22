@@ -1,4 +1,3 @@
-// -- Core libs --
 var path = require("node:path");
 var fs = require("node:fs");
 
@@ -9,7 +8,6 @@ var fs = require("node:fs");
 // because it runs before (and in order to build) the config layer; config.js is
 // the canonical reader for everything downstream.
 
-// -- lib/ modules --
 var config = require("./lib/config");
 var C = require("./lib/constants");
 var { Router } = require("./lib/vendor/blamejs").router;
@@ -20,16 +18,12 @@ var storage = require("./lib/storage");
 var audit = require("./lib/audit");
 var clientIp = require("./lib/client-ip");
 var logger = require("./app/shared/logger");
-var { sendHtml } = require("./lib/template");
 var certUtils = require("./lib/cert-utils");
 var runtimeState = require("./lib/runtime-state");
 var mtlsCa = require("./lib/mtls-ca");
 
-// WebSocket upgrade — handshake handled by b.websocket.handleUpgrade,
-// which writes the 101 and returns a WebSocketConnection (or null on
-// handshake failure with the response already sent). rejectUpgrade is
-// for HS-side auth/scope failures that need to refuse BEFORE the
-// handshake completes; it writes a plain HTTP/1.1 response and closes.
+// For auth and scope failures that must refuse before the handshake completes.
+// A failure after that point is b.websocket.handleUpgrade's to report.
 function rejectUpgrade(socket, statusCode, message) {
   try {
     socket.write("HTTP/1.1 " + statusCode + " " + message + "\r\n\r\n");
@@ -39,21 +33,17 @@ function rejectUpgrade(socket, statusCode, message) {
 var syncEmitter = require("./lib/sync-emitter");
 var rateLimit = require("./lib/rate-limit");
 
-// -- vendored framework --
 var b = require("./lib/vendor/blamejs");
 var apiEncryptKeypair = require("./lib/api-encrypt-keypair");
 
-// Shared scheduler instance (b.scheduler.create() returns fresh per call,
-// so register-here-getStatus-from-routes/admin needs a shared module-
-// scoped instance). Created once at boot.
+// b.scheduler.create() returns a fresh instance per call, so jobs registered
+// here would be invisible to routes/admin's status view without a shared one.
 var scheduler = require("./lib/scheduler");
 
-// -- middleware/ --
 var { emitError } = require("./middleware/respond-error");
 var attachUser = require("./middleware/attach-user");
 var errorHandler = require("./middleware/error-handler");
 
-// -- app/ modules --
 var startupChecks = require("./app/bootstrap/startup-checks");
 var txHelper = require("./app/data/db/transaction");
 var originPolicy = require("./app/security/origin-policy");
@@ -70,28 +60,23 @@ var orphanCleanupJob = require("./app/jobs/orphan-cleanup.job");
 var certExpiryJob = require("./app/jobs/cert-expiry.job");
 var backupJob = require("./app/jobs/backup.job");
 
-// Allow res.redirect() to send users to Google's OAuth endpoint. Listed
-// explicitly per origin — wildcards aren't accepted, and HTTP origins
-// are refused at construction. Add other OAuth providers here when wired.
+// Every res.redirect() target must be listed here. Wildcards are not accepted
+// and an http:// origin is refused at construction.
 var app = new Router({
   allowedRedirectOrigins: ["https://accounts.google.com"],
 });
 
-// Ensure dirs
 var dataDir = C.DATA_DIR;
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-// storage.js creates the upload dir on require; ensure it exists for local backend
 if (config.storage.backend === "local") {
   if (!fs.existsSync(storage.uploadDir)) fs.mkdirSync(storage.uploadDir, { recursive: true });
 }
 
-// Startup invariant checks — warn on insecure config, exit on critical issues
 startupChecks.run();
 
-// Default admin account (first run only)
-// Generates a random initial password, logs it to stdout with a banner, and
-// writes it to <dataDir>/initial-admin-password.txt (0600) so it survives
-// restart. The file is deleted on setup-wizard completion.
+// The generated password is written to disk as well as logged, because a
+// container's first-boot output is often gone by the time anyone reads it.
+// The setup wizard deletes the file on completion.
 if (users.count({}) === 0 && config.localAuth) {
   var initialPassword = b.crypto.generateBytes(12).toString("base64").replace(/[+/=]/g, "").slice(0, 16);
   b.auth.password.hash(initialPassword).then(function (hash) {
@@ -118,34 +103,23 @@ if (users.count({}) === 0 && config.localAuth) {
   });
 }
 
-// Initialize transaction helper with SQLite instance
 txHelper.init(db.getDb ? db.getDb() : null);
 
-// Middleware
-// Pre-session middleware pipeline composed via b.middleware.composePipeline
-// (v0.9.43+). The entry array IS the order; the composer detects conflicts at
-// registration time (duplicate names / non-monotonic positions / canonical
-// mismatches) and emits a system.middleware.compose.pipeline_built audit at
-// boot. Canonical positions are documented in
-// lib/vendor/blamejs/lib/middleware/compose-pipeline.js — names matching
-// CANONICAL_POSITIONS get warning-on-mismatch; HS-specific names get an
-// explicit position number in the slot they belong to.
+// The array order is the pipeline order. A name the framework recognises picks
+// up its canonical position; anything HS-specific needs an explicit one, and
+// the composer refuses duplicates and out-of-order positions at boot.
 app.use(b.middleware.composePipeline([
   { name: "requestId",        mw: require("./middleware/request-id") },
-  // Web-guard runs early so we avoid any template/CSP/static processing for
-  // requests that will be dropped. No-op when config.enforceMtls is false
-  // (default), so existing deployments see zero behavior change.
+  // Early, so a request that will be dropped costs no template, CSP or static
+  // work. Does nothing unless config.enforceMtls is on.
   { name: "webGuard",         mw: require("./middleware/web-guard"),       position: 6 },
-  // Peer-gate the `tailscale serve` identity family to the loopback serve proxy
-  // and strip any forged copy from every other peer BEFORE any handler reads it
-  // (position 7: after webGuard, before securityHeaders/botGuard/routes). No-op
-  // (still strips defensively) when Tailscale is disabled. Sets
-  // req.tailscaleIdentity for the /auth/tailscale sign-in route.
+  // Strips the `tailscale serve` identity headers from every peer except the
+  // loopback serve proxy, and must run before anything can read a forged copy.
+  // Strips them even with Tailscale disabled.
   { name: "tailscaleIdentity", mw: require("./lib/tailscale").middleware, position: 7 },
   { name: "securityHeaders",  mw: require("./middleware/security-headers") },
-  // Restrictive CSP override for user-uploaded content (custom logos) —
-  // defense in depth against SVG XSS. Runs AFTER securityHeaders (position
-  // 25) so its broader CSP gets overwritten for the gated paths only.
+  // User-uploaded logos get a CSP of their own against SVG XSS. Runs after
+  // securityHeaders so it overwrites the broader policy on these paths only.
   { name: "uploadedAssetsCsp", mw: function (req, res, next) {
     if (req.pathname && (req.pathname.startsWith("/img/custom/") || req.pathname.startsWith("/img/stash/"))) {
       res.setHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'");
@@ -156,27 +130,16 @@ app.use(b.middleware.composePipeline([
   { name: "ipCheck",          mw: require("./middleware/ip-check"),         position: 27 },
   { name: "botGuard",         mw: require("./middleware/bot-guard") },
   { name: "cors",             mw: require("./middleware/cors"),              position: 44 },
-  // b.staticServe adds ETag/304 conditional handling + RFC 7233 Range over
-  // the curated build output in public/. contentSafety is disabled because
-  // this directory holds operator-controlled assets (CSS/JS bundles, fonts,
-  // brand-logo SVGs exported by the design toolchain with <style>/PI markers
-  // the strict guard refuses); the SVG-XSS surface is the user-uploaded
-  // logo dirs, gated separately by uploadedAssetsCsp + serveLogoFrom. Serves
-  // GET/HEAD, falls through with next() on miss/dir so the logo routes below
-  // still resolve.
+  // Falls through with next() on a miss, so the logo routes below still resolve.
   { name: "staticAssets",     mw: b.staticServe.create({
       root: path.join(__dirname, "public"),
       contentSafety: null,
       contentSafetyDisabledReason: "operator-curated public build output (css/js/fonts/brand-svg); no untrusted uploads served from this mount",
     }), position: 45 },
-  // Fail-closed tail (4-arg → error handler, canonical position 90). composePipeline
-  // catches an unexpected throw from an inner entry and re-emits it as next(err),
-  // but the outer router's next callback ignores the error argument — so WITHOUT
-  // this handler the composed Promise resolves cleanly and the request advances to
-  // the route handler with the entire security stack (ipCheck / securityHeaders /
-  // botGuard / cors) SKIPPED (fail-OPEN). This converts a propagated error into a
-  // 500 and ENDS the response, so the chain halts. Only runs on an error path; the
-  // normal flow never reaches it.
+  // Without this the pipeline fails OPEN: composePipeline re-emits an inner
+  // throw as next(err), the outer router's next ignores the error argument, and
+  // the request reaches its route handler with ipCheck, securityHeaders,
+  // botGuard and cors all skipped. Ending the response here halts the chain.
   { name: "errorHandler", position: 90, mw: function (err, req, res, _next) {
     try { require("./app/shared/logger").error("security pipeline error — failing closed", { error: err && err.message, path: req && req.pathname }); } catch (_e) { /* logging must never break the fail-closed response */ }
     if (!res.writableEnded) {
@@ -185,19 +148,14 @@ app.use(b.middleware.composePipeline([
   } },
 ]));
 
-// Serve admin custom logo + per-stash logos from the writable data directory.
-// These are user-uploaded assets that can't live under public/img/ because the
-// app source tree is read-only in Docker. Must come AFTER the staticAssets
-// middleware so its 404 fallthrough reaches us; must come BEFORE auth-
-// protected routes so public pages (landing, stash pages) can load logos.
+// Uploaded logos live under the data directory because the source tree is
+// read-only in Docker. Mounted after staticAssets so its 404 falls through to
+// here, and before the authenticated routes so public pages can load them.
 function serveLogoFrom(dir) {
   return function (req, res) {
     var name = String(req.params.name || "").replace(/[^A-Za-z0-9._-]/g, "");
     if (!name) { res.writeHead(404); return res.end(); }
-    // Lexical traversal containment via the framework's audited primitive: resolves
-    // the (already charset-sanitized) name against dir and returns the confined
-    // absolute path, or null on any escape — including the sibling-prefix case a
-    // bare startsWith(dir) misses. O_NOFOLLOW below guards a post-check symlink swap.
+    // Catches the sibling-prefix escape a bare startsWith(dir) misses.
     var resolved = b.safePath.confineToBase(dir, name);
     if (!resolved) { res.writeHead(404); return res.end(); }
     if (!fs.existsSync(resolved)) { res.writeHead(404); return res.end(); }
@@ -208,9 +166,7 @@ function serveLogoFrom(dir) {
              : ext === ".gif" ? "image/gif"
              : ext === ".webp" ? "image/webp"
              : "application/octet-stream";
-    // Open with O_NOFOLLOW so a symlink swapped in after the lexical
-    // path-confinement check (CWE-22 / CWE-367) is refused (ELOOP → 404)
-    // instead of followed out of the logo dir.
+    // O_NOFOLLOW refuses a symlink swapped in after the check above (CWE-367).
     var fd;
     try {
       fd = b.atomicFile.openNoFollowSync(resolved);
@@ -226,9 +182,7 @@ function serveLogoFrom(dir) {
 app.get("/img/custom/:name", serveLogoFrom(C.PATHS.CUSTOM_LOGO_DIR));
 app.get("/img/stash/:name", serveLogoFrom(C.PATHS.STASH_LOGO_DIR));
 
-// Migrate any pre-existing logos from the old public/img/{custom,stash}/
-// locations to their new homes under DATA_DIR. Runs every boot. Logs every
-// decision so operators can see exactly why a migration did or didn't copy.
+// Moves logos left under public/img/ by an older install into DATA_DIR.
 (function migrateLogos() {
   var migrations = [
     { label: "custom", from: path.join(__dirname, "public", "img", "custom"), to: C.PATHS.CUSTOM_LOGO_DIR },
@@ -268,17 +222,13 @@ app.get("/img/stash/:name", serveLogoFrom(C.PATHS.STASH_LOGO_DIR));
   });
 })();
 
-// Health check — before auth so it's fast and unauthenticated. CORS is
-// handled by the global `cors` middleware (position 44) using CORS_ORIGINS;
-// the gateway origin needs to be on that allowlist like any other cross-
-// origin caller.
+// A gateway polling this cross-origin needs its origin in CORS_ORIGINS like any
+// other caller. `status` stays "ok" whenever the process is serving, because
+// that is what the Dockerfile, compose and kubernetes probes test — maintenance
+// is reported alongside it so an orchestrator does not conclude the container
+// is dead while an operator works on it.
 app.get("/health", function (req, res) {
   res.writeHead(200, { "Content-Type": "application/json" });
-  // `status` stays "ok" whenever the process is serving, because that is what
-  // the probes in the Dockerfile, compose file and kubernetes manifests test.
-  // Maintenance is reported alongside it rather than through it, so a human or
-  // a dashboard can tell the difference without an orchestrator concluding the
-  // container is dead.
   res.end(JSON.stringify({
     status: "ok",
     maintenance: !!config.maintenanceMode,
@@ -292,12 +242,9 @@ app.get("/sitemap.xml", function (req, res) {
   res.writeHead(200, { "Content-Type": "application/xml", "Cache-Control": "public, max-age=86400" });
   res.end('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n<url><loc>' + origin + '/</loc><lastmod>' + today + '</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>\n<url><loc>' + origin + '/drop</loc><lastmod>' + today + '</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>\n<url><loc>' + origin + '/privacy</loc><changefreq>monthly</changefreq><priority>0.3</priority></url>\n<url><loc>' + origin + '/terms</loc><changefreq>monthly</changefreq><priority>0.3</priority></url>\n</urlset>');
 });
-// Sync enrollment — before auth so unauthenticated clients can redeem codes
-// Operator-tunable: sites with multi-device fleets may legitimately need
-// more than 5 enrollments / 5 min from the same source IP (e.g. a kiosk
-// rollout from one provisioning workstation). Codes are 64-bit-entropy
-// one-time-use one-hour-expiry, so the lower bound on attacker brute-force
-// stays cosmically out of reach at any reasonable cap. Default stays 5.
+// Raise this where a fleet enrolls from one provisioning workstation. Codes
+// carry 64 bits of entropy and expire in an hour, so a higher cap does not put
+// brute force in reach.
 var SYNC_ENROLL_MAX = parseInt(process.env.SYNC_ENROLL_MAX, 10) || 5;
 app.post("/sync/enroll", rateLimit.guard({ max: SYNC_ENROLL_MAX, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async function (req, res) {
   try {
@@ -312,14 +259,9 @@ app.post("/sync/enroll", rateLimit.guard({ max: SYNC_ENROLL_MAX, windowMs: C.TIM
       });
     }
 
-    // Look up by the indexed codeHash blind index (idx_enrollment_codeHash,
-    // lib/db.js) — an exact-match digest query that returns at most the one
-    // matching row, mirroring the bundle access-code redemption path
-    // (access-code.service.js). Loading every pending row and JS-filtering on
-    // `===` would force an O(N) field-decrypt of every provisioned credential
-    // bundle per unauthenticated request; the indexed query avoids that and
-    // makes the codeHash equality implicit (no plaintext comparison to leak
-    // timing on). The expiry is the only remaining JS predicate.
+    // Query the blind index rather than filtering pending rows in JS: that
+    // would field-decrypt every provisioned credential bundle on an
+    // unauthenticated request, and compare the code in plaintext.
     var codeHash = b.crypto.namespaceHash(C.HASH_PREFIX.ENROLLMENT, code);
     var nowIso = new Date().toISOString();
     var records = db.enrollmentCodes.find({ codeHash: codeHash, status: "pending" })
@@ -336,10 +278,9 @@ app.post("/sync/enroll", rateLimit.guard({ max: SYNC_ENROLL_MAX, windowMs: C.TIM
 
     var record = records[0];
 
-    // Mark as redeemed — atomic compare-and-swap. Including status:"pending" in
-    // the WHERE means two concurrent redemptions of the same code can't both
-    // succeed: the loser changes 0 rows and is rejected here, before any
-    // provisioning bundle (apiKey/clientCert/clientKey/caCert) is emitted (CWE-367).
+    // status:"pending" in the WHERE makes this a compare-and-swap, so of two
+    // concurrent redemptions the loser changes no rows and is refused here,
+    // before any certificate or key is emitted (CWE-367).
     var claimed = db.enrollmentCodes.update({ _id: record._id, status: "pending" }, { $set: { status: "redeemed" } });
     if (!claimed) {
       return b.problemDetails.send(res, {
@@ -348,19 +289,11 @@ app.post("/sync/enroll", rateLimit.guard({ max: SYNC_ENROLL_MAX, windowMs: C.TIM
       });
     }
 
-    // Reissue (cert-renewal) redemption realigns the per-key cert binding. The
-    // cert-expiry job pre-stages a reissue code WITHOUT rebinding the API key's
-    // certFingerprint, so the client's CURRENT cert keeps working while it's
-    // offline / hasn't renewed (rebinding server-side would 403 the old cert on
-    // every /sync/* surface, including /sync/renew-cert and this redemption,
-    // hard-locking the client out of its own recovery). The realignment is owed
-    // HERE, the moment the client actually redeems the new cert: bind to the
-    // cert this code provisions so the client's new cert authenticates
-    // immediately. certIssuedAt/certExpiresAt advance to the new cert's lifetime
-    // in the same write so the next cert-expiry sweep measures the live cert.
-    // Without this, repair was an INCOMPLETE realignment — the binding kept
-    // pointing at the previous cert. Best-effort: a failure leaves /sync/renew-
-    // cert as the client's fallback.
+    // The cert-expiry job stages a renewal code without moving the key's
+    // certFingerprint, so an offline client's current certificate keeps working
+    // — rebinding at staging time would 403 it everywhere including the routes
+    // it needs to recover. Redemption is where that binding is owed, so it
+    // moves here, with the new lifetime, for the next sweep to measure.
     if (record.reissue && record.originalKeyId && record.clientCert) {
       try {
         apiKeysRepo.update(record.originalKeyId, { $set: {
@@ -371,13 +304,9 @@ app.post("/sync/enroll", rateLimit.guard({ max: SYNC_ENROLL_MAX, windowMs: C.TIM
       } catch (_e) { /* realignment best-effort — client can fall back to /sync/renew-cert */ }
     }
 
-    // Stash-bound enrollments (the default flow from routes/stash.js's
-    // sync-token issuer) record stashId but leave bundleId null because
-    // the bundle binding lives on the stash row. Resolve it here so the
-    // client gets a populated bundleId without having to re-query the
-    // server — saveSyncConfig in hermitstash-sync requires either
-    // bundleId or shareId, and a missing value means the daemon can
-    // never establish the sync target.
+    // A stash-bound enrollment leaves bundleId null because the binding lives
+    // on the stash row. The sync client needs either bundleId or shareId to
+    // save a config at all, so both are resolved here rather than left to it.
     var resolvedBundleId = record.bundleId || null;
     if (!resolvedBundleId && record.stashId) {
       try {
@@ -386,11 +315,8 @@ app.post("/sync/enroll", rateLimit.guard({ max: SYNC_ENROLL_MAX, windowMs: C.TIM
       } catch (_e) { /* stash lookup best-effort — fall through with null */ }
     }
 
-    // Resolve shareId from the bundle row. Sync clients need this for the
-    // initial-sync pull (`GET /b/:shareId` seeds the daemon with the
-    // bundle's existing files at enroll-time); without it the WebSocket
-    // connection establishes but the local mirror starts empty and only
-    // catches files uploaded AFTER connect.
+    // Without shareId the daemon connects but its mirror starts empty: it has
+    // no way to pull the bundle's existing files, only ones uploaded later.
     var resolvedShareId = null;
     if (resolvedBundleId) {
       try {
@@ -399,7 +325,6 @@ app.post("/sync/enroll", rateLimit.guard({ max: SYNC_ENROLL_MAX, windowMs: C.TIM
       } catch (_e) { /* bundle lookup best-effort — fall through with null */ }
     }
 
-    // Return the provisioning bundle
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
       success: true,
@@ -413,23 +338,13 @@ app.post("/sync/enroll", rateLimit.guard({ max: SYNC_ENROLL_MAX, windowMs: C.TIM
       reissue: record.reissue || false,
     }));
 
-    // Destroy the one-time provisioning secret the moment it has been delivered.
-    // The response above was assembled entirely from the in-memory `record`, so
-    // the row is no longer needed — leaving it (with the raw apiKey, client cert
-    // + private key, and CA cert still on it) until the hourly sweep serves no
-    // purpose. The CAS above already claimed the code, so a concurrent redeemer
-    // lost; removing the row now makes the code single-use with no residual
-    // secret at rest. Consumption-by-removal mirrors the verification-token and
-    // access-code paths. Best-effort: a failure still leaves a redeemed (non-
-    // pending) row that the sweep removes, and the sweep remains the backstop
-    // for codes that expire unredeemed.
+    // The response was assembled from the in-memory record, so the row holds a
+    // raw API key, a client key and a CA certificate that nothing will read
+    // again. Leaving it for the hourly sweep keeps those at rest for no reason.
     try { db.enrollmentCodes.remove({ _id: record._id }); } catch (_e) { /* sweep backstop */ }
 
     audit.log(audit.ACTIONS.ENROLLMENT_REDEEMED, { details: "Sync enrollment code redeemed", req: req });
   } catch (err) {
-    // Don't leak the specific error to the client (it may reference DB rows,
-    // crypto state, etc.) — but log it so operators can diagnose failed
-    // enrollment attempts.
     logger.error("[sync/enroll] Error", { error: err.message, stack: err.stack });
     b.problemDetails.send(res, {
       type: "https://hermitstash.com/problems/internal-error",
@@ -440,19 +355,14 @@ app.post("/sync/enroll", rateLimit.guard({ max: SYNC_ENROLL_MAX, windowMs: C.TIM
   }
 });
 
-// Sync cert renewal — scope + cert-binding checks come from the shared
-// sync-guards middleware. The endpoint itself only does things specific to
-// renewal: presence-of-cert (required for this endpoint even if the key has
-// no certFingerprint — the cert proof-of-possession IS the second factor),
-// revocation check, and actual cert generation.
+// A certificate must be presented even when the key carries no
+// certFingerprint: possession of it is the second factor for this endpoint.
+// Scope and binding checks come from the sync-guards middleware.
 app.post("/sync/renew-cert",
   rateLimit.guard({ max: 5, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }),
   require("./middleware/sync-guards").requireSyncAuth({ requireBundle: false }),
   async function (req, res) {
     try {
-      // Renewal REQUIRES a client certificate — not just "matches fingerprint
-      // if one is set". This is tighter than the generic sync-guards check;
-      // the cert is the second authn factor for this specific operation.
       var peerCert = req.socket && req.socket.getPeerCertificate ? req.socket.getPeerCertificate() : null;
       if (!peerCert || !peerCert.subject || !req.socket.authorized) {
         return b.problemDetails.send(res, {
@@ -463,7 +373,6 @@ app.post("/sync/renew-cert",
         });
       }
 
-      // Check cert is not revoked (indexed lookup, not full-table scan)
       if (certUtils.isPeerCertRevoked(peerCert)) {
         return b.problemDetails.send(res, {
           type: "https://hermitstash.com/problems/forbidden",
@@ -473,7 +382,6 @@ app.post("/sync/renew-cert",
         });
       }
 
-      // Generate new client certificate
       await mtlsCa.initCA();
       var newCert = await mtlsCa.generateClientCert({ cn: req.apiKey.prefix });
       if (!newCert) {
@@ -485,7 +393,6 @@ app.post("/sync/renew-cert",
         });
       }
 
-      // Update cert tracking on the API key
       apiKeysRepo.update(req.apiKey._id, { $set: {
         certIssuedAt: newCert.issuedAt,
         certExpiresAt: newCert.expiresAt,
@@ -519,40 +426,14 @@ app.use(sessionMiddleware);
 app.use(attachUser);
 app.use(require("./middleware/api-auth"));
 
-// ---- blamejs per-session apiEncrypt protocol (v1.9.15) ----
-//
-// PQC payload-encryption protocol for routes that carry sensitive
-// JSON bodies. Server publishes its long-lived keypair (ML-KEM-1024
-// + P-384 ECDH hybrid) at /.well-known/blamejs-pubkey. Clients fetch
-// the pubkey, generate a session key, wrap it to the server pubkey
-// via the framework's encrypt envelope, send `_ek` on first JSON-
-// bodied request, then continue the session with `_sid` + `_ctr` on
-// subsequent requests.
-//
-// blamejs scope (narrow — JSON POSTs only):
-//   GET    /.well-known/blamejs-pubkey   — pubkey advertisement
-//   POST   /drop/init                    — bundle initialization
-//   POST   /drop/finalize/:bundleId      — bundle finalization
-//   POST   /sync/rename                  — sync file rename
-//
-// Out of blamejs scope (handled by legacy api-encrypt's Bearer-skip
-// path): GET /b/:shareId, DELETE /files/:fileId, multipart uploads,
-// binary downloads. These go plaintext for Bearer-authenticated
-// clients (sync) and stay legacy-encrypted for cookie-authenticated
-// clients (browser). TLS / mTLS protects the wire for plaintext
-// paths; the legacy layer continues to set res._apiKey so HTML
-// templates render the apiKey for browser-side JS.
-//
-// Legacy api-encrypt is carved out for blamejs scope so the two
-// layers never both wrap res.json on the same request.
+// Two payload-encryption layers run here, and they must never both wrap
+// res.json on one request — that is what the carve-outs below exist for.
+// isBlamejsApiEncryptPath() is the single definition of which layer owns a
+// request; everything else defers to it.
 var blamejsKeypair;
 try {
   blamejsKeypair = apiEncryptKeypair.loadOrGenerate();
 } catch (e) {
-  // loadOrGenerate throws a generic, secret-free message on a corrupt on-disk
-  // keypair (raw key bytes are suppressed at the parse site). Catch it here so a
-  // boot failure is a clean exit rather than an unhandled exception at
-  // module-require time.
   logger.error("api-encrypt keypair load failed", { error: e && e.message });
   process.exit(1);
 }
@@ -569,21 +450,10 @@ var blamejsBodyParser = b.middleware.bodyParser({
   multipart:  false,
 });
 
-// blamejs apiEncrypt scope is gated on TWO things: (1) the route is in
-// the carve-out list below, AND (2) the request is Bearer-authenticated
-// (`req.apiKey` set by api-auth). Cookie-authenticated browser clients
-// fall through to legacy api-encrypt — public/js/api.js wraps fetch with
-// the legacy `{_e, _t}` envelope and does not speak the blamejs `_ek/
-// _ct/_ts/_nonce` shape. Mixing the two layers on the same request is
-// what produced "encrypted-payload-required" rejections on browser
-// uploads to /drop/init when the gate matched only on path. Bearer-
-// authenticated sync clients speak the blamejs envelope; cookie-
-// authenticated browsers continue on legacy until a future browser-side
-// migration to the blamejs envelope.
-//
-// /.well-known/blamejs-pubkey stays open to all callers — it's the
-// pubkey advertisement that bootstraps blamejs sessions for Bearer
-// clients in the first place.
+// Bearer clients speak the blamejs envelope; browsers speak the legacy one, so
+// the gate needs `req.apiKey` as well as the path. Matching on path alone
+// rejected browser uploads to /drop/init as "encrypted-payload-required".
+// The pubkey route stays open to everyone — it bootstraps the sessions.
 function isBlamejsApiEncryptPath(req) {
   var p = req.pathname || "";
   if (p === "/.well-known/blamejs-pubkey") return true;
@@ -594,84 +464,43 @@ function isBlamejsApiEncryptPath(req) {
   return false;
 }
 
-// Legacy api-encrypt — skip when blamejs handles the path. The carve-out
-// list mirrors isBlamejsApiEncryptPath() so the two layers never both
-// wrap res.json on the same request.
 var legacyApiEncrypt = require("./middleware/api-encrypt");
 app.use(function legacyApiEncryptCarve(req, res, next) {
   if (isBlamejsApiEncryptPath(req)) return next();
   return legacyApiEncrypt(req, res, next);
 });
 
-// blamejs body-parser — populates req.body from JSON for blamejs paths
-// so the apiEncrypt middleware (which reads req.body, not the stream)
-// can decrypt. Skipped for non-body methods so the pubkey GET passes
-// straight through to its route handler.
+// apiEncrypt reads req.body rather than the stream, so the body has to be
+// parsed before it can decrypt.
 app.use(function blamejsBodyParserGate(req, res, next) {
   if (!isBlamejsApiEncryptPath(req)) return next();
   if (req.method !== "POST" && req.method !== "PUT" && req.method !== "PATCH") return next();
   return blamejsBodyParser(req, res, next);
 });
 
-// blamejs apiEncrypt — decrypts `_ek/_ct/_ts/_nonce` (or `_sid/_ctr/_ct`
-// on subsequent requests) and replaces req.body with the plaintext.
-// Wraps res.json to encrypt outgoing responses with the session key.
-// The pubkey route is in exemptPaths above so this layer no-ops there.
 app.use(function blamejsApiEncryptGate(req, res, next) {
   if (!isBlamejsApiEncryptPath(req)) return next();
   return blamejsApiEncrypt(req, res, next);
 });
 
-// publishPublicKey route — plain-JSON pre-encrypt advertisement of the
-// server's hybrid keypair. Clients pin / rotate against this document.
+// Clients pin and rotate against this document.
 app.get("/.well-known/blamejs-pubkey", blamejsApiEncrypt.publishPublicKey());
 
 app.use(require("./app/security/csrf-policy").csrfMiddleware);
 
-// Maintenance mode — blocks non-admin access when enabled
-app.use(function (req, res, next) {
-  if (!config.maintenanceMode) return next();
-  // The liveness probe is not a visitor. Every shipped deployment polls /health
-  // and treats anything other than 200 as a dead process: the Dockerfile and
-  // compose health checks exit non-zero, and kubernetes.yml wires it to the
-  // liveness, readiness AND startup probes — so answering the maintenance page
-  // here had the orchestrator restart the container in a loop for as long as
-  // the operator left maintenance on, which is precisely when they wanted it
-  // left alone. Maintenance withholds the site from people; it does not claim
-  // the process has stopped.
-  if (req.pathname === "/health") return next();
-  // Allow admin and auth routes through
-  if (req.user && req.user.role === "admin") return next();
-  if (req.pathname && req.pathname.startsWith("/auth")) return next();
-  if (req.pathname && req.pathname.startsWith("/admin")) return next();
-  if (req.pathname && (req.pathname.startsWith("/css") || req.pathname.startsWith("/js") || req.pathname.startsWith("/img"))) return next();
-  sendHtml(res, "maintenance", {
-    brand: { siteName: config.siteName, logo: config.customLogo || C.paths.logo },
-    assets: { css: C.paths.css + "?v=" + C.cssVersion },
-  }, 503);
-});
+app.use(require("./middleware/maintenance"));
 
-// Admin network fence — opt-in CIDR allowlist on the /admin surface. This is an
-// ADDITIVE network-layer gate that sits ON TOP OF requireAdmin auth: requireAdmin
-// stops unauthorized USERS, the fence stops the route being REACHABLE from
-// outside the operator's admin network at all (defends a credential leak).
-// Constructed ONLY when ADMIN_ALLOWED_CIDRS is non-empty, so the default
-// deployment mounts nothing and /admin behaves exactly as before. A miss is
-// answered 404 (not 403) so a probe can't even tell the fence exists.
+// Sits on top of requireAdmin rather than replacing it: requireAdmin stops the
+// wrong user, this stops /admin being reachable at all from outside the
+// operator's network, which is what limits the damage of a leaked credential.
+// A miss answers 404, so a probe cannot tell the fence is there.
 if (Array.isArray(config.adminAllowedCidrs) && config.adminAllowedCidrs.length > 0) {
-  // app/security/admin-fence.js owns the rules — which paths are in scope, how
-  // the client IP is resolved, and the refusal to start on a malformed entry.
-  // It lives beside the other security policies so it can be exercised
-  // directly; mounted inline here, it could only be reached by booting the
-  // whole server, and the test that claimed to cover it was building a
-  // different middleware.
   app.use(adminFence.create(config.adminAllowedCidrs));
   logger.info("[admin-fence] /admin restricted to operator CIDR allowlist", {
     cidrs: config.adminAllowedCidrs.length,
   });
 }
 
-// Dynamic manifest — config for user text, constants for paths/theme
 app.get("/manifest.json", (req, res) => {
   res.json({
     name: config.siteName,
@@ -689,19 +518,15 @@ app.get("/manifest.json", (req, res) => {
   });
 });
 
-// First-run setup redirect — admin must complete setup before using the app.
-// Bearer-authed sync clients bypass: api-auth resolves a sync API key to its
-// owner (the admin user), which would otherwise trigger the wizard redirect
-// even when everything is correctly configured at the transport level.
-// Setup is a browser-only flow; programmatic callers should never see the 302.
+// Setup is a browser flow, so a programmatic caller must never see the 302.
+// api-auth resolves a sync API key to its owner — usually the admin — which
+// would otherwise send a correctly configured client to the wizard.
 app.use(function (req, res, next) {
   if (config.setupComplete) return next();
   if (req.apiKey) return next();
-  // Allow static assets, auth, and the setup page itself
   if (req.pathname && (req.pathname.startsWith("/css") || req.pathname.startsWith("/js") || req.pathname.startsWith("/img"))) return next();
   if (req.pathname && req.pathname.startsWith("/auth")) return next();
   if (req.pathname && req.pathname.startsWith("/admin/setup")) return next();
-  // Redirect admins to setup
   if (req.user && req.user.role === "admin") {
     res.writeHead(302, { Location: "/admin/setup" });
     return res.end();
@@ -709,28 +534,23 @@ app.use(function (req, res, next) {
   next();
 });
 
-// Forced TOTP re-enrollment guard — when a session has used a legacy SHA-1
-// TOTP secret to satisfy 2FA, every subsequent request is gated on completing
-// the re-pair to SHA-512 (set in routes/two-factor.js /2fa/verify). The guard
-// allows: static assets, the re-enroll page + its API endpoints, logout,
-// and the auth routes themselves so the user can sign out cleanly.
+// A session that satisfied 2FA with a legacy SHA-1 secret is held here until it
+// re-pairs to SHA-512. Signing out stays reachable, so nobody is trapped.
 app.use(function (req, res, next) {
   if (!req.session || req.session.requiresTotpReEnroll !== "true") return next();
   var p = req.pathname || "";
   if (p === "/2fa/re-enroll" || p === "/2fa/re-enroll/start" || p === "/2fa/re-enroll/confirm") return next();
   if (p === "/auth/logout" || p === "/logout") return next();
   if (p.startsWith("/css") || p.startsWith("/js") || p.startsWith("/img") || p.startsWith("/fonts")) return next();
-  // HTML navigations get redirected; XHR/JSON callers get a structured 403.
   var accept = (req.headers && req.headers.accept) || "";
   if (accept.indexOf("text/html") !== -1) {
     res.writeHead(302, { Location: "/2fa/re-enroll" });
     return res.end();
   }
-  // This problem document carries `code` + `redirect` extension fields the
-  // browser reads to navigate to the re-enroll page, so it can't collapse to a
-  // bare thrown AppError (the error handler emits only type/title/status/detail).
-  // On an api-encrypt session res.json is the encrypting wrap; route the full
-  // document through it so the body isn't shipped cleartext via res.end.
+  // The `code` and `redirect` fields are what the browser navigates on, and a
+  // thrown AppError would drop them — the error handler emits only
+  // type/title/status/detail. res.json is the encrypting wrap on an
+  // api-encrypt session, so the document goes through it rather than res.end.
   var reenrollProblem = {
     type: "https://hermitstash.com/problems/forbidden",
     title: "Forbidden",
@@ -748,7 +568,6 @@ app.use(function (req, res, next) {
   b.problemDetails.send(res, reenrollProblem);
 });
 
-// Routes
 require("./routes/auth")(app);
 require("./routes/password-reset")(app);
 require("./routes/dashboard")(app);
@@ -769,9 +588,7 @@ require("./routes/teams")(app);
 require("./routes/vault")(app);
 require("./routes/stash")(app);
 
-// Sync file rename — API key authed, uses bundleId directly (sync clients don't have shareId).
-// All pre-checks (scope / ownership / boundBundleId / certFingerprint) run in
-// middleware/sync-guards.js so every /sync/* endpoint inherits the same gate chain.
+// Takes bundleId directly, because a sync client has no shareId.
 app.post("/sync/rename",
   rateLimit.guard({ max: 100, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }),
   require("./middleware/sync-guards").requireSyncAuth({ requireBundle: true }),
@@ -782,10 +599,8 @@ app.post("/sync/rename",
       newRelativePath: req.body.newRelativePath,
       req: req,
     });
-    // Throw at the boundary so the centralized error handler renders the
-    // problem-details document. On a sync session the response is wrapped by
-    // apiEncrypt, so the handler routes the error through res.json — keeping
-    // it encrypted rather than emitting cleartext via problemDetails.send.
+    // Thrown rather than answered here: on a sync session res.json is the
+    // encrypting wrap, and problemDetails.send would emit cleartext.
     if (result.error) {
       var rs = result.status || 400;
       var code = rs === 404 ? "NOT_FOUND" : rs === 403 ? "FORBIDDEN" : rs === 409 ? "CONFLICT" : "VALIDATION_ERROR";
@@ -795,8 +610,7 @@ app.post("/sync/rename",
   }
 );
 
-// Custom 404 — content-negotiated: HTML error template for browsers, RFC 9457
-// problem+json for API/Bearer clients, via the shared error emitter.
+// Content-negotiated: the error template for browsers, problem+json for the rest.
 app.onNotFound(function (req, res) {
   emitError(req, res, {
     status: 404,
@@ -806,76 +620,72 @@ app.onNotFound(function (req, res) {
   });
 });
 
-// Centralized error handler — catches all unhandled errors from routes
 app.onError(errorHandler);
 
-// Scheduled tasks
-scheduler.register("file_expiry_cleanup", C.TIME.hours(1), function () { // hourly
+scheduler.register("file_expiry_cleanup", C.TIME.hours(1), function () {
   return expiryCleanupJob.cleanupExpiredFiles().catch(function (e) { logger.error("file_expiry_cleanup failed", { error: e.message }); });
 });
-scheduler.register("email_sends_cleanup", C.TIME.days(1), function () { // daily
+scheduler.register("email_sends_cleanup", C.TIME.days(1), function () {
   try {
-    var cutoff = new Date(Date.now() - C.TIME.days(90)).toISOString(); // 90 days
+    var cutoff = new Date(Date.now() - C.TIME.days(90)).toISOString();
     db.rawExec("DELETE FROM email_sends WHERE createdAt < ?", cutoff);
   } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
-scheduler.register("expired_tokens_cleanup", C.TIME.days(1), function () { // daily
+scheduler.register("expired_tokens_cleanup", C.TIME.days(1), function () {
   try {
     var now = new Date().toISOString();
     db.rawExec("DELETE FROM verification_tokens WHERE expiresAt < ?", now);
   } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
-scheduler.register("expired_bundles_cleanup", C.TIME.hours(1), function () { // hourly
-  // cleanupStaleBundles removes the same >24h "uploading" bundles AND their
-  // files + chunk dirs; a raw row DELETE would orphan the storage objects.
+scheduler.register("expired_bundles_cleanup", C.TIME.hours(1), function () {
+  // Not a raw row DELETE: that would orphan the files and chunk directories.
   expiryCleanupJob.cleanupStaleBundles().catch(function (_e) { /* scheduled cleanup — retry next tick */ });
 });
-scheduler.register("chunk_gc", C.TIME.hours(1), function () { // hourly
+scheduler.register("chunk_gc", C.TIME.hours(1), function () {
   try { chunkGcJob.cleanupStaleChunks(); } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
-scheduler.register("expired_invites_cleanup", C.TIME.days(1), function () { // daily
+scheduler.register("expired_invites_cleanup", C.TIME.days(1), function () {
   try {
     var now = new Date().toISOString();
     db.rawExec("DELETE FROM invites WHERE status = 'pending' AND expiresAt < ?", now);
   } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
-scheduler.register("tombstone_cleanup", C.TIME.days(1), function () { // daily
+scheduler.register("tombstone_cleanup", C.TIME.days(1), function () {
   try { expiryCleanupJob.cleanupTombstones(); } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
-scheduler.register("expired_enrollment_codes_cleanup", C.TIME.hours(1), function () { // hourly
+scheduler.register("expired_enrollment_codes_cleanup", C.TIME.hours(1), function () {
   try { expiryCleanupJob.cleanupExpiredEnrollmentCodes(); } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
-scheduler.register("expired_access_codes_cleanup", C.TIME.hours(1), function () { // hourly
+scheduler.register("expired_access_codes_cleanup", C.TIME.hours(1), function () {
   try { expiryCleanupJob.cleanupExpiredAccessCodes(); } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
-scheduler.register("expired_idempotency_keys_cleanup", C.TIME.hours(1), function () { // hourly
+scheduler.register("expired_idempotency_keys_cleanup", C.TIME.hours(1), function () {
   try { expiryCleanupJob.cleanupExpiredIdempotencyKeys(); } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
-scheduler.register("webhook_deliveries_cleanup", C.TIME.days(1), function () { // daily
+scheduler.register("webhook_deliveries_cleanup", C.TIME.days(1), function () {
   try { expiryCleanupJob.cleanupWebhookDeliveries(); } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
-scheduler.register("bundle_lockout_cleanup", C.TIME.hours(1), function () { // hourly
-  // Remove lockout rows that haven't seen an attempt in 24h.
-  // lastAttempt is a raw ISO8601 string, safe to compare in SQL.
+scheduler.register("bundle_lockout_cleanup", C.TIME.hours(1), function () {
+  // lastAttempt is a raw ISO8601 string, so it compares correctly in SQL.
   try {
     var cutoff = new Date(Date.now() - C.TIME.days(1)).toISOString();
     db.rawExec("DELETE FROM bundle_access_lockouts WHERE lastAttempt < ?", cutoff);
   } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
-scheduler.register("orphan_storage_cleanup", C.TIME.days(1), async function () { // daily
+scheduler.register("orphan_storage_cleanup", C.TIME.days(1), async function () {
   try {
     var local = orphanCleanupJob.scanLocalOrphans();
     var deleted = orphanCleanupJob.deleteLocalOrphans(local.orphans);
     if (deleted > 0) logger.info("[orphan-cleanup] Removed " + deleted + " orphaned local files");
   } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
-scheduler.register("cert_expiry_check", C.TIME.days(1), function () { // daily
+scheduler.register("cert_expiry_check", C.TIME.days(1), function () {
   return certExpiryJob.run().catch(function (e) { logger.error("cert_expiry_check failed", { error: e.message }); });
 });
-scheduler.register("incremental_vacuum", C.TIME.days(1), function () { // daily
+scheduler.register("incremental_vacuum", C.TIME.days(1), function () {
   try { db.rawExec("PRAGMA incremental_vacuum(100)"); } catch (_e) { /* reclaim ~100 pages — best-effort */ }
 });
-scheduler.register("shm_usage_monitor", C.TIME.minutes(5), function () { // every 5 minutes
+scheduler.register("shm_usage_monitor", C.TIME.minutes(5), function () {
   if (process.platform === "win32") return; // statfsSync not available on Windows
   var tmpdir = process.env.HERMITSTASH_TMPDIR || (fs.existsSync("/dev/shm") ? "/dev/shm" : null);
   if (!tmpdir) return;
@@ -892,12 +702,9 @@ scheduler.register("shm_usage_monitor", C.TIME.minutes(5), function () { // ever
   } catch (_e) {} // allow:silent-catch — statfsSync not available on all platforms
 });
 if (config.backup && config.backup.enabled) {
-  // register(name, intervalMs, fn) declares only 3 params — a 4th options arg
-  // was silently discarded, so the operator's wall-clock anchor never applied
-  // and the daily backup fired at process-start+24h, re-anchoring on every
-  // restart. schedule() is the documented anchored-interval surface: baseline
-  // ("HH:MM") + timezone hold the fire to the configured time-of-day across
-  // restarts (lib/scheduler.js → b.scheduler).
+  // schedule(), not register(): register takes three parameters and discards an
+  // options object, which drops the operator's time-of-day anchor and leaves
+  // the backup firing at process start plus 24h, re-anchored by every restart.
   scheduler.schedule({
     name: "backup",
     every: config.backup.schedule || C.TIME.days(1),
@@ -907,10 +714,8 @@ if (config.backup && config.backup.enabled) {
   });
 }
 
-// Audit tamper-evidence chain (opt-in). Verify once at boot, then daily.
-// Default posture on a mismatch is log-at-ERROR-and-continue (the operator
-// still wants the app up to investigate); AUDIT_CHAIN_STRICT escalates a
-// mismatch to a refuse-to-boot.
+// A mismatch logs and continues by default, because an operator investigating
+// one still wants the app up. AUDIT_CHAIN_STRICT turns it into a refusal.
 if (config.auditChainEnabled) {
   var auditChainService = require("./app/domain/admin/audit.service");
   auditChainService.verifyAuditChain().then(function (result) {
@@ -930,7 +735,7 @@ if (config.auditChainEnabled) {
     if (config.auditChainStrict) process.exit(1);
   });
 
-  scheduler.register("audit_chain_verify", C.TIME.days(1), function () { // daily
+  scheduler.register("audit_chain_verify", C.TIME.days(1), function () {
     return auditChainService.verifyAuditChain().then(function (result) {
       if (!result || !result.ok) {
         logger.error("[audit-chain] scheduled verification FAILED", {
@@ -943,10 +748,8 @@ if (config.auditChainEnabled) {
 
 scheduler.start();
 
-// TLS configuration — conditional HTTPS with PQC hybrid key exchange.
-// v1.9.4: TLS_KEY can be plaintext (data/tls/privkey.pem) OR vault-sealed
-// (data/tls/privkey.pem.sealed). Loaded via lib/pem-seal dispatch table
-// keyed on TLS_KEY_SEALED env var (auto/required/disabled).
+// The key may be plaintext or vault-sealed; TLS_KEY_SEALED (auto, required or
+// disabled) decides which forms lib/pem-seal will accept.
 var TLS_CERT = process.env.TLS_CERT || path.join(C.PATHS.TLS_DIR, "fullchain.pem");
 var TLS_KEY = process.env.TLS_KEY || path.join(C.PATHS.TLS_DIR, "privkey.pem");
 var TLS_KEY_SEALED = TLS_KEY + ".sealed";
@@ -955,69 +758,47 @@ var PQC_ENFORCE = process.env.PQC_ENFORCE !== "false"; // default: true
 var INTERNAL_TLS_PORT = parseInt(process.env.INTERNAL_TLS_PORT, 10) || 3001;
 
 /**
- * The key-exchange group list for the inbound TLS listener, as the
- * colon-separated string `ecdhCurve` expects.
+ * The listener's key-exchange groups, colon-separated for `ecdhCurve`.
  *
- * It MUST be `ecdhCurve`. Node has no `groups` TLS option — configSecureContext
- * never reads one — so a `groups:` key is accepted and silently discarded, and
- * the listener falls back to OpenSSL's defaults. That default excludes the
- * ML-KEM hybrids, which inverted the intended posture: a client offering only a
- * hybrid was refused outright, and a client offering both negotiated classical
- * X25519 — while the boot banner reported PQC as enforced. `ecdhCurve` is
- * validated (a bad value throws), so a future typo fails loudly at boot instead
- * of degrading in silence. The framework ships the list pre-joined as
- * `TLS_GROUP_CURVE_STR` precisely because `ecdhCurve` takes a string; the
- * `TLS_GROUP_PREFERENCE` array is for display and cannot be passed directly.
+ * The option MUST be `ecdhCurve`. Node has no `groups` TLS option, so a
+ * `groups:` key is accepted and silently discarded and the listener falls back
+ * to OpenSSL defaults that exclude the ML-KEM hybrids — which inverts the
+ * posture: a hybrid-only client is refused, a dual client negotiates classical
+ * X25519, and the boot banner still reports PQC as enforced. `ecdhCurve` is
+ * validated, so a typo fails at boot instead of degrading in silence.
  *
- * With enforcement on, the classical last-resort is dropped so the negotiated
- * group is guaranteed post-quantum: TLS picks from the mutual set, so leaving
- * X25519 in would let a client that lists classical first negotiate classical
- * even though it offered a hybrid. Nothing new is refused by this — the
- * ClientHello gate below already rejects any client that does not offer a PQC
- * group before TLS begins. With enforcement off, the framework's full list
- * keeps the classical fallback for compatibility.
+ * Under enforcement the classical last resort is dropped, because TLS picks
+ * from the mutual set and a client listing classical first would otherwise
+ * negotiate it despite offering a hybrid. Ordering is set in lib/constants.js.
  */
-// C.TLS_GROUP_PREFERENCE is already in this project's order — strongest hybrid
-// first — rather than the framework's, which leads with the 768 hybrid for
-// interoperability. See lib/constants.js for why that ordering is overridden
-// and what it costs. Under enforcement the classical groups are dropped, so
-// only hybrids remain.
 function listenerGroupList() {
   var groups = C.TLS_GROUP_PREFERENCE;
   if (PQC_ENFORCE) groups = groups.filter(function (g) { return /MLKEM/i.test(g); });
   return groups.join(":");
 }
 
-// Trust bundle + reload-context assembly live in lib/tls-context.js so the
-// renewal path and its regression test build the same object; see there for why
-// that matters.
+// The trust bundle is assembled in lib/tls-context.js so the renewal path and
+// its regression test build the same object.
 var tlsContext = require("./lib/tls-context");
 var tlsOptions = null;
 var tlsEnabled = false;
 
-// True when a TLS key is available in either form. Cert MUST be plaintext
-// (it's public material; no sealing benefit).
+// Only the key is ever sealed; the certificate is public material.
 function tlsKeyAvailable() {
   return fs.existsSync(TLS_KEY) || fs.existsSync(TLS_KEY_SEALED);
 }
 
 if (fs.existsSync(TLS_CERT) && tlsKeyAvailable()) {
   try {
-    // Read from the singleton's resolved cert path — operators may have
-    // overridden it via MTLS_CA_CERT to an absolute path outside DATA_DIR.
-    // The WebSocket upgrade guard below uses this as its "is mTLS configured
-    // at all" signal, so it stays a separate binding from the trust bundle.
+    // Read through the singleton, since MTLS_CA_CERT can point outside
+    // DATA_DIR. Kept separate from the trust bundle because the WebSocket
+    // upgrade guard reads it as "is mTLS configured at all".
     var mtlsCaCert = mtlsCa.exists() ? fs.readFileSync(mtlsCa.paths.caCert) : null;
     var caList = tlsContext.caListSync();
     var haveMtlsCa = caList.length > 0;
-    // Hard mTLS enforcement at the TLS layer — boot-time only.
-    //   unset:  follow DB config.enforceMtls for app-layer soft enforcement
-    //   "true": rejectUnauthorized: true — TLS handshake rejects non-mTLS
-    //   "false": forces TLS-layer enforcement off (escape hatch for locked-out
-    //           operators). App-layer soft enforcement (middleware/web-guard.js)
-    //           is disabled durably in lib/config.js _build(), which honors
-    //           ENFORCE_MTLS_STRICT on every rebuild so a settings hot-reload
-    //           can't silently re-lock the operator.
+    // Read at boot only. "false" is the escape hatch for an operator who has
+    // locked themselves out, and lib/config.js honours it on every rebuild so a
+    // settings hot-reload cannot quietly re-lock them.
     var mtlsStrict = process.env.ENFORCE_MTLS_STRICT;
     var hardMtls = mtlsStrict === "true" && haveMtlsCa;
     tlsOptions = {
@@ -1026,30 +807,26 @@ if (fs.existsSync(TLS_CERT) && tlsKeyAvailable()) {
       ecdhCurve: listenerGroupList(),
       minVersion: "TLSv1.3",
       requestCert: haveMtlsCa,
-      // Hard mode rejects non-mTLS at the TLS layer — no HTTP processing at all.
-      // Soft mode keeps the handshake lenient and lets middleware/web-guard.js
-      // drop at the app layer. Per-route mTLS checks (e.g. /sync/renew-cert)
-      // validate socket.authorized regardless of this flag.
+      // Hard mode refuses at the handshake, before any HTTP processing; soft
+      // mode leaves the drop to middleware/web-guard.js. Per-route checks read
+      // socket.authorized either way.
       rejectUnauthorized: hardMtls,
       ca: haveMtlsCa ? caList : undefined,
     };
     tlsEnabled = true;
-    // Publish what actually happened, so the admin security panel reports the
-    // listener rather than re-deriving it from the same files and drifting.
+    // The admin security panel reads this rather than re-deriving the posture
+    // from the same files, which is how it drifted from the listener before.
     runtimeState.set({ tlsEnabled: true, hardMtls: hardMtls });
-    // Report the list actually handed to the listener, not the framework's full
-    // preference — under enforcement the classical last-resort is dropped, and a
-    // banner naming a group the listener will not negotiate is how the previous
-    // posture went unnoticed.
+    // Report the list the listener was given. A banner naming a group it will
+    // not negotiate is how the earlier classical fallback went unnoticed.
     logger.info("[TLS] PQC TLS enabled", {
       groups: listenerGroupList().split(":").join(" + "),
       keySealed: fs.existsSync(TLS_KEY_SEALED),
     });
   } catch (e) {
-    // Both files were there and the listener still did not come up — a sealed
-    // key that will not load under the configured mode is the usual reason.
-    // Recorded so the security panel reports HTTP rather than inferring TLS
-    // from the presence of the files that failed to produce it.
+    // Both files were present and the listener still did not come up, usually a
+    // sealed key that will not load under the configured mode. Recorded so the
+    // security panel reports HTTP instead of inferring TLS from those files.
     runtimeState.set({ tlsEnabled: false, hardMtls: false });
     logger.error("[TLS] Failed to load certificates", { error: e.message });
   }
@@ -1058,23 +835,22 @@ if (fs.existsSync(TLS_CERT) && tlsKeyAvailable()) {
   logger.warn("[TLS] No certificate found — starting in HTTP mode (no PQC protection)", { certPath: TLS_CERT });
 }
 
-// Tailnet hostname auto-config (best-effort, non-blocking). When Tailscale is
-// enabled with no explicit RP_ORIGIN, derive the WebAuthn origin + rpId from this
-// node's MagicDNS name. Fire-and-forget: it resolves in ms once tailscaled is up
-// and mutates the live config; a failure logs and leaves the defaults in place.
+// With Tailscale on and no explicit RP_ORIGIN, the WebAuthn origin and rpId
+// come from this node's MagicDNS name. Deliberately not awaited — a failure
+// logs and leaves the defaults standing rather than holding up boot.
 try {
   require("./lib/tailscale").applyHostnameAutoConfig().catch(function (e) {
     logger.warn("[tailscale] hostname auto-config failed", { error: e && e.message });
   });
 } catch (_e) { /* tailscale disabled / module load — never blocks boot */ }
 
-// Start — with PQC gate if TLS enabled and enforcement is on
 var protocol = tlsEnabled ? "https" : "http";
-var server; // the HTTPS/HTTP server (WebSocket upgrade handler attaches here)
-var gateServer = null; // the TCP gate (public-facing, if PQC enforcement enabled)
+var server; // WebSocket upgrades attach here
+var gateServer = null; // public-facing TCP gate, only under PQC enforcement
 
 if (tlsEnabled && PQC_ENFORCE) {
-  // PQC enforcement: internal HTTPS on 127.0.0.1, PQC gate on public port
+  // Under enforcement HTTPS moves to loopback and the gate takes the public
+  // port, so a ClientHello without a PQC group is refused before TLS begins.
   server = app.listen(INTERNAL_TLS_PORT, function () {
     logger.info("[PQC] Internal HTTPS server listening on 127.0.0.1:" + INTERNAL_TLS_PORT);
   }, tlsOptions, "127.0.0.1");
@@ -1094,7 +870,6 @@ if (tlsEnabled && PQC_ENFORCE) {
     audit.log(audit.ACTIONS.SERVER_STARTED, { performedBy: "system", details: "port: " + config.port + ", tls: pqc-enforced, storage: " + config.storage.backend });
   });
 } else {
-  // No PQC enforcement: HTTPS directly on public port (or HTTP fallback)
   server = app.listen(config.port, function () {
     logger.info("HermitStash is running", {
       url: protocol + "://localhost:" + config.port,
@@ -1110,23 +885,12 @@ if (tlsEnabled && PQC_ENFORCE) {
 }
 server.timeout = config.uploadTimeout;
 
-// Certificate reload on renewal (Let's Encrypt / ACME tooling updates the
-// PEM files on disk). Watches the cert file at a 1-minute poll cadence so
-// renewals propagate to the live TLS context within a minute.
-//
-// v1.9.4 ACME auto-reconcile: when TLS_KEY_SEALED=required and ACME tools
-// drop a plaintext privkey.pem into the watched directory, this callback
-// auto-seals the plaintext (pemSeal round-trips it through vault.seal),
-// deletes the plaintext, and reloads. This means certbot/acme.sh hooks
-// don't need to know about the sealing — they keep writing plaintext as
-// they always have, and the watcher converts on the fly.
-// async because the trust bundle is read through each authority's locked
-// snapshot — a reload can land mid-rotation, where independent file reads see a
-// torn state. Callers are a file watcher and a signal handler, neither of which
-// awaits, so every failure path has to be caught in here.
+// Seals a plaintext key certbot or acme.sh has just written, so renewal hooks
+// never need to know sealing exists. async because the trust bundle is read
+// through each authority's locked snapshot, so a reload landing mid-rotation
+// does not see a torn state. Neither caller awaits it, so every failure path
+// has to be caught in here.
 async function reloadTlsContext() {
-  // ACME reconcile: if we're in sealed-required mode and a plaintext
-  // privkey.pem exists, that's a freshly-renewed key from ACME. Seal it.
   var modeRequired = (process.env.TLS_KEY_SEALED || "auto").toLowerCase() === "required";
   if (modeRequired && fs.existsSync(TLS_KEY) && !fs.existsSync(TLS_KEY_SEALED)) {
     try {
@@ -1139,8 +903,8 @@ async function reloadTlsContext() {
       return; // don't reload with potentially mismatched key
     }
   } else if (modeRequired && fs.existsSync(TLS_KEY) && fs.existsSync(TLS_KEY_SEALED)) {
-    // Edge case: sealed already exists AND ACME wrote a new plaintext.
-    // The plaintext is the FRESHER key; replace the sealed one with it.
+    // Both present means ACME wrote a new plaintext beside an older sealed
+    // key, so the plaintext is the fresher of the two.
     try {
       fs.unlinkSync(TLS_KEY_SEALED);
       pemSeal.sealPemFile(TLS_KEY, TLS_KEY_SEALED);
@@ -1154,13 +918,10 @@ async function reloadTlsContext() {
   }
 
   try {
-    // setSecureContext REPLACES the context wholesale — every option the caller
-    // omits is assigned undefined rather than carried over. So the trust bundle
-    // and the certificate-compression list have to be supplied again here, or
-    // the first renewal silently turns client-certificate verification off and
-    // stops compressing the (large, ML-DSA-87) chain for the rest of the
-    // process. requestCert / rejectUnauthorized are server-level, not part of
-    // the secure context, and do survive.
+    // setSecureContext replaces the context wholesale — an omitted option is
+    // assigned undefined, not carried over — so the trust bundle and the
+    // compression list must be supplied again or the first renewal turns client
+    // certificate verification off for the rest of the process.
     var newContext = await tlsContext.reloadContext({
       cert: fs.readFileSync(TLS_CERT),
       key: pemSeal.loadPemDispatch(TLS_KEY, TLS_KEY_SEALED, "TLS_KEY_SEALED"),
@@ -1174,32 +935,26 @@ async function reloadTlsContext() {
 }
 
 if (tlsEnabled) {
-  // Poll cadence: 1 minute (was 1 hour pre-v1.9.4). Spec §12.Q2 — cheap
-  // polling is fine and shortens the ACME-renewal-to-active-key window.
-  // reloadTlsContext is async and neither caller awaits it, so each attaches a
-  // rejection handler. Without one, a throw on a path its internal try does not
-  // cover becomes an unhandled rejection, which on this runtime terminates the
-  // process — a failed certificate reload must degrade to a logged error and a
-  // listener still serving the previous certificate, never to an exit.
+  // Neither caller awaits reloadTlsContext, so both attach a rejection handler.
+  // Without one, a throw on a path its internal try does not cover becomes an
+  // unhandled rejection and terminates the process — a failed reload must leave
+  // the listener serving the previous certificate, never exit.
   function runTlsReload(reason) {
     reloadTlsContext().catch(function (e) {
       logger.error("[TLS] Certificate reload failed", { reason: reason, error: e.message });
     });
   }
   fs.watchFile(TLS_CERT, { interval: C.TIME.minutes(1) }, function () { runTlsReload("cert-file-changed"); });
-  // SIGHUP triggers an immediate reload — used by scripts/tls-key-seal.js
-  // --reload after manually sealing a freshly-rotated key.
+  // scripts/tls-key-seal.js --reload sends this after sealing a rotated key.
   process.on("SIGHUP", function () {
     logger.info("[TLS] SIGHUP received — reloading TLS context");
     runTlsReload("sighup");
   });
 }
 
-// ---- WebSocket Sync Channel ----
-
-// WS connection registry + helpers live in lib/sync-registry.js so both the
-// upgrade handler here and the admin CA regeneration endpoint can share the
-// same Maps without a server.js ↔ routes/admin.js circular require.
+// The registry lives in its own module so the upgrade handler here and the
+// admin CA-regeneration endpoint can share one set of Maps without a circular
+// require between this file and routes/admin.js.
 var syncRegistry = require("./lib/sync-registry");
 var syncConnections = syncRegistry.syncConnections;
 var apiKeyConnectionCount = syncRegistry.apiKeyConnectionCount;
@@ -1209,31 +964,20 @@ var SYNC_MAX_CONNECTIONS_PER_KEY = 5;
 var SYNC_HEARTBEAT_INTERVAL = C.TIME.seconds(30);
 var SYNC_MAX_MESSAGES_PER_MIN = 60;
 var SYNC_MAX_MESSAGE_SIZE = C.BYTES.kib(64);
-// catch_up / connect-time catch-up page size. The change-feed is paged so a
-// since=0 (whole-bundle) request can't force the server to materialize +
-// field-crypto-decrypt every file in one shot; the client advances `since` to
-// the last seq it received to pull the next page.
+// The change feed is paged so a since=0 request cannot make the server
+// field-crypto-decrypt a whole bundle at once. The client advances `since` to
+// the last seq it received.
 var SYNC_CATCH_UP_PAGE = 200;
-// Per-IP ceiling on /sync/ws handshake attempts per minute — bounds how many
-// times one source IP can reach the apiKeys DB lookup. This is a coarse
-// flood-dampener, not a per-client cap: the lookup is a cheap indexed findOne,
-// a valid bearer key is still required after it, and SYNC_MAX_CONNECTIONS_PER_KEY
-// bounds connections per key. So the ceiling is set high enough to clear a
-// legitimate reconnect storm (a whole fleet of clients behind one NAT
-// re-establishing after a server restart) while still cutting a single IP's
-// unauthenticated handshake flood down to a handful per second. Operator-tunable.
+// A flood ceiling on the whole IP, not a per-client cap: a fleet behind one NAT
+// reconnecting after a restart must clear it, while a single source flooding
+// unauthenticated handshakes is cut to a few per second.
 var SYNC_WS_UPGRADE_MAX = parseInt(process.env.SYNC_WS_UPGRADE_MAX, 10) || 600;
 
-// Per-IP throttle for the WS upgrade handshake. The upgrade path is a raw
-// server.on("upgrade") that never enters the HTTP middleware pipeline, so the
-// blocked-IP gate (middleware/ip-check) and the per-IP rate limit that protect
-// every HTTP route are structurally skipped — a banned IP with a valid key
-// still connects, and an unauthenticated attacker reaches the apiKeys lookup on
-// every attempt with no throttle. This limiter keys on clientIp.rateKey (the
-// SAME trustProxy-gated bucket + IPv6 /64 collapse the HTTP guards use, via
-// lib/rate-limit), so the WS handshake shares the HTTP routes' throttle shape.
-// onDeny only flags the verdict — there's no Express res on a raw socket; the
-// caller writes the 429 via rejectUpgrade.
+// server.on("upgrade") never enters the HTTP middleware pipeline, so ip-check
+// and the per-IP rate limit are structurally skipped here — without this, a
+// banned IP with a valid key still connects and an unauthenticated attacker
+// reaches the apiKeys lookup unthrottled. Keyed on the same bucket the HTTP
+// guards use. onDeny only flags the verdict, because a raw socket has no res.
 var wsUpgradeThrottle = b.middleware.rateLimit({
   max: SYNC_WS_UPGRADE_MAX,
   windowMs: C.TIME.minutes(1),
@@ -1244,10 +988,8 @@ var wsUpgradeThrottle = b.middleware.rateLimit({
   onDeny: function (req) { req._wsUpgradeThrottled = true; },
 });
 
-// Drive the upgrade throttle with a no-op response surface (the deny path
-// flags req._wsUpgradeThrottled via onDeny; a no-op hook falls through to a
-// default write, which the stub swallows). Returns true when the attempt is
-// over the per-IP limit.
+// The stub response exists to swallow the limiter's default write; the verdict
+// arrives via onDeny instead.
 function wsUpgradeOverLimit(req) {
   req._wsUpgradeThrottled = false;
   var stubRes = { setHeader: function () {}, writeHead: function () { return stubRes; }, end: function () {}, writableEnded: true, headersSent: true };
@@ -1255,22 +997,18 @@ function wsUpgradeOverLimit(req) {
   return req._wsUpgradeThrottled === true;
 }
 
-// Header a sync client uses to identify ITSELF across reconnects, so the server
-// can drop that client's own stale connection instead of counting it against
-// the per-key ceiling. See supersedeSameInstance in lib/sync-registry.js.
+// How a sync client identifies itself across reconnects, so its own stale
+// connection can be dropped rather than counted against the per-key ceiling.
 var SYNC_INSTANCE_HEADER = "x-hermitstash-instance";
 var SYNC_INSTANCE_MAX_LEN = 64;
 
 /**
  * The client instance id from the upgrade request, or null.
  *
- * This value only ever selects which of the SAME key's own connections to
- * close, so it grants no authority — the bearer key and cert checks above are
- * what authenticate. It is nonetheless bounded and charset-restricted before
- * use: it is attacker-supplied, and it is compared against ids the server is
- * holding. A malformed value returns null (treated as "not sent"), which is the
- * request-shape-reader policy — the network sends what it sends, and rejecting
- * the whole upgrade over a cosmetic header would be worse than ignoring it.
+ * Grants no authority — it only selects which of the same key's connections to
+ * close — but it is attacker-supplied and compared against ids the server
+ * holds, so it is bounded and charset-restricted first. A malformed value reads
+ * as "not sent": refusing the whole upgrade over a cosmetic header is worse.
  */
 function clientInstanceId(req) {
   var raw = req && req.headers && req.headers[SYNC_INSTANCE_HEADER];
@@ -1282,10 +1020,9 @@ function clientInstanceId(req) {
 }
 
 server.on("upgrade", function (req, socket, head) {
-  // Parse the request-target. req.url is a relative path ("/sync/ws?..."),
-  // which the WHATWG parser behind b.safeUrl rejects — supply a synthetic
-  // absolute base. ALLOW_WS_ALL because this is the upgrade request-target,
-  // not an outbound URL (the https-only default would reject the ws base).
+  // req.url is relative, which the WHATWG parser rejects, hence the synthetic
+  // base. ALLOW_WS_ALL because this is an inbound request-target, not an
+  // outbound URL — the https-only default would refuse the ws base.
   var parsed;
   try {
     parsed = b.safeUrl.parse("ws://placeholder.invalid" + req.url, {
@@ -1296,19 +1033,11 @@ server.on("upgrade", function (req, socket, head) {
     return;
   }
   if (parsed.pathname !== "/sync/ws") {
-    // Not a sync WebSocket — ignore (let other handlers take it, or close)
     socket.destroy();
     return;
   }
 
-  // Blocked-IP + per-IP throttle FIRST — ahead of mTLS / cert / key-lookup
-  // work. server.on("upgrade") bypasses the HTTP middleware pipeline, so
-  // ipCheck (the blocklist gate) and the per-IP rate limit don't run here
-  // unless re-applied. Without this a banned IP with a valid key still
-  // connects, and an unauthenticated attacker hits the apiKeys DB lookup on
-  // every handshake with no throttle. Resolve the client IP through HS's
-  // trustProxy-gated reader so the blocklist + throttle key off the same
-  // value the HTTP routes do.
+  // Both run ahead of any mTLS, certificate or key-lookup work.
   var clientAddr = clientIp.getIp(req);
   if (clientAddr && db.blockedIps.findOne({ ip: clientAddr })) {
     return rejectUpgrade(socket, 403, "Forbidden");
@@ -1317,16 +1046,10 @@ server.on("upgrade", function (req, socket, head) {
     return rejectUpgrade(socket, 429, "Too Many Requests");
   }
 
-  // mTLS check (if CA is configured) — client must present a valid cert.
-  // Default is strict: when CA exists, a valid client cert is required.
-  // Operators can set MTLS_REQUIRED=false as an explicit bring-up escape,
-  // which skips the presence check but keeps revocation/expiry enforcement
-  // for clients that do present a cert, and still honors per-key cert
-  // binding (see apiKey.certFingerprint check below).
-  //
-  // The fingerprint itself isn't captured locally — sync-guards.js re-reads
-  // it from the socket when it needs to enforce per-key cert binding, so a
-  // second copy here would only risk drift.
+  // With a CA configured a valid client certificate is required.
+  // MTLS_REQUIRED=false is a bring-up escape that skips only the presence
+  // check: revocation, expiry and per-key binding still apply to any
+  // certificate that is presented.
   if (mtlsCaCert) {
     var peerCert = socket.getPeerCertificate ? socket.getPeerCertificate() : null;
     var hasValidCert = peerCert && peerCert.subject && socket.authorized;
@@ -1334,18 +1057,13 @@ server.on("upgrade", function (req, socket, head) {
       if (process.env.MTLS_REQUIRED !== "false") {
         return rejectUpgrade(socket, 403, "Forbidden");
       }
-      // MTLS_REQUIRED=false — permit (still requires API key). Per-key cert
-      // binding below will still block keys that were enrolled with a cert.
     } else {
-      // Check revocation list (indexed lookup, not full-table scan)
       if (certUtils.isPeerCertRevoked(peerCert)) {
         return rejectUpgrade(socket, 403, "Forbidden");
       }
-      // Check certificate expiry — fail CLOSED on a missing or unparseable
-      // valid_to. `new Date(bad) < new Date()` is false (Invalid Date compares
-      // false), which would silently admit an expired-or-malformed cert; a valid
-      // X.509 peer cert always carries a parseable notAfter, so treat anything
-      // else as expired.
+      // Fails closed on an unparseable valid_to: a comparison against Invalid
+      // Date is always false, which would admit a malformed certificate. A
+      // valid X.509 peer certificate always carries a parseable notAfter.
       var certExpiry = peerCert.valid_to ? Date.parse(peerCert.valid_to) : NaN;
       if (!Number.isFinite(certExpiry) || certExpiry < Date.now()) {
         return rejectUpgrade(socket, 403, "Certificate expired");
@@ -1353,27 +1071,22 @@ server.on("upgrade", function (req, socket, head) {
     }
   }
 
-  // Auth: Bearer token from Authorization header only.
-  // Query string tokens are not accepted — they leak via proxy logs, Referer
-  // headers, and browser history. b.requestHelpers.extractBearer also refuses
-  // requests with multiple Authorization headers (CWE-345).
+  // Header only. A query-string token leaks through proxy logs, Referer
+  // headers and browser history. extractBearer also refuses a request carrying
+  // more than one Authorization header (CWE-345).
   var token = b.requestHelpers.extractBearer(req);
   if (!token) {
     return rejectUpgrade(socket, 401, "Unauthorized");
   }
 
-  // Validate API key using the same mechanism as api-auth middleware
   var keyHash = b.crypto.sha3Hash(token);
   var apiKey = db.apiKeys.findOne({ keyHash: keyHash });
   if (!apiKey) {
     return rejectUpgrade(socket, 401, "Unauthorized");
   }
 
-  // Delegate scope / cert-binding / bundle-binding checks to the shared
-  // sync-guards helpers so this upgrade handler can't drift out of sync
-  // with /sync/rename + /sync/renew-cert (see middleware/sync-guards.js).
-  // Bundle lookup + stash binding + user activity stay inline here because
-  // they use rejectUpgrade's raw-socket response path.
+  // Shared with /sync/rename and /sync/renew-cert so the three cannot drift.
+  // The checks below stay inline because they answer on the raw socket.
   var syncGuards = require("./middleware/sync-guards");
 
   var certErr = syncGuards.enforceCertBinding(apiKey, socket);
@@ -1387,7 +1100,6 @@ server.on("upgrade", function (req, socket, head) {
     return rejectUpgrade(socket, 403, "Forbidden");
   }
 
-  // Validate bundleId
   var bundleId = parsed.searchParams.get("bundleId");
   if (!bundleId) {
     return rejectUpgrade(socket, 400, "Bad Request");
@@ -1403,22 +1115,18 @@ server.on("upgrade", function (req, socket, head) {
   if (apiKey.boundStashId && bundle.stashId !== apiKey.boundStashId) {
     return rejectUpgrade(socket, 403, "Forbidden");
   }
-  // Ownership check: must be the key's user, admin, or a stash-scoped token.
-  // WS semantics differ slightly from /sync/rename — a stash-scoped token is
-  // allowed across all bundles in the stash, so we don't call
-  // enforceBundleOwnership here.
+  // Not enforceBundleOwnership: here a stash-scoped token reaches every bundle
+  // in its stash, which /sync/rename does not allow.
   if (bundle.ownerId !== user._id && user.role !== "admin" && !apiKey.boundStashId) {
     return rejectUpgrade(socket, 403, "Forbidden");
   }
 
-  // Connection limit per API key. First let a reconnecting client reclaim the
-  // slot held by its OWN previous connection: the count is only decremented in
-  // the close handler, and an unclean drop is not noticed until the pong-timeout
-  // a heartbeat or two later, so a client returning inside that window would
-  // otherwise be refused on account of its own ghost. Matching is by the
-  // instance id the client sent, never by (key, bundle) — one key legitimately
-  // holds several concurrent connections to a bundle, and matching more broadly
-  // would close a different subscriber's live socket.
+  // Let a reconnecting client reclaim its own slot first. The count drops only
+  // in the close handler, and an unclean drop goes unnoticed until the pong
+  // timeout, so a client returning inside that window would be refused on
+  // account of its own ghost. Match on the instance id and NEVER on
+  // (key, bundle): one key legitimately holds several connections to a bundle,
+  // and a broader match would close another subscriber's live socket.
   var keyId = apiKey._id;
   var instanceId = clientInstanceId(req);
   if (instanceId) syncRegistry.supersedeSameInstance(bundleId, keyId, instanceId);
@@ -1427,47 +1135,37 @@ server.on("upgrade", function (req, socket, head) {
     return rejectUpgrade(socket, 429, "Too Many Requests");
   }
 
-  // Validate since param
   var since = parseInt(parsed.searchParams.get("since"), 10);
   if (isNaN(since) || since < 0) since = 0;
 
-  // Complete WebSocket handshake (b.websocket.handleUpgrade writes the
-  // 101 and returns null on a malformed request with the response
-  // already sent — no further rejectUpgrade needed in that case).
+  // Returns null with the response already sent on a malformed request, so a
+  // further rejectUpgrade would be a second write.
   var ws = b.websocket.handleUpgrade(req, socket, head, {
     maxMessageBytes: SYNC_MAX_MESSAGE_SIZE,
   });
   if (!ws) return;
-  // b.websocket.WebSocketConnection.send() throws on a closed connection
-  // (HS's previous impl was silent). Wrap every send so the delivery path
-  // is fire-and-forget — close cleanup handles the EE unwiring on the
-  // next tick. Local closure so the helper captures `ws` cleanly.
+  // send() throws on a closed connection, and every push here is
+  // fire-and-forget — the close handler unwires the listener a tick later.
   function safeSend(data) {
     try { ws.send(data); } catch (_e) { /* connection closed mid-write */ }
   }
 
-  // Register connection. `counted: true` marks this entry as contributing to
-  // apiKeyConnectionCount; supersedeSameInstance clears it when it reclaims a
-  // slot early, so the close handler below never double-decrements. instanceId
-  // is null for a client that sends no header — such an entry is simply never
-  // superseded.
+  // `counted` marks this entry as holding a slot. supersedeSameInstance clears
+  // it when it reclaims one early, so the close handler cannot decrement twice.
   if (!syncConnections.has(bundleId)) syncConnections.set(bundleId, new Set());
   var connEntry = { ws: ws, apiKeyId: keyId, instanceId: instanceId, counted: true };
   syncConnections.get(bundleId).add(connEntry);
   apiKeyConnectionCount.set(keyId, keyCount + 1);
 
-  // Inbound message rate limiting
   var msgCount = 0;
   var msgResetTimer = setInterval(function () { msgCount = 0; }, C.TIME.minutes(1));
   msgResetTimer.unref();
   var violations = 0;
 
-  // Catch-up: send events since the given seq, ONE page at a time. `since` is
-  // attacker-controlled (since=0 forces the whole bundle), so the query filters
-  // + orders + limits in SQL on the raw bundleId/seq columns rather than
-  // materializing + field-crypto-decrypting every file to JS-filter — the flat
-  // 60/min message cap doesn't bound O(files) decrypt work. The client pages by
-  // reconnecting (or issuing catch_up) with `since` advanced to the last seq.
+  // `since` is attacker-controlled and since=0 asks for the whole bundle, so
+  // the query filters, orders and limits in SQL on the raw columns. The flat
+  // 60-per-minute message cap does not bound decrypt work proportional to file
+  // count.
   if (since > 0) {
     var catchupFiles = filesRepo.findBundleChangesSince(bundle._id, since, SYNC_CATCH_UP_PAGE);
     for (var i = 0; i < catchupFiles.length; i++) {
@@ -1478,30 +1176,24 @@ server.on("upgrade", function (req, socket, head) {
       safeSend(JSON.stringify(ev));
     }
   }
-  // Signal catch-up complete
+  // Signals catch-up complete.
   safeSend(JSON.stringify({ type: "heartbeat", seq: bundle.seq || 0, timestamp: new Date().toISOString() }));
 
-  // Real-time event listener
   var syncListener = function (event) {
     try { safeSend(JSON.stringify(event)); } catch (_e) {} // allow:silent-catch — best-effort WS push; a dead socket is reaped elsewhere
   };
   syncEmitter.on("sync:" + bundleId, syncListener);
 
-  // Send immediate heartbeat on connect so clients know the connection is live
   try {
     safeSend(JSON.stringify({ type: "heartbeat", seq: bundle.seq || 0, timestamp: new Date().toISOString() }));
   } catch (_e) { /* socket may have closed between upgrade and first write */ }
 
-  // Heartbeat interval
   var heartbeatTimer = setInterval(function () {
     try {
-      // Re-validate the credential every heartbeat — defense-in-depth so a
-      // revoked key or deactivated user is torn down within one interval even
-      // if the immediate close on revoke/deactivate was missed (or the
-      // deactivate path doesn't reach the sync registry). TLS never re-validates
-      // an already-authenticated connection, so without this an already-open
-      // change-feed socket would outlive its credential. apiKey row gone (hard-
-      // deleted on revoke) or owning user no longer active → close 4401.
+      // TLS never re-validates an authenticated connection, so an open change
+      // feed would otherwise outlive its credential. Re-reading the key and
+      // user each beat tears one down within an interval even when the
+      // immediate close on revoke or deactivate was missed.
       var freshKey = apiKeysRepo.findOne({ _id: keyId });
       var freshUser = freshKey ? usersRepo.findById(freshKey.userId) : null;
       if (!freshKey || !freshUser || freshUser.status !== "active") {
@@ -1515,7 +1207,6 @@ server.on("upgrade", function (req, socket, head) {
   }, SYNC_HEARTBEAT_INTERVAL);
   heartbeatTimer.unref();
 
-  // Pong timeout detection
   var pongReceived = true;
   var pongCheckTimer = setInterval(function () {
     if (!pongReceived) {
@@ -1528,7 +1219,6 @@ server.on("upgrade", function (req, socket, head) {
 
   ws.on("pong", function () { pongReceived = true; });
 
-  // Inbound message handling
   ws.on("message", function (data) {
     msgCount++;
     if (msgCount > SYNC_MAX_MESSAGES_PER_MIN) {
@@ -1548,19 +1238,13 @@ server.on("upgrade", function (req, socket, head) {
         return;
       }
       if (msg.type === "ack") {
-        // Client acknowledges receipt — no server action needed in v1
+        // Receipt acknowledgement; nothing for the server to do.
       } else if (msg.type === "ca:rotation-ack") {
-        // Sync client has persisted the new cert/key/CA bundle sent via
-        // ca:rotation. Fire the per-apiKeyId callback that the admin
-        // regeneration endpoint is awaiting so it knows this client is
-        // ready for the restart. See routes/admin.js.
+        // The client has persisted the bundle sent via ca:rotation. Releases
+        // the admin regeneration endpoint, which waits for every client.
         var ackCb = caRotationAckCallbacks.get(keyId);
         if (ackCb) { try { ackCb(); } catch (_e) {} } // allow:silent-catch — best-effort ack callback
       } else if (msg.type === "catch_up") {
-        // Paged: `since` is attacker-controlled (since=0 = whole bundle), so the
-        // query bounds the work to one SQL-limited page on the raw bundleId/seq
-        // columns instead of decrypting every file. The client advances `since`
-        // to the last seq it received to pull the next page.
         var catchSince = parseInt(msg.since, 10) || 0;
         var files = filesRepo.findBundleChangesSince(bundle._id, catchSince, SYNC_CATCH_UP_PAGE);
         for (var j = 0; j < files.length; j++) {
@@ -1583,7 +1267,6 @@ server.on("upgrade", function (req, socket, head) {
     }
   });
 
-  // Cleanup on close
   ws.on("close", function () {
     syncEmitter.off("sync:" + bundleId, syncListener);
     clearInterval(heartbeatTimer);
@@ -1593,8 +1276,6 @@ server.on("upgrade", function (req, socket, head) {
       syncConnections.get(bundleId).delete(connEntry);
       if (syncConnections.get(bundleId).size === 0) syncConnections.delete(bundleId);
     }
-    // Skip when supersedeSameInstance already reclaimed this entry's slot
-    // (it clears `counted`), so the same slot is never released twice.
     if (!connEntry.counted) return;
     connEntry.counted = false;
     var currentCount = apiKeyConnectionCount.get(keyId) || 0;
@@ -1602,36 +1283,32 @@ server.on("upgrade", function (req, socket, head) {
     else apiKeyConnectionCount.delete(keyId);
   });
 
-  // Strip token from logged URL
+  // Rebuilt rather than logged as received, so no token reaches the log.
   var logUrl = parsed.pathname + "?bundleId=" + bundleId + "&since=" + since;
   logger.info("[Sync] WebSocket connected", { bundleId: bundleId, user: user._id, url: logUrl });
 });
 
-// Graceful shutdown — stop accepting connections, drain in-flight requests, then exit
 var shuttingDown = false;
 function gracefulShutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   logger.info("Shutdown initiated", { signal: signal });
 
-  // Close all WebSocket connections so server.close() can drain
+  // server.close() will not drain while these are open.
   syncConnections.forEach(function (conns) {
     conns.forEach(function (entry) {
       try { if (entry.ws && entry.ws.readyState === "open") entry.ws.close(1001, "Server shutting down"); } catch (_e) { /* socket may already be closed */ }
     });
   });
 
-  // Unwatch TLS cert to remove persistent file watcher
   if (tlsEnabled) try { fs.unwatchFile(TLS_CERT); } catch (_e) {} // allow:silent-catch — best-effort cert-watcher teardown
 
-  // Stop accepting new connections
   if (gateServer) gateServer.close();
   server.close(function () {
     logger.info("All connections drained, exiting");
     process.exit(0); // db.js "exit" handler encrypts the DB
   });
 
-  // Force exit after 10 seconds if connections don't drain
   var forceTimer = setTimeout(function () {
     logger.warn("Shutdown timeout reached, forcing exit");
     process.exit(1);

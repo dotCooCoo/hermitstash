@@ -233,37 +233,37 @@ Built on Node.js 24.19.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 ## Features
 
 **Authentication**
-- Argon2id local auth, Google OAuth, Sign in with Tailscale, WebAuthn passkeys -- all simultaneous
+- Argon2id local auth, Google OAuth, Sign in with Tailscale, WebAuthn passkeys — all simultaneous
 - TOTP 2FA with single-use backup codes — HMAC-SHA-512, 128-byte secret, 8-digit codes (legacy SHA-1 enrollments are forced through a one-time re-pair on next login)
 - Email verification with SHA3-hashed tokens
 - Hybrid KEM encrypted session cookies
 - Per-session XChaCha20-Poly1305 encrypted API payloads with anti-replay and anti-tamper
-- Hybrid PQC payload encryption for API clients -- ML-KEM-1024 + ECDH P-384 hybrid envelope (SHAKE256 KDF, XChaCha20-Poly1305 wrap) via blamejs apiEncrypt for sync write paths and `/drop/init` / `/drop/finalize/:bundleId`. Cookie-authenticated browsers use a per-session XChaCha20-Poly1305 envelope instead, keyed by a session key delivered in the page template rather than in any response body. Server keypair is published as plain JSON at `/.well-known/blamejs-pubkey` and vault-sealed at rest
+- Hybrid PQC payload encryption for API clients — ML-KEM-1024 + ECDH P-384 hybrid envelope (SHAKE256 KDF, XChaCha20-Poly1305 wrap) via blamejs apiEncrypt for sync write paths and `/drop/init` / `/drop/finalize/:bundleId`. Cookie-authenticated browsers use a per-session XChaCha20-Poly1305 envelope instead, keyed by a session key delivered in the page template rather than in any response body. Server keypair is published as plain JSON at `/.well-known/blamejs-pubkey` and vault-sealed at rest
 - Rate limiting on login (15/5min), registration (10/15min), 2FA verify (5/5min), passkey login (10/min), email verification (10/15min), password reset (10/15min)
 - Account lockout after 10 consecutive failed password attempts (30-minute cooldown)
 - Password reset flow with single-use, 1-hour-expiry tokens and anti-enumeration (always returns success)
-- User invitation system -- admin invites by email with role assignment, 48-hour expiry
+- User invitation system — admin invites by email with role assignment, 48-hour expiry
 - Configurable session idle timeout (default 30 minutes, server-side enforcement)
 - OAuth 2.0 PKCE + CSRF state validation on the Google sign-in callback
-- Sign in with Tailscale (opt-in) -- tailnet members authenticate via the `tailscale serve` identity headers (`Tailscale-User-*` / `Tailscale-App-Capabilities`), trusted only from the loopback serve proxy and stripped from every other peer. Account creation is admin-gated: a tailnet user is auto-provisioned only when they carry a required capability grant or are on an allowlist. Under Funnel a public visitor carries no identity and falls back to the other sign-in methods
+- Sign in with Tailscale (opt-in) — tailnet members authenticate via the `tailscale serve` identity headers (`Tailscale-User-*` / `Tailscale-App-Capabilities`), trusted only from the loopback serve proxy and stripped from every other peer. Account creation is admin-gated: a tailnet user is auto-provisioned only when they carry a required capability grant or are on an allowlist. Under Funnel a public visitor carries no identity and falls back to the other sign-in methods
 - Password change automatically revokes all other sessions
 
 **File Management**
-- Public folder drops -- drag entire trees, no login required
+- Public folder drops — drag entire trees, no login required
 - Per-file XChaCha20-Poly1305 encryption, keys sealed with hybrid ML-KEM-1024 + P-384
 - Chunked uploads for large files (over 10 MB auto-split, server reassembly)
 - Pause/resume/cancel uploads, per-file progress bars
 - Password-protected share links with exponential backoff lockout (2^n × 30s after 5 failed attempts), persisted per-share in the database so counters survive restart
-- Email-gated access -- restrict bundles to specific recipient emails, verified by one-time code (anti-enumeration, rate limited, SHA3-hashed codes)
-- Dual protection mode -- require both email verification and password for maximum security
+- Email-gated access — restrict bundles to specific recipient emails, verified by one-time code (anti-enumeration, rate limited, SHA3-hashed codes)
+- Dual protection mode — require both email verification and password for maximum security
 - Custom expiry per bundle (1d, 7d, 30d, 90d, never)
 - Bundle messages, multiple recipient emails
-- Bundle naming -- name bundles during upload, rename inline from dashboard
+- Bundle naming — name bundles during upload, rename inline from dashboard
 - Inline rename for files and bundles with backend-enforced sanitization (dot attack protection, path traversal prevention, extension preservation)
-- Magic byte content validation -- uploaded files verified against claimed extension (15 format signatures)
+- Magic byte content validation — uploaded files verified against claimed extension (15 format signatures)
 - File preview with SVG sanitization, HTML/JS forced download
-- Shareable links -- browse folders or download as ZIP
-- Subfolder ZIP download -- download individual subdirectories from a bundle
+- Shareable links — browse folders or download as ZIP
+- Subfolder ZIP download — download individual subdirectories from a bundle
 - Safe Content-Disposition headers with RFC 8187 encoding for non-ASCII filenames
 
 **Zero-Knowledge Vault**
@@ -281,23 +281,23 @@ Built on Node.js 24.19.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 
 **Customer Stash — Branded Upload Portals**
 - Create custom-branded upload pages at `/stash/:slug` for clients and partners
-- Per-page branding -- custom title, instructions, accent color, and logo
-- Per-page upload constraints -- max file size, max bundle size, max files, default expiry, allowed extensions; each blank field uses the global default, or can be marked "No limit" to lift that cap for the stash
+- Per-page branding — custom title, instructions, accent color, and logo
+- Per-page upload constraints — max file size, max bundle size, max files, default expiry, allowed extensions; each blank field uses the global default, or can be marked "No limit" to lift that cap for the stash
 - Password-protected stash pages with Argon2 hashing and rate-limited unlock
-- Email/domain-gated stash access -- restrict by specific emails or entire domains (@example.com), verified by one-time code
-- Dual protection mode -- require both email verification and password on stash pages
-- Simplified upload form -- message and files only (no name/email fields)
+- Email/domain-gated stash access — restrict by specific emails or entire domains (@example.com), verified by one-time code
+- Dual protection mode — require both email verification and password on stash pages
+- Simplified upload form — message and files only (no name/email fields)
 - Bundle naming during stash upload
 - Dynamic slug validation with automatic reserved-word detection from registered routes
 - Upload stats tracked per stash page (bundle count, total bytes)
 - Custom logo upload per stash page with magic-byte validation
-- Dedicated admin page with bundle drill-down -- view bundles, browse files, inline rename, delete, purge all
-- Grant individual user accounts read access to a stash's uploads -- assign users by email (no team required); they see the customer's uploads on their dashboard under "Shared with me"
-- Admin management -- create, edit, toggle, copy link, delete stash pages
+- Dedicated admin page with bundle drill-down — view bundles, browse files, inline rename, delete, purge all
+- Grant individual user accounts read access to a stash's uploads — assign users by email (no team required); they see the customer's uploads on their dashboard under "Shared with me"
+- Admin management — create, edit, toggle, copy link, delete stash pages
 
 **Teams**
 - Create teams, add/remove members with role-based access
-- Assign a stash to a team -- uploads to it appear in the team's member-only file list (`/teams/:id/files`)
+- Assign a stash to a team — uploads to it appear in the team's member-only file list (`/teams/:id/files`)
 - A stash can be shared with a team, with individual users, or with both at once
 - Team admin and member roles
 
@@ -309,67 +309,67 @@ Built on Node.js 24.19.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - Stats with computed totals (size, downloads), activity feed
 - Row-based bundle lists with file drill-down (My Stash + Personal Vault)
 - Paginated file/bundle browser with search
-- User management -- create, suspend, delete, role toggle, and per-user upload-limit overrides (storage quota, max file size, max bundle size, max files, allowed extensions) set from the user list; each field falls back to the global default when left blank, or can be marked "No limit" to lift that cap for the individual user, so the overrides are off until set
-- Audit log -- searchable (by action, details, email, IP, or path), filterable, date range; click any entry for the full who / what / when / where / how (performer, target, source IP, method + path, auth type, user-agent, request id). Sealed at rest and shown decrypted to admins
-- Audit export -- download the decrypted trail (honoring the current filters) as CSV (formula-injection-safe), JSON, or CADF (Cloud Auditing Data Federation event batch for SIEM / compliance). Each export is itself audited
-- Audit archival -- optional size-based rotation: when the log exceeds a row threshold, the oldest entries are moved to a passphrase-encrypted (Argon2id + XChaCha20-Poly1305), post-quantum-signed bundle on disk and pruned from the database, with the tamper chain re-anchored. Archives can be listed, verified (signature + checksum + chain recompute), and decrypted for export. Each bundle is verified before any rows are pruned, so a bad write never loses data
-- SIEM forwarding -- stream every audit event to a SIEM in real time over RFC 5424 syslog (`udp` / `tcp` / `tls`) or an HTTP webhook (Splunk HEC, Datadog, Grafana Loki, or any JSON-ingest endpoint, with bearer / basic / header auth). Security failures forward at `warn` so the SIEM can alert; secret- and PII-shaped values are stripped before anything leaves the host. A built-in connectivity test sends a probe event without waiting for an audit action. Off by default; enabling it forces full-IP and user-agent capture on so the forwarded stream is forensically complete
-- Audit Log settings -- retention period (or keep indefinitely), record full IP addresses for investigations (off by default, where the source IP is stored as a one-way hash the operator cannot reverse), capture the client user-agent, and the tamper-evidence chain + encrypted archival. IP and user-agent changes apply to new entries only
-- Settings panel -- 11 tabs (Branding, General, Auth, Uploads, Storage, Theme, Email, Security, Environment, Backup, Audit Log)
+- User management — create, suspend, delete, role toggle, and per-user upload-limit overrides (storage quota, max file size, max bundle size, max files, allowed extensions) set from the user list; each field falls back to the global default when left blank, or can be marked "No limit" to lift that cap for the individual user, so the overrides are off until set
+- Audit log — searchable (by action, details, email, IP, or path), filterable, date range; click any entry for the full who / what / when / where / how (performer, target, source IP, method + path, auth type, user-agent, request id). Sealed at rest and shown decrypted to admins
+- Audit export — download the decrypted trail (honoring the current filters) as CSV (formula-injection-safe), JSON, or CADF (Cloud Auditing Data Federation event batch for SIEM / compliance). Each export is itself audited
+- Audit archival — optional size-based rotation: when the log exceeds a row threshold, the oldest entries are moved to a passphrase-encrypted (Argon2id + XChaCha20-Poly1305), post-quantum-signed bundle on disk and pruned from the database, with the tamper chain re-anchored. Archives can be listed, verified (signature + checksum + chain recompute), and decrypted for export. Each bundle is verified before any rows are pruned, so a bad write never loses data
+- SIEM forwarding — stream every audit event to a SIEM in real time over RFC 5424 syslog (`udp` / `tcp` / `tls`) or an HTTP webhook (Splunk HEC, Datadog, Grafana Loki, or any JSON-ingest endpoint, with bearer / basic / header auth). Security failures forward at `warn` so the SIEM can alert; secret- and PII-shaped values are stripped before anything leaves the host. A built-in connectivity test sends a probe event without waiting for an audit action. Off by default; enabling it forces full-IP and user-agent capture on so the forwarded stream is forensically complete
+- Audit Log settings — retention period (or keep indefinitely), record full IP addresses for investigations (off by default, where the source IP is stored as a one-way hash the operator cannot reverse), capture the client user-agent, and the tamper-evidence chain + encrypted archival. IP and user-agent changes apply to new entries only
+- Settings panel — 11 tabs (Branding, General, Auth, Uploads, Storage, Theme, Email, Security, Environment, Backup, Audit Log)
 - API keys with scoped permissions (upload, read, admin) validated against a canonical enum and enforced on read and mutating routes
 - Webhooks signed with the Standard Webhooks scheme (timestamped, replay-bounded), per-hook delivery log, enable/disable toggle
 - IP blocklist
 - Database backup (serves encrypted-at-rest copy), CSV exports (with formula injection protection)
 - Automated off-site backup to S3-compatible storage (AWS, R2, MinIO, B2, DO Spaces) with passphrase-encrypted vault key, incremental file manifests, configurable retention, and manual trigger from admin UI. Full-scope backups include all storage objects (bundles and vault files)
-- Backup restore with pre-restore snapshots -- critical files (vault.key, db.key.enc, hermitstash.db.enc) are snapshotted before overwrite for crash recovery
-- Scheduled tasks with watchdog timeouts -- file expiry, audit retention, stale upload cleanup, token cleanup, invite cleanup, daily SQLite vacuum, automated backup. Hung jobs auto-reset after 10 minutes
-- Danger Zone -- factory reset, purge all sessions, purge all users, purge all files (typed confirmation required)
+- Backup restore with pre-restore snapshots — critical files (vault.key, db.key.enc, hermitstash.db.enc) are snapshotted before overwrite for crash recovery
+- Scheduled tasks with watchdog timeouts — file expiry, audit retention, stale upload cleanup, token cleanup, invite cleanup, daily SQLite vacuum, automated backup. Hung jobs auto-reset after 10 minutes
+- Danger Zone — factory reset, purge all sessions, purge all users, purge all files (typed confirmation required)
 - Custom logo upload with magic-byte validation and SVG sanitization
 - Reverse proxy auto-detection with config snippet generator (nginx, Caddy, Apache)
 - Per-user storage quotas (separate from global quota) and per-IP public upload quota (24h rolling window)
 - Configurable upload concurrency, retry count, timeout, and file extension allowlist
 - Admin email list for auto-promoting OAuth users to admin role
-- Maintenance mode -- blocks non-admin access with 503 page
-- Announcement banner -- site-wide text displayed on all pages
+- Maintenance mode — blocks non-admin access with 503 page
+- Announcement banner — site-wide text displayed on all pages
 
 **Email**
 - SMTP or Resend API backend (switchable from admin)
-- Dual-mode failover -- SMTP-primary/Resend-fallback or Resend-primary/SMTP-fallback
+- Dual-mode failover — SMTP-primary/Resend-fallback or Resend-primary/SMTP-fallback
 - Resend quota enforcement (daily/monthly limits per plan tier)
-- Email template customization -- subject, header, footer with named placeholders ({siteName}, {uploaderName}, {fileCount}, {totalSize})
+- Email template customization — subject, header, footer with named placeholders ({siteName}, {uploaderName}, {fileCount}, {totalSize})
 - Upload confirmations, admin notifications, verification emails
 - All email send/fail/quota events audit-logged
 
 **Sync and API**
-- Mutable sync bundles -- `bundleType: "sync"` creates persistent, mutable bundles that accept file additions, replacements, and deletions after creation
-- File replace -- uploading to a sync bundle with an existing `relativePath` overwrites the file with a new encryption key (old key and blob fully removed)
-- File rename/move -- `POST /sync/rename` updates relativePath without re-uploading the file (metadata-only, emits `file_renamed` WebSocket event). Sync client detects local renames by checksum matching within the debounce window
-- File delete -- individual files can be removed from sync bundles with tombstone-based soft delete (30-day cleanup)
-- Per-file change tracking -- `seq` monotonic counter and `updatedAt` timestamp on files and bundles for sync change feeds
-- JSON content negotiation on bundle view -- `Accept: application/json` returns file list with checksums and metadata
+- Mutable sync bundles — `bundleType: "sync"` creates persistent, mutable bundles that accept file additions, replacements, and deletions after creation
+- File replace — uploading to a sync bundle with an existing `relativePath` overwrites the file with a new encryption key (old key and blob fully removed)
+- File rename/move — `POST /sync/rename` updates relativePath without re-uploading the file (metadata-only, emits `file_renamed` WebSocket event). Sync client detects local renames by checksum matching within the debounce window
+- File delete — individual files can be removed from sync bundles with tombstone-based soft delete (30-day cleanup)
+- Per-file change tracking — `seq` monotonic counter and `updatedAt` timestamp on files and bundles for sync change feeds
+- JSON content negotiation on bundle view — `Accept: application/json` returns file list with checksums and metadata
 - Structured audit log events for file mutations (JSON details with action, bundleId, checksum, size)
-- Shared access control middleware (`require-access.js`) -- centralized lock checks for bundles and stash
-- JSON-aware auth -- API/sync clients receive 401 JSON, browsers get login redirect
-- WebSocket sync channel -- `GET /sync/ws` with auth during upgrade handshake, scoped to single bundle
+- Shared access control middleware (`require-access.js`) — centralized lock checks for bundles and stash
+- JSON-aware auth — API/sync clients receive 401 JSON, browsers get login redirect
+- WebSocket sync channel — `GET /sync/ws` with auth during upgrade handshake, scoped to single bundle
 - Real-time file change events over WebSocket (file_added, file_replaced, file_removed, heartbeat — sent immediately on connect, then every 30s)
 - Catch-up on reconnect via seq cursor (`?since=N` on WebSocket upgrade)
-- PQC TLS enforcement -- ClientHello inspection rejects connections without PQC hybrid key exchange groups
-- PQC gate architecture -- TCP proxy inspects `supported_groups` extension before TLS handshake completes
+- PQC TLS enforcement — ClientHello inspection rejects connections without PQC hybrid key exchange groups
+- PQC gate architecture — TCP proxy inspects `supported_groups` extension before TLS handshake completes
 - Localhost bypass for Docker health probes (127.0.0.1/::1 skip PQC check)
 - `PQC_ENFORCE=false` disables gate for transition periods (PQC preferred but not required)
-- PQC TLS -- conditional HTTPS with SecP384r1MLKEM1024 + X25519MLKEM768 + SecP256r1MLKEM768 hybrid key exchange (TLS 1.3 only, Level 5 preferred)
+- PQC TLS — conditional HTTPS with SecP384r1MLKEM1024 + X25519MLKEM768 + SecP256r1MLKEM768 hybrid key exchange (TLS 1.3 only, Level 5 preferred)
 - Certificate auto-reload on Let's Encrypt renewal (file poll every minute)
-- PQC outbound HTTPS agent -- S3, SMTP, Resend, webhook and OAuth calls offer the hybrid groups ahead of classical X25519 at a TLS 1.3 floor, so a hybrid is used whenever the upstream supports one. There is no outbound equivalent of the inbound gate: an upstream that offers no hybrid still connects, and each such handshake is recorded as a `tls.classical_downgrade` audit event naming the group and host
-- mTLS for sync clients -- server runs its own Certificate Authority. Two CAs sign under different algorithms: a **sync CA** (post-quantum ML-DSA-87) for machine/sync client certs, and a separate **browser CA** (classical ECDSA-P384-SHA384) for the certs humans import into a browser/OS keystore. The TLS server trusts both, and each rotates and revokes independently. See "mTLS certificate authorities" below
+- PQC outbound HTTPS agent — S3, SMTP, Resend, webhook and OAuth calls offer the hybrid groups ahead of classical X25519 at a TLS 1.3 floor, so a hybrid is used whenever the upstream supports one. There is no outbound equivalent of the inbound gate: an upstream that offers no hybrid still connects, and each such handshake is recorded as a `tls.classical_downgrade` audit event naming the group and host
+- mTLS for sync clients — server runs its own Certificate Authority. Two CAs sign under different algorithms: a **sync CA** (post-quantum ML-DSA-87) for machine/sync client certs, and a separate **browser CA** (classical ECDSA-P384-SHA384) for the certs humans import into a browser/OS keystore. The TLS server trusts both, and each rotates and revokes independently. See "mTLS certificate authorities" below
 - Client certificate generation on sync token creation with one-click PEM bundle download
 - Certificate revocation table with SHA3-512 hashed fingerprint lookups
 - WebSocket upgrade validates mTLS cert + API key (dual auth, neither alone sufficient)
 - When a CA exists, WebSocket mTLS is **required by default**. Set `MTLS_REQUIRED=false` as an explicit bring-up escape to permit API-key-only upgrades; per-key cert binding is still enforced when `api_keys.certFingerprint` is set, so a cert-bound key cannot be downgraded.
 - New `sync` API key scope for WebSocket connections and sync bundle operations
-- Resource-scoped API keys -- `boundStashId` and `boundBundleId` columns restrict keys to specific resources
-- Stash-scoped sync tokens -- admin generates tokens that grant sync access to a single stash only
-- One-time enrollment codes -- admin generates a short code (for example `HSTASH-A4K9-XMWP-7RB2`), client redeems it to get API key + mTLS certs automatically (no file transfer needed, 1-hour expiry)
-- Stash sync mode -- persistent mutable bundle per stash for desktop sync clients
+- Resource-scoped API keys — `boundStashId` and `boundBundleId` columns restrict keys to specific resources
+- Stash-scoped sync tokens — admin generates tokens that grant sync access to a single stash only
+- One-time enrollment codes — admin generates a short code (for example `HSTASH-A4K9-XMWP-7RB2`), client redeems it to get API key + mTLS certs automatically (no file transfer needed, 1-hour expiry)
+- Stash sync mode — persistent mutable bundle per stash for desktop sync clients
 - Admin UI: sync toggle per stash, one-click sync token generation with copy button
 - Desktop sync client: [hermitstash-sync](https://github.com/dotCooCoo/hermitstash-sync) — watches a local folder and syncs via WebSocket + PQC TLS
 - **Enforce mTLS** mode — restricts the web UI to clients that present a valid CA-signed certificate. Sync clients, Bearer-authenticated API calls, `/sync/*`, and `/health` always pass through.
@@ -382,28 +382,28 @@ Built on Node.js 24.19.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 **Security Hardening**
 - Security headers on all responses (CSP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy, COOP, CORP)
 - HSTS with preload, sent on requests that arrive over HTTPS — a proxy's forwarded scheme counts only from an address named in `TRUST_PROXY`
-- Content Security Policy with no external domains -- fonts vendored locally, `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`
+- Content Security Policy with no external domains — fonts vendored locally, `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`
 - 256-bit SHA3-derived share IDs (no brute-force, no collisions)
 - CSRF protection: JSON requests bound by per-session encryption key; form POSTs validated with constant-time CSRF token; non-JSON/non-exempt POSTs rejected
 - Logout is POST-only with CSRF token validation (no GET logout CSRF)
-- Bot guard middleware -- blocks automated scanners on public routes via a missing-Accept-Language check plus a known-automation User-Agent deny-list (curl, wget, python-requests, …); a missing Sec-Fetch-Mode is advisory only, so browsers reaching the app over plain HTTP (LAN / reverse-proxy origins) are not refused
-- WebSocket API keys accepted only via Authorization header -- query string tokens rejected to prevent proxy/log/Referer leaks
+- Bot guard middleware — blocks automated scanners on public routes via a missing-Accept-Language check plus a known-automation User-Agent deny-list (curl, wget, python-requests, …); a missing Sec-Fetch-Mode is advisory only, so browsers reaching the app over plain HTTP (LAN / reverse-proxy origins) are not refused
+- WebSocket API keys accepted only via Authorization header — query string tokens rejected to prevent proxy/log/Referer leaks
 - CSV formula injection protection on all exports
 - CORS configurable via admin (wildcard disallowed with credentials)
-- Canonical origin policy -- all URLs generated from rpOrigin, never from Host header
-- Webhook DNS pinning -- resolved IP reused for outbound connection, preventing TOCTOU rebinding
+- Canonical origin policy — all URLs generated from rpOrigin, never from Host header
+- Webhook DNS pinning — resolved IP reused for outbound connection, preventing TOCTOU rebinding
 - Input length limits on all free-text fields
 - Pagination capped at 200 results
 - X-Forwarded-For only trusted from configured proxies
 - Safe redirects (relative paths only)
 - SSRF protection covers all RFC 1918, RFC 6598 CGNAT, link-local, metadata, and IPv6 ranges
-- All crypto and font dependencies vendored from npm -- zero external CDN requests, zero runtime packages
+- All crypto and font dependencies vendored from npm — zero external CDN requests, zero runtime packages
 - Restrictive CSP on user-uploaded logo directory (defense-in-depth against SVG XSS)
 
 **Storage**
 - Local disk, NAS mount, or any S3-compatible bucket (MinIO, Cloudflare R2, DigitalOcean Spaces, Backblaze B2)
-- Every stored object is encrypted by the application before it leaves the process -- there is no direct-download path that would serve a file under a classical S3-managed cipher instead of the app's post-quantum encryption
-- All file operations (uploads, vault, backups) go through a unified storage abstraction -- local and S3 backends are transparent to the application
+- Every stored object is encrypted by the application before it leaves the process — there is no direct-download path that would serve a file under a classical S3-managed cipher instead of the app's post-quantum encryption
+- All file operations (uploads, vault, backups) go through a unified storage abstraction — local and S3 backends are transparent to the application
 - Per-file XChaCha20-Poly1305 encryption at rest, keys sealed with hybrid vault
 
 **SEO and Legal**
@@ -415,9 +415,9 @@ Built on Node.js 24.19.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - Configurable Privacy Policy, Terms of Service, and Cookie Policy pages
 - Default legal page templates with sensible content for self-hosted deployments
 - Footer links to all legal pages
-- Configurable analytics script injection -- paste any provider's `<script>` tag (Plausible, Umami, Matomo, Fathom, PostHog, Google Analytics)
+- Configurable analytics script injection — paste any provider's `<script>` tag (Plausible, Umami, Matomo, Fathom, PostHog, Google Analytics)
 - Analytics injected on public pages only (admin/dashboard excluded)
-- API encryption scoped to same-origin -- external analytics and third-party fetches pass through unmodified
+- API encryption scoped to same-origin — external analytics and third-party fetches pass through unmodified
 - Auto-detected CSP domains from analytics script with manual override
 
 **Accessibility**
@@ -427,15 +427,15 @@ Built on Node.js 24.19.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - Semantic HTML with `<main>` landmark on all pages
 
 **Zero Configuration**
-- No `.env` file -- settings stored in encrypted database
-- No build step -- vanilla Node.js
-- `node server.js` is the entire setup -- no npm install needed
+- No `.env` file — settings stored in encrypted database
+- No build step — vanilla Node.js
+- `node server.js` is the entire setup — no npm install needed
 - `process.env` overrides available for Docker/containers
 - Health check endpoint (`GET /health`) for load balancers, container probes, and PQC gateway status checks (subject to the global CORS allowlist)
-- Zero external CDN dependencies -- fonts vendored locally, no requests to Google, Cloudflare, or any third-party on page load
+- Zero external CDN dependencies — fonts vendored locally, no requests to Google, Cloudflare, or any third-party on page load
 - PWA web app manifest with dynamic site name and theme colors
 - Automatic database schema migrations on startup
-- Startup invariant checks -- validates vault key, warns on default credentials/secrets, checks directory permissions
+- Startup invariant checks — validates vault key, warns on default credentials/secrets, checks directory permissions
 
 ## mTLS certificate authorities
 
@@ -1197,7 +1197,7 @@ curl -X POST https://your-domain/admin/apikeys/create \
   -d '{"name": "CI Pipeline", "permissions": "upload"}'
 ```
 
-Response (key shown once, then SHA3-hashed -- never retrievable):
+Response (key shown once, then SHA3-hashed — never retrievable):
 ```json
 { "success": true, "key": "hs_a1b2c3d4e5f6...", "prefix": "hs_a1b2" }
 ```
@@ -1474,7 +1474,7 @@ All in the `data/` directory (gitignored):
 
 ## Vendored Dependencies
 
-All runtime dependencies are committed to the repo -- no `npm install` needed. As of v1.9.12, every server-side crypto / identity dependency is vendored as a single framework — **blamejs** — at `lib/vendor/blamejs/`. Browser-side bundles continue to ship individually until blamejs grows browser builds.
+All runtime dependencies are committed to the repo — no `npm install` needed. Every crypto and identity dependency is vendored as a single framework, **blamejs**, at `lib/vendor/blamejs/`. The browser assets under `public/js/` are copied out of that same framework rather than bundled separately, so the browser and server halves of a primitive cannot report different versions.
 
 Managed via `scripts/vendor-update.sh`:
 
@@ -1486,7 +1486,7 @@ Managed via `scripts/vendor-update.sh`:
 
 | Vendored | Version | Author | Purpose |
 |----------|---------|--------|---------|
-| [`blamejs`](https://github.com/blamejs/blamejs) | 0.18.43 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, and envelope-bound field crypto. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
+| [`blamejs`](https://github.com/blamejs/blamejs) | 0.18.47 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, and envelope-bound field crypto. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
 | [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) (browser only) | 2.3.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | XChaCha20-Poly1305 in the browser vault + outbox flows |
 | [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (browser only) | 2.3.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | SHAKE256 KDF in the browser |
 | [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) (browser only) | 0.7.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | ML-KEM-1024 in the browser vault flow |
