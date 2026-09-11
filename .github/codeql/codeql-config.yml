@@ -11,3 +11,9 @@ paths-ignore:
   - "public/js/noble-ciphers.js"
   - "public/js/noble-hashes.js"
   - "public/js/noble-pq.js"
+  # Written by scripts/vendor-update.sh from the framework's own patterns gate
+  # and carries its copyright. It is a reference copy the release runner diffs
+  # HS's gate against, never executed against request data. Its detector regexes
+  # raised 142 js/redos alerts on one refresh, which is the churn the exclusions
+  # above exist to prevent; it sits outside lib/vendor/ so those did not cover it.
+  - "tests/lint/blamejs-codebase-patterns.snapshot.js"

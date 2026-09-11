@@ -16,6 +16,11 @@ function safeContentDisposition(filename, type) {
   return type + '; filename="' + safe + '"; filename*=UTF-8\'\'' + encoded;
 }
 
+// Ceiling on the RAW rename value, before sanitizing. Four times the longest
+// name sanitizeRename will return, which leaves room for characters the chain
+// strips while keeping the scan cheap.
+var RENAME_INPUT_MAX = 1024;
+
 /**
  * Sanitize a user-provided rename value.
  * Strips control chars, HTML, path traversal, dot attacks.
@@ -30,7 +35,22 @@ function safeContentDisposition(filename, type) {
 function sanitizeRename(input, opts) {
   opts = opts || {};
   var max = opts.maxLength || 255;
-  var name = String(input || "")
+  var raw = String(input || "");
+  // The replace chain below runs over the whole subject and only caps length at
+  // the end. `/\s*\.\s*/g` costs O(n^2) on a long run of whitespace, because the
+  // engine matches the leading \s* at every position and then fails to find the
+  // dot: measured at 3.3s for 100,000 spaces and 57s for 400,000, which blocks
+  // the event loop for every other request. `body.name` reaches here unbounded
+  // from the rename routes.
+  //
+  // Refused rather than truncated. Truncating would let the first RENAME_INPUT_MAX
+  // characters stand in for a name the caller did not send, and a sanitized name
+  // is at most `max` characters anyway, so an input orders of magnitude larger is
+  // not a rename.
+  if (raw.length > RENAME_INPUT_MAX) {
+    return { valid: false, name: "", error: "Name too long." };
+  }
+  var name = raw
     .replace(/[\x00-\x1f\x7f]/g, "")     // strip control characters
     .replace(/[<>"'`]/g, "")              // strip HTML/XSS characters
     .replace(/\s*\.\s*/g, ".")       // collapse whitespace around dots

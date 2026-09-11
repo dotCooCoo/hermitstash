@@ -1,0 +1,35 @@
+{
+  "version": "1.15.6",
+  "date": "2026-09-11",
+  "headline": "A rename could stall the server, and a second instance could discard the first one's writes",
+  "summary": "Two defects found while reviewing what the framework upgrade had changed. Neither is new in 1.15.x; both have been present for some time. The first lets any account that can rename a file hold the server still for about a minute per request. The second applies only where two instances share a temporary directory, and costs recent writes rather than the database. Nothing in your configuration changes and there is no migration.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Bound the rename value before sanitizing it",
+          "body": "Renaming a file or a bundle passed the submitted name through a chain of pattern replacements and only capped its length afterwards. One of those patterns collapses whitespace around a dot, and its cost grows with the square of the input: 100,000 spaces took 3.3 seconds, and 400,000 took 57. Node runs one thread, so that is the whole server stalled, for every other request, per rename submitted. Nothing bounded the value on the way in.\n\nThe raw value is now refused above 1024 characters, which is four times the longest name a rename can produce. The same input is rejected in under a millisecond. Renaming is behind authentication and an ownership check, so this needed an account that could already rename something.\n\nIf you run a public instance with open registration, this is the one to take."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Stop a starting instance from deleting a running instance's database",
+          "body": "The database is held as plaintext in a temporary directory while the server runs, under a name generated fresh at every start, and the encrypted copy on disk is rewritten every five minutes and again at shutdown. At startup each instance clears out plaintext databases left behind by a crash. It recognized them only by not being its own, and because the name is new on every start, that is every other instance's database as well.\n\nA second instance sharing the directory therefore deleted the first one's live database. The first kept serving, because the file stays readable to a process that already has it open, so nothing looked wrong. Its next scheduled save, and its save at shutdown, both found the file missing and returned without writing and without logging. Everything it had written since its last successful save was gone at the next start.\n\nEach instance now records which process owns its database, and the cleanup skips any file whose owner is still running. A file with no owner recorded, which is what a crash leaves, is still cleared as before.\n\nThis needed two instances sharing one temporary directory, so a single container was never affected: containers get their own. Two instances on one host, or a restart where the replacement starts before the previous one has finished exiting, were."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Exclude the vendored patterns reference from code scanning",
+          "body": "The repository carries a copy of the framework's own pattern-matching rules, refreshed whenever the framework is, and compared against this project's during a release. Code scanning reported 142 findings against its expressions. They are the framework's, they run against no request data, and the scanner is already told to skip the vendored tree and the vendored browser bundles for the same reason. This file sits outside that tree, so none of those exclusions covered it."
+        }
+      ]
+    }
+  ]
+}

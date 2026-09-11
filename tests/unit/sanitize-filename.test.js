@@ -2,7 +2,7 @@ const { describe, it } = require("node:test");
 const assert = require("node:assert");
 const b = require("../../lib/vendor/blamejs");
 
-const { sanitizeFilename } = require("../../app/shared/sanitize-filename");
+const { sanitizeFilename, sanitizeRename } = require("../../app/shared/sanitize-filename");
 
 const ch = String.fromCharCode;
 const BIDI = ch(0x202e);    // RIGHT-TO-LEFT OVERRIDE
@@ -156,6 +156,35 @@ describe("sanitize-filename — sanitizeFilename: regression guards (adversarial
 
   it("truncates an oversized single segment instead of dropping it", function () {
     assert.strictEqual(sanitizeFilename("a/" + "x".repeat(5000) + "/b.txt", 500).length, 500);
+  });
+});
+
+describe("sanitize-filename — sanitizeRename bounds its subject", function () {
+  // The replace chain runs before the length cap, and /\s*\.\s*/g is quadratic
+  // on a whitespace run: 400,000 spaces measured at 57 seconds of blocked event
+  // loop, reachable from the rename routes, which pass body.name unbounded.
+  it("refuses an oversized raw value instead of sanitizing it", function () {
+    const res = sanitizeRename(" ".repeat(400000), { maxLength: 255 });
+    assert.strictEqual(res.valid, false, "an oversized value must be refused");
+    assert.strictEqual(res.name, "");
+    assert.match(res.error, /too long/i);
+  });
+
+  it("refuses the oversized value quickly", function () {
+    const t0 = process.hrtime.bigint();
+    sanitizeRename(" ".repeat(400000), { maxLength: 255 });
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    assert.ok(ms < 250, "must not run the quadratic chain on it (took " + ms.toFixed(1) + " ms)");
+  });
+
+  it("still accepts an ordinary rename", function () {
+    assert.deepStrictEqual(sanitizeRename("my report.pdf"), { valid: true, name: "my report.pdf" });
+  });
+
+  it("still accepts a value at the long end of legitimate", function () {
+    const res = sanitizeRename("a".repeat(300) + ".pdf", { maxLength: 255 });
+    assert.strictEqual(res.valid, true);
+    assert.strictEqual(res.name.length, 255);
   });
 });
 
