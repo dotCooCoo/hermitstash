@@ -12,7 +12,18 @@
 # date below — that digest bump IS the intended CVE-response path. Resolve the current
 # digest with:
 #   docker buildx imagetools inspect cgr.dev/chainguard/wolfi-base:latest
-ARG RUNTIME_BASE=cgr.dev/chainguard/wolfi-base@sha256:a31344ab2cb8618db84f535eec56f76f6178b142cb92cb2e48676cc2dcebea72  # wolfi-base 2026-08-22
+#
+# This digest is COUPLED to the unpinned `nodejs-24` below, which resolves at
+# build time. A newer Node can raise the glibc it links against, and then a base
+# pinned months earlier no longer satisfies it: the build succeeds and the image
+# dies at startup with
+#   node: /usr/lib/libm.so.6: version `GLIBC_2.44' not found (required by node)
+# v1.15.4 shipped that way. Node 24.21.0 needs glibc 2.44; the base pinned at
+# 2026-08-22 was older. Raising the Node floor therefore means refreshing this
+# digest in the same change, and building the image locally to confirm it starts.
+# The release preflight reports a moved base as advisory, which is not enough on
+# its own when the Node floor moves with it.
+ARG RUNTIME_BASE=cgr.dev/chainguard/wolfi-base@sha256:65e1acb87a2bf356b92c5f70f3980f03b4bb51dfd483c834e01557525f15c1d9  # wolfi-base 2026-09-11
 FROM ${RUNTIME_BASE}
 # Chainguard wolfi-base — glibc-dynamic (not musl), continuously rebuilt when
 # upstream CVE fixes land. CVE count at any given digest is typically near-zero;

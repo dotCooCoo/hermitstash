@@ -1,0 +1,29 @@
+{
+  "version": "1.15.5",
+  "date": "2026-09-11",
+  "headline": "The v1.15.4 container could not start; this release fixes it",
+  "summary": "The v1.15.4 image exits immediately with a dynamic linker error and never serves a request. If you pull `latest`, `1`, `1.15` or `1.15.4`, take this release instead. Nothing in your configuration or data is affected, and there is no migration. Deployments that run from source rather than the container image were never affected.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Refresh the runtime base image so the container starts",
+          "body": "The image installs Node from the `nodejs-24` package with the patch level deliberately unpinned, so a rebuild picks up security fixes without a Dockerfile edit. The base image underneath it is pinned by digest. v1.15.4 raised the Node floor to 24.21.0 while leaving the base pinned at a build from 2026-08-22, and 24.21.0 links against glibc 2.44, which that base predates. The build succeeded and the resulting container died at startup with `node: /usr/lib/libm.so.6: version 'GLIBC_2.44' not found (required by node)`.\n\nThe base is refreshed to a current Chainguard build, which carries glibc 2.44. The Dockerfile now records that the base digest and the unpinned Node package are coupled, so raising one means refreshing the other in the same change and confirming the image starts before the tag goes out."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "The v1.15.4 security fixes reach the container for the first time",
+          "body": "v1.15.4 carried two fixes that no container user could run, because no v1.15.4 container ran. Both are in this image.\n\nThe web mTLS gate requires a presented client certificate rather than trusting the TLS layer's authorized flag on its own. Soft mode leaves `rejectUnauthorized` off, so a client may complete a handshake without sending a certificate, and before Node 24.21.0 such a peer was reported as authorized once its session resumed.\n\nThe audit purge anchor is signed with the audit signing key. It is the row recording which audit entries were removed on purpose, so an unsigned one let anything able to write that table name an arbitrary span as legitimately deleted while verification reported a clean chain.\n\nSee the v1.15.4 notes for the full description of both."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "Chainguard wolfi-base", "url": "https://images.chainguard.dev/directory/image/wolfi-base/versions" }
+  ]
+}
