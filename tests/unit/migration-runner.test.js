@@ -84,8 +84,11 @@ describe("migration-runner — b.migrations contract (fail-fast on a throwing mi
     try {
       assert.throws(function () { b.migrations.create({ dir: dir, db: db }).up(); }, /boom|migration|up-failed/i);
     } finally {
-      db.close();
-      fs.rmSync(dir, { recursive: true, force: true });
+      // Guarded, and separately: a throw from either replaces the assertion
+      // error above, and one wrapper around both would let the first failure
+      // skip the second cleanup.
+      try { db.close(); } catch (_e) { /* best effort */ }
+      try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_e) { /* best effort */ }
     }
   });
 });

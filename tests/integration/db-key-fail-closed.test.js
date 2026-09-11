@@ -70,7 +70,10 @@ test("fresh first run boots clean and creates the encrypted DB artifacts", funct
     assert.ok(fs.existsSync(path.join(dataDir, dbEncName)), "db.enc created on exit");
     assert.ok(fs.existsSync(path.join(dataDir, dbKeyEncName)), "db.key.enc created");
   } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
+    // Guarded: a throw from cleanup replaces the assertion error above, so the
+    // check that actually failed is lost and a stale directory handle is all
+    // that gets reported. force:true covers a missing path, not an EBUSY.
+    try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch (_e) { /* best effort */ }
   }
 });
 
@@ -112,7 +115,10 @@ test("mismatched vault.key with an existing db.enc fails closed and never rewrit
     // And db.enc must be untouched too.
     assert.ok(fs.existsSync(dbEncPath), "db.enc must still exist after fail-closed boot");
   } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
+    // Guarded: a throw from cleanup replaces the assertion error above, so the
+    // check that actually failed is lost and a stale directory handle is all
+    // that gets reported. force:true covers a missing path, not an EBUSY.
+    try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch (_e) { /* best effort */ }
   }
 });
 
@@ -138,6 +144,9 @@ test("missing vault.key with an existing db.enc fails closed instead of minting 
     assert.ok(!fs.existsSync(path.join(dataDir, vaultKeyName)), "must NOT mint a new vault.key when db.enc exists");
     assert.ok(fs.readFileSync(dbKeyEncPath).equals(dbKeyEncBefore), "db.key.enc must be unchanged");
   } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
+    // Guarded: a throw from cleanup replaces the assertion error above, so the
+    // check that actually failed is lost and a stale directory handle is all
+    // that gets reported. force:true covers a missing path, not an EBUSY.
+    try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch (_e) { /* best effort */ }
   }
 });

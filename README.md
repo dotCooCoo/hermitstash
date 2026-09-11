@@ -228,7 +228,7 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | Timing attack revealing which candidate matched | Where a presented value is checked against a list — two-factor backup codes, passkey credential lookup — every candidate is compared. A loop of constant-time comparisons that stops at the first match reports the match's position, which for an ordered list narrows which credential was presented |
 | Crash during backup restore | Pre-restore snapshots of vault.key, db.key.enc, hermitstash.db.enc enable rollback if restore is interrupted |
 
-Built on Node.js 24.19.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default signature) and ML-DSA-87 (legacy) via OpenSSL 3.5, XChaCha20-Poly1305 and SHAKE256 via vendored blamejs (which bundles @noble/ciphers and @noble/post-quantum), Argon2id via Node 24+'s built-in `crypto.argon2` (no native binding required), WebAuthn via vendored blamejs (which bundles @simplewebauthn/server), and built-in SQLite via `node:sqlite`. Zero npm runtime dependencies.
+Built on Node.js 24.21.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default signature) and ML-DSA-87 (legacy) via OpenSSL 3.5, XChaCha20-Poly1305 and SHAKE256 via vendored blamejs (which bundles @noble/ciphers and @noble/post-quantum), Argon2id via Node 24+'s built-in `crypto.argon2` (no native binding required), WebAuthn via vendored blamejs (which bundles @simplewebauthn/server), and built-in SQLite via `node:sqlite`. Zero npm runtime dependencies.
 
 ## Features
 
@@ -570,14 +570,14 @@ cd hermitstash
 docker compose up -d
 ```
 
-Uses `cgr.dev/chainguard/wolfi-base` with Node installed from the `nodejs-24` package — glibc-dynamic, rebuilt continuously by Chainguard when upstream CVE fixes land, so the image's CVE count at any given digest is typically near zero. Pinning the Node *major* keeps the runtime on 24.x "Krypton", the current Active LTS, rather than following whichever major is newest; Current (non-LTS) releases stop receiving security updates months after they ship. Node 24.19.0+ is required for PQC (OpenSSL 3.5) plus cumulative 24.x security patches. The image ships no `npm`, so npm's bundled-dependency CVEs don't apply to it. No config files needed — all dependencies vendored, no `npm install`. Starts with defaults and generates the vault keypair on first run. Configure everything from the admin panel at `/admin` once running.
+Uses `cgr.dev/chainguard/wolfi-base` with Node installed from the `nodejs-24` package — glibc-dynamic, rebuilt continuously by Chainguard when upstream CVE fixes land, so the image's CVE count at any given digest is typically near zero. Pinning the Node *major* keeps the runtime on 24.x "Krypton", the current Active LTS, rather than following whichever major is newest; Current (non-LTS) releases stop receiving security updates months after they ship. Node 24.21.0+ is required for PQC (OpenSSL 3.5) plus cumulative 24.x security patches. The image ships no `npm`, so npm's bundled-dependency CVEs don't apply to it. No config files needed — all dependencies vendored, no `npm install`. Starts with defaults and generates the vault keypair on first run. Configure everything from the admin panel at `/admin` once running.
 
 ### Image details
 
 | | |
 |---|---|
 | **Base image** | `cgr.dev/chainguard/wolfi-base` (glibc — continuously rebuilt for CVE fixes), digest-pinned; no `npm` in the image |
-| **Node.js** | 24.19.0+ from the `nodejs-24` package — major pinned to the Active LTS line (required for ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87 via OpenSSL 3.5 + cumulative 24.x security patches) |
+| **Node.js** | 24.21.0+ from the `nodejs-24` package — major pinned to the Active LTS line (required for ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87 via OpenSSL 3.5 + cumulative 24.x security patches) |
 | **User** | Runs as `hermit` (non-root) via `su-exec` (installed at build time) — PUID/PGID env vars remap UID/GID at runtime (default 99:100, standard Linux 1000:1000) |
 | **Tmpfs** | `HERMITSTASH_TMPDIR=/dev/shm` — plaintext DB held in memory, never on disk. Set `shm_size: 256m` in compose. Also consider `CHUNK_SCRATCH_DIR=/dev/shm/hermitstash-chunks` for RAM-backed chunked-upload staging. |
 | **Volumes** | `/app/data` (encrypted DB, vault keys, TLS certs), `/app/uploads` (files if using local storage) |
@@ -1486,10 +1486,10 @@ Managed via `scripts/vendor-update.sh`:
 
 | Vendored | Version | Author | Purpose |
 |----------|---------|--------|---------|
-| [`blamejs`](https://github.com/blamejs/blamejs) | 0.18.47 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, and envelope-bound field crypto. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
-| [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) (browser only) | 2.3.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | XChaCha20-Poly1305 in the browser vault + outbox flows |
-| [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (browser only) | 2.3.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | SHAKE256 KDF in the browser |
-| [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) (browser only) | 0.7.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | ML-KEM-1024 in the browser vault flow |
+| [`blamejs`](https://github.com/blamejs/blamejs) | 0.20.0 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, and envelope-bound field crypto. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
+| [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) (browser only) | 2.4.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | XChaCha20-Poly1305 in the browser vault + outbox flows |
+| [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (browser only) | 2.4.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | SHAKE256 KDF in the browser |
+| [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) (browser only) | 0.7.1 | [Paul Miller](https://github.com/paulmillr) (MIT) | ML-KEM-1024 in the browser vault flow |
 
 blamejs internally vendors @noble/ciphers, @noble/post-quantum, @simplewebauthn/server,
 @blamejs/pki (the zero-dependency X.509 toolkit backing the mTLS CA engine), and the

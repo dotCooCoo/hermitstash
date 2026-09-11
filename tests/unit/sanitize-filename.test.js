@@ -93,9 +93,32 @@ describe("sanitize-filename — sanitizeFilename: hardening (neutralised, not lo
       sanitizeFilename("report.pdf"));
   });
 
-  it("strips C0 control characters and NUL bytes", function () {
+  it("strips C0 control characters", function () {
     assert.strictEqual(sanitizeFilename("ctrl" + BEL + "x.txt"), "ctrlx.txt");
-    assert.strictEqual(sanitizeFilename("a" + NUL + "b.txt"), "ab.txt");
+  });
+
+  // A NUL is REFUSED, not repaired, and this asserts that on purpose — it is
+  // not a weaker version of the strip it replaced. The name a check reads and
+  // the name the operating system acts on diverge at the byte, so a stripped
+  // name is one nobody validated. b.guardFilename fixes nullBytePolicy at
+  // reject and does not offer it as a policy, because there is no safe repair.
+  // A name that is only the refused segment therefore sanitises to "", which is
+  // already what "." and ".." do.
+  it("refuses a NUL-bearing segment instead of repairing it", function () {
+    assert.strictEqual(sanitizeFilename("a" + NUL + "b.txt"), "");
+  });
+
+  // The refusal invalidates the WHOLE path, and this is the assertion that
+  // says why. Dropping just the refused component would rewrite the path to a
+  // different VALID one — "docs/<refused>/report.pdf" becoming
+  // "docs/report.pdf" — and a sync bundle resolves an existing file by that
+  // path and replaces it, so a refused upload could land on a file it never
+  // named. Traversal stays the exception below: dropping "." and ".." IS the
+  // normalisation.
+  it("refuses the whole path, not just the segment, so it cannot collapse onto another", function () {
+    assert.strictEqual(sanitizeFilename("docs/a" + NUL + "b.txt/report.pdf"), "");
+    assert.notStrictEqual(sanitizeFilename("docs/a" + NUL + "b.txt/report.pdf"),
+      sanitizeFilename("docs/report.pdf"));
   });
 });
 
@@ -111,7 +134,15 @@ describe("sanitize-filename — sanitizeFilename: regression guards (adversarial
   it("drops an obfuscated '..' that only reduces to '..' after stripping", function () {
     assert.strictEqual(sanitizeFilename("a/.." + ZWSP + "/b.txt", 500), "a/b.txt");   // zero-width
     assert.strictEqual(sanitizeFilename("a/" + BIDI + "../b.txt", 500), "a/b.txt");    // bidi override
-    assert.strictEqual(sanitizeFilename("a/.." + NUL + "/b.txt", 500), "a/b.txt");     // NUL
+  });
+
+  // The NUL spelling of the same attack lands harder, and that is the point.
+  // Zero-width and bidi are repairable, so the segment reduces to ".." and is
+  // dropped as traversal. A NUL is not repairable, so the guard refuses it and
+  // the whole path goes — which also stops "a/..<NUL>/b.txt" from arriving at
+  // "a/b.txt", a path the uploader never named and which may already exist.
+  it("refuses the whole path when the obfuscation is a NUL", function () {
+    assert.strictEqual(sanitizeFilename("a/.." + NUL + "/b.txt", 500), "");
   });
 
   it("neutralizes hostile bytes in an interior path segment, not just the leaf", function () {
@@ -128,8 +159,43 @@ describe("sanitize-filename — sanitizeFilename: regression guards (adversarial
   });
 });
 
+describe("sanitize-filename — colons survive (adsPolicy/reservedCharPolicy stay honored)", function () {
+  // A colon is an ordinary filename character outside Windows, and FNAME_OPTS
+  // sets adsPolicy and reservedCharPolicy to "allow" to keep it. A framework
+  // build that stops honouring either empties these names rather than refusing
+  // them, so nothing downstream reports an error: the upload just loses its
+  // name. These assertions are what makes that visible.
+  it("keeps a colon in an ordinary filename", function () {
+    assert.strictEqual(sanitizeFilename("12:30 notes.txt"), "12:30 notes.txt");
+    assert.strictEqual(sanitizeFilename("report:final.txt"), "report:final.txt");
+    assert.strictEqual(sanitizeFilename("ratio 1:1.png"), "ratio 1:1.png");
+  });
+
+  it("keeps a colon inside a nested relativePath", function () {
+    assert.strictEqual(sanitizeFilename("folder/note:1.txt", 500), "folder/note:1.txt");
+  });
+
+  it("keeps a Windows drive-style prefix, normalising the separators", function () {
+    assert.strictEqual(sanitizeFilename("C:\\tmp\\a.txt", 500), "C:/tmp/a.txt");
+  });
+
+  it("keeps an alternate-data-stream shape rather than emptying the name", function () {
+    assert.strictEqual(sanitizeFilename("notes.txt:Zone.Identifier"), "notes.txt:Zone.Identifier");
+    assert.strictEqual(sanitizeFilename("x:$DATA"), "x:$DATA");
+  });
+});
+
 describe("sanitize-filename — b.guardFilename contract (the primitive sanitizeFilename delegates to)", function () {
   it("strips a bidi override under bidiPolicy:strip while keeping the rest", function () {
     assert.strictEqual(b.guardFilename.sanitize("a" + BIDI + "b.txt", { bidiPolicy: "strip", reservedNamePolicy: "allow" }), "ab.txt");
+  });
+
+  it("refuses a policy value outside the vocabulary instead of ignoring it", function () {
+    // The boot probe in app/shared/sanitize-filename.js depends on this: it is
+    // what turns a policy the framework no longer accepts into a startup failure
+    // naming the option, rather than every name silently coming back empty.
+    assert.throws(function () {
+      b.guardFilename.sanitize("probe.txt", { adsPolicy: "definitely-not-a-policy" });
+    });
   });
 });

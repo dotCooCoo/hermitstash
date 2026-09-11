@@ -110,7 +110,9 @@ describe("vault-rotate.validateSchemaMatch", function () {
       var missingTableWarn = result.warnings.filter(function (w) { return w.kind === "table_missing"; });
       assert.ok(missingTableWarn.length > 0, "expected missing-table warnings");
     } finally {
-      h.db.close();
+      // Guarded like the unlink below it: close() runs first, so an unguarded
+      // throw here both replaced the assertion error and skipped the unlink.
+      try { h.db.close(); } catch (_e) { /* best effort */ }
       try { fs.unlinkSync(h.path); } catch {}
     }
   });
@@ -131,7 +133,9 @@ describe("vault-rotate.validateSchemaMatch", function () {
       assert.strictEqual(driftErrs[0].column, "surpriseColumn");
       assert.match(driftErrs[0].message, /encrypted under the OLD key/);
     } finally {
-      h.db.close();
+      // Guarded like the unlink below it: close() runs first, so an unguarded
+      // throw here both replaced the assertion error and skipped the unlink.
+      try { h.db.close(); } catch (_e) { /* best effort */ }
       try { fs.unlinkSync(h.path); } catch {}
     }
   });
@@ -147,7 +151,9 @@ describe("vault-rotate.validateSchemaMatch", function () {
       var result = vaultRotate.validateSchemaMatch(h.db);
       assert.strictEqual(result.errors.length, 0, "data overflow must never trigger drift");
     } finally {
-      h.db.close();
+      // Guarded like the unlink below it: close() runs first, so an unguarded
+      // throw here both replaced the assertion error and skipped the unlink.
+      try { h.db.close(); } catch (_e) { /* best effort */ }
       try { fs.unlinkSync(h.path); } catch {}
     }
   });
@@ -164,7 +170,9 @@ describe("vault-rotate.validateSchemaMatch", function () {
       assert.strictEqual(missingCol.length, 1);
       assert.strictEqual(result.errors.length, 0);
     } finally {
-      h.db.close();
+      // Guarded like the unlink below it: close() runs first, so an unguarded
+      // throw here both replaced the assertion error and skipped the unlink.
+      try { h.db.close(); } catch (_e) { /* best effort */ }
       try { fs.unlinkSync(h.path); } catch {}
     }
   });
@@ -346,7 +354,9 @@ describe("vault-rotate.rotateDataDirectory", function () {
       assert.strictEqual(result.ok, false);
       assert.ok(result.regressions.length > 0, "expected regression detection");
     } finally {
-      h.db.close();
+      // Guarded like the unlink below it: close() runs first, so an unguarded
+      // throw here both replaced the assertion error and skipped the unlink.
+      try { h.db.close(); } catch (_e) { /* best effort */ }
       try { fs.unlinkSync(h.path); } catch {}
     }
   });

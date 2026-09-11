@@ -61,19 +61,35 @@ function sanitizeRename(input, opts) {
 // (storage uses generated ids) — so the strict allowlist policies are relaxed
 // to "allow". The byte-level threats that DO matter for a displayed filename
 // are neutralised, not rejected: bidi overrides (CVE-2021-42574 "Trojan
-// Source"), zero-width characters, and NUL bytes are stripped. Unicode is
-// left un-normalised (unicodeNormalization "none") so stored bytes are exact,
+// Source") and zero-width characters are stripped. Unicode is left
+// un-normalised (unicodeNormalization "none") so stored bytes are exact,
 // matching the prior helper — NFC-folding would desync replace-detection for
 // names already stored in decomposed form. maxComponents is 1 because we
 // split the path ourselves and guard each segment.
+//
+// A NUL byte and a traversal segment are absent from this block on purpose.
+// Both are fixed at reject in the guard and are not configurable, because
+// neither has a safe repair: the name a check reads and the name the operating
+// system acts on diverge at a NUL, so a stripped name is one nobody validated.
+// A refused segment is dropped by cleanSegment below, which is the same outcome
+// "." and ".." already get.
 var FNAME_OPTS = {
-  bidiPolicy: "strip", controlPolicy: "strip", nullBytePolicy: "strip", zeroWidthPolicy: "strip",
+  bidiPolicy: "strip", controlPolicy: "strip", zeroWidthPolicy: "strip",
   homoglyphPolicy: "allow", reservedCharPolicy: "allow", reservedNamePolicy: "allow",
   adsPolicy: "allow", leadingTrailingPolicy: "allow", shellExecExtPolicy: "allow",
-  traversalPolicy: "allow", pathSeparatorsPolicy: "allow",
+  pathSeparatorsPolicy: "allow",
   requireAscii: false, requireSingleDot: false, unicodeNormalization: "none",
   maxBytes: 65536, maxComponents: 1,
 };
+
+// Resolve FNAME_OPTS once, here, against a name carrying nothing the guard
+// objects to. b.guardFilename validates its option VALUES where the options are
+// resolved, so a policy this version of the framework does not accept throws on
+// the call rather than at startup, and cleanSegment's catch cannot tell that
+// apart from a refused filename: it would return "" for every segment and empty
+// every name with nothing logged. Probing at load turns that into a boot
+// failure naming the option.
+b.guardFilename.sanitize("probe.txt", FNAME_OPTS);
 // b.guardFilename's control strip keeps TAB/CR/LF — it treats them as dialect
 // characters — so those are stripped here to keep parity with the prior
 // helper, which removed the whole C0 range. DEL is no longer in this class:
@@ -82,11 +98,26 @@ var FNAME_OPTS = {
 // stored name is safe to render in HTML.
 var RESIDUAL_RE = /[\x09\x0a\x0d<>"'`]/g;
 
+// Returned by cleanSegment when the guard refused the segment for a reason that
+// is not traversal. It invalidates the WHOLE path rather than the component,
+// because dropping one component silently rewrites the path to a DIFFERENT
+// valid one: "docs/<refused>/report.pdf" would become "docs/report.pdf", and a
+// sync bundle looks an existing file up by that path and replaces it. A refusal
+// must not be able to land on a path the caller did not send.
+//
+// Traversal is the exception, and only because dropping "." and ".." IS the
+// normalisation — that is what the split-and-drop below has always done.
+var PATH_REFUSED = null;
+
 function cleanSegment(seg) {
   if (!seg) return "";
   var safe;
-  try { safe = b.guardFilename.sanitize(seg, FNAME_OPTS); }
-  catch (_e) { return ""; }   // defensive: the permissive policy should not throw
+  try {
+    safe = b.guardFilename.sanitize(seg, FNAME_OPTS);
+  } catch (e) {
+    if (e && e.code === "filename.traversal") return "";
+    return PATH_REFUSED;
+  }
   safe = safe.replace(RESIDUAL_RE, "");
   // Drop "." / ".." AFTER stripping, so an obfuscated ".." + zero-width / bidi /
   // NUL that reduces to ".." can never survive as a traversal segment.
@@ -100,11 +131,15 @@ function cleanSegment(seg) {
  * defence), neutralises spoofing/injection bytes per segment via
  * b.guardFilename, and rejoins with "/". Used at upload time for
  * originalName and relativePath.
+ *
+ * Returns "" when the guard refuses any segment for a reason other than
+ * traversal — the whole path is unusable, not just that component. Callers
+ * already treat "" as no usable name; it is what ".", ".." and "/" produce.
  */
 function sanitizeFilename(input, maxLength) {
-  return String(input || "")
-    .split(/[/\\]+/)
-    .map(cleanSegment)
+  var segments = String(input || "").split(/[/\\]+/).map(cleanSegment);
+  if (segments.indexOf(PATH_REFUSED) !== -1) return "";
+  return segments
     .filter(Boolean)
     .join("/")
     .trim()

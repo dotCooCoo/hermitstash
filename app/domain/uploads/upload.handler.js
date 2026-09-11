@@ -255,6 +255,21 @@ async function handleFileUpload(ctx) {
     return { error: limitsCheck.reason };
   }
 
+  // Resolved before the quota reservation below, which debits the per-IP
+  // allowance as soon as it is called. Rejecting after that point charges an
+  // upload that was never stored.
+  //
+  // sanitizeFilename returns "" when every segment is traversal ("..", ".", "/")
+  // or when the guard refuses a segment and the whole path is invalidated. Storing
+  // that would make the sync replace lookup below match on "", so two uploads whose
+  // paths both reduce to "" would resolve to the same record and the second would
+  // overwrite the first. Reject instead of storing a path the caller did not send.
+  var cleanRelPath = sanitizeFilename(fields.relativePath || file.filename, 500);
+  if (!cleanRelPath) {
+    audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: unusable relativePath" + suffix, req: ctx.req });
+    return { error: "Invalid file path.", status: 400 };
+  }
+
   // Quotas
   var quota = await checkAllQuotas(file.size, bundle, ctx.req);
   if (!quota.allowed) {
@@ -262,7 +277,6 @@ async function handleFileUpload(ctx) {
     return { error: quota.error };
   }
 
-  var cleanRelPath = sanitizeFilename(fields.relativePath || file.filename, 500);
   var fileShareId, checksum, saved;
   var createdFileId = null; // set on the non-replace path; used for post-write rollback
 

@@ -75,7 +75,7 @@ describe("audit purge-anchor race (F-1)", function () {
     // (2) Retention fires mid-await: it advances the anchor to a HIGHER row (index 7)
     //     and deletes everything at/below it. Live floor is now row[8].
     var hi = rows[7];
-    auditArchive.upsertPurgeAnchorNeverLower(Number(hi.monotonicCounter), hi.rowHash, "race-retention");
+    await auditArchive.upsertPurgeAnchorNeverLower(Number(hi.monotonicCounter), hi.rowHash, "race-retention");
     db.rawExec("DELETE FROM audit_log WHERE monotonicCounter <= ?", Number(hi.monotonicCounter));
 
     var afterRetention = await verifyChain();

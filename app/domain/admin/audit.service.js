@@ -5,6 +5,7 @@
  */
 var auditRepo = require("../../data/repositories/audit.repo");
 var audit = require("../../../lib/audit");
+var auditArchive = require("../../../lib/audit-archive");
 var b = require("../../../lib/vendor/blamejs");
 
 // Cap on a single decrypted export. Large exports unseal every row in memory, so
@@ -92,7 +93,12 @@ function queryAuditLog(opts) {
  * breakAt, reason, ... } on the first mismatch). Reuses the SAME query callbacks
  * lib/audit.js writes through so the verify reads the live chain.
  */
-function verifyAuditChain() {
+async function verifyAuditChain() {
+  // The walk checks the purge anchor's signature, which needs the audit signing
+  // key loaded. Nothing on this path loads it: on a server that has not archived
+  // or checkpointed since boot the anchor would otherwise come back unchecked,
+  // reporting a healthy chain as unverifiable.
+  await auditArchive.ensureSigning();
   return b.auditChain.verifyChain(audit.chainQueryAll, "audit_log", {});
 }
 

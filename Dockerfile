@@ -32,10 +32,10 @@ FROM ${RUNTIME_BASE}
 # release into production: those lines stop receiving security updates months after
 # release. The major is pinned; the patch level is deliberately not, so a wolfi
 # rebuild carrying a 24.x security fix is picked up without a Dockerfile edit. An
-# exact `=24.19.0-r0` pin is NOT used because wolfi's apk repository prunes
+# exact `=24.21.0-r0` pin is NOT used because wolfi's apk repository prunes
 # superseded versions, which would break rebuilds once that revision ages out.
 #
-# Node 24.19.0+ is required for PQC: ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87
+# Node 24.21.0+ is required for PQC: ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87
 # (OpenSSL 3.5) plus cumulative 24.x security patches.
 #
 # wolfi-base also ships no npm, which the prebuilt Node image did — removing npm

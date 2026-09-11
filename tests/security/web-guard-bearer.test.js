@@ -66,6 +66,50 @@ function runGuard(authHeader) {
   return state;
 }
 
+// Drive web-guard with an arbitrary socket so the authorized flag and the
+// presented certificate can be varied independently.
+function runGuardWithSocket(socket) {
+  var state = { destroyed: false, nextCalled: false };
+  socket.destroy = function () { state.destroyed = true; };
+  var req = { headers: {}, pathname: "/dashboard", socket: socket };
+  webGuard(req, {}, function () { state.nextCalled = true; });
+  return state;
+}
+
+describe("web-guard soft-mTLS requires a presented certificate", function () {
+  it("an authorized socket that presented NO certificate does not pass the gate", function () {
+    // Before Node 24.21.0, resuming a TLS 1.3 session in which the client sent
+    // no certificate reported authorized === true. The listener permits that
+    // first anonymous handshake (rejectUnauthorized is off outside strict mode),
+    // so the flag alone would have admitted a peer holding no certificate.
+    config.enforceMtls = true;
+    try {
+      var res = runGuardWithSocket({
+        authorized: true,
+        getPeerCertificate: function () { return {}; },
+      });
+      assert.strictEqual(res.nextCalled, false, "no certificate must not pass the soft mTLS gate");
+      assert.strictEqual(res.destroyed, true, "connection must be dropped");
+    } finally {
+      config.enforceMtls = false;
+    }
+  });
+
+  it("an authorized socket that presented a certificate passes the gate", function () {
+    config.enforceMtls = true;
+    try {
+      var res = runGuardWithSocket({
+        authorized: true,
+        getPeerCertificate: function () { return { subject: { CN: "sync-client" } }; },
+      });
+      assert.strictEqual(res.nextCalled, true, "a presented client certificate must pass the gate");
+      assert.strictEqual(res.destroyed, false, "connection must not be dropped");
+    } finally {
+      config.enforceMtls = false;
+    }
+  });
+});
+
 describe("web-guard soft-mTLS bearer validation (D-2)", function () {
   it("a bogus bearer does NOT pass the soft mTLS gate", function () {
     config.enforceMtls = true;

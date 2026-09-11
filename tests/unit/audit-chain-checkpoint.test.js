@@ -125,7 +125,7 @@ describe("audit chain PQC checkpoints (F-6)", function () {
     var v0 = await auditArchive.verifyCheckpoints();
     assert.strictEqual(v0.ok, false, "still the truncation from the previous case");
 
-    auditArchive.upsertPurgeAnchorNeverLower(v0.counter, "a".repeat(128), "test-bundle");
+    await auditArchive.upsertPurgeAnchorNeverLower(v0.counter, "a".repeat(128), "test-bundle");
 
     var v1 = await auditArchive.verifyCheckpoints();
     assert.strictEqual(v1.ok, true,

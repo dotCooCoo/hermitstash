@@ -66,20 +66,28 @@ module.exports = function webGuard(req, res, next) {
   // cert and config.enforceMtls may be unset, which would skip this check). The
   // sync/WS paths already do this; the web-UI mTLS path — the feature's purpose —
   // did not. isCertRevoked uses an indexed lookup, so this is cheap.
-  if (req.socket && req.socket.authorized === true &&
-      typeof req.socket.getPeerCertificate === "function") {
-    var peerCert = req.socket.getPeerCertificate(true);
-    if (peerCert && peerCert.raw && certUtils.isPeerCertRevoked(peerCert)) {
-      try { req.socket.destroy(); } catch (_e) { /* socket may already be gone */ }
-      return;
-    }
+  var authorized = !!(req.socket && req.socket.authorized === true);
+  var peerCert = null;
+  if (authorized && typeof req.socket.getPeerCertificate === "function") {
+    peerCert = req.socket.getPeerCertificate(true);
+  }
+  if (peerCert && peerCert.raw && certUtils.isPeerCertRevoked(peerCert)) {
+    try { req.socket.destroy(); } catch (_e) { /* socket may already be gone */ }
+    return;
   }
 
   if (!config.enforceMtls) return next();
 
   if (isAlwaysAllowed(req.pathname)) return next();
   if (isValidBearer(req)) return next();
-  if (req.socket && req.socket.authorized === true) return next();
+  // A presented certificate is required, not just the authorized flag. The flag
+  // alone has been wrong: before Node 24.21.0, resuming a TLS 1.3 session in
+  // which the client sent no certificate reported authorized === true, so a peer
+  // that completed one anonymous handshake (which this listener permits, since
+  // rejectUnauthorized is off unless ENFORCE_MTLS_STRICT) could resume and pass
+  // this gate. The renew-cert, /sync/ws and cert-binding gates all pair the flag
+  // with a certificate already; this one was the outlier.
+  if (authorized && peerCert && peerCert.subject) return next();
 
   // No mTLS, no Bearer, not an always-allowed path → drop the connection.
   // No response body, no template render, no information leakage.

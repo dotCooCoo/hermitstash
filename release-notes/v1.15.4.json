@@ -1,0 +1,52 @@
+{
+  "version": "1.15.4",
+  "date": "2026-09-10",
+  "headline": "Soft mTLS refuses a client that presented no certificate",
+  "summary": "Two gates trusted something they should have checked. The web mTLS gate admitted any connection the TLS layer reported as authorized, without confirming a certificate had actually been presented, and the audit purge anchor licensed missing rows without a signature. Both are closed here. If you run from source rather than the container image, note the Node.js floor moves to 24.21.0 and the server refuses to start below it.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Require a presented certificate on the soft mTLS gate",
+          "body": "With `ENFORCE_MTLS` set and strict mode off, the web gate let a request through whenever the TLS socket reported the client as authorized. It never confirmed that a certificate had been presented. Because that mode leaves `rejectUnauthorized` off, a client may complete a handshake without sending one, and Node reported such a peer as authorized after the session was resumed. A peer could therefore connect once with no certificate, resume, and reach the pages the gate protects.\n\nThe gate now requires a certificate alongside the flag. The certificate-renewal endpoint, the sync WebSocket upgrade and the certificate-binding check already paired the two; the web gate was the one that did not. Node 24.21.0 corrects the underlying report as well and the floor moves to it below, but the gate no longer depends on the runtime to be right about this."
+        },
+        {
+          "title": "Sign the audit purge anchor",
+          "body": "The purge anchor is the row that records which audit entries were removed on purpose, so chain verification accepts the gap instead of reporting tampering. It carried no signature. Anything able to write that table could name an arbitrary span as legitimately deleted, and verification would report a clean chain over the hole.\n\nThe anchor is now signed with the audit signing key and stores the key fingerprint alongside it. Verification refuses an anchor that carries no signature, and refuses one whose signature does not verify under the key its fingerprint names. Retention cleanup, archival and the schema re-anchor all write signed anchors. An anchor written by archival also records the digest of the archive manifest, so the bundle holding the removed rows is named by something the signature covers. Chain verification checks that digest's signature rather than opening the bundle; `verifyArchive` is what checks a bundle's own signature and checksum.\n\nAn existing database gains the signature columns on first boot. The first prune after upgrading writes a signed anchor; until then the stored anchor is the unsigned one written by an earlier version, and chain verification reports it."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Refuse an upload whose relative path reduces to nothing",
+          "body": "A relative path built only from traversal segments, such as `..`, `.` or `/`, sanitizes to an empty string, as does a path the filename guard refuses. On a sync bundle that empty value was stored and then used to look up an existing file to replace. Two uploads whose paths both reduced to nothing resolved to the same record, so the second replaced the first and the earlier file's stored blob, size and checksum were overwritten. The upload is now refused with 400 and recorded as rejected."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Vendored blamejs moves to 0.20.0",
+          "body": "Carries the framework side of the signed purge anchor, including the verification that reports whether an anchor is unsigned, forged or unverifiable. 0.20.0 raises its own Node floor to 24.21.0 for the same OpenSSL 3.5.8 and NSS 3.126 root store this release moves to, so the framework and the server now state one supported runtime.\n\nThe filename guard now validates its option values. A policy name the guard does not accept raises an error where it is configured, rather than being ignored. Previously an unrecognized policy was accepted silently, and a policy that stopped being honored would have emptied filenames with nothing reported. Names carrying a colon, which this server allows because a colon is an ordinary filename character outside Windows, are unaffected and now have test coverage.\n\nOutbound mail is stricter about 8-bit content. A message carrying raw 8-bit bytes is refused when the receiving relay does not advertise 8BITMIME, instead of being sent and arriving corrupted. If your relay predates that extension, a notification naming a file with an accented character now fails to send rather than arriving mangled.\n\nThe shipped framework source also drops about 65,800 lines of comments, which is most of the deletion count in this release. Nothing executable changed with them, but line numbers inside the vendored tree moved, so the threat model now cites the functions it refers to by name instead of by line.\n\nThe nested crypto bundles move with it: @noble/ciphers and @noble/hashes to 2.4.0, @noble/post-quantum to 0.7.1."
+        }
+      ]
+    },
+    {
+      "heading": "Migration",
+      "items": [
+        {
+          "title": "Node.js floor moves to 24.21.0",
+          "body": "Running from source on Node older than 24.21.0 now exits at startup with a message naming the version found. 24.21.0 is the current Active LTS patch level and corrects the TLS 1.3 session-resumption report described above, along with the cumulative 24.x security fixes.\n\nIf you run the container image there is nothing to do: it installs Node from the `nodejs-24` package, which already provides 24.21.0. If you installed with `deploy/install.sh`, re-run it or upgrade Node through your package manager. NodeSource `setup_24.x` ships a current 24.x."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "Node.js 24.21.0 changelog", "url": "https://github.com/nodejs/node/releases/tag/v24.21.0" },
+    { "label": "RFC 8446 (TLS 1.3)", "url": "https://www.rfc-editor.org/rfc/rfc8446" }
+  ]
+}

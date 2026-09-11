@@ -30,7 +30,7 @@ var CSV_OPTS = {
   bidiCharPolicy: "strip",
   nullByteHandling: "strip",
   trailingWhitespacePolicy: "preserve",
-  numericPrecisionPolicy: "preserve",
+  numericPrecisionPolicy: "scientific",
   maxRows: UNLIMITED,
   maxCellBytes: UNLIMITED,
   maxTotalBytes: UNLIMITED,

@@ -3,11 +3,11 @@
   "_about": "As of v1.9.12 HermitStash vendors a single framework — blamejs — which itself bundles every server-side crypto/identity dependency. The transitive packages blamejs ships are listed below for SBOM transparency (Trivy / Grype rely on the nested-package data to flag CVEs against any of them). Argon2id derivation runs through Node 24+'s built-in `crypto.argon2` via blamejs's `lib/argon2-builtin.js` wrapper — the @ranisalt/argon2 native binding (and its 8-platform prebuilds) are no longer vendored. Separately, the browser half of the vault/API crypto cannot use blamejs's CommonJS bundles, so the three ESM bundles it needs are vendored here in their own right and listed below alongside the framework.",
   "packages": {
     "@noble/ciphers": {
-      "version": "2.3.0",
+      "version": "2.4.0",
       "license": "MIT",
       "author": "Paul Miller",
       "source": "https://github.com/paulmillr/noble-ciphers",
-      "cpe": "cpe:2.3:a:paulmillr:noble-ciphers:2.3.0:*:*:*:*:node.js:*:*",
+      "cpe": "cpe:2.3:a:paulmillr:noble-ciphers:2.4.0:*:*:*:*:node.js:*:*",
       "_about": "BROWSER (ESM) build served to the client for the API payload envelope. Copied verbatim from the vendored framework (lib/vendor/blamejs/lib/vendor/browser/noble-ciphers.mjs), which vendors the same upstream package for the server. It is one artifact from one source, not a second build: the version below is written from the framework manifest on every refresh, so the browser and server halves cannot report different releases.",
       "exports": [
         "xchacha20poly1305"
@@ -16,14 +16,14 @@
         "browser": "public/js/noble-ciphers.js"
       },
       "bundler": "copied from the vendored framework (no separate build)",
-      "bundledAt": "2026-08-22"
+      "bundledAt": "2026-09-11"
     },
     "@noble/hashes": {
-      "version": "2.3.0",
+      "version": "2.4.0",
       "license": "MIT",
       "author": "Paul Miller",
       "source": "https://github.com/paulmillr/noble-hashes",
-      "cpe": "cpe:2.3:a:paulmillr:noble-hashes:2.3.0:*:*:*:*:node.js:*:*",
+      "cpe": "cpe:2.3:a:paulmillr:noble-hashes:2.4.0:*:*:*:*:node.js:*:*",
       "_about": "BROWSER (ESM) build served to the client for SHAKE256 key derivation. Copied verbatim from the vendored framework (lib/vendor/blamejs/lib/vendor/browser/noble-hashes.mjs). The version below is written from the framework manifest on every refresh. The build exports more than this project uses; the unused exports are inert, and taking the framework build unmodified is what keeps there being a single source.",
       "exports": [
         "shake256"
@@ -32,14 +32,14 @@
         "browser": "public/js/noble-hashes.js"
       },
       "bundler": "copied from the vendored framework (no separate build)",
-      "bundledAt": "2026-08-22"
+      "bundledAt": "2026-09-11"
     },
     "@noble/post-quantum": {
-      "version": "0.7.0",
+      "version": "0.7.1",
       "license": "MIT",
       "author": "Paul Miller",
       "source": "https://github.com/paulmillr/noble-post-quantum",
-      "cpe": "cpe:2.3:a:paulmillr:noble-post-quantum:0.7.0:*:*:*:*:node.js:*:*",
+      "cpe": "cpe:2.3:a:paulmillr:noble-post-quantum:0.7.1:*:*:*:*:node.js:*:*",
       "_about": "BROWSER (ESM) build served to the client for ML-KEM encapsulation in the vault and share flows. Copied verbatim from the vendored framework (lib/vendor/blamejs/lib/vendor/browser/noble-post-quantum.mjs), served at /js/noble-pq.js because the page URLs predate this. The version below is written from the framework manifest on every refresh, so the half that runs in the browser and the half that runs on the server are always the same release.",
       "exports": [
         "ml_kem512",
@@ -50,11 +50,11 @@
         "browser": "public/js/noble-pq.js"
       },
       "bundler": "copied from the vendored framework (no separate build)",
-      "bundledAt": "2026-08-22"
+      "bundledAt": "2026-09-11"
     },
     "blamejs": {
-      "version": "0.18.47",
-      "tag": "v0.18.47",
+      "version": "0.20.0",
+      "tag": "v0.20.0",
       "license": "Apache-2.0",
       "author": "blamejs contributors",
       "source": "https://github.com/blamejs/blamejs",
@@ -63,25 +63,25 @@
         "server": "lib/vendor/blamejs/"
       },
       "bundler": "shallow git clone of release tag from github.com/blamejs/blamejs",
-      "bundledAt": "2026-08-22",
+      "bundledAt": "2026-09-11",
       "components": {
         "@noble/ciphers": {
-          "version": "2.3.0",
+          "version": "2.4.0",
           "license": "MIT",
           "author": "Paul Miller",
           "source": "https://github.com/paulmillr/noble-ciphers",
-          "cpe": "cpe:2.3:a:paulmillr:noble-ciphers:2.3.0:*:*:*:*:node.js:*:*",
+          "cpe": "cpe:2.3:a:paulmillr:noble-ciphers:2.4.0:*:*:*:*:node.js:*:*",
           "exports": [
             "xchacha20poly1305"
           ],
           "file": "lib/vendor/blamejs/lib/vendor/noble-ciphers.cjs"
         },
         "@noble/hashes": {
-          "version": "2.3.0",
+          "version": "2.4.0",
           "license": "MIT",
           "author": "Paul Miller",
           "source": "https://github.com/paulmillr/noble-hashes",
-          "cpe": "cpe:2.3:a:paulmillr:noble-hashes:2.3.0:*:*:*:*:node.js:*:*",
+          "cpe": "cpe:2.3:a:paulmillr:noble-hashes:2.4.0:*:*:*:*:node.js:*:*",
           "exports": [
             "shake128",
             "shake256",
@@ -94,11 +94,11 @@
           ]
         },
         "@noble/curves": {
-          "version": "2.3.0",
+          "version": "2.4.0",
           "license": "MIT",
           "author": "Paul Miller",
           "source": "https://github.com/paulmillr/noble-curves",
-          "cpe": "cpe:2.3:a:paulmillr:noble-curves:2.3.0:*:*:*:*:node.js:*:*",
+          "cpe": "cpe:2.3:a:paulmillr:noble-curves:2.4.0:*:*:*:*:node.js:*:*",
           "exports": [
             "ristretto255_oprf",
             "p256_oprf",
@@ -108,17 +108,17 @@
           "components": {
             "@noble/hashes": {
               "url": "https://github.com/paulmillr/noble-hashes",
-              "version": "2.3.0"
+              "version": "2.4.0"
             }
           },
           "file": "lib/vendor/blamejs/lib/vendor/noble-curves.cjs"
         },
         "@noble/post-quantum": {
-          "version": "0.7.0",
+          "version": "0.7.1",
           "license": "MIT",
           "author": "Paul Miller",
           "source": "https://github.com/paulmillr/noble-post-quantum",
-          "cpe": "cpe:2.3:a:paulmillr:noble-post-quantum:0.7.0:*:*:*:*:node.js:*:*",
+          "cpe": "cpe:2.3:a:paulmillr:noble-post-quantum:0.7.1:*:*:*:*:node.js:*:*",
           "exports": [
             "ml_kem512",
             "ml_kem768",
@@ -136,15 +136,15 @@
           "components": {
             "@noble/hashes": {
               "url": "https://github.com/paulmillr/noble-hashes",
-              "version": "2.3.0"
+              "version": "2.4.0"
             },
             "@noble/curves": {
               "url": "https://github.com/paulmillr/noble-curves",
-              "version": "2.3.0"
+              "version": "2.4.0"
             },
             "@noble/ciphers": {
               "url": "https://github.com/paulmillr/noble-ciphers",
-              "version": "2.3.0"
+              "version": "2.4.0"
             }
           },
           "file": "lib/vendor/blamejs/lib/vendor/noble-post-quantum.cjs"
@@ -174,11 +174,11 @@
           "file": "lib/vendor/blamejs/lib/vendor/public-suffix-list.dat"
         },
         "@blamejs/pki": {
-          "version": "0.5.25",
+          "version": "0.7.9",
           "license": "Apache-2.0",
           "author": "blamejs",
           "source": "https://github.com/blamejs/pki",
-          "cpe": "cpe:2.3:a:blamejs:pki:0.5.25:*:*:*:*:node.js:*:*",
+          "cpe": "cpe:2.3:a:blamejs:pki:0.7.9:*:*:*:*:node.js:*:*",
           "exports": [
             "x509",
             "crl",
@@ -194,7 +194,7 @@
           "file": "lib/vendor/blamejs/lib/vendor/blamejs-pki.cjs"
         }
       },
-      "integrity": "sha512-xBuXIWOa18OxNk/iMmF+ZkVk4mJj23gu8Brm+rn3AZfR64S6WFfR7BETK2avGcTsH3SkCqMGfQ3w+Nh9eLeXww=="
+      "integrity": "sha512-mjOUi4FVcvipvNs4cIQ0SBQro10TMiJ3HL+1yonTZ3hMB45aweRFdfZGDSfD7gXIjOg9/A4rEViAU2f83LnD0g=="
     }
   }
 }

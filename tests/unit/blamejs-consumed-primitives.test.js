@@ -188,7 +188,10 @@ describe("blamejs consumed-primitive coverage", function () {
       assert.strictEqual(status, 200);
       assert.ok(String(resp.body != null ? resp.body : resp.text).indexOf("primitive-ok") !== -1);
     } finally {
-      server.close();
+      // Guarded: close() throws ERR_SERVER_NOT_RUNNING when the server is not
+      // listening, which is exactly the state an earlier failure leaves it in —
+      // so the unguarded form reported that instead of the assertion that failed.
+      try { server.close(); } catch (_e) { /* best effort */ }
     }
   });
 

@@ -1,4 +1,4 @@
-// @noble/hashes v2.3.0 — vendored from Paul Miller
+// @noble/hashes v2.4.0 — vendored from Paul Miller
 // License: MIT — https://github.com/paulmillr/noble-hashes
 // Browser build (ESM), bundled with esbuild. The server side uses node:crypto
 // for these, so there is no .cjs beside it.
@@ -89,6 +89,14 @@ var aobject = (value, label) => {
   if (value === null || typeof value !== "object" || Array.isArray(value))
     throw new TypeError((label === "object" ? "" : `"${label}" `) + "expected object, got type=" + typeof value);
 };
+var aopts = (value, label) => {
+  aobject(value, label);
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null)
+    throw new TypeError(`"${label}" expected plain object`);
+  if (Object.hasOwn(value, "__proto__"))
+    throw new TypeError(`"${label}.__proto__" is not allowed`);
+};
 function aexists(instance, checkFinished = true) {
   if (instance.destroyed)
     throw new Error("hash was destroyed");
@@ -128,10 +136,10 @@ function byteSwap32(arr) {
 }
 var swap32IfBE = isLE ? (u) => u : byteSwap32;
 function checkOpts(defaults, opts, title = "opts") {
-  aobject(defaults, "defaults");
+  aopts(defaults, "defaults");
   if (opts !== void 0)
-    aobject(opts, title);
-  const merged = Object.assign(defaults, opts);
+    aopts(opts, title);
+  const merged = Object.assign(/* @__PURE__ */ Object.create(null), defaults, opts);
   return merged;
 }
 function createHasher(hashCons, info = {}) {
