@@ -16,7 +16,7 @@
         "browser": "public/js/noble-ciphers.js"
       },
       "bundler": "copied from the vendored framework (no separate build)",
-      "bundledAt": "2026-09-11"
+      "bundledAt": "2026-09-12"
     },
     "@noble/hashes": {
       "version": "2.4.0",
@@ -32,7 +32,7 @@
         "browser": "public/js/noble-hashes.js"
       },
       "bundler": "copied from the vendored framework (no separate build)",
-      "bundledAt": "2026-09-11"
+      "bundledAt": "2026-09-12"
     },
     "@noble/post-quantum": {
       "version": "0.7.1",
@@ -50,11 +50,11 @@
         "browser": "public/js/noble-pq.js"
       },
       "bundler": "copied from the vendored framework (no separate build)",
-      "bundledAt": "2026-09-11"
+      "bundledAt": "2026-09-12"
     },
     "blamejs": {
-      "version": "0.20.0",
-      "tag": "v0.20.0",
+      "version": "0.20.1",
+      "tag": "v0.20.1",
       "license": "Apache-2.0",
       "author": "blamejs contributors",
       "source": "https://github.com/blamejs/blamejs",
@@ -63,7 +63,7 @@
         "server": "lib/vendor/blamejs/"
       },
       "bundler": "shallow git clone of release tag from github.com/blamejs/blamejs",
-      "bundledAt": "2026-09-11",
+      "bundledAt": "2026-09-12",
       "components": {
         "@noble/ciphers": {
           "version": "2.4.0",
@@ -174,11 +174,11 @@
           "file": "lib/vendor/blamejs/lib/vendor/public-suffix-list.dat"
         },
         "@blamejs/pki": {
-          "version": "0.7.9",
+          "version": "0.7.37",
           "license": "Apache-2.0",
           "author": "blamejs",
           "source": "https://github.com/blamejs/pki",
-          "cpe": "cpe:2.3:a:blamejs:pki:0.7.9:*:*:*:*:node.js:*:*",
+          "cpe": "cpe:2.3:a:blamejs:pki:0.7.37:*:*:*:*:node.js:*:*",
           "exports": [
             "x509",
             "crl",
@@ -194,7 +194,7 @@
           "file": "lib/vendor/blamejs/lib/vendor/blamejs-pki.cjs"
         }
       },
-      "integrity": "sha512-mjOUi4FVcvipvNs4cIQ0SBQro10TMiJ3HL+1yonTZ3hMB45aweRFdfZGDSfD7gXIjOg9/A4rEViAU2f83LnD0g=="
+      "integrity": "sha512-79k1pStrN0BDrlbocN6o1xrv1OzTkSfT5Swc4jzmqxaxMIlZAvftXe087lX3mxSU8IuCypalaNwwjHp+NKaZew=="
     }
   }
 }

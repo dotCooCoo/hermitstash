@@ -11660,6 +11660,63 @@ async function testNoDuplicateCodeBlocks() {
         "lib/watcher.js:_validateOpts",
       ],
     },
+    {
+      // Bounded character walk — shape-only. What coincides is the opener every
+      // one of these shares: a `while (i < n)` over a string with a `Map` or
+      // `Object.create(null)` lookup, a lowercase or code-point test, and an
+      // index advanced by a branch. Each then reads an ENTIRELY different
+      // grammar and produces a different result type, so there is no behaviour
+      // to extract:
+      //   guard-svg _isUrlAttr    — a two-step membership test (the literal
+      //                             name, then the local name after a prefix)
+      //                             against a frozen attribute list, followed
+      //                             by the frozen scheme tables the shingle
+      //                             runs into.
+      //   guard-json _scanJsonShapes — one pass over JSON source recording
+      //                             pollution keys, comment offsets and
+      //                             numeric shapes.
+      //   guard-html _permissiveAllowed — a policy lookup answering whether a
+      //                             tag is allowed at the permissive profile.
+      //   guard-email _parseAddressLine — RFC 5322 address-list splitting.
+      //   guard-archive / guard-filename / guard-xml <top> — module-level
+      //                             lookup tables built from frozen arrays.
+      // A single primitive would have to carry the grammar, the accumulator
+      // type and the termination rule as three axes for a one-line atom.
+      mode:  "family-subset",
+      files: [
+        "lib/guard-archive.js:<top>",
+        "lib/guard-email.js:_parseAddressLine",
+        "lib/guard-filename.js:<top>",
+        "lib/guard-html.js:_permissiveAllowed",
+        "lib/guard-json.js:_scanJsonShapes",
+        "lib/guard-svg.js:_isUrlAttr",
+        "lib/guard-xml.js:<top>",
+      ],
+    },
+    {
+      // A run of frozen lookup tables — shape-only. The shingle begins in the
+      // last lines of guard-svg's _animationHosts and runs into the six
+      // `Object.freeze({...})` and string constants declared after it, which
+      // is the same token run a module opens with when it declares its
+      // vocabulary as frozen tables:
+      //   guard-svg _animationHosts — then URL_FUNC_NAME, the CSS
+      //                             constants, ANIMATION_VALUE_ATTRS and
+      //                             HREF_TEMPLATE_TAGS.
+      //   guard-imap-command / guard-pop3-command <top> — the command and
+      //                             argument vocabularies of two mail protocols.
+      //   guard-sql <top>         — the detector table and keyword sets.
+      //   safe-ical <top>         — the iCalendar property and parameter sets.
+      // Each table holds a different vocabulary read by a different grammar;
+      // the only thing shared is that they are frozen object literals.
+      mode:  "family-subset",
+      files: [
+        "lib/guard-imap-command.js:<top>",
+        "lib/guard-pop3-command.js:<top>",
+        "lib/guard-sql.js:<top>",
+        "lib/guard-svg.js:_animationHosts",
+        "lib/safe-ical.js:<top>",
+      ],
+    },
   ];
   // Each KNOWN_CLUSTERS entry's `files` is a list of `path:fn` strings.
   // Build per-entry matchers and reject malformed entries (bare path
@@ -12737,6 +12794,39 @@ function testStateStampScanningDeferred() {
 //   4. The catalog scans whole-file content (multiline regex) so
 //      patterns split across lines still match.
 var KNOWN_ANTIPATTERNS = [
+  {
+    id: "a-collected-array-is-appended-not-spread-as-arguments",
+    primitive: "b.markupTokenizer.parseAttrsRecovering",
+    scanScope: "lib",
+    skipCommentLines: true,
+    // Anchored on the variadic collectors alone — the ones whose argument list
+    // grows with the array. `fn.apply(this, arguments)` and
+    // `stmt.run.apply(stmt, params)` forward a bounded arity and are a
+    // different question, so neither is matched.
+    regex: /(?:\.push|\bString\s*\.\s*fromCharCode|\bMath\s*\.\s*(?:max|min))\s*(?:\.\s*apply\s*\(|\(\s*\.\.\.)/,
+    allowlist: [],
+    fixtures: {
+      fires: [
+        "out.push.apply(out, got.attrs);",
+        "issues.push.apply(issues, codepointClass.detectCharThreats(t, o, \"json\"));",
+        "out += String.fromCharCode.apply(String, bytes);",
+        "var top = Math.max.apply(Math, counts);",
+        "target.push(...items);",
+        "return Math.max(...widths);",
+      ],
+      quiet: [
+        "return fn.apply(this, arguments);",
+        "var rows = stmt.all.apply(stmt, built.params);",
+        "issues.push({ kind: \"bom-mid-stream\", severity: \"high\" });",
+        "out.push(got.attrs[i]);",
+        "out += String.fromCharCode(bytes[i]);",
+        "return Math.max(FLOOR, useCount * AMP);",
+        "var lo = Math.min(a, b);",
+        "more.forEach(function (x) { issues.push(x); });",
+      ],
+    },
+    reason: "A function call carries every spread element as its own argument, so the argument list is as long as the array. V8 refuses past roughly 125000 and throws RangeError, which means an input that decides the array length decides whether the process throws. parseAttrsRecovering appended each recovery round's attributes with out.push.apply(out, got.attrs); a 260 KB tag of 130000 valueless attributes threw before any policy ran, so b.guardHtml.sanitize and b.guardSvg.sanitize failed on all three profiles instead of refusing the document, and the SVG path let the RangeError escape uncaught. The bound is not a length to check but a shape to stop using: append with a loop or forEach and the element count stops reaching the call stack at all. Both spellings are matched because .apply and ... are the same construct. The allowlist is empty and stays empty. No lib/ site needs to spread a collected array, and a site that looks bounded today is bounded by a decision in another module: the guard family's issues.push.apply(issues, detectCharThreats(...)) was safe only because detectCharThreats reports the first hit per category, which is a property of codepoint-class rather than of the caller, and would have become thirteen bugs the day that function started reporting every hit. Matching the shape rather than auditing the length keeps that coupling from mattering.",
+  },
   {
     id: "posix-absolute-path-needs-an-injected-reader",
     primitive: "b.db.init",

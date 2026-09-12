@@ -1,0 +1,26 @@
+{
+  "version": "1.15.7",
+  "date": "2026-09-12",
+  "headline": "Uploaded SVGs are checked for a link hidden behind a namespace prefix",
+  "summary": "A framework refresh whose one change reaching this server is in the SVG guard. Nothing in your configuration changes and there is no migration. The desktop sync client moves to the same framework version in its own release, and the two were tested together end to end before either was tagged.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "The SVG guard reads a prefixed href wherever it reads href",
+          "body": "Every rule in the SVG guard that inspects `href` matched two literal spellings, `href` and `xlink:href`. In an XML document a namespace prefix is a binding rather than part of the name, so with `xmlns:l=\"http://www.w3.org/1999/xlink\"` declared, `l:href` is `xlink:href`, and every rule missed it. `<a l:href=\"javascript:alert(1)\">` and `<image l:href=\"javascript:alert(1)\">` reported nothing at any profile and came back from sanitizing unchanged.\n\nThe guard now reads any prefixed `href` wherever it reads `href`. This server passes every uploaded SVG through that guard before storing it, so an SVG carrying such a link is now refused where it was previously accepted."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Vendored blamejs moves to 0.20.1",
+          "body": "Beyond the SVG fix above, the release tightens how the HTML, CSV, SQL, JSON, JSONPath and Markdown guards read a document, so that each judges what the consuming parser will see rather than what the bytes show. Of those, this server uses the HTML and CSV guards, and neither of the documented behavior changes applies: `guardSvg.allowedAttrs` is now enforced but this server does not set it, and the CSV allowlist policy changed but this server does not use it. Three unbounded-time paths in the Markdown guard are closed; this server does not use that guard.\n\nThe nested certificate toolkit moves to 0.7.37."
+        }
+      ]
+    }
+  ]
+}
