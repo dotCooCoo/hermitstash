@@ -262,7 +262,7 @@ function deleteEmptyBundles(empties) {
       bundles.remove({ _id: empties[i].bundleId });
       deleted++;
     } catch (e) {
-      logger.warn("[orphan-cleanup] Failed to delete empty bundle", { bundleId: empties[i].bundleId, shareId: empties[i].shareId, error: e.message });
+      logger.warn("[orphan-cleanup] Failed to delete empty bundle", { bundleId: empties[i].bundleId, error: e.message });
     }
   }
   return deleted;

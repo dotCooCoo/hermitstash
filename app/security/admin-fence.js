@@ -21,6 +21,7 @@
 var b = require("../../lib/vendor/blamejs");
 var clientIp = require("../../lib/client-ip");
 var audit = require("../../lib/audit");
+var logger = require("../shared/logger");
 
 /**
  * Validate the operator's CIDR list and return the usable entries.
@@ -77,7 +78,7 @@ function create(entries) {
 
     audit.log(audit.ACTIONS.ADMIN_FENCE_DENIED, {
       req: req,
-      details: "Admin request from a non-allowlisted network was refused: " + pathname,
+      details: "Admin request from a non-allowlisted network was refused: " + logger.requestPath(req),
     });
     res.statusCode = 404;
     res.setHeader("Content-Type", "text/plain; charset=utf-8");

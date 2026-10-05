@@ -314,3 +314,28 @@ describe("email", function () {
     });
   });
 });
+
+describe("lib/email relies on the b.mail contract", function () {
+  var crlf = String.fromCharCode(0x0d, 0x0a);
+  function mailerWith(transport) {
+    // buildMailers in lib/email.js passes a transport and a from default in the same way.
+    return b.mail.create({ transport: transport, defaults: { from: "HermitStash <noreply@example.com>" } });
+  }
+
+  it("send delivers one message addressed to every recipient in an array", async function () {
+    var transport = b.mail.transports.memory();
+    await mailerWith(transport).send({ to: ["one@example.com", "two@example.com"], subject: "Upload", html: "<p>x</p>" });
+    assert.strictEqual(transport.sent.length, 1);
+    assert.deepStrictEqual(transport.sent[0].to, ["one@example.com", "two@example.com"]);
+  });
+
+  it("send refuses a recipient or a subject that carries a line break", async function () {
+    var transport = b.mail.transports.memory();
+    var mailer = mailerWith(transport);
+    await assert.rejects(mailer.send({ to: ["ok@example.com", "bad@example.com" + crlf + "Bcc: x@evil.example"],
+      subject: "s", html: "x" }), function (e) { return e.code === "mail/invalid-recipient"; });
+    await assert.rejects(mailer.send({ to: "a@example.com", subject: "a" + crlf + "Bcc: x@evil.example", html: "x" }),
+      function (e) { return e.code === "mail/invalid-subject"; });
+    assert.strictEqual(transport.sent.length, 0);
+  });
+});

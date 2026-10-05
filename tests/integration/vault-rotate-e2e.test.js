@@ -221,9 +221,23 @@ describe("vault-rotate E2E: plaintext mode", function () {
     var dataDir = path.join(testRoot, "plain-" + b.crypto.generateToken(3));
     var oldKeys = cryptoLib.generateEncryptionKeyPair();
     buildFixture(dataDir, oldKeys);
+    // These files hold state the rotation does not rewrite. The swap replaces
+    // the data directory with the rotated copy, so the copy has to carry each.
+    var kept = {
+      "revocations.json": "[]", "ca.crl-number": "7\n", "revoked-generation": "2",
+      "audit-sign.key": "signing key", "custom-logos/logo.png": "png",
+    };
+    Object.keys(kept).forEach(function (rel) {
+      fs.mkdirSync(path.dirname(path.join(dataDir, rel)), { recursive: true });
+      fs.writeFileSync(path.join(dataDir, rel), kept[rel]);
+    });
 
     var r = runRotate(dataDir, {}, []);
     assert.strictEqual(r.status, 0, "rotate exit: " + r.status + "\nstdout: " + r.stdout + "\nstderr: " + r.stderr);
+    Object.keys(kept).forEach(function (rel) {
+      assert.strictEqual(fs.readFileSync(path.join(dataDir, rel), "utf8"), kept[rel],
+        rel + " is in the data directory after the swap, unchanged");
+    });
 
     // After rotation:
     //   data/ has new vault.key and re-encrypted DB

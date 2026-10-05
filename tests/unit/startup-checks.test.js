@@ -34,6 +34,7 @@ var assert = require("node:assert");
 var config = require("../../lib/config");
 var vault = require("../../lib/vault");
 var startupChecks = require("../../app/bootstrap/startup-checks");
+var b = require("../../lib/vendor/blamejs");
 
 var FLAG = path.join(dataDir, "ca-regen-flag.json");
 
@@ -393,5 +394,17 @@ describe("startup checks", function () {
       assert.ok(said(out, /password reset will silently fail/),
         "a host with no user is not a usable backend: " + out.warnings.join(" | "));
     });
+  });
+});
+
+describe("the HTTPS warning relies on the b.ssrfGuard.isLoopbackHost contract", function () {
+  it("isLoopbackHost accepts loopback literals, localhost and *.localhost in any case or bracket form", function () {
+    ["localhost", "LOCALHOST.", "app.localhost", "127.0.0.1", "127.8.9.10", "[::1]", "::ffff:127.0.0.1"]
+      .forEach(function (h) { assert.strictEqual(b.ssrfGuard.isLoopbackHost(h), true, h); });
+  });
+
+  it("isLoopbackHost refuses look-alike names, public names and the unspecified address", function () {
+    ["localhost.evil.com", "evil-localhost.com", "example.com", "0.0.0.0", "10.0.0.1", ""]
+      .forEach(function (h) { assert.strictEqual(b.ssrfGuard.isLoopbackHost(h), false, h); });
   });
 });

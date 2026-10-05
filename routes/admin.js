@@ -65,6 +65,7 @@ var { validateEmail, validatePassword } = require("../app/shared/validate");
 var stashRepo = require("../app/data/repositories/stash.repo");
 var S3Client = require("../lib/s3-client");
 var backup = require("../lib/backup");
+var passwordGate = require("../lib/password-gate");
 var db = require("../lib/db");
 var { getQuotaCounts } = require("../lib/email");
 var scheduler = require("../lib/scheduler");
@@ -572,6 +573,9 @@ module.exports = function (app) {
         if (typeof passphrase !== "string" || passphrase.length === 0) {
           throw new ValidationError("Passphrase is required.");
         }
+        if (Buffer.byteLength(passphrase, "utf8") > b.vaultPassphraseSource.MAX_PASSPHRASE_BYTES) {
+          throw new ValidationError("Passphrase must be at most " + b.vaultPassphraseSource.MAX_PASSPHRASE_BYTES + " bytes.");
+        }
         if (passphrase !== confirm) {
           throw new ValidationError("Passphrase and confirmation do not match.");
         }
@@ -609,6 +613,9 @@ module.exports = function (app) {
         if (typeof passphrase !== "string" || passphrase.length === 0) {
           throw new ValidationError("Passphrase is required to unseal.");
         }
+        if (Buffer.byteLength(passphrase, "utf8") > b.vaultPassphraseSource.MAX_PASSPHRASE_BYTES) {
+          throw new ValidationError("Passphrase must be at most " + b.vaultPassphraseSource.MAX_PASSPHRASE_BYTES + " bytes.");
+        }
         var ops = require("../lib/vault-passphrase-ops");
         var pre = ops.preflightUnsealable();
         if (!pre.ok) throw new ConflictError(pre.reason);
@@ -627,8 +634,9 @@ module.exports = function (app) {
         });
       } catch (err) {
         if (err.isAppError) throw err;
-        // unsealVaultKey throws "passphrase rejected: ..." on wrong passphrase
-        if (/passphrase rejected/.test(err.message)) throw new AuthenticationError(err.message);
+        // unsealVaultKey throws "passphrase rejected: ..." on a wrong passphrase
+        // and "unseal failed: ..." on a sealed file it cannot parse.
+        if (/^passphrase rejected: /.test(err.message)) throw new AuthenticationError(err.message);
         throw new AppError(err.message, 500);
       }
     });
@@ -1459,7 +1467,7 @@ module.exports = function (app) {
       if (!pwCheck.valid) {
         errors.push(pwCheck.reason);
       } else {
-        var hash = await b.auth.password.hash(body.adminPassword);
+        var hash = await passwordGate.hash(body.adminPassword);
         usersRepo.update(req.user._id, { $set: { passwordHash: hash } });
       }
 

@@ -24,6 +24,7 @@ var stashRepo = require("../app/data/repositories/stash.repo");
 var uploadHandler = require("../app/domain/uploads/upload.handler");
 var accessCodeService = require("../app/domain/access-code.service");
 var accessLockout = require("../lib/access-lockout");
+var passwordGate = require("../lib/password-gate");
 
 // Persistent exponential backoff for bundle password attempts, keyed on the
 // (namespace, shareId, client subnet) tuple. Stored in bundle_access_lockouts
@@ -93,7 +94,7 @@ module.exports = function (app) {
       req.session["bundle_" + shareId] = true;
       return res.json({ success: true });
     }
-    var valid = await b.auth.password.verify(bundle.passwordHash, password);
+    var valid = await passwordGate.verify(bundle.passwordHash, password);
     if (valid) {
       // For "both" mode: require prior email verification before accepting password
       var mode = bundle.accessMode || "password";
@@ -114,7 +115,7 @@ module.exports = function (app) {
     var after = accessLockout.recordFailure(BUNDLE_LOCKOUT_NS, shareId, ip);
 
     if (after.retryAfter > 0) {
-      logger.warn("Bundle unlock lockout", { shareId: shareId, failures: after.failures, retryAfter: after.retryAfter });
+      logger.warn("Bundle unlock lockout", { bundleId: bundle._id, failures: after.failures, retryAfter: after.retryAfter });
       throw new RateLimitError("Too many failed attempts. Try again in " + after.retryAfter + " seconds.", after.retryAfter);
     }
 
@@ -291,7 +292,7 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.BUNDLE_FILE_DOWNLOADED, { targetId: doc._id, details: "file: " + doc.originalName + ", bundle: " + req.params.shareId, req: req });
       req.on("close", function () { if (stream.destroy) stream.destroy(); });
       res.writeHead(200, {
-        "Content-Disposition": safeContentDisposition(doc.originalName, "attachment"),
+        "Content-Disposition": safeContentDisposition(doc.originalName),
         "Content-Type": doc.mimeType || "application/octet-stream",
       });
       // A legacy/S3 no-key read returns a LIVE stream that can error mid-pipe;
@@ -336,7 +337,7 @@ module.exports = function (app) {
 
     res.writeHead(200, {
       "Content-Type": "application/zip",
-      "Content-Disposition": safeContentDisposition((bundle.bundleName || "hermitstash-" + bundle.shareId) + ".zip", "attachment"),
+      "Content-Disposition": safeContentDisposition((bundle.bundleName || "hermitstash-" + bundle.shareId) + ".zip"),
     });
 
     var zip = b.archive.zip();
@@ -361,7 +362,7 @@ module.exports = function (app) {
         zip.addFile(f.relativePath || f.originalName, buf);
         addedCount++;
       } catch (e) {
-        logger.error("Zip skip", { error: e.message || String(e), file: f.originalName, bundle: bundle.shareId });
+        logger.error("Zip skip", { error: e.message || String(e), file: f.originalName, bundleId: bundle._id });
         skippedFiles.push(f.relativePath || f.originalName);
       }
     }
@@ -419,7 +420,7 @@ module.exports = function (app) {
 
     res.writeHead(200, {
       "Content-Type": "application/zip",
-      "Content-Disposition": safeContentDisposition(folderName + ".zip", "attachment"),
+      "Content-Disposition": safeContentDisposition(folderName + ".zip"),
     });
 
     var zip = b.archive.zip();

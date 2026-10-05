@@ -1,25 +1,29 @@
 var b = require("../../lib/vendor/blamejs");
 
 /**
- * Sanitize filename for Content-Disposition headers.
- * Prevents header injection and handles non-ASCII via RFC 8187 encoding
- * (the ext-value syntax; RFC 5987 defined it and is obsoleted by RFC 8187).
+ * safeContentDisposition returns the Content-Disposition value for a download.
+ * Every download is sent as an attachment. b.staticServe.attachmentDisposition writes an ASCII filename
+ * fallback and an RFC 8187 filename* parameter, and uses "download" for an
+ * empty name or one that contains CR, LF or NUL.
  */
-function safeContentDisposition(filename, type) {
-  type = type || "attachment";
-  // ASCII-safe fallback: strip dangerous characters
-  var safe = String(filename || "download")
-    .replace(/["\\\r\n]/g, "_")
-    .replace(/[^\x20-\x7E]/g, "_");
-  // RFC 8187 encoded version for non-ASCII support
-  var encoded = encodeURIComponent(filename || "download");
-  return type + '; filename="' + safe + '"; filename*=UTF-8\'\'' + encoded;
+function safeContentDisposition(filename) {
+  return b.staticServe.attachmentDisposition(filename);
 }
 
 // Ceiling on the RAW rename value, before sanitizing. Four times the longest
 // name sanitizeRename will return, which leaves room for characters the chain
 // strips while keeping the scan cheap.
 var RENAME_INPUT_MAX = 1024;
+
+// NAME_CTRL_RANGES holds every control character a name may not contain: the
+// framework's CTRL_RANGES (C0 except TAB, LF and CR, plus DEL and the C1 block
+// U+0080-U+009F) and TAB, LF and CR.
+var NAME_CTRL_RANGES = b.codepointClass.CTRL_RANGES.concat([0x09, 0x0A, 0x0D]);
+
+// stripNameControls removes every character in NAME_CTRL_RANGES from a name.
+function stripNameControls(name) {
+  return b.codepointClass.stripRanges(String(name), NAME_CTRL_RANGES);
+}
 
 /**
  * Sanitize a user-provided rename value.
@@ -50,8 +54,7 @@ function sanitizeRename(input, opts) {
   if (raw.length > RENAME_INPUT_MAX) {
     return { valid: false, name: "", error: "Name too long." };
   }
-  var name = raw
-    .replace(/[\x00-\x1f\x7f]/g, "")     // strip control characters
+  var name = stripNameControls(raw)                // strip control characters
     .replace(/[<>"'`]/g, "")              // strip HTML/XSS characters
     .replace(/\s*\.\s*/g, ".")       // collapse whitespace around dots
     .replace(/\.{2,}/g, ".")
@@ -166,4 +169,4 @@ function sanitizeFilename(input, maxLength) {
     .slice(0, maxLength || 255);
 }
 
-module.exports = { safeContentDisposition, sanitizeRename, sanitizeFilename };
+module.exports = { safeContentDisposition, sanitizeRename, sanitizeFilename, stripNameControls };

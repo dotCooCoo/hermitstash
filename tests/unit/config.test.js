@@ -288,3 +288,25 @@ describe("config", function () {
     });
   });
 });
+
+describe("config relies on the b.safeObject contract for operator-influenced keys", function () {
+  it("ownProp reads an own property and treats an inherited name as absent", function () {
+    assert.strictEqual(b.safeObject.ownProp({ siteName: { env: "SITE_NAME" } }, "siteName").env, "SITE_NAME");
+    assert.strictEqual(b.safeObject.ownProp({}, "toString"), undefined);
+    assert.strictEqual(b.safeObject.ownProp({}, "__proto__"), undefined);
+  });
+
+  it("ownSet stores a __proto__ key as an own property and leaves the prototype alone", function () {
+    var overlay = {};
+    b.safeObject.ownSet(overlay, "__proto__", { polluted: true });
+    assert.strictEqual(Object.getPrototypeOf(overlay), Object.prototype);
+    assert.deepStrictEqual(Object.keys(overlay), ["__proto__"]);
+    assert.strictEqual(({}).polluted, undefined);
+  });
+
+  it("updateSettings skips a key that names an inherited Object.prototype member", function () {
+    var result = updateSettings({ toString: "x", valueOf: "y", hasOwnProperty: "z", siteName: "OwnPropSite" });
+    assert.deepStrictEqual(result.updated, ["siteName"]);
+    assert.strictEqual(config.siteName, "OwnPropSite");
+  });
+});

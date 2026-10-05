@@ -9,6 +9,7 @@ var config = require("../lib/config");
 var rateLimit = require("../lib/rate-limit");
 var clientIp = require("../lib/client-ip");
 var accessLockout = require("../lib/access-lockout");
+var passwordGate = require("../lib/password-gate");
 var stashRepo = require("../app/data/repositories/stash.repo");
 var bundlesRepo = require("../app/data/repositories/bundles.repo");
 var filesRepo = require("../app/data/repositories/files.repo");
@@ -166,6 +167,7 @@ module.exports = function (app) {
       stashLogoUrl: stash.logoUrl || "",
       vaultEnabled: false,
       vaultPublicKey: null,
+      skippedFilesStored: UPLOAD.SKIPPED_FILES_STORED,
     });
   });
 
@@ -204,7 +206,7 @@ module.exports = function (app) {
       return res.json({ success: true });
     }
 
-    var valid = await b.auth.password.verify(stash.passwordHash, password);
+    var valid = await passwordGate.verify(stash.passwordHash, password);
     if (valid) {
       var mode = stash.accessMode || "password";
       if (mode === "both") {
@@ -323,6 +325,8 @@ module.exports = function (app) {
     }
 
     var body = (await b.parsers.json(req)) || {};
+    var init = uploadValidator.validateInitInput(body);
+    if (init.error) throw new ValidationError(init.error);
     var expiryDays = (stash.defaultExpiry && stash.defaultExpiry > 0) ? stash.defaultExpiry : config.fileExpiryDays;
     // The shared sync bundle is created lazily by the FIRST sync-client init; a
     // browser visitor always gets a one-off snapshot bundle with normal expiry.
@@ -338,9 +342,9 @@ module.exports = function (app) {
       bundleType: asSyncBundle ? "sync" : "snapshot",
       expiryDays: asSyncBundle ? 0 : expiryDays,
       defaultExpiryDays: config.fileExpiryDays,
-      fileCount: body.fileCount,
-      skippedCount: body.skippedCount,
-      skippedFiles: body.skippedFiles,
+      fileCount: init.fileCount,
+      skippedCount: init.skippedCount,
+      skippedFiles: init.skippedFiles,
       // Team-scoped stash: every upload inherits the team so it surfaces in the
       // team's shared file list. null for an unassigned stash.
       teamId: stash.teamId || null,
@@ -355,7 +359,7 @@ module.exports = function (app) {
       stashRepo.update(stash._id, { $set: { syncBundleId: result.bundleId } });
     }
 
-    audit.log(audit.ACTIONS.BUNDLE_INITIALIZED, { targetId: result.bundleId, details: "stash: " + stash.slug + ", expected: " + (body.fileCount || 0) + (asSyncBundle ? ", sync" : ""), req: req });
+    audit.log(audit.ACTIONS.BUNDLE_INITIALIZED, { targetId: result.bundleId, details: "stash: " + stash.slug + ", expected: " + init.fileCount + (asSyncBundle ? ", sync" : ""), req: req });
     res.json({ bundleId: result.bundleId, shareId: result.shareId, finalizeToken: result.finalizeToken, syncMode: asSyncBundle });
   });
 
@@ -455,6 +459,7 @@ module.exports = function (app) {
       stashSlug: slug, stashId: stash._id,
       auditSuffix: ", stash: " + slug, req: req,
     });
+    if (result.error && result.status === 404) throw new NotFoundError(result.error);
     if (result.error) throw new AppError(result.error, result.status || 400);
 
     // Update stash stats only on a GENUINE finalize. An idempotent re-finalize of
@@ -664,7 +669,7 @@ module.exports = function (app) {
       if (body.password && String(body.password).trim()) {
         var pw = String(body.password).trim();
         if (pw.length < 4) throw new ValidationError("Password must be at least 4 characters.");
-        passwordHash = await b.auth.password.hash(pw);
+        passwordHash = await passwordGate.hash(pw);
       }
 
       // Email-gated access: clean allowed emails/domains
@@ -773,7 +778,7 @@ module.exports = function (app) {
           updates.passwordHash = null;
         } else if (pw !== "********") {
           if (pw.trim().length < 4) throw new ValidationError("Password must be at least 4 characters.");
-          updates.passwordHash = await b.auth.password.hash(pw.trim());
+          updates.passwordHash = await passwordGate.hash(pw.trim());
         }
       }
 

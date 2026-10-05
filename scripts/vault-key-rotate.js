@@ -53,6 +53,7 @@ var safeLog = require("../lib/safe-log");
 var cryptoLib = require("../lib/crypto");
 var passphraseSource = require("../lib/passphrase-source");
 var fieldCrypto = require("../lib/field-crypto");
+var rotationInventory = require("../lib/rotation-inventory");
 var serverLiveness = require("./lib/server-liveness");
 
 // Populate b.cryptoField with HS's FIELD_SCHEMA before any
@@ -510,6 +511,22 @@ function printSuccess(dataOldDir, result) {
     console.log("[rotate] Generating new vault keypair...");
     var newKeys = cryptoLib.generateEncryptionKeyPair();
 
+    var rotatePaths = {
+      encryptedDb:      "hermitstash.db.enc",
+      dbKeySealed:      "db.key.enc",
+      vaultKeyPlain:    "vault.key",
+      vaultKeySealed:   "vault.key.sealed",
+      additionalSealed: C.ROTATION_SEALED_FILES.filter(function (e) { return e.relativePath !== "db.key.enc"; }),
+    };
+    // Everything the rotation does not rewrite is carried into the rotated copy
+    // unchanged: CA state, the audit signing key, logos, audit archives, markers.
+    var carried = rotationInventory.carriedEntries(DATA_DIR, rotatePaths);
+    rotatePaths.verbatimFiles = carried.verbatimFiles;
+    rotatePaths.verbatimDirs = carried.verbatimDirs;
+    console.log("[rotate] Carrying " + carried.verbatimFiles.length + " file(s), " +
+      carried.verbatimDirs.length + " director(ies) and " + carried.symlinks.length +
+      " symbolic link(s) into the rotated copy unchanged");
+
     console.log("[rotate] Building rotated copy at " + ROTATING_DIR);
     var result = await b.vaultRotate.rotate({
       oldKeys: oldKeys,
@@ -526,16 +543,9 @@ function printSuccess(dataOldDir, result) {
       // Acknowledge so the rotation isn't refused for stores that don't exist
       // in this deployment.
       externalAadResealed: true,
-      paths: {
-        encryptedDb:      "hermitstash.db.enc",
-        dbKeySealed:      "db.key.enc",
-        vaultKeyPlain:    "vault.key",
-        vaultKeySealed:   "vault.key.sealed",
-        additionalSealed: C.ROTATION_SEALED_FILES.filter(function (e) { return e.relativePath !== "db.key.enc"; }),
-        verbatimFiles:    C.ROTATION_VERBATIM_FILES,
-        verbatimDirs:     C.ROTATION_VERBATIM_DIRS,
-      },
+      paths: rotatePaths,
     });
+    rotationInventory.recreateSymlinks(ROTATING_DIR, carried.symlinks);
 
     if (result.warnings.length > 0) {
       console.log("[rotate] warnings (" + result.warnings.length + "):");

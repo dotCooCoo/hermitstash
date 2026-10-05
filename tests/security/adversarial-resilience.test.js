@@ -531,13 +531,16 @@ describe("file previews", function () {
     // to attachment and rendered others inline. The current posture is
     // simpler + stricter: every download path emits
     // Content-Disposition: attachment unconditionally via
-    // safeContentDisposition(name, "attachment"), so an XSS payload can't
+    // safeContentDisposition(name), so an XSS payload can't
     // smuggle into the preview channel regardless of MIME shape.
     var filesRoute = fs.readFileSync(path.join(projectRoot, "routes", "files.js"), "utf8");
     assert.ok(filesRoute.includes('safeContentDisposition'),
       "files.js should use safeContentDisposition for Content-Disposition");
-    assert.ok(filesRoute.includes('"attachment"'),
-      "every download header should set Content-Disposition: attachment");
+    var { safeContentDisposition } = require(path.join(projectRoot, "app", "shared", "sanitize-filename"));
+    ["page.html", "script.js", "image.svg"].forEach(function (name) {
+      assert.ok(safeContentDisposition(name).indexOf("attachment;") === 0,
+        "safeContentDisposition(" + JSON.stringify(name) + ") must be an attachment");
+    });
     // No inline disposition leaks
     assert.ok(!filesRoute.match(/Content-Disposition[^,)]*"inline"/),
       "no Content-Disposition: inline should exist in files.js");

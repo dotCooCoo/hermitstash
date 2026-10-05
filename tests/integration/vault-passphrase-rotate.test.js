@@ -120,6 +120,22 @@ describe("vault-passphrase-rotate: env-based flow", function () {
     assert.strictEqual(boot.status, 0, "sealed file should still work with original old pw: " + boot.stderr);
   });
 
+  it("reports a sealed file it cannot parse without blaming the old passphrase", function () {
+    setupWrapped(dir, "correct-old");
+    var sealedPath = path.join(dir, "vault.key.sealed");
+    var damaged = fs.readFileSync(sealedPath);
+    damaged[0] = 0x00;
+    fs.writeFileSync(sealedPath, damaged);
+    var r = runRotate(dir, {
+      VAULT_PASSPHRASE_OLD: "correct-old",
+      VAULT_PASSPHRASE_NEW: "any-new",
+    });
+    assert.notStrictEqual(r.status, 0);
+    assert.match(r.stderr, /not a wrapped vault file/);
+    assert.doesNotMatch(r.stderr + r.stdout, /passphrase rejected/);
+    assert.strictEqual(Buffer.compare(fs.readFileSync(sealedPath), damaged), 0, "the sealed file is unchanged");
+  });
+
   it("rejects when new == old", function () {
     setupWrapped(dir, "same-pw");
     var r = runRotate(dir, {

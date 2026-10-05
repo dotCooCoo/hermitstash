@@ -11,6 +11,25 @@ var rateLimit = require("../lib/rate-limit");
 var replayNonce = require("../lib/replay-nonce");
 var { AppError, ValidationError, AuthenticationError, ForbiddenError, NotFoundError } = require("../app/shared/errors");
 
+// A transport hint is a lowercase token such as "usb", "internal" or "hybrid".
+var TRANSPORT_RE = /^[a-z][a-z-]{0,31}$/;
+// A credential row keeps at most TRANSPORTS_MAX transport hints.
+var TRANSPORTS_MAX = 8;
+
+// storedTransports returns the JSON a credential row keeps for the transport
+// hints a browser reported: the distinct hints that match TRANSPORT_RE, at most
+// TRANSPORTS_MAX of them, or null when none match. The framework passes the
+// reported list through verifyRegistration without checking it.
+function storedTransports(value) {
+  if (!Array.isArray(value)) return null;
+  var kept = [];
+  for (var i = 0; i < value.length && kept.length < TRANSPORTS_MAX; i++) {
+    var t = value[i];
+    if (typeof t === "string" && TRANSPORT_RE.test(t) && kept.indexOf(t) === -1) kept.push(t);
+  }
+  return kept.length ? JSON.stringify(kept) : null;
+}
+
 module.exports = function (app) {
   // ---- Registration (add passkey to existing account) ----
 
@@ -90,7 +109,7 @@ module.exports = function (app) {
         counter: info.credential.counter,
         deviceType: info.credentialDeviceType || "unknown",
         backedUp: info.credentialBackedUp ? 1 : 0,
-        transports: body.response && body.response.transports ? JSON.stringify(body.response.transports) : null,
+        transports: storedTransports(body.response && body.response.transports),
         createdAt: new Date().toISOString(),
       });
 

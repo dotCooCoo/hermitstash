@@ -11,8 +11,10 @@ var logger = require("../app/shared/logger");
 var bundleService = require("../app/domain/uploads/bundle.service");
 var { requireScope } = require("../app/security/scope-policy");
 var { resolveUploadConfig, handleFileUpload, handleChunkUpload, handleFinalize } = require("../app/domain/uploads/upload.handler");
+var uploadValidator = require("../app/http/validators/upload.validator");
 var idempotency = require("../middleware/idempotency");
 var { AppError, ValidationError, ForbiddenError, NotFoundError } = require("../app/shared/errors");
+var syncGuards = require("../middleware/sync-guards");
 
 // PUBLIC_UPLOAD applied to publication, for the callers it actually governs.
 //
@@ -67,6 +69,7 @@ module.exports = function (app) {
       uploadRetries: config.uploadRetries,
       dropTitle: config.dropTitle, dropSubtitle: config.dropSubtitle,
       vaultEnabled: vaultEnabled, vaultPublicKey: vaultPublicKey,
+      skippedFilesStored: C.UPLOAD.SKIPPED_FILES_STORED,
     });
   });
 
@@ -77,9 +80,19 @@ module.exports = function (app) {
     // fall through to parseJson(req) only when no upstream middleware has
     // pre-parsed the request (e.g. legacy callers, tests).
     var body = req.body || (await b.parsers.json(req)) || {};
+    var init = uploadValidator.validateInitInput(body);
+    if (init.error) throw new ValidationError(init.error);
+    var allowed = uploadValidator.validateAllowedEmails(body.allowedEmails);
+    if (allowed.error) throw new ValidationError(allowed.error);
     var rawEmail = body.uploaderEmail ? String(body.uploaderEmail).slice(0, 254) : null;
     var rawName = String(body.uploaderName || "Anonymous").slice(0, 200);
     var ownerId = req.user ? req.user._id : null;
+    if (body.bundleType === "sync" && !req.user) {
+      throw new ForbiddenError("A sync bundle requires a signed-in user or an API key.");
+    }
+    // A key bound to a stash or a bundle starts no bundle here, and a key bound
+    // to a client certificate needs that certificate.
+    syncGuards.enforceApiKeyResourceBinding(req, null);
     if (req.user) {
       rawName = req.user.displayName || rawName;
       rawEmail = req.user.email || rawEmail;
@@ -88,12 +101,12 @@ module.exports = function (app) {
     var result = await bundleService.initBundle({
       uploaderName: rawName, uploaderEmail: rawEmail, ownerId: ownerId,
       password: body.password, message: body.message, bundleName: body.bundleName,
-      allowedEmails: body.allowedEmails || null,
+      allowedEmails: allowed.value,
       bundleType: body.bundleType || "snapshot",
       expiryDays: body.expiryDays, defaultExpiryDays: config.fileExpiryDays,
-      fileCount: body.fileCount, skippedCount: body.skippedCount, skippedFiles: body.skippedFiles,
+      fileCount: init.fileCount, skippedCount: init.skippedCount, skippedFiles: init.skippedFiles,
     });
-    audit.log(audit.ACTIONS.BUNDLE_INITIALIZED, { targetId: result.bundleId, targetEmail: rawEmail, details: "expected: " + (body.fileCount || 0), req: req });
+    audit.log(audit.ACTIONS.BUNDLE_INITIALIZED, { targetId: result.bundleId, targetEmail: rawEmail, details: "expected: " + init.fileCount, req: req });
     res.json({ bundleId: result.bundleId, shareId: result.shareId, finalizeToken: result.finalizeToken });
   });
 
@@ -103,6 +116,8 @@ module.exports = function (app) {
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
       if (!bundle || (bundle.status === "complete" && bundle.bundleType !== "sync")) throw new NotFoundError("Bundle not found.");
+      // A sync bundle with neither an owner nor a stash accepts no writes.
+      if (bundle.bundleType === "sync" && !bundle.ownerId && !bundle.stashId) throw new NotFoundError("Bundle not found.");
       // Stash-owned bundles must go through the /stash/:slug/file/:bundleId path,
       // which applies per-stash upload caps and isStashLocked() access checks —
       // EXCEPT for sync clients whose API key is already bound to this stash.
@@ -120,6 +135,9 @@ module.exports = function (app) {
       if (bundle.ownerId && (!req.user || bundle.ownerId !== req.user._id) && !(req.apiKey && req.apiKey.userId === bundle.ownerId)) {
         throw new ForbiddenError("Forbidden.");
       }
+      // An API key bound to a stash, a bundle or a client certificate reaches
+      // only what it is bound to.
+      syncGuards.enforceApiKeyResourceBinding(req, bundle);
       var limits = resolveUploadConfig(null, req.user);
       // limits.maxFileSize is 0 when the owner has "No limit" file size; the parser
       // rejects a non-positive cap, so fall back to the finite per-request ceiling.
@@ -152,6 +170,8 @@ module.exports = function (app) {
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
       if (!bundle || (bundle.status === "complete" && bundle.bundleType !== "sync")) throw new NotFoundError("Bundle not found.");
+      // A sync bundle with neither an owner nor a stash accepts no writes.
+      if (bundle.bundleType === "sync" && !bundle.ownerId && !bundle.stashId) throw new NotFoundError("Bundle not found.");
       if (bundle.stashId && !(req.apiKey && req.apiKey.boundStashId === bundle.stashId)) {
         throw new ForbiddenError("This bundle must be uploaded via its stash endpoint.");
       }
@@ -163,6 +183,9 @@ module.exports = function (app) {
       if (bundle.ownerId && (!req.user || bundle.ownerId !== req.user._id) && !(req.apiKey && req.apiKey.userId === bundle.ownerId)) {
         throw new ForbiddenError("Forbidden.");
       }
+      // An API key bound to a stash, a bundle or a client certificate reaches
+      // only what it is bound to.
+      syncGuards.enforceApiKeyResourceBinding(req, bundle);
       var limits = resolveUploadConfig(null, req.user);
       // limits.maxFileSize is 0 when the owner has "No limit" file size; the parser
       // rejects a non-positive cap, so fall back to the finite per-request ceiling.
@@ -194,6 +217,7 @@ module.exports = function (app) {
       throw new ForbiddenError("This bundle must be finalized via its stash endpoint.");
     }
     if (existing.ownerId && (!req.user || existing.ownerId !== req.user._id)) throw new ForbiddenError("Forbidden.");
+    syncGuards.enforceApiKeyResourceBinding(req, existing);
 
     var body = req.body || (await b.parsers.json(req)) || {};
     // Body only — never accept the finalize secret from the query string (it would
@@ -203,6 +227,7 @@ module.exports = function (app) {
     var result = handleFinalize({
       bundleId: req.params.bundleId, token: token, sendUploaderEmail: true, req: req,
     });
+    if (result.error && result.status === 404) throw new NotFoundError(result.error);
     if (result.error) throw new AppError(result.error, result.status || 400);
     res.json({ success: true, shareId: result.shareId, shareUrl: result.shareUrl, emailSent: result.emailSent });
   });

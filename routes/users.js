@@ -3,6 +3,7 @@ var rateLimit = require("../lib/rate-limit");
 var audit = require("../lib/audit");
 var logger = require("../app/shared/logger");
 var config = require("../lib/config");
+var passwordGate = require("../lib/password-gate");
 var C = require("../lib/constants");
 var filesRepo = require("../app/data/repositories/files.repo");
 var invitesRepo = require("../app/data/repositories/invites.repo");
@@ -323,7 +324,7 @@ module.exports = function (app) {
       if (invite.expiresAt < new Date().toISOString()) throw new ValidationError("Invite expired.");
       if (usersRepo.findByEmail(invite.email)) throw new ValidationError("Account already exists.");
 
-      var passwordHash = password ? await b.auth.password.hash(password) : null;
+      var passwordHash = password ? await passwordGate.hash(password) : null;
       var newUser = usersRepo.create({
         email: invite.email,
         displayName: displayName,

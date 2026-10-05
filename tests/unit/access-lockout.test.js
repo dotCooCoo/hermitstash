@@ -107,3 +107,19 @@ describe("access-lockout (finding #3 — shared subnet-keyed backoff)", function
     assert.strictEqual(accessLockout.lockedFor({ failures: 0, lastAttempt: "not-a-date" }), 0);
   });
 });
+
+describe("access-lockout relies on the b.requestHelpers.ipPrefix contract", function () {
+  it("ipPrefix masks IPv4 to its /24 and IPv6 to its /64", function () {
+    assert.strictEqual(b.requestHelpers.ipPrefix("203.0.113.47"), "203.0.113.0/24");
+    assert.strictEqual(b.requestHelpers.ipPrefix("2001:db8:1:2:dead:beef:0:1"), "2001:db8:1:2:0:0:0:0/64");
+  });
+
+  it("ipPrefix folds an IPv4-mapped IPv6 address into the IPv4 subnet", function () {
+    assert.strictEqual(b.requestHelpers.ipPrefix("::ffff:203.0.113.47"), "203.0.113.0/24");
+  });
+
+  it("ipPrefix returns an empty string for input it cannot parse", function () {
+    assert.strictEqual(b.requestHelpers.ipPrefix("unknown"), "");
+    assert.strictEqual(b.requestHelpers.ipPrefix(""), "");
+  });
+});

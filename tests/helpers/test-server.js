@@ -139,6 +139,8 @@ function _continueStart(opts) {
     var legacyApiEncrypt = require(path.join(projectRoot, "middleware", "api-encrypt"));
 
     var app = new Router();
+    // Same call as server-main.js, before the first app.use().
+    require(path.join(projectRoot, "middleware", "error-handler")).guardRouterLogs(app);
     app.use(require(path.join(projectRoot, "middleware", "security-headers")));
     app.use(serveStatic(path.join(projectRoot, "public")));
     app.use(require(path.join(projectRoot, "middleware", "ip-check")));

@@ -133,4 +133,20 @@ describe("vault-passphrase-ops.unsealVaultKey rejection paths", function () {
     assert.match(r.reason, /already exists/);
     fs.unlinkSync(C.PATHS.VAULT_KEY_SEALED);
   });
+
+  it("reports a sealed file it cannot parse as an unseal failure, not a wrong passphrase", async function () {
+    var pw = Buffer.from("damaged-header-1", "utf8");
+    await ops.sealVaultKey(pw, {});
+    var good = fs.readFileSync(C.PATHS.VAULT_KEY_SEALED);
+    var damaged = Buffer.from(good);
+    damaged[0] = 0x00;
+    fs.writeFileSync(C.PATHS.VAULT_KEY_SEALED, damaged);
+    try {
+      await assert.rejects(ops.unsealVaultKey(pw), /^Error: unseal failed: not a wrapped vault file/);
+      assert.ok(!fs.existsSync(C.PATHS.VAULT_KEY), "plaintext NOT created from a damaged file");
+    } finally {
+      fs.writeFileSync(C.PATHS.VAULT_KEY_SEALED, good);
+      await ops.unsealVaultKey(pw);
+    }
+  });
 });

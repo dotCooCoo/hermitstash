@@ -130,3 +130,113 @@ describe("finalizing a stash bundle through the public route", function () {
     assert.match(String(res.json.detail || res.json.error || ""), /stash endpoint/i);
   });
 });
+
+describe("finalizing a bundle that is already complete", function () {
+  it("returns the share link only to a caller that sends the finalize token", async function () {
+    // A bundle ID is written to audit events and to sync connection log lines,
+    // so the bundle ID alone must not return the share link.
+    var b = await startBundle(anon, "repeat");
+    var first = await anon.post("/drop/finalize/" + b.bundleId, {
+      json: { finalizeToken: b.finalizeToken },
+    });
+    assert.strictEqual(first.status, 200, "precondition: the first finalize succeeds");
+
+    var withoutToken = await other.post("/drop/finalize/" + b.bundleId, { json: {} });
+    assert.strictEqual(withoutToken.status, 404);
+    assert.strictEqual((withoutToken.json || {}).shareId, undefined, "the refusal carries no share ID");
+    var unknown = await other.post("/drop/finalize/" + "a".repeat(64), { json: {} });
+    assert.strictEqual(unknown.status, 404, "precondition: an unknown bundle is a 404");
+    assert.strictEqual(withoutToken.json.type, unknown.json.type, "the refusal has the problem type of an unknown bundle");
+    assert.strictEqual(withoutToken.json.title, unknown.json.title, "the refusal has the title of an unknown bundle");
+
+    var wrongToken = await other.post("/drop/finalize/" + b.bundleId, {
+      json: { finalizeToken: "f".repeat(64) },
+    });
+    assert.strictEqual(wrongToken.status, 404);
+
+    var retry = await anon.post("/drop/finalize/" + b.bundleId, {
+      json: { finalizeToken: b.finalizeToken },
+    });
+    assert.strictEqual(retry.status, 200, "a retry with the finalize token still gets the link");
+    assert.strictEqual(retry.json.shareId, b.shareId);
+  });
+});
+
+describe("an API key bound to a stash on the drop routes", function () {
+  // A stash sync key carries the userId of the admin who issued it. On the drop
+  // routes it reaches only bundles of its own stash, not the admin's own.
+  var keyClient;
+  var syncBundleId;
+  var snapshot;
+
+  before(async function () {
+    var created = await owner.post("/admin/stash/create", { json: { slug: "dropbind", name: "Drop Bind", title: "Drop Bind" } });
+    assert.strictEqual(created.status, 200, "precondition: the stash is created: " + created.text);
+    var stashId = created.json.stash._id;
+    var issued = await owner.post("/admin/stash/" + stashId + "/sync-token", { json: {} });
+    assert.strictEqual(issued.status, 200, "precondition: the sync token is issued: " + issued.text);
+    var record = db.enrollmentCodes.find({}).filter(function (r) { return r.stashId === stashId; })[0];
+    assert.ok(record && record.apiKey, "precondition: the enrollment record holds the key");
+    keyClient = new TestClient(testServer.baseUrl());
+    await keyClient.bearer(record.apiKey);
+
+    var syncInit = await owner.post("/drop/init", {
+      json: { uploaderName: "bind", bundleType: "sync", fileCount: 0, skippedCount: 0, skippedFiles: [] },
+    });
+    assert.strictEqual(syncInit.status, 200, "precondition: the admin's sync bundle starts");
+    syncBundleId = syncInit.json.bundleId;
+    snapshot = await startBundle(owner, "bind-snapshot");
+    var fin = await owner.post("/drop/finalize/" + snapshot.bundleId, { json: { finalizeToken: snapshot.finalizeToken } });
+    assert.strictEqual(fin.status, 200, "precondition: the admin's snapshot is finalized");
+  });
+
+  it("starts no bundle on POST /drop/init", async function () {
+    var res = await keyClient.post("/drop/init", {
+      json: { uploaderName: "bind-key", fileCount: 1, skippedCount: 0, skippedFiles: [] },
+    });
+    assert.strictEqual(res.status, 403);
+  });
+
+  it("cannot upload into the issuing admin's own sync bundle", async function () {
+    var res = await keyClient.uploadFile("/drop/file/" + syncBundleId, "file", "notes.txt",
+      "from the stash key", { relativePath: "notes.txt" });
+    assert.strictEqual(res.status, 403);
+  });
+
+  it("cannot send a chunk to the issuing admin's own sync bundle", async function () {
+    var res = await keyClient.post("/drop/chunk/" + syncBundleId, { json: {} });
+    assert.strictEqual(res.status, 403);
+  });
+
+  it("does not get the share link of the issuing admin's completed bundle", async function () {
+    var res = await keyClient.post("/drop/finalize/" + snapshot.bundleId, { json: {} });
+    assert.strictEqual(res.status, 403);
+    assert.strictEqual((res.json || {}).shareId, undefined, "the refusal carries no share ID");
+  });
+});
+
+describe("sync bundles without an owner", function () {
+  it("cannot be started by an anonymous caller", async function () {
+    var res = await anon.post("/drop/init", {
+      json: { uploaderName: "anon-sync", bundleType: "sync", fileCount: 1, skippedCount: 0, skippedFiles: [] },
+    });
+    assert.strictEqual(res.status, 403);
+  });
+
+  it("accept no writes when one already exists", async function () {
+    var b = await startBundle(anon, "ownerless-sync");
+    db.bundles.update({ _id: b.bundleId }, { $set: { bundleType: "sync", status: "complete" } });
+    var res = await anon.uploadFile("/drop/file/" + b.bundleId, "file", "replaced.txt",
+      "replaced bytes", { relativePath: "ownerless-sync.txt" });
+    assert.strictEqual(res.status, 404);
+  });
+
+  it("still accept writes from the owner of an owned sync bundle", async function () {
+    // The control: the check applies only to a sync bundle with no owner.
+    var b = await startBundle(owner, "owned-sync");
+    db.bundles.update({ _id: b.bundleId }, { $set: { bundleType: "sync", status: "complete" } });
+    var res = await owner.uploadFile("/drop/file/" + b.bundleId, "file", "owned-sync.txt",
+      "updated bytes", { relativePath: "owned-sync.txt" });
+    assert.strictEqual(res.status, 200);
+  });
+});

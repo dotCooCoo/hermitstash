@@ -23,6 +23,15 @@ var ownerUserId;
 
 function fakePublicKey() { return crypto.randomBytes(1568).toString("base64"); }
 function fakeSeed() { return crypto.randomBytes(32).toString("base64"); }
+// The vault routes take a 1568-byte ML-KEM-1024 ciphertext and a 24-byte
+// XChaCha20-Poly1305 nonce. markedKey writes a readable marker at the start of
+// a zero-filled key so a test can tell which upload or rotation wrote it.
+function markedKey(text) {
+  var buf = Buffer.alloc(1568);
+  buf.write(text);
+  return buf.toString("base64");
+}
+function fakeNonce() { return crypto.randomBytes(24).toString("base64"); }
 
 before(async function () {
   await testServer.start();
@@ -67,8 +76,8 @@ async function uploadFile(tag) {
   var res = await client.post("/vault/upload", {
     json: {
       ciphertext: crypto.randomBytes(96).toString("base64"),
-      encapsulatedKey: Buffer.from("ek-" + tag).toString("base64"),
-      iv: crypto.randomBytes(12).toString("base64"),
+      encapsulatedKey: markedKey("ek-" + tag),
+      iv: fakeNonce(),
       filename: "f-" + tag + ".bin",
     },
   });
@@ -85,8 +94,8 @@ async function buildRotateBody(marker) {
     return {
       shareId: f.shareId,
       ciphertext: crypto.randomBytes(96).toString("base64"),
-      encapsulatedKey: Buffer.from("rot-" + marker + "-" + f.shareId).toString("base64"),
-      iv: crypto.randomBytes(12).toString("base64"),
+      encapsulatedKey: markedKey("rot-" + marker + "-" + f.shareId),
+      iv: fakeNonce(),
     };
   });
   return {

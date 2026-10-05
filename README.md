@@ -77,7 +77,7 @@ HermitStash is composed on top of [**blamejs**](https://blamejs.com) — a Node 
 - `b.objectStore` — SigV4 S3-compatible backend (AWS, DigitalOcean Spaces, MinIO, Backblaze)
 - `b.scheduler`, `b.backup`, `b.router`, `b.websocket`, `b.auth.password` (Argon2id), `b.auth.totp` (SHA-512), `b.safeUrl`, `b.sanitize`, `b.atomicFile`, `b.requestHelpers`, `b.constants`
 
-The framework's source tree lives at [`lib/vendor/blamejs/`](lib/vendor/blamejs/) — committed at a pinned tag (see [`lib/vendor/MANIFEST.json`](lib/vendor/MANIFEST.json)), refreshed via [`scripts/vendor-update.sh blamejs <tag>`](scripts/vendor-update.sh) which shallow-clones the release tag from [github.com/blamejs/blamejs](https://github.com/blamejs/blamejs). Zero npm runtime packages — `package.json` has no `dependencies` block at all.
+The framework's source tree lives at [`lib/vendor/blamejs/`](lib/vendor/blamejs/), and [`lib/vendor/MANIFEST.json`](lib/vendor/MANIFEST.json) records the pinned release. [`scripts/vendor-update.sh blamejs [version]`](scripts/vendor-update.sh) refreshes it from the npm registry as `@blamejs/core`, and stops before unpacking when the tarball does not match the registry's published sha512 integrity value. HermitStash has no npm runtime packages: `package.json` has no `dependencies` block.
 
 ## Crypto Suite
 
@@ -194,6 +194,7 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | Classical-only TLS downgrade | ClientHello PQC gate rejects connections without hybrid key exchange groups |
 | Brute-force passwords | Argon2id (64 MiB memory, 3 iterations) |
 | Brute-force login | Rate limiting (15 attempts / 5 min per IP; IPv6 keyed by /64 so rotating an address does not reset it) |
+| Password-check memory exhaustion | One Argon2id check runs at a time and up to 8 more wait. Any further check is refused with HTTP 503 and `Retry-After: 2` before any Argon2id work starts. A stored hash with a memory cost above 524288 KiB, a time cost above 24 or a parallelism above 16 fails verification without running Argon2id |
 | Brute-force share IDs | 256-bit SHA3-derived IDs (2^256 search space) |
 | Session hijacking | Hybrid KEM encrypted cookies, per-session keys |
 | API replay attacks | Timestamp validation (30-second window) |
@@ -243,7 +244,7 @@ Built on Node.js 24.21.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - Account lockout after 10 consecutive failed password attempts (30-minute cooldown)
 - Password reset flow with single-use, 1-hour-expiry tokens and anti-enumeration (always returns success)
 - User invitation system — admin invites by email with role assignment, 48-hour expiry
-- Configurable session idle timeout (default 30 minutes, server-side enforcement)
+- The server ends a session when it goes `SESSION_IDLE_TIMEOUT` milliseconds without a request or reaches `SESSION_ABSOLUTE_TIMEOUT_MS` milliseconds of age. The defaults are 30 minutes and 12 hours, and the admin settings page can change the idle timeout. The server deletes ended sessions every hour.
 - OAuth 2.0 PKCE + CSRF state validation on the Google sign-in callback
 - Sign in with Tailscale (opt-in) — tailnet members authenticate via the `tailscale serve` identity headers (`Tailscale-User-*` / `Tailscale-App-Capabilities`), trusted only from the loopback serve proxy and stripped from every other peer. Account creation is admin-gated: a tailnet user is auto-provisioned only when they carry a required capability grant or are on an allowlist. Under Funnel a public visitor carries no identity and falls back to the other sign-in methods
 - Password change automatically revokes all other sessions
@@ -311,9 +312,9 @@ Built on Node.js 24.21.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - Paginated file/bundle browser with search
 - User management — create, suspend, delete, role toggle, and per-user upload-limit overrides (storage quota, max file size, max bundle size, max files, allowed extensions) set from the user list; each field falls back to the global default when left blank, or can be marked "No limit" to lift that cap for the individual user, so the overrides are off until set
 - Audit log — searchable (by action, details, email, IP, or path), filterable, date range; click any entry for the full who / what / when / where / how (performer, target, source IP, method + path, auth type, user-agent, request id). Sealed at rest and shown decrypted to admins
-- Audit export — download the decrypted trail (honoring the current filters) as CSV (formula-injection-safe), JSON, or CADF (Cloud Auditing Data Federation event batch for SIEM / compliance). Each export is itself audited
+- Audit export — download the decrypted trail (honoring the current filters) as CSV (formula-injection-safe), JSON, or CADF (Cloud Auditing Data Federation event batch for SIEM / compliance). Each export is itself audited. An export holds the full request path of each entry, including share links
 - Audit archival — optional size-based rotation: when the log exceeds a row threshold, the oldest entries are moved to a passphrase-encrypted (Argon2id + XChaCha20-Poly1305), post-quantum-signed bundle on disk and pruned from the database, with the tamper chain re-anchored. Archives can be listed, verified (signature + checksum + chain recompute), and decrypted for export. Each bundle is verified before any rows are pruned, so a bad write never loses data
-- SIEM forwarding — stream every audit event to a SIEM in real time over RFC 5424 syslog (`udp` / `tcp` / `tls`) or an HTTP webhook (Splunk HEC, Datadog, Grafana Loki, or any JSON-ingest endpoint, with bearer / basic / header auth). Security failures forward at `warn` so the SIEM can alert; secret- and PII-shaped values are stripped before anything leaves the host. A built-in connectivity test sends a probe event without waiting for an audit action. Off by default; enabling it forces full-IP and user-agent capture on so the forwarded stream is forensically complete
+- SIEM forwarding — stream every audit event to a SIEM in real time over RFC 5424 syslog (`udp` / `tcp` / `tls`) or an HTTP webhook (Splunk HEC, Datadog, Grafana Loki, or any JSON-ingest endpoint, with bearer / basic / header auth). Security failures forward at `warn` so the SIEM can alert; secret- and PII-shaped values are stripped before anything leaves the host. The `path` field carries the route pattern, such as `/b/:shareId/download`, and each 64-character hexadecimal value in `details`, such as a share ID, is replaced by `[redacted]`. `pathDigest` holds the first 32 hexadecimal characters of the SHA3-512 hash of the full path, and two events for the same share link carry the same value. A built-in connectivity test sends a probe event without waiting for an audit action. Off by default; enabling it forces full-IP and user-agent capture on so the forwarded stream is forensically complete
 - Audit Log settings — retention period (or keep indefinitely), record full IP addresses for investigations (off by default, where the source IP is stored as a one-way hash the operator cannot reverse), capture the client user-agent, and the tamper-evidence chain + encrypted archival. IP and user-agent changes apply to new entries only
 - Settings panel — 11 tabs (Branding, General, Auth, Uploads, Storage, Theme, Email, Security, Environment, Backup, Audit Log)
 - API keys with scoped permissions (upload, read, admin) validated against a canonical enum and enforced on read and mutating routes
@@ -926,7 +927,7 @@ See [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) §5.2 and §9 L2 for the full
 
 ### Health check
 
-`GET /health` returns `{ status, uptime, timestamp }` — works with Docker HEALTHCHECK, Kubernetes liveness probes, load balancers, and the [PQC gateway](https://github.com/dotCooCoo/hermitstash-web) status check.
+`GET /health` returns `{ status, maintenance, uptime, timestamp }`. `status` is `"ok"` while the server is serving requests, and `maintenance` is `true` while maintenance mode is on. Docker HEALTHCHECK, Kubernetes liveness probes, load balancers and the [PQC gateway](https://github.com/dotCooCoo/hermitstash-web) status check can poll it. A request without a session cookie does not create a session.
 
 Probes from the same origin as the app (container HEALTHCHECK on `localhost`, a Kubernetes liveness probe inside the pod, a TLS-terminating reverse proxy without CORS) need no extra config. A browser-driven probe from a *different* origin — for example the static PQC entry page at `hermitstash.com` checking `app.hermitstash.com/health` before redirecting — needs that origin added to `CORS_ORIGINS` (env var or Admin > Settings > Security). Without the listing, the response is `403` and the browser rejects the result, even though the underlying request succeeded.
 
@@ -1302,12 +1303,12 @@ Public upload endpoints accept API key authentication. When authenticated, uploa
 | Endpoint | Description |
 |----------|-------------|
 | `GET  /.well-known/blamejs-pubkey` | Server keypair for the blamejs apiEncrypt envelope. Plain JSON `{publicKey, ecPublicKey, kemId, cipherId, kdfId}`. No auth, no encryption. Cache at the client; re-fetch only when the server keypair rotates |
-| `POST /drop/init` | Initialize a bundle. **Blamejs-encrypted.** Decrypted body: `{ uploaderName, uploaderEmail, password, message, bundleName, expiryDays, fileCount, ... }`. Decrypted response: `{ bundleId, shareId, finalizeToken }` |
+| `POST /drop/init` | Initialize a bundle. **Blamejs-encrypted.** Decrypted body: `{ uploaderName, uploaderEmail, password, message, bundleName, expiryDays, fileCount, ... }`. Decrypted response: `{ bundleId, shareId, finalizeToken }`. `fileCount` and `skippedCount` are whole numbers. `skippedFiles` is a list of `{ path, reason }`, and the server keeps its first 50 entries. `allowedEmails` holds at most 100 comma-separated addresses, and an invalid address is refused with 400. A `bundleType` of `sync` needs a signed-in user or an API key, and an API key bound to a stash or a bundle is refused with 403 |
 | `POST /drop/file/:bundleId` | Upload a file (multipart/form-data, field: `file`). Body bypasses encryption (multipart not JSON). Response is plaintext JSON for Bearer clients |
 | `POST /drop/chunk/:bundleId` | Upload a chunk for large files (multipart, fields: `chunk`, `filename`, `chunkIndex`, `totalChunks`). Same encryption shape as `/drop/file/:bundleId` |
-| `POST /drop/finalize/:bundleId` | Finalize the bundle. **Blamejs-encrypted.** Decrypted body: `{ finalizeToken }`. Decrypted response: `{ success, shareId, shareUrl, emailSent }` |
+| `POST /drop/finalize/:bundleId` | Finalize the bundle. **Blamejs-encrypted.** Decrypted body: `{ finalizeToken }`. Decrypted response: `{ success, shareId, shareUrl, emailSent }`. Finalizing a bundle that is already complete returns its share link only to the bundle's owner or to a caller that sends its `finalizeToken`, and any other caller gets 404 |
 | `GET  /b/:shareId` | Bundle metadata (with `Accept: application/json`). Plaintext for Bearer clients |
-| `POST /sync/rename` | Sync file rename. **Blamejs-encrypted.** Decrypted body: `{ bundleId, oldRelativePath, newRelativePath }` |
+| `POST /sync/rename` | Sync file rename. **Blamejs-encrypted.** Decrypted body: `{ bundleId, oldRelativePath, newRelativePath }`. A `newRelativePath` longer than 500 characters after sanitizing is refused with 400 |
 | `DELETE /files/:fileId` | Sync file delete. Plaintext request and response. Sync-guards enforce scope + cert binding + bundle ownership |
 
 ### Example: programmatic upload
@@ -1486,7 +1487,7 @@ Managed via `scripts/vendor-update.sh`:
 
 | Vendored | Version | Author | Purpose |
 |----------|---------|--------|---------|
-| [`blamejs`](https://github.com/blamejs/blamejs) | 0.20.1 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, and envelope-bound field crypto. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
+| [`blamejs`](https://github.com/blamejs/blamejs) | 0.20.38 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, and envelope-bound field crypto. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
 | [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) (browser only) | 2.4.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | XChaCha20-Poly1305 in the browser vault + outbox flows |
 | [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (browser only) | 2.4.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | SHAKE256 KDF in the browser |
 | [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) (browser only) | 0.7.1 | [Paul Miller](https://github.com/paulmillr) (MIT) | ML-KEM-1024 in the browser vault flow |
@@ -1516,7 +1517,7 @@ lib/
   field-crypto.js     FIELD_SCHEMA: auto seal/unseal/hash for all DB fields
   db.js               SQLite + auto field crypto + DB file encryption
   api-crypto.js       API payload XChaCha20-Poly1305 encrypt/decrypt
-  session.js          Hybrid KEM encrypted cookies, LRU eviction
+  session.js          Hybrid KEM encrypted cookies, tmpfs store, hourly purge
   storage.js          Local/S3 + XChaCha20-Poly1305 file encryption (all backends)
                       saveRaw/getRawBuffer for pre-encrypted data (vault files)
   cert-utils.js       Certificate fingerprint hashing + indexed revocation checks
@@ -1524,6 +1525,7 @@ lib/
   settings-schema.js  Type-safe settings sanitization + validation (86 settings)
   audit.js            Audit logging with auto-sealed entries
   rate-limit.js       Per-IP rate limiting with proxy validation
+  password-gate.js    Argon2id hash/verify, one at a time, up to 8 queued, 503 past that
   ip-quota.js         Per-IP storage quota for anonymous uploads
   email.js            SMTP + Resend API with dual failover + quota tracking
   router.js           HTTP server, routing, pre-compiled patterns

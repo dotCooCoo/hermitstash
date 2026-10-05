@@ -298,7 +298,7 @@ describe("blamejs consumed-primitive coverage", function () {
     assert.deepStrictEqual(order, ["a-start", "a-end", "c-start", "c-end"]);
   });
 
-  it("b.atomicFile.read reads back what write wrote (async, O_NOFOLLOW)", async function () {
+  it("b.atomicFile.read reads back what write wrote", async function () {
     var p = path.join(TMP, "atomic-read-" + nodeCrypto.randomBytes(3).toString("hex") + ".bin");
     var data = nodeCrypto.randomBytes(64);
     await b.atomicFile.write(p, data);

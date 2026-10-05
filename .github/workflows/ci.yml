@@ -129,6 +129,29 @@ jobs:
           fi
           exit $EXIT_CODE
 
+      # Every b.* primitive that HS source names must be named by a test
+      # outside tests/lint, or carry an UNTESTED_BACKLOG entry with a reason.
+      - name: Run test-coverage
+        if: always()
+        id: test_coverage
+        run: |
+          set +e
+          OUTPUT=$(node tests/lint/test-coverage.test.js 2>&1)
+          EXIT_CODE=$?
+          set -e
+
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+          {
+            echo "output<<COVERAGE_EOF"
+            echo "$OUTPUT"
+            echo "COVERAGE_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "::error::test-coverage found HS-consumed b.* primitives with no test reference"
+          fi
+          exit $EXIT_CODE
+
       # ── Currency visibility (non-blocking) ─────────────────────
       # Surfaces stale GitHub Action pins / vendored blamejs on every push so
       # drift is caught continuously. NON-blocking here (exit 0): the release
@@ -166,11 +189,13 @@ jobs:
           HADOLINT_OUTPUT: ${{ steps.hadolint_result.outputs.output }}
           SHELLCHECK_OUTPUT: ${{ steps.shellcheck.outputs.output }}
           PATTERNS_OUTPUT: ${{ steps.codebase_patterns.outputs.output }}
+          COVERAGE_OUTPUT: ${{ steps.test_coverage.outputs.output }}
         run: |
           ESLINT_OK=${{ steps.eslint.outcome == 'success' }}
           HADOLINT_OK=${{ steps.hadolint.outcome == 'success' }}
           SHELLCHECK_OK=${{ steps.shellcheck.outcome == 'success' }}
           PATTERNS_OK=${{ steps.codebase_patterns.outcome == 'success' }}
+          COVERAGE_OK=${{ steps.test_coverage.outcome == 'success' }}
 
           PASS="✅"
           FAIL="❌"
@@ -179,9 +204,10 @@ jobs:
           HADOLINT_ICON=$( [ "$HADOLINT_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
           SHELLCHECK_ICON=$( [ "$SHELLCHECK_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
           PATTERNS_ICON=$( [ "$PATTERNS_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
+          COVERAGE_ICON=$( [ "$COVERAGE_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
 
           ALL_OK=true
-          [ "$ESLINT_OK" = "true" ] && [ "$HADOLINT_OK" = "true" ] && [ "$SHELLCHECK_OK" = "true" ] && [ "$PATTERNS_OK" = "true" ] || ALL_OK=false
+          [ "$ESLINT_OK" = "true" ] && [ "$HADOLINT_OK" = "true" ] && [ "$SHELLCHECK_OK" = "true" ] && [ "$PATTERNS_OK" = "true" ] && [ "$COVERAGE_OK" = "true" ] || ALL_OK=false
 
           {
             echo "body<<SUMMARY_EOF"
@@ -195,6 +221,7 @@ jobs:
             echo "| Hadolint (Dockerfile) | $HADOLINT_ICON |"
             echo "| ShellCheck (shell scripts) | $SHELLCHECK_ICON |"
             echo "| codebase-patterns (vendored) | $PATTERNS_ICON |"
+            echo "| test-coverage | $COVERAGE_ICON |"
 
             if [ "$ESLINT_OK" != "true" ] && [ -n "$ESLINT_OUTPUT" ]; then
               echo ""
@@ -236,6 +263,16 @@ jobs:
               echo "</details>"
             fi
 
+            if [ "$COVERAGE_OK" != "true" ] && [ -n "$COVERAGE_OUTPUT" ]; then
+              echo ""
+              echo "<details><summary>test-coverage output</summary>"
+              echo ""
+              echo '```'
+              printf '%s\n' "$COVERAGE_OUTPUT"
+              echo '```'
+              echo "</details>"
+            fi
+
             echo "SUMMARY_EOF"
           } >> "$GITHUB_OUTPUT"
 
@@ -250,6 +287,7 @@ jobs:
           echo "| Hadolint | $HADOLINT_ICON |" >> "$GITHUB_STEP_SUMMARY"
           echo "| ShellCheck | $SHELLCHECK_ICON |" >> "$GITHUB_STEP_SUMMARY"
           echo "| codebase-patterns | $PATTERNS_ICON |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| test-coverage | $COVERAGE_ICON |" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment on PR
         if: always() && github.event_name == 'pull_request'

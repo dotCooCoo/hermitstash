@@ -6,6 +6,7 @@ var b = require("../../../lib/vendor/blamejs");
 var bundlesRepo = require("../../data/repositories/bundles.repo");
 var { TIME, UPLOAD } = require("../../../lib/constants");
 var { getTotalStorageUsed } = require("../../../lib/db");
+var passwordGate = require("../../../lib/password-gate");
 var { ValidationError, NotFoundError, ForbiddenError } = require("../../shared/errors");
 var { sanitizeRename } = require("../../shared/sanitize-filename");
 var { validateEmail } = require("../../shared/validate");
@@ -38,6 +39,9 @@ function _safeText(value) {
 /**
  * Initialize a new upload bundle.
  * Returns { bundleId, shareId, finalizeToken }.
+ * The init routes pass fileCount, skippedCount and skippedFiles as
+ * uploadValidator.validateInitInput returned them, and allowedEmails as
+ * uploadValidator.validateAllowedEmails returned it.
  */
 async function initBundle(opts) {
   var shareId = b.crypto.generateToken(32);
@@ -68,18 +72,11 @@ async function initBundle(opts) {
   var effectiveDays = requestedDays > 0 ? Math.min(requestedDays, ceilingDays) : defaultExpiry;
   var expiresAt = effectiveDays > 0 ? new Date(Date.now() + effectiveDays * TIME.days(1)).toISOString() : null;
 
-  // Email-gated access: clean and validate allowed emails through the same
-  // canonical validator used for uploaderEmail above. validateEmail lowercases,
-  // trims, caps length, and rejects control bytes / consecutive-dot locals —
-  // so a stored entry always matches the validateEmail-normalized submission the
-  // gate compares against (routes/bundles.js), closing the silent-lockout gap.
-  var allowedEmails = null;
-  if (opts.allowedEmails) {
-    var cleaned = String(opts.allowedEmails).split(",")
-      .map(function (e) { var v = validateEmail(e); return v.valid ? v.email : null; })
-      .filter(Boolean);
-    if (cleaned.length > 0) allowedEmails = cleaned.join(",");
-  }
+  // opts.allowedEmails is null or the comma-joined list that
+  // uploadValidator.validateAllowedEmails returned: at most
+  // UPLOAD.ALLOWED_EMAILS_MAX addresses, each normalized by validateEmail, which
+  // is the normalization the gate in routes/bundles.js applies to a submission.
+  var allowedEmails = opts.allowedEmails || null;
 
   // Compute access mode
   var hasPassword = !!bundlePassword;
@@ -95,7 +92,7 @@ async function initBundle(opts) {
     uploaderEmail: uploaderEmail,
     ownerId: opts.ownerId || null,
     finalizeTokenHash: b.crypto.sha3Hash(finalizeToken),
-    passwordHash: bundlePassword ? await b.auth.password.hash(bundlePassword) : null,
+    passwordHash: bundlePassword ? await passwordGate.hash(bundlePassword) : null,
     message: message,
     expectedFiles: opts.fileCount || 0,
     receivedFiles: 0,
@@ -131,23 +128,33 @@ function checkStorageQuota(fileSize, maxStorageQuota) {
 }
 
 /**
- * Finalize a bundle — mark as complete, validate token.
+ * Whether token is the finalize token issued for bundle. The comparison is
+ * timing-safe.
+ */
+function verifyFinalizeToken(bundle, token) {
+  if (!bundle || !bundle.finalizeTokenHash) return false;
+  var tokenHash = b.crypto.sha3Hash(String(token || ""));
+  return tokenHash.length === bundle.finalizeTokenHash.length && b.crypto.timingSafeEqual(tokenHash, bundle.finalizeTokenHash);
+}
+
+/**
+ * Finalize a bundle: check its finalize token and mark it complete. The token
+ * hash stays on the bundle, and handleFinalize checks a repeated finalize
+ * against it.
  */
 function finalizeBundle(bundleId, token) {
   var bundle = bundlesRepo.findById(bundleId);
   if (!bundle) throw new NotFoundError("Bundle not found.");
   if (bundle.status === "complete" && bundle.bundleType !== "sync") throw new ValidationError("Already finalized.");
 
-  // Verify finalize token (timing-safe)
-  var tokenHash = b.crypto.sha3Hash(token);
-  if (!bundle.finalizeTokenHash || tokenHash.length !== bundle.finalizeTokenHash.length || !b.crypto.timingSafeEqual(tokenHash, bundle.finalizeTokenHash)) {
+  if (!verifyFinalizeToken(bundle, token)) {
     throw new ForbiddenError("Invalid finalize token.");
   }
 
-  bundlesRepo.update(bundleId, { $set: { status: "complete", finalizeTokenHash: null } });
+  bundlesRepo.update(bundleId, { $set: { status: "complete" } });
 
   // Return refreshed bundle
   return bundlesRepo.findById(bundleId);
 }
 
-module.exports = { initBundle, checkStorageQuota, finalizeBundle };
+module.exports = { initBundle, checkStorageQuota, finalizeBundle, verifyFinalizeToken };

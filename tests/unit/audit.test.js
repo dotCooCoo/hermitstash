@@ -298,6 +298,57 @@ describe("audit", function () {
     });
   });
 
+  // ---- Field length caps ----
+
+  describe("field length caps", function () {
+    function last() {
+      var entries = db.auditLog.find({});
+      return entries[entries.length - 1];
+    }
+
+    it("cuts details to 4096 characters", function () {
+      audit.log(audit.ACTIONS.UPLOAD_REJECTED, { performedBy: "system", details: "d".repeat(10000) });
+      assert.strictEqual(last().details, "d".repeat(4096));
+    });
+
+    it("cuts targetEmail and performedByEmail to 320 characters", function () {
+      audit.log(audit.ACTIONS.LOGIN_FAILED_NO_ACCOUNT, { targetEmail: "t".repeat(5000), performedBy: "system", performedByEmail: "p".repeat(5000) });
+      var entry = last();
+      assert.strictEqual(entry.targetEmail, "t".repeat(320));
+      assert.strictEqual(entry.performedByEmail, "p".repeat(320));
+    });
+
+    it("cuts targetId and performedBy to 128 characters", function () {
+      audit.log(audit.ACTIONS.FILE_DELETED, { targetId: "i".repeat(5000), performedBy: "u".repeat(5000) });
+      var entry = last();
+      assert.strictEqual(entry.targetId, "i".repeat(128));
+      assert.strictEqual(entry.performedBy, "u".repeat(128));
+    });
+
+    it("cuts a performer email taken from req.user", function () {
+      audit.log(audit.ACTIONS.FILE_DOWNLOADED, {
+        req: { socket: { remoteAddress: "127.0.0.1" }, headers: {}, user: { _id: "v".repeat(500), email: "w".repeat(500) } },
+        targetId: "file-cap",
+      });
+      var entry = last();
+      assert.strictEqual(entry.performedBy, "v".repeat(128));
+      assert.strictEqual(entry.performedByEmail, "w".repeat(320));
+    });
+
+    it("stores values at the caps unchanged", function () {
+      var details = "x".repeat(4096);
+      var email = "e".repeat(308) + "@example.com";
+      var id = "f".repeat(128);
+      audit.log(audit.ACTIONS.FILE_DELETED, { targetId: id, targetEmail: email, performedBy: id, performedByEmail: email, details: details });
+      var entry = last();
+      assert.strictEqual(entry.details, details);
+      assert.strictEqual(entry.targetEmail, email);
+      assert.strictEqual(entry.targetId, id);
+      assert.strictEqual(entry.performedBy, id);
+      assert.strictEqual(entry.performedByEmail, email);
+    });
+  });
+
   // ---- Stealth mode ----
 
   describe("stealth mode", function () {

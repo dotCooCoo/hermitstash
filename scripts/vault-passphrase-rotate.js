@@ -215,7 +215,11 @@ async function execute(oldPw, newPw) {
     plaintextBytes = await b.vaultWrap.unwrap(sealedBytes, oldPw);
   } catch (e) {
     console.error("ERROR: " + safeLog.scrub(e.message));
-    console.error("  OLD passphrase rejected. The sealed file is unchanged.");
+    if (e && e.code === "vault-wrap/passphrase-rejected") {
+      console.error("  OLD passphrase rejected. The sealed file is unchanged.");
+    } else {
+      console.error("  The sealed file is unchanged.");
+    }
     process.exit(1);
   }
 

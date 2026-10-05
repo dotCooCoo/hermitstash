@@ -1,6 +1,7 @@
-const { describe, it, before, after } = require("node:test");
+const { describe, it, before, after, mock } = require("node:test");
 const assert = require("node:assert");
 const path = require("path");
+var nodeCrypto = require("node:crypto");
 var testServer = require("../helpers/test-server");
 
 var audit, archive, auditSvc, config, db;
@@ -113,5 +114,38 @@ describe("HS-native encrypted audit archival", function () {
     var id = archive.listArchives()[0].id;
     var bv = await archive.verifyArchive(id, config.auditArchivePassphrase);
     assert.strictEqual(bv.ok, true, "second bundle verifies");
+  });
+});
+
+describe("audit archival when checking the written bundle throws", function () {
+  it("removes the bundle it wrote and prunes no rows", async function () {
+    for (var i = 0; i < 10; i++) {
+      audit.log("file_downloaded", { targetId: "arc3-" + i, details: "third " + i, req: reqCtx() });
+    }
+    await audit.drainChain();
+    var rowsBefore = db.rawGet("SELECT COUNT(*) AS c FROM audit_log").c;
+    var bundlesBefore = archive.listArchives().length;
+
+    // The first Argon2id derivation encrypts the bundle and the second one
+    // decrypts it again for the check. The second one fails.
+    var realArgon2 = nodeCrypto.argon2;
+    var calls = 0;
+    var argon2 = mock.method(nodeCrypto, "argon2", function (algorithm, params, callback) {
+      calls += 1;
+      if (calls === 2) {
+        process.nextTick(callback, new Error("injected Argon2id failure"));
+        return;
+      }
+      realArgon2.call(nodeCrypto, algorithm, params, callback);
+    });
+    try {
+      await assert.rejects(archive.archiveNow({ keep: 2, performedBy: "system" }), /injected Argon2id failure/);
+    } finally {
+      argon2.mock.restore();
+    }
+
+    assert.strictEqual(calls, 2);
+    assert.strictEqual(archive.listArchives().length, bundlesBefore, "the written bundle was removed");
+    assert.strictEqual(db.rawGet("SELECT COUNT(*) AS c FROM audit_log").c, rowsBefore, "no rows were pruned");
   });
 });

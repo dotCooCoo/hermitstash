@@ -19,6 +19,14 @@ function fakePublicKey() {
 function fakeSeed() {
   return crypto.randomBytes(32).toString("base64");
 }
+// An ML-KEM-1024 ciphertext is 1568 bytes and an XChaCha20-Poly1305 nonce is
+// 24 bytes. /vault/upload refuses any other size.
+function fakeEncapsulatedKey() {
+  return crypto.randomBytes(1568).toString("base64");
+}
+function fakeNonce() {
+  return crypto.randomBytes(24).toString("base64");
+}
 // Helper: enable payload for passkey-gated mode (works without real PRF)
 function enablePayload(pk) {
   return { publicKey: pk || fakePublicKey(), mode: "passkey", seed: fakeSeed() };
@@ -254,8 +262,8 @@ describe("vault integration", function () {
       var res = await client2.post("/vault/upload", {
         json: {
           ciphertext: Buffer.from("encrypted-content").toString("base64"),
-          encapsulatedKey: Buffer.from("encapsulated-key-data").toString("base64"),
-          iv: Buffer.from("test-iv-data").toString("base64"),
+          encapsulatedKey: fakeEncapsulatedKey(),
+          iv: fakeNonce(),
           filename: "secret.txt",
         },
       });
@@ -269,8 +277,8 @@ describe("vault integration", function () {
       var res = await client.post("/vault/upload", {
         json: {
           ciphertext: ciphertext.toString("base64"),
-          encapsulatedKey: crypto.randomBytes(64).toString("base64"),
-          iv: crypto.randomBytes(12).toString("base64"),
+          encapsulatedKey: fakeEncapsulatedKey(),
+          iv: fakeNonce(),
           filename: "vault-secret.bin",
           mimeType: "application/octet-stream",
           originalSize: 256,
@@ -289,8 +297,8 @@ describe("vault integration", function () {
       var res = await client.post("/vault/upload", {
         json: {
           ciphertext: ciphertext.toString("base64"),
-          encapsulatedKey: crypto.randomBytes(64).toString("base64"),
-          iv: crypto.randomBytes(12).toString("base64"),
+          encapsulatedKey: fakeEncapsulatedKey(),
+          iv: fakeNonce(),
           filename: "large-presentation.pptx",
           mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
           originalSize: 1572864,
@@ -307,8 +315,8 @@ describe("vault integration", function () {
       var res = await client.post("/vault/upload", {
         json: {
           ciphertext: ciphertext.toString("base64"),
-          encapsulatedKey: crypto.randomBytes(64).toString("base64"),
-          iv: crypto.randomBytes(12).toString("base64"),
+          encapsulatedKey: fakeEncapsulatedKey(),
+          iv: fakeNonce(),
           filename: "../../etc/passwd",
         },
       });
@@ -460,8 +468,8 @@ describe("vault integration", function () {
       var res = await client.post("/vault/upload", {
         json: {
           ciphertext: crypto.randomBytes(64).toString("base64"),
-          encapsulatedKey: crypto.randomBytes(64).toString("base64"),
-          iv: crypto.randomBytes(12).toString("base64"),
+          encapsulatedKey: fakeEncapsulatedKey(),
+          iv: fakeNonce(),
           filename: "should-fail.txt",
         },
       });
@@ -495,8 +503,8 @@ describe("vault integration", function () {
       var res = await client.post("/vault/upload", {
         json: {
           ciphertext: crypto.randomBytes(128).toString("base64"),
-          encapsulatedKey: crypto.randomBytes(64).toString("base64"),
-          iv: crypto.randomBytes(12).toString("base64"),
+          encapsulatedKey: fakeEncapsulatedKey(),
+          iv: fakeNonce(),
           filename: "re-enabled-upload.dat",
         },
       });

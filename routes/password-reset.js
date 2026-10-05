@@ -1,6 +1,7 @@
 var b = require("../lib/vendor/blamejs");
 var rateLimit = require("../lib/rate-limit");
 var config = require("../lib/config");
+var passwordGate = require("../lib/password-gate");
 var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
 var usersRepo = require("../app/data/repositories/users.repo");
@@ -160,6 +161,11 @@ module.exports = function (app) {
         throw new ValidationError("Account not found.");
       }
 
+      // The new password is hashed before the token is consumed. A refused check
+      // (503) is thrown while the token still exists, and the reset link stays
+      // usable.
+      var newHash = await passwordGate.hash(password);
+
       // Atomically CONSUME the token BEFORE mutating the account. remove() returns
       // the number of rows it deleted, so if a concurrent request already claimed
       // this token we get 0 and bail — the previous read-then-act-then-delete let
@@ -167,9 +173,6 @@ module.exports = function (app) {
       if (verificationTokensRepo.remove(record._id) === 0) {
         throw new ValidationError("Reset link has expired. Please request a new one.");
       }
-
-      // Hash new password and update user
-      var newHash = await b.auth.password.hash(password);
       usersRepo.update(user._id, { $set: {
         passwordHash: newHash,
         failedLoginAttempts: 0,

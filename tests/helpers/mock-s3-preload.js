@@ -32,12 +32,21 @@ function bucketOf(opts) { return (opts && opts.bucket) || "__default__"; }
 function MockS3Client(opts) {
   this._bucket = bucketOf(opts);
 }
-MockS3Client.prototype.put = function (key, buffer) {
+// put accepts a Buffer, a string or a readable stream, as the framework's
+// object-store backends do.
+MockS3Client.prototype.put = async function (key, body) {
+  var buf;
+  if (body && typeof body.pipe === "function") {
+    var chunks = [];
+    for await (var chunk of body) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    buf = Buffer.concat(chunks);
+  } else {
+    buf = Buffer.from(body);
+  }
   var store = load();
   if (!store[this._bucket]) store[this._bucket] = {};
-  store[this._bucket][key] = Buffer.from(buffer).toString("base64");
+  store[this._bucket][key] = buf.toString("base64");
   save(store);
-  return Promise.resolve();
 };
 MockS3Client.prototype.getBuffer = function (key) {
   var store = load();

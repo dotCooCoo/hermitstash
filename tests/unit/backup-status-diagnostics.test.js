@@ -176,4 +176,40 @@ describe("the restore passphrase", function () {
     assert.strictEqual(await backup.verifyPassphrase("wrong"), false);
     assert.strictEqual(await backup.verifyPassphrase(""), false);
   });
+
+  it("raises an error naming BACKUP_PASSPHRASE_HASH for a hash above the cost ceiling", async function () {
+    var b = require("../../lib/vendor/blamejs");
+    var cheap = await b.auth.password.hash("correct horse battery staple", {
+      memoryCost: b.constants.BYTES.kib(1), timeCost: 1, parallelism: 1,
+    });
+    config.backup.passphraseHash = cheap.replace(",t=1,", ",t=25,");
+    await assert.rejects(backup.verifyPassphrase("correct horse battery staple"), function (e) {
+      assert.strictEqual(e.code, "BACKUP_PASSPHRASE_HASH_UNUSABLE");
+      assert.strictEqual(e.statusCode, 500);
+      assert.strictEqual(e.exposeDetail, true);
+      assert.match(e.message, /^BACKUP_PASSPHRASE_HASH cannot be checked: /);
+      return true;
+    });
+  });
+
+  it("checks a hash with a memory cost under 1 MiB, which b.auth.password.hash does not write", async function () {
+    var nodeCrypto = require("node:crypto");
+    var memoryKib = 512;
+    var salt = nodeCrypto.randomBytes(16);
+    var tag = nodeCrypto.argon2Sync("argon2id", {
+      message: Buffer.from("correct horse battery staple", "utf8"),
+      nonce: salt, parallelism: 1, tagLength: 32, memory: memoryKib, passes: 2,
+    });
+    function b64(buf) { return buf.toString("base64").replace(/=+$/, ""); }
+    config.backup.passphraseHash = "$argon2id$v=19$m=" + memoryKib + ",t=2,p=1$" + b64(salt) + "$" + b64(tag);
+    assert.strictEqual(await backup.verifyPassphrase("correct horse battery staple"), true);
+    assert.strictEqual(await backup.verifyPassphrase("wrong"), false);
+  });
+
+  it("raises the same error for a value that is not an Argon2id hash", async function () {
+    config.backup.passphraseHash = "$2b$12$abcdefghijklmnopqrstuuWJ1Pp0SUYYMp8zSrkkyIa2Wq4JHgB.";
+    await assert.rejects(backup.verifyPassphrase("correct horse battery staple"), function (e) {
+      return e.code === "BACKUP_PASSPHRASE_HASH_UNUSABLE";
+    });
+  });
 });

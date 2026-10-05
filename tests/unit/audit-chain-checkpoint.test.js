@@ -155,3 +155,42 @@ describe("audit chain PQC checkpoints (F-6)", function () {
     assert.strictEqual(restored.ok, true, "restoring the file verifies again: " + restored.reason);
   });
 });
+
+describe("the checkpoint store relies on the b.auditSign anchor contract", function () {
+  var FORMAT = "hs-audit-chain-checkpoint-v1";
+  function tip(counter, hashChar, prev) {
+    return b.auditSign.anchor({ counter: counter, tipHash: hashChar.repeat(128), prevTipHash: prev }, { format: FORMAT });
+  }
+
+  before(async function () { await auditArchive.ensureSigning(); });
+
+  it("anchor returns the tip fields checkpointNow passes, signed under the live key", function () {
+    var a = tip(1, "a", null);
+    assert.strictEqual(a.format, FORMAT);
+    assert.strictEqual(a.counter, 1);
+    assert.strictEqual(a.tipHash, "a".repeat(128));
+    assert.strictEqual(a.prevTipHash, null);
+    assert.strictEqual(a.algorithm, "slh-dsa-shake-256f");
+    assert.strictEqual(a.publicKeyFingerprint, b.auditSign.getPublicKeyFingerprint());
+    assert.strictEqual(b.auditSign.verifyAnchor(a).ok, true);
+    assert.strictEqual(b.auditSign.verifyAnchor(Object.assign({}, a, { format: "blamejs-chain-anchor-v1" })).ok, false,
+      "the format string is part of the signed bytes");
+  });
+
+  it("verifyAnchorChain accepts a linked sequence and names the first anchor out of place", function () {
+    var a1 = tip(1, "a", null);
+    var a2 = tip(2, "b", a1.tipHash);
+    var a3 = tip(3, "c", a2.tipHash);
+    assert.deepStrictEqual(b.auditSign.verifyAnchorChain([a1, a2, a3]), { ok: true, anchorsVerified: 3 });
+    assert.strictEqual(b.auditSign.verifyAnchorChain([a1, a3, a2]).breakAt, 1);
+    assert.strictEqual(b.auditSign.verifyAnchorChain([a1, a3]).breakAt, 1);
+  });
+
+  it("verifyAnchorChain refuses a sequence whose first anchor carries a prevTipHash", function () {
+    var a1 = tip(1, "a", null);
+    var a2 = tip(2, "b", a1.tipHash);
+    var v = b.auditSign.verifyAnchorChain([a2]);
+    assert.strictEqual(v.ok, false);
+    assert.strictEqual(v.breakAt, 0);
+  });
+});

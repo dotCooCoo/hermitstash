@@ -484,6 +484,8 @@ var VALID_ALLOW_CLASSES = {
   "resolver-querymx-shape-assumed": 1,
   "root-prefix-family-without-reseal": 1,
   "scoped-context-binding-unused": 1,
+  "serializer-realm-bound-instanceof": 1,
+  "lib-realm-bound-byte-instanceof": 1,
   "session-updatedata-merges-one-level-deep": 1,
   "shape-file-inline-opts-validation": 1,
   "smtp-linebuffer-utf8-roundtrip": 1,
@@ -1410,10 +1412,26 @@ function testNoStaleDefers() {
 // To embed NUL semantically, use the JS source escape `\u0000` (the
 // six-char sequence backslash + u + 0+0+0+0) — JS regex parses that
 // to a NUL char without ESLint complaining.
-function testNoLiteralNulBytesInSource() {
+//
+// NUL is one member of the class. Every other raw control character has
+// the same two properties: the editor renders it as nothing or as a
+// space, so a reviewer reading the diff cannot see the fixture byte the
+// test sends, and an Edit whose old_string is copied from that rendering
+// never matches it. A C1 control (U+0080-U+009F) is worse: U+009B is a
+// single-character CSI and U+0085 is a line break in some readers. The
+// gate refuses, decoded as UTF-8, every C0 control other than TAB / LF /
+// CR, DEL, and every C1 control in lib/, test/, scripts/ and examples/.
+// Write the backslash-u escape with four hex digits instead, or build the
+// string with String.fromCharCode.
+function testNoRawControlCharactersInSource() {
   var fs   = require("node:fs");
   var path = require("node:path");
+  var root = path.resolve(__dirname, "..", "..");
   var hits = [];
+  function isRawControl(code) {
+    if (code < 0x20) return code !== 0x09 && code !== 0x0a && code !== 0x0d;
+    return code === 0x7f || (code >= 0x80 && code <= 0x9f);
+  }
   function walk(dir) {
     var entries = fs.readdirSync(dir, { withFileTypes: true });
     for (var i = 0; i < entries.length; i += 1) {
@@ -1422,28 +1440,53 @@ function testNoLiteralNulBytesInSource() {
       var full = path.join(dir, e.name);
       if (e.isDirectory()) walk(full);
       else if (e.isFile() && /\.js$/.test(e.name)) {
-        var b = fs.readFileSync(full);
-        for (var j = 0; j < b.length; j += 1) {
-          if (b[j] === 0) {
-            // Locate the line for a useful error.
-            var line = 1;
-            for (var k = 0; k < j; k += 1) if (b[k] === 0x0a) line += 1;
+        var text = fs.readFileSync(full, "utf8");
+        var line = 1;
+        for (var j = 0; j < text.length; j += 1) {
+          var code = text.charCodeAt(j);
+          if (code === 0x0a) { line += 1; continue; }
+          if (isRawControl(code)) {
+            var hex = code.toString(16).toUpperCase();
+            while (hex.length < 4) hex = "0" + hex;
             hits.push({
-              file: path.relative(path.resolve(__dirname, "..", ".."), full).replace(/\\/g, "/"),
+              file: path.relative(root, full).replace(/\\/g, "/"),
               line: line,
-              content: "literal NUL byte at byte " + j + " (use \\u0000 escape in source)",
+              content: "raw control character U+" + hex + " (write the \\u" + hex + " escape in source)",
             });
-            break;
           }
         }
       }
     }
   }
-  walk(path.resolve(__dirname, "..", "..", "lib"));
-  walk(path.resolve(__dirname, "..", "..", "test"));
-  walk(path.resolve(__dirname, "..", "..", "scripts"));
-  _report("no literal NUL (0x00) bytes in source files (use \\u0000 escape; CI ESLint catches it but Windows local lint may not)",
+  walk(path.join(root, "lib"));
+  walk(path.join(root, "test"));
+  walk(path.join(root, "scripts"));
+  walk(path.join(root, "examples"));
+  _report("no raw control characters (C0 other than TAB/LF/CR, DEL, C1) in source files (write the backslash-u escape; CI ESLint catches NUL but Windows local lint may not)",
     hits);
+}
+
+// A growth check compares wall-clock time at two input sizes. In the smoke
+// pool the file shares the CPU with 63 other workers, and a larger sample is
+// interrupted more often than a smaller one, so linear work reads as
+// superlinear: in node:24-alpine with 64 busy processes on 32 cores, the
+// json-schema uniqueItems probe read 13.8 to 35.1 against a bound of 8 on a
+// scan that reads 4.5 to 5.5 on an idle box, and failed the container smoke
+// twice. A test file that calls the growth helper declares SMOKE_RUN_SOLO in
+// its head, which makes test/smoke.js run it alone.
+function testGrowthChecksRunSolo() {
+  var soloFile = require("../helpers/solo-file");
+  var repoRoot = path.resolve(__dirname, "..", "..");
+  var hits = [];
+  _testFiles().forEach(function (full) {
+    var rel = path.relative(repoRoot, full).replace(/\\/g, "/");
+    if (/^test\/helpers\//.test(rel)) return;
+    var text = fs.readFileSync(full, "utf8");
+    if (!/\b(?:looksSuperlinear|looksSuperlinearAsync|superlinearRatio)\s*\(/.test(text)) return;
+    if (soloFile.isSoloFile(full)) return;
+    hits.push({ file: rel, line: 1, content: "calls the growth helper without SMOKE_RUN_SOLO in its first " + soloFile.HEAD_BYTES + " bytes" });
+  });
+  _report("test files that measure growth run alone in smoke (SMOKE_RUN_SOLO)", hits);
 }
 
 // release-named-test-file is now an inline KNOWN_ANTIPATTERNS entry
@@ -1466,7 +1509,6 @@ function testParserPrimitivesHaveFuzzHarness() {
   // (lib/parsers/safe-toml.js, lib/auth/...) are covered.
   var FUZZ_NOT_REQUIRED = {
     "lib/safe-async.js":     "runtime-control wrapper (not input-parsing)",
-    "lib/safe-buffer.js":    "byte-level helper consumed only by other primitives, no operator-facing parse path",
     "lib/safe-object.js":    "own-property get/set over an in-memory JS object; no bytes/string parser, no adversarial-input parse path",
     "lib/safe-redirect.js":  "post-validation redirect builder; the validation lives in safe-url which is fuzzed",
     "lib/safe-schema.js":    "schema-builder fluent API; takes operator-authored schema, not adversarial input",
@@ -1477,12 +1519,10 @@ function testParserPrimitivesHaveFuzzHarness() {
     "lib/guard-domain.js":   "single-value validator; covered by safe-url IDN-homograph fuzzing surface",
     "lib/guard-filename.js": "single-string validator; deterministic codepoint scan, no adversarial-bytes parser",
     "lib/guard-graphql.js":  "operator-supplied variables-shape validator; no raw-bytes parser",
-    "lib/guard-image.js":    "operator-feeds-metadata pattern; magic-byte detection covered by safe-buffer",
     "lib/guard-jwt.js":      "JWT parse path covered upstream by b.auth.jwt + safe-json fuzz",
     "lib/guard-jsonpath.js": "JSONPath validator covered by safe-jsonpath fuzz",
     "lib/guard-mime.js":     "single-string validator over a finite vocabulary; no adversarial-bytes parser",
     "lib/guard-oauth.js":    "operator-supplied params validator; flow-shape rather than bytes-parser",
-    "lib/guard-pdf.js":      "operator-feeds-metadata pattern; magic-byte detection covered by safe-buffer",
     "lib/guard-regex.js":    "regex-source linter; deterministic AST walk, no parser surface",
     "lib/guard-shell.js":    "argv-shape validator over operator-supplied tokens; not a bytes-parser",
     "lib/guard-template.js": "template-source linter (operator-authored); not adversarial-input surface",
@@ -1503,11 +1543,14 @@ function testParserPrimitivesHaveFuzzHarness() {
   // filename. asn1-der parses DER from peer TLS certificates, S/MIME, BIMI VMCs,
   // CMS, ACME and TSA responses; cms-codec (b.cms) parses CMS on top of it;
   // link-header (b.linkHeader.parse) parses an untrusted HTTP Link response
-  // header (RFC 8288) a server / SSRF-reachable origin controls.
+  // header (RFC 8288) a server / SSRF-reachable origin controls; file-type
+  // (b.fileType.detect / assertOneOf) walks a signature table over the leading
+  // bytes of an upload body, a mail attachment or a decoded MIME part.
   var FUZZ_REQUIRED_EXTRA = [
     "lib/asn1-der.js",
     "lib/cms-codec.js",
     "lib/link-header.js",
+    "lib/file-type.js",
   ];
   var fs   = require("node:fs");
   var path = require("node:path");
@@ -7587,13 +7630,65 @@ function testRegexModulesContainNoRegexes() {
   _report("the regex screen and the linear matcher contain no regexes", bad);
 }
 
-function testOperatorRegexScreenedForReDoS() {
+// A file is a candidate when it runs a RegExp it did not write: a value it
+// type-checks with `instanceof RegExp` and then runs, a property named like a
+// pattern (`col.regex.test(`, `opts.pattern.test(`), a function parameter run
+// with `.test(`, or a local copied from an options object and run. The last
+// three exist because `safe-schema` `.regex(re)`, `guard-csv` `col.regex` and
+// `request-id` `formatRegex` ran operator patterns without ever writing
+// `instanceof RegExp`, and the gate never saw them. A candidate must screen the
+// pattern with `assertSafe` and refuse the g and y flags with
+// `assertStateless`, since either flag starts the next `test()` at the
+// lastIndex the previous call left.
+function _operatorRegexRunForms(code) {
+  var forms = [];
+  if (/instanceof RegExp/.test(code) && /\.(?:test|exec|match)\s*\(/.test(code)) {
+    forms.push({ why: "type-checks a RegExp and runs a regex", needle: "instanceof RegExp" });
+  }
+  var held = /\b[A-Za-z_$][\w$]*\.(?:[\w$]*(?:[Rr]egex|[Rr]eg[Ee]xp|[Pp]attern)|re|rx|matcher)\s*\.\s*(?:test|exec)\s*\(/.exec(code);
+  if (held) forms.push({ why: "runs a pattern held on an object", needle: held[0] });
+  var params = {};
+  var fnRe = /function\s*[\w$]*\s*\(([^)]*)\)/g;
+  var fm;
+  while ((fm = fnRe.exec(code)) !== null) {
+    fm[1].split(",").forEach(function (p) { p = p.trim(); if (p) params[p] = true; });
+  }
+  var fromOpts = {};
+  var optsAssign = /\b(?:var|let|const)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:opts|options|config|cfg)\.[\w$]+/g;
+  var oa;
+  while ((oa = optsAssign.exec(code)) !== null) fromOpts[oa[1]] = true;
+  var bareRun = /(^|[^.\w$/])([A-Za-z_$][\w$]*)\s*\.\s*(test|exec)\s*\(/g;
+  var bm;
+  while ((bm = bareRun.exec(code)) !== null) {
+    if (bm[3] === "test" && params[bm[2]]) {
+      forms.push({ why: "runs a function parameter as a regex", needle: bm[2] + ".test(" });
+      break;
+    }
+    if (fromOpts[bm[2]]) {
+      forms.push({ why: "runs a value copied from an options object as a regex", needle: bm[2] + "." + bm[3] + "(" });
+      break;
+    }
+  }
+  return forms;
+}
+
+// `b.middleware.noCache` puts `Cache-Control: no-store` on a response, and a
+// framework writer that then wrote its own default (`private, no-cache`,
+// `public, max-age=...`) replaced it, so an individualized page could be
+// stored by the browser. Every lib write of Cache-Control is either a string
+// literal carrying no-store or goes through `cdnCacheControl.keepNoStore`,
+// which keeps an earlier no-store. Only noCache itself writes an arbitrary
+// value, the one its operator configured.
+function testCacheControlDefaultsKeepNoStore() {
   var ALLOW = {
-    "lib/dev.js": "ignore RegExp matched against an fs.watch filename in the operator's local source tree; dev-loop only, hard-refused under NODE_ENV=production",
-    "lib/parsers/safe-env.js": "keyShape RegExp matched against env-var keys parsed from the operator's .env config at boot, not request input",
-    "lib/safe-json.js": "JSON Schema `pattern` is part of the operator-owned schema (the documented trust boundary), not request data — same stance as the dynamic-regex detector's safe-json exclusion",
-    "lib/regex-linear.js": "the inverse case, not a trusted-input one: the RegExp handed in is READ (its .source and .flags) and never executed — this module exists so an operator pattern can run WITHOUT the backtracking engine, and screening it with assertSafe would refuse the very shapes it is built to run safely, such as (a+)+$",
+    "lib/middleware/no-cache.js": "the middleware that sets no-store; it writes its configured cacheControl value",
   };
+  var WRITE = /(?:["']Cache-Control["']\s*:|setHeader\s*\(\s*["']Cache-Control["']\s*,)\s*/gi;
+  function valueKeepsNoStore(rest) {
+    if (/^cdnCacheControl\.keepNoStore\s*\(/.test(rest)) return true;
+    var literal = /^(["'])((?:(?!\1)[^\\]|\\.)*)\1\s*[,)}\n]/.exec(rest);
+    return !!(literal && /(^|[\s,])no-store($|[\s,])/i.test(literal[2]));
+  }
   var files = _libFiles();
   var bad = [];
   for (var fi = 0; fi < files.length; fi++) {
@@ -7602,25 +7697,72 @@ function testOperatorRegexScreenedForReDoS() {
     var content;
     try { content = fs.readFileSync(files[fi], "utf8"); }
     catch (_e) { continue; }
-    if (!/instanceof RegExp/.test(content)) continue;             // accepts an operator RegExp opt
-    if (!/\.(?:test|exec|match)\s*\(/.test(content)) continue;    // and executes a regex
-    // Comment-stripped: `assertSafe(` means this file SCREENED its regex, and
-    // a mention of it in a comment would otherwise exempt the file from the
-    // ReDoS gate while doing nothing of the kind.
-    if (/\bassertSafe\s*\(/.test(_stripComments(content))) continue;
     var lines = content.split(/\r?\n/);
     for (var li = 0; li < lines.length; li++) {
-      if (/instanceof RegExp/.test(lines[li])) {
+      if (/^\s*(\*|\/\/)/.test(lines[li])) continue;
+      WRITE.lastIndex = 0;
+      var m;
+      while ((m = WRITE.exec(lines[li])) !== null) {
+        if (valueKeepsNoStore(lines[li].slice(m.index + m[0].length) + "\n")) continue;
         bad.push({
           file:    rel,
           line:    li + 1,
-          content: "accepts an operator-supplied RegExp + executes a regex but never calls b.guardRegex.assertSafe — screen the operator pattern for ReDoS at config time, or add the file to this detector's ALLOW map with a reason if the regex is matched against trusted (non-request) input",
+          content: "writes a Cache-Control that replaces an earlier no-store; send cdnCacheControl.keepNoStore(res, <default>) or a literal carrying no-store",
         });
-        break;
       }
     }
   }
-  _report("a primitive accepting + executing an operator-supplied RegExp must ReDoS-screen it via b.guardRegex.assertSafe (or be allowlisted as matched-against-trusted-input)",
+  _report("a framework Cache-Control default keeps a no-store already on the response (b.cdnCacheControl.keepNoStore)",
+    bad);
+}
+
+function testOperatorRegexScreenedForReDoS() {
+  var UNSCREENED = {
+    "lib/dev.js": "ignore RegExp matched against an fs.watch filename in the operator's local source tree; dev-loop only, hard-refused under NODE_ENV=production",
+    "lib/safe-json.js": "JSON Schema `pattern` is part of the operator-owned schema (the documented trust boundary), not request data — same stance as the dynamic-regex detector's safe-json exclusion",
+    "lib/regex-linear.js": "the inverse case, not a trusted-input one: the RegExp handed in is READ (its .source and .flags) and never executed — this module exists so an operator pattern can run WITHOUT the backtracking engine, and screening it with assertSafe would refuse the very shapes it is built to run safely, such as (a+)+$",
+    "lib/ai-input.js": "the RegExps it runs are the module's own PATTERNS table; no option adds to it",
+    "lib/guard-sql.js": "the RegExps it runs are the module's own DETECTORS table; no option adds to it",
+  };
+  var STATEFUL_OK = {
+    "lib/forms.js": "validate() runs a fresh `^(?:source)$` RegExp built per call with the g, y and m flags removed; the operator's object is never run",
+    "lib/safe-json.js": "the pattern is rebuilt from its source with the g and y flags removed before it is cached and run",
+    "lib/flag-targeting.js": "the operator supplies a pattern STRING, compiled with no flags",
+    "lib/regex-linear.js": "the RegExp handed in is read, never run; the compiled matcher starts every test at position 0",
+    "lib/structured-fields.js": "parseTagList uses an operator RegExp only as a String.prototype.split separator; split builds its own splitter from the pattern and neither reads nor writes the caller's lastIndex (measured with g, y and gy flags and lastIndex 3)",
+    "lib/ai-input.js": "the RegExps it runs are the module's own PATTERNS table",
+    "lib/guard-sql.js": "the RegExps it runs are the module's own DETECTORS table",
+  };
+  var files = _libFiles();
+  var bad = [];
+  for (var fi = 0; fi < files.length; fi++) {
+    var rel = _relPath(files[fi]);
+    var content;
+    try { content = fs.readFileSync(files[fi], "utf8"); }
+    catch (_e) { continue; }
+    // Comment-stripped: a mention of `assertSafe(` in a comment would otherwise
+    // exempt the file while screening nothing.
+    var code = _stripComments(content);
+    var forms = _operatorRegexRunForms(code);
+    if (forms.length === 0) continue;
+    var at = content.indexOf(forms[0].needle);
+    var line = at === -1 ? 1 : content.slice(0, at).split("\n").length;
+    if (!UNSCREENED[rel] && !/\bassertSafe\s*\(/.test(code)) {
+      bad.push({
+        file:    rel,
+        line:    line,
+        content: forms[0].why + " but never calls b.guardRegex.assertSafe — screen the operator pattern for ReDoS when it is accepted, or add the file to UNSCREENED with a reason if the pattern is matched only against trusted input",
+      });
+    }
+    if (!STATEFUL_OK[rel] && !/\bassertStateless\s*\(/.test(code)) {
+      bad.push({
+        file:    rel,
+        line:    line,
+        content: forms[0].why + " but never calls b.guardRegex.assertStateless — refuse the g and y flags when the pattern is accepted, or add the file to STATEFUL_OK with a reason if the operator's RegExp object is never the one run",
+      });
+    }
+  }
+  _report("a primitive running an operator-supplied RegExp screens it with b.guardRegex.assertSafe and refuses the g and y flags with b.guardRegex.assertStateless",
     bad);
 }
 
@@ -8073,41 +8215,49 @@ function testQueueRedisGateLuaResultCaptured() {
   _report("queue-redis complete()/fail() must capture + gate the inflight-transition LUA result (COMPLETE_LUA / FAIL_LUA)", bad);
 }
 
-// ---- Pattern: ARC instance (i=) parsing must route through _arcInstanceOf ----
+// ---- Pattern: ARC / DKIM header tags are read by one parser ----
 // The ARC instance tag is parsed in several passes: the indexing pass that
-// drives the AMS/AS crypto checks, the AMS h= retention test, and the finalAr
-// surfacing in arcEvaluate. If any pass uses a looser i= regex than the
-// indexer (allowing "i = 1" with a space, or unbounded digits), an attacker
-// can inject an ARC-Authentication-Results that the strict crypto pass ignores
-// while the loose pass consumes it — forging the upstream auth-results
-// (finalAr) on a chain that still verifies pass, with no signing key. Every
-// instance read must go through the one shared _arcInstanceOf reader; flag any
-// instance-capturing regex (`i\s*=...(\d` or `i=(\d`) elsewhere in mail-auth.
+// drives the AMS/AS crypto checks, the AMS h= retention test, the finalAr
+// surfacing in arcEvaluate, and the signer's prior-chain grouping. If any pass
+// uses a different i= reader than the indexer, an attacker can inject an
+// ARC-Authentication-Results that one pass groups and another ignores, forging
+// the upstream auth-results (finalAr) with no signing key. The same held for
+// the sealer domain: arcEvaluate read `d=` with its own pattern (the first
+// `d=` after a delimiter) while the seal was verified with the parsed d= tag,
+// so a seal signed with attacker.example's key and carrying
+// `d=trusted.example` earlier in the header (a repeated tag, text after the
+// signature in b=, or an unknown tag's value) was reported as trusted.example.
+// Every instance read goes through mail-arc-sign `_arcHeaderInstance`, and
+// every tag is read with mail-dkim `_parseTagList`. The check flags, in the
+// mail modules, an instance-capturing regex (`i\s*=`, `i[ \t]*=`, `i=(\d`)
+// outside `_arcHeaderInstance`, and any regex that reads a tag after a
+// `(?:^|[;,\s])` delimiter class.
 function testArcInstanceParseUsesSharedHelper() {
   var bad = [];
-  var rel = "lib/mail-auth.js";
-  var content;
-  try {
-    content = fs.readFileSync(path.resolve(path.resolve(__dirname, "..", ".."), rel), "utf8");
-  } catch (_e) { _report("ARC i= instance parse routes through _arcInstanceOf", bad); return; }
-  var lines = content.split(/\r?\n/);
-  // Matches an instance-capturing regex literal: `i\s*=` (spaced form) or
-  // `i=(\d` (bare capture). Prose like "i=1" / "(i=)" lacks the digit capture
-  // and the `\s*`, so comments are not flagged.
-  var ARC_I_REGEX = /i\\s\*=|i=\(\\d/;
-  var inHelper = false;
-  for (var li = 0; li < lines.length; li++) {
-    if (/function _arcInstanceOf\b/.test(lines[li])) { inHelper = true; continue; }
-    if (inHelper) { if (/^\}/.test(lines[li])) inHelper = false; continue; }
-    if (ARC_I_REGEX.test(lines[li])) {
-      bad.push({
-        file:    rel,
-        line:    li + 1,
-        content: "an ARC instance (i=) parsing regex outside _arcInstanceOf — route it through _arcInstanceOf so the crypto-indexing pass and the finalAr / AMS passes parse the instance identically (a divergent parser forges finalAr on a passing chain).",
-      });
+  var root = path.resolve(__dirname, "..", "..");
+  var FILES = ["lib/mail-auth.js", "lib/mail-arc-sign.js", "lib/mail-dkim.js"];
+  var ARC_I_REGEX = /i\\s\*=|i\[ \\t\]\*=|i=\(\\d/;
+  var TAG_BY_REGEX = /\(\?:\^\|\[;,?\\s\]\)[a-z]{1,2}=/;
+  FILES.forEach(function (rel) {
+    var content;
+    try { content = fs.readFileSync(path.join(root, rel), "utf8"); }
+    catch (_e) { bad.push({ file: rel, line: 0, content: "file missing" }); return; }
+    var lines = content.split(/\r?\n/);
+    var inHelper = false;
+    for (var li = 0; li < lines.length; li++) {
+      if (/function _arcHeaderInstance\b/.test(lines[li])) { inHelper = true; continue; }
+      if (inHelper) { if (/^\}/.test(lines[li])) inHelper = false; continue; }
+      if (ARC_I_REGEX.test(lines[li])) {
+        bad.push({ file: rel, line: li + 1,
+          content: "an ARC instance (i=) regex outside mail-arc-sign _arcHeaderInstance: route it through _arcHeaderInstance so every pass groups headers by the same instance." });
+      }
+      if (TAG_BY_REGEX.test(lines[li])) {
+        bad.push({ file: rel, line: li + 1,
+          content: "a DKIM/ARC tag read by regex from a header value: read it from mail-dkim _parseTagList, the parser the signature was verified with." });
+      }
     }
-  }
-  _report("ARC i= instance parsing must route through the shared _arcInstanceOf reader (no divergent regex)", bad);
+  });
+  _report("ARC i= and DKIM/ARC tag reads route through _arcHeaderInstance / _parseTagList (no second reader)", bad);
 }
 
 // ---- Pattern: OID4VCI single-use store claims must gate on the delete ----
@@ -9362,6 +9512,86 @@ async function testNoDuplicateCodeBlocks() {
   // shape.
   var KNOWN_CLUSTERS = [
     {
+      // Frozen lookup tables of bare keyword names, each read to answer a
+      // yes-or-no question about one token: which IMAP commands need a
+      // selected mailbox and which of them write to it, which SMTP, POP3,
+      // ManageSieve and SQL verbs a guard knows, which iCalendar and vCard
+      // properties are defined, which policy names a DROP may carry. The
+      // shingle is the table literal itself, `Object.freeze({ NAME: true,
+      // ... })` repeated, which is what every such table looks like. There
+      // is no behaviour to share: each holds a different vocabulary from a
+      // different specification, and one table across them would answer a
+      // question none of them asks.
+      mode:  "family-subset",
+      files: [
+        "lib/external-db.js:_cteMainKeyword",
+        "lib/guard-imap-command.js:<top>",
+        "lib/guard-list-id.js:<top>",
+        "lib/guard-mail-compose.js:<top>",
+        "lib/guard-mail-query.js:<top>",
+        "lib/guard-mail-reply.js:<top>",
+        "lib/guard-mail-sieve.js:<top>",
+        "lib/guard-managesieve-command.js:<top>",
+        "lib/guard-pop3-command.js:<top>",
+        "lib/guard-posture-chain.js:<top>",
+        "lib/guard-smtp-command.js:<top>",
+        "lib/guard-sql.js:<top>",
+        "lib/guard-stream-args.js:<top>",
+        "lib/mail-server-imap.js:_clearSelection",
+        "lib/mail-server-imap.js:_openSelection",
+        "lib/safe-ical.js:<top>",
+        "lib/safe-vcard.js:<top>",
+        "lib/sql.js:dropPolicy",
+      ],
+      reason: "frozen keyword tables, one vocabulary per specification, sharing only the literal's shape. The two mail-server-imap entries are the selection's open and clear, which sit beside those tables and share the shingle's shape without sharing a question with them: one stamps the identity a SELECT creates, the other drops it",
+    },
+    {
+      // A refusal built from the caller's own error class, code and prose,
+      // seen across four unrelated domains: archive entry metadata handed to
+      // a guard, an OAuth token exchange, an OID4VCI credential offer, and a
+      // rollback-path check. The shingle is the throw-a-typed-error shape
+      // plus the surrounding option reads, not shared behaviour: each names
+      // a different error class and a different code namespace that callers
+      // catch on, and prose about its own subject. What IS shared already
+      // moved to primitives these bodies call — b.safeJson.parseTyped reads
+      // a document and reports the caller's code, and the archive readers
+      // share their guard-metadata assembly. Collapsing the rest would make
+      // every one of these refuse with the same code.
+      mode:  "family-subset",
+      files: [
+        "lib/archive-read.js:_assertGuardMetadata",
+        "lib/archive-tar-read.js:_assertGuardMetadata",
+        "lib/auth/ciba.js:_verifyIdTokenIfPresent",
+        "lib/auth/oauth.js:exchangeToken",
+        "lib/auth/oauth.js:nativeSsoExchange",
+        "lib/auth/oauth.js:pollDeviceCode",
+        "lib/auth/oid4vci.js:createCredentialOffer",
+        "lib/auth/oid4vci.js:exchangePreAuthorizedCode",
+        "lib/backup/index.js:scheduleTest",
+        "lib/restore-rollback.js:refuse",
+        "lib/restore-rollback.js:rollback",
+      ],
+    },
+    {
+      // X.509 chain-walker result mapping — the extraction already happened:
+      // all three route chain building through the shared x509Chain.resolveChain
+      // primitive and then translate its { ok, invalidCert, reason } result to
+      // their own error taxonomy. tsa throws TsaError with tsa/* codes, mdoc
+      // throws MdocError with mdoc/* codes, and mail-crypto-smime throws
+      // MailCryptoError with mail-crypto/smime/* codes, each with module-specific
+      // operator prose. The shingle is the RFC 5280 citation text (§4.2.1.9 for
+      // pathLenConstraint, §4.2.1.10 for nameConstraints) plus the result-branch
+      // order, which any faithful mapping of the same primitive result repeats.
+      // Collapsing it further would parametrize away each module's distinct error
+      // class and code namespace, which callers catch on, for no shared behaviour.
+      mode:  "family-subset",
+      files: [
+        "lib/mail-crypto-smime.js:_verifyTrustChain",
+        "lib/mdoc.js:_verifyChain",
+        "lib/tsa.js:_verifyChain",
+      ],
+    },
+    {
       // mailServerNet.wireLineSocket CALL SITES — the extraction already
       // happened. What repeats is the option object handed to the shared
       // primitive, which is its call syntax rather than shared behaviour: each
@@ -9623,6 +9853,25 @@ async function testNoDuplicateCodeBlocks() {
       ],
     },
     {
+      // The lazyRequire module-top header — §9 convention, not extractable.
+      // Each of these opens with the same mandated skeleton: the top-of-file
+      // requires §9 forbids hoisting into a helper, `defineClass` for the
+      // module's own error class, and a `lazyRequire(function () { return
+      // require("./x"); })` binding for a module it cannot require eagerly.
+      // The shared part IS the extracted primitive, lib/lazy-require.js, so
+      // there is nothing further to pull out; what follows the header
+      // diverges completely (a token-bucket table, a middleware composer, a
+      // Sieve grammar). safe-sieve.js joined the fingerprint when it took a
+      // lazyRequire on b.mail.sieve to read the interpreter's implemented
+      // command and test names rather than keeping a second copy of them.
+      mode:  "family-subset",
+      files: [
+        "lib/mail-server-rate-limit.js:<top>",
+        "lib/middleware/compose-pipeline.js:<top>",
+        "lib/safe-sieve.js:<top>",
+      ],
+    },
+    {
       // Guard module-top scaffolding — §9 convention, not extractable.
       // Every b.guard* module opens with the same mandated skeleton:
       //   var { defineClass } = require("./framework-error");
@@ -9710,7 +9959,7 @@ async function testNoDuplicateCodeBlocks() {
         "lib/guard-domain.js:_shannonEntropy",
         "lib/guard-graphql.js:<top>",
         "lib/guard-jsonpath.js:<top>",
-        "lib/guard-jwt.js:_b64urlDecodeJson",
+        "lib/guard-jwt.js:_duplicateKeysOf",
         "lib/guard-mime.js:<top>",
         "lib/guard-oauth.js:<top>",
         "lib/guard-regex.js:<top>",
@@ -9790,7 +10039,9 @@ async function testNoDuplicateCodeBlocks() {
         "lib/break-glass.js:unsealRowAsService",
         "lib/deprecate.js:alias",
         "lib/auth/oauth.js:verifyClientAttestation",
+        "lib/auth/oauth.js:exchangeToken",
         "lib/auth/sd-jwt-vc-holder.js:store",
+        "lib/auth/sd-jwt-vc.js:verify",
         "lib/backup/index.js:scheduleTest",
         "lib/break-glass.js:_validatePolicySet",
         "lib/ddl-change-control.js:propose",
@@ -10608,6 +10859,19 @@ async function testNoDuplicateCodeBlocks() {
       files: ["lib/auth/jar.js:parse", "lib/auth/status-list.js:fromJwt", "lib/eat.js:verify"],
     },
     {
+      // fp:e7c718f88a0d — JAR parse / EAT verify / SCITT verifyStatement. Each
+      // forwards the options its spec names for a verification: algorithms, a key
+      // or resolver, an expected issuer and audience, a clock skew and a now.
+      // The names coincide because the specs chose the same words; the calls do
+      // not, because each hands them to a different verifier with its own
+      // contract (a JWS for JAR, a CWT for EAT, a COSE_Sign1 for SCITT), and the
+      // claim each then checks belongs to its own format. A shared forwarder
+      // would couple three credential formats to one option set and would have
+      // to grow a branch per format on the first divergence.
+      mode: "family-subset",
+      files: ["lib/auth/jar.js:parse", "lib/eat.js:verify", "lib/scitt.js:verifyStatement"],
+    },
+    {
       // fp:9d3b9d7485a8 — HAL link-normalize / Auth-Results emit / template create:
       // unrelated (run = 0).
       mode: "family-subset",
@@ -11342,6 +11606,7 @@ async function testNoDuplicateCodeBlocks() {
         "lib/guard-imap-command.js:validate",
         "lib/guard-jmap.js:<top>",
         "lib/guard-jmap.js:validate",
+        "lib/guard-jmap.js:limitsFor",
         "lib/guard-list-id.js:<top>",
         "lib/guard-mail-compose.js:<top>",
         "lib/guard-mail-compose.js:_checkAddrList",
@@ -11405,8 +11670,18 @@ async function testNoDuplicateCodeBlocks() {
       // `{ quoteName: true, … }`-shaped policy options object) — same token
       // shape, no shared logic.
       mode:  "family-subset",
+      // `external-db.js:_emitMetric` joins the same fingerprint because the
+      // statement-class keyword map is declared right after it, so the
+      // shingle that spans the map anchors on that function. The three
+      // line-protocol guards' tops also carry the identical
+      // `makeProfileResolver({ profiles, postures, defaults, errorClass,
+      // codePrefix })` construction, which is the composition of the
+      // extracted primitive rather than logic to extract again: wrapping a
+      // single factory call in another factory buys nothing, and the
+      // per-guard arguments are the irreducible part.
       files: [
         "lib/external-db.js:_cteMainKeyword",
+        "lib/external-db.js:_emitMetric",
         "lib/guard-imap-command.js:<top>",
         "lib/guard-managesieve-command.js:<top>",
         "lib/guard-pop3-command.js:<top>",
@@ -11583,6 +11858,11 @@ async function testNoDuplicateCodeBlocks() {
       // norway-implicit-bool for yaml) onto entirely different policy options.
       // Extracting the delegation would leave each guard's real content — the
       // kind-to-policy map — exactly where it is.
+      //
+      // The byte / token / tree scanners (_detectMagicMimes, _isScopeToken,
+      // _hasPdfMagic, guard-graphql's _measureQueryShape) share only a bounded
+      // index-increment loop idiom; each scans a different structure toward a
+      // different verdict, so there is no shared primitive to extract.
       mode:  "family-subset",
       files: [
         "lib/guard-auth.js:gate",
@@ -12794,6 +13074,231 @@ function testStateStampScanningDeferred() {
 //   4. The catalog scans whole-file content (multiline regex) so
 //      patterns split across lines still match.
 var KNOWN_ANTIPATTERNS = [
+  {
+    id: "an-actor-identity-is-not-hand-rolled",
+    primitive: "b.requestHelpers.actorIdentityKey",
+    scanScope: "lib",
+    skipCommentLines: true,
+    // An identity read spelled as its own fallback chain off an actor-named
+    // binding. The tempered token cannot cross the end of the statement, so
+    // a match stays inside one derivation.
+    regex: /\bactor(?:Opts|Ctx)?\.(?:id|userId|username|sub)\s*\|\|\s*(?:(?!;)[\s\S]){0,120}\.(?:id|userId|username|sub|email|principalId)\b/,
+    allowlist: [
+      "lib/request-helpers.js",
+    ],
+    fixtures: {
+      fires: [
+        'return (actor && (actor.id || actor.userId)) || "_anonymous";',
+        'var actorId = actor.userId || (opts.req && opts.req.apiKey && opts.req.apiKey.id) || null;',
+        'var who = actor.username || actor.id || "unknown";',
+        'var k = actorOpts.id || actorOpts.userId;',
+      ],
+      quiet: [
+        'var key = requestHelpers.actorIdentityKey(actor, { actorKey: actorKeyFn });',
+        'if (key === null) throw _err("file-upload/unidentified-actor", msg);',
+        'var scopes = actor.scopes || actor.roles || [];',
+      ],
+    },
+    reason: "Who a principal is was answered separately in each module that needed a per-actor bucket, and the answers disagreed: `actor.id || actor.userId` in b.fileUpload, `actor.id` then `actor.username` in the JMAP slot key, `userId` alone in the audit row. Each chain ended in a shared literal, so every actor the chain could not name landed on one key. A bucket is an ownership record as often as it is a counter, so that merged two authenticated users: measured, one principal read, wrote, finalized and cancelled another's upload, and `list()` dropped its scoping filter entirely. `b.requestHelpers.actorIdentityKey` is the one derivation, it tags each key with the field it came from so `{id:\"x\"}` and `{userId:\"x\"}` stay two principals, and it answers null for an actor it cannot name so the caller refuses instead of folding. Allowlisted, and only this one: request-helpers is the resolver itself. break-glass (:887, :1344) was allowlisted on the argument that it reads `actor.userId || req.apiKey.id` and then THROWS on a null, so it cannot fold two principals onto one key. That argument covered the null, not the text: a user whose userId spells an API key's id produced the same `actorId`, and `actorId` is the break-glass grant's owner, the factor-lockout key and the TOTP replay-step key. Measured on the tree before the fix, `listActive` handed a key holder a user's live grant ids, and `unsealRow` takes a grant handle without re-checking who holds it, so those ids redeem. It now records a holder as `user:<userId>` or `apikey:<keyId>`, which keeps the same two sources in the same order and the same refusal when neither names the caller, and cannot spell one holder two ways. `revokeAll` takes either prefix to target one holder and a bare id to reach both, and refuses when the grants table has no derived owner hash instead of dropping the actor criterion and revoking by table alone. `dual-control`, `require-step-up` and `mail-dav` each keep their own narrower list too, and each fails closed the same way, but none of them is written with `||` against an actor-named binding, so the regex does not reach them: listing them would have bought nothing except silence on a future chain, which is how an allowlist stops being a record of decisions.",
+  },
+  {
+    id: "audit-self-suppression-wraps-a-storage-call-only",
+    primitive: "b.audit.record",
+    scanScope: "lib",
+    skipCommentLines: true,
+    // A suppression scope whose body reaches its own closing `})` without a
+    // storage call in it. The tempered token cannot cross that boundary, so a
+    // match stays inside one wrapper.
+    regex: /runAsAuditChainWrite\(function \(\) \{(?:(?!clusterStorage\.|_chainWriter\.append|_externalStore\.record|db\(\)\.purgeAuditChain|\}\))[\s\S]){0,400}\}\)/,
+    allowlist: [],
+    fixtures: {
+      fires: [
+        "return dbRoleContext.runAsAuditChainWrite(function () {\n    return _queryInner(criteria);\n  })",
+        "return dbRoleContext.runAsAuditChainWrite(function () {\n    return _verifyInner(opts);\n  })",
+        "await dbRoleContext.runAsAuditChainWrite(function () {\n    return unsealRows(rows);\n  })",
+      ],
+      quiet: [
+        "return dbRoleContext.runAsAuditChainWrite(function () {\n    return clusterStorage.executeAll(built.sql, built.params);\n  })",
+        "var appended = await dbRoleContext.runAsAuditChainWrite(function () {\n        return _chainWriter.append(logical);\n      })",
+        "return dbRoleContext.runAsAuditChainWrite(function () {\n    return safeAsync.withTimeout(\n      clusterStorage.execute(built.sql, built.params),\n      MS, { name: \"x\" });\n  })",
+        "del = await dbRoleContext.runAsAuditChainWrite(function () {\n      return db().purgeAuditChain({ lastPurgedCounter: deleteThrough });\n    })",
+      ],
+    },
+    reason: "The scope that stops the audit chain recording its own writes suppresses EVERY audit emission made inside it, so it has to cover audit's own storage I/O and nothing else. Wrapping whole operations instead swallowed security events that have nothing to do with the chain: `b.audit.query` ends by calling `cryptoField.unsealRow` on the rows it returns, so a row whose sealed cell would not open recorded no `system.crypto.unseal_failed`, and the `denied`-outcome `system.crypto.unseal_rate_exceeded` fired twice inside one query and landed zero rows where the same denial outside landed three. A read that cannot unseal what it returns is exactly what an auditor is looking for, and the suppression hid it. Measured on this branch, before the narrowing. The wrappers now sit on the `clusterStorage` call and on `_chainWriter.append`, which are the calls that raise the `system.externaldb.query` events the cascade fed on; everything else an operation does, including unsealing, signing and the external-store mirror, runs outside and keeps its own audit.",
+  },
+  {
+    id: "an-audit-table-write-runs-outside-the-self-emit-suppression",
+    primitive: "b.audit.record",
+    scanScope: "lib",
+    skipCommentLines: true,
+    // The mirror of the detector above: that one catches a suppression scope
+    // with no storage call in it, this one catches a storage call with no
+    // scope. Anchored on `await` plus the call, because every wrapped site
+    // reads `return <call>` inside the callback and every unwrapped one awaits
+    // the call directly.
+    regex: /\bawait\s+db\(\)\.purgeAuditChain\s*\(|_blamejs_audit(?:(?!\n\})[\s\S]){0,400}?\bawait\s+clusterStorage\.(?:execute|executeOne|executeAll|fencedUpsert|transaction)\s*\(/,
+    allowlist: [],
+    fixtures: {
+      fires: [
+        "var built = sql.select(\"_blamejs_audit_log\", o).toSql();\n  var row = await clusterStorage.executeOne(built.sql, built.params);",
+        "del = await db().purgeAuditChain({ lastPurgedCounter: deleteThrough });",
+        "table: \"_blamejs_audit_purge_anchor\",\n  var fence = await clusterStorage.fencedUpsert({ keyColumns: [\"scope\"] });",
+      ],
+      quiet: [
+        "var built = sql.select(\"_blamejs_audit_log\", o).toSql();\n  var row = await dbRoleContext.runAsAuditChainWrite(function () {\n    return clusterStorage.executeOne(built.sql, built.params);\n  });",
+        "del = await dbRoleContext.runAsAuditChainWrite(function () {\n      return db().purgeAuditChain({ lastPurgedCounter: deleteThrough });\n    });",
+        "var built = sql.select(\"_blamejs_sessions\", o).toSql();\n  var row = await clusterStorage.executeOne(built.sql, built.params);",
+      ],
+    },
+    reason: "Audit's own reads and writes of its own tables have to run inside `dbRoleContext.runAsAuditChainWrite`, because `b.externalDb` audits every query it issues: an unwrapped one queues a `system.externaldb.query` event that becomes the next chain row, which is the cascade this release exists to stop (one `b.audit.record` call produced 164 rows, and an idle chain grew from 80 rows to 5,105 across four seconds). The omission is easy to make one call at a time and was found twice on this branch: first the operation-level wraps in `lib/audit.js`, then `_writePurgeAnchor`'s `clusterStorage.fencedUpsert` and `_defaultApplyPurge`'s `db().purgeAuditChain` in `lib/audit-tools.js`, where the purge-anchor READ was wrapped and its two WRITES were not, so every purge still fed the chain. All 19 such calls across the two files are wrapped now; this detector is what keeps the twentieth from arriving bare. Matching on `await <call>(` rather than on the call alone is what distinguishes the two shapes: a wrapped site returns the call from inside the callback and never awaits it directly.",
+  },
+  {
+    id: "a-catch-around-a-gated-argon2-call-swallows-the-capacity-refusal",
+    primitive: "b.auth.password.gate",
+    scanScope: "lib",
+    skipCommentLines: true,
+    // Anchored on the call that can raise the refusal and the catch that
+    // directly follows its try, so a catch further down the same function is
+    // out of scope. The tempered token stops at `isGateRefusal`, which is how
+    // a handled site reads, and at a function-closing brace at column 0.
+    regex: /(?:(?:vaultWrap|argon2(?:Builtin)?)(?:\(\))?\.(?:wrap|unwrap|hash|verify|deriveWrappingKey)|(?:backupCrypto|bCrypto)(?:\(\))?\.(?:deriveKey|encryptWithPassphrase|decryptWithPassphrase|encryptWithFreshSalt))\s*\((?:(?!\n\})[\s\S]){0,240}?\)\s*;?\s*\}?\s*catch\s*\(\s*(?!_)[A-Za-z$][\w$]*\s*\)\s*\{(?:(?!isGateRefusal)(?!vault-wrap\/passphrase-rejected)(?!backup-crypto\/decrypt-failed)(?!\n\})[\s\S]){0,240}?\bthrow\s+(?:new\s+[A-Za-z_$][\w$]*Error|_err\s*\()/,
+    allowlist: [],
+    fixtures: {
+      fires: [
+        "    plaintext = await vaultWrap.unwrap(sealed, pwBuf);\n  } catch (e) {\n    throw new KeychainError(\"keychain/file-unseal-failed\",\n      \"rejected\");",
+        "    try { plaintextBuf = await vaultWrap.unwrap(sealedBytes, passphrase); }\n    catch (e) {\n      throw _err(\"audit-sign/passphrase-rejected\", \"rejected\");",
+        // The derivation is reached through backup/crypto's passphrase surface
+        // too, which the first version of this pattern did not name: it listed
+        // the calls it had seen rather than every export that derives.
+        "      vkBuf = await backupCrypto.decryptWithPassphrase(vaultKeyEnc, passphrase, salt);\n  } catch (e) {\n    throw new RestoreBundleError(\"restore-bundle/vault-key-recovery-failed\",\n      \"could not recover\");",
+      ],
+      quiet: [
+        "    plaintext = await vaultWrap.unwrap(sealed, pwBuf);\n  } catch (e) {\n    if (argon2.isGateRefusal(e)) throw e;\n    throw new KeychainError(\"keychain/file-unseal-failed\",\n      \"rejected\");",
+        "    try { plaintextBuf = await vaultWrap.unwrap(sealedBytes, passphrase); }\n    catch (e) {\n      if (argon2.isGateRefusal(e)) throw e;\n      throw _err(\"audit-sign/passphrase-rejected\", \"rejected\");",
+        // Translating one named code and re-raising everything else already
+        // lets the refusal through, which is how the per-blob decrypt reads.
+        "          plaintext = await backupCrypto.decryptWithPassphrase(blob, passphrase, entry.salt);\n      } catch (e) {\n        if (e && e.code === \"backup-crypto/decrypt-failed\") {\n          throw new RestoreBundleError(\"restore-bundle/decrypt-failed\", \"rejected\");\n        }\n        throw e;\n      }",
+        // A capacity refusal cannot arise from a symmetric open, so a catch
+        // around one translates freely.
+        "    plaintext = bCrypto().decryptPacked(packedBody, oldKey, aad);\n  } catch (e) {\n    throw new ArchiveWrapError(\"archive-wrap/decrypt-failed\", \"did not open\");",
+        // Returning false rather than translating keeps the refusal's own
+        // classification, so there is nothing to mislabel.
+        "  try { return await argon2.verify(stored, plaintext); }\n  catch (e) {\n    return false;\n  }",
+        // Requiring the one failure the check is looking for is stronger than
+        // letting the refusal through, since it propagates every other error too.
+        // Written with the cleanup catch the real site carries, because an
+        // ignored-binding catch between the call and the translating one is what
+        // the first version of this pattern matched by mistake.
+        "  try {\n    await vaultWrap.unwrap(verifyBytes, opts.oldPassphrase);\n    try { nodeFs.unlinkSync(p.sealedTmp); } catch (_e) { /* cleanup */ }\n    throw new VaultPassphraseError(\"vault-passphrase/rotate-noop\",\n      \"old passphrase still unwraps\");\n  } catch (e) {\n    if (e && e.code === \"vault-passphrase/rotate-noop\") throw e;\n    if (!e || e.code !== \"vault-wrap/passphrase-rejected\") {\n      try { nodeFs.unlinkSync(p.sealedTmp); } catch (_e) { /* cleanup */ }\n      throw e;\n    }\n  }",
+      ],
+    },
+    reason: "`b.auth.password.gate` bounds how many Argon2id derivations run at once, and it refuses with `argon2/busy` or `argon2/queue-timeout` when saturated. Those refusals are transient: `b.retry.isRetryable` returns true for them, because waiting is the right answer. Moving the gate into the one derivation entry point made every caller able to receive them, and a caller's catch-all then reported temporary saturation as something permanent: `b.archive.unwrapWithPassphrase` answered `archive-wrap/decrypt-failed` for a valid archive, `b.keychain` answered \"file passphrase rejected or file corrupted\" for an intact file, and `b.auditSign` and the vault passphrase operations said the passphrase was rejected. An operator reading that goes looking for a corrupted file or a wrong passphrase instead of retrying. Every such catch consults `argon2.isGateRefusal` first, which is one predicate rather than a code list each site repeats: two sites in `lib/auth/password.js` had spelled the two codes inline, and a third refusal code would have left them silently swallowing it. A catch around a symmetric open cannot see a capacity refusal and is out of scope, and so is one that returns a value rather than translating.",
+  },
+  {
+    id: "a-framework-errors-code-is-reassigned-after-it-is-built",
+    primitive: "b.frameworkError.defineClass",
+    scanScope: "lib",
+    skipCommentLines: true,
+    // Anchored on the DECLARATION so the binding can be carried into the
+    // assignment by backreference: the question is whether this error's own
+    // code is overwritten, not whether some `.code` is assigned nearby. The
+    // tempered token cannot cross a function-closing brace at column 0, and
+    // the {0,400} is the ReDoS backstop rather than the precision mechanism.
+    regex: /(?:var|let|const)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:new\s+[A-Za-z_$][\w$]*Error\s*\(|_err\s*\(|[A-Za-z_$][\w$]*\.factory\s*\()(?:(?!\n\})[\s\S]){0,400}?\b\1\.code\s*=/,
+    allowlist: [],
+    fixtures: {
+      fires: [
+        "var e = new AtomicFileError(\"file not found: \" + filepath, \"atomic-file/not-found\");\n        e.code = \"ENOENT\";\n        return e;",
+        "var te = _err(\"notify/timeout\", \"notify.send: transport timed out\");\n          te.code = \"ETIMEDOUT\";\n          throw te;",
+        "const w = SomeError.factory(\"ns/first\", \"msg\");\n  w.code = \"ns/second\";",
+      ],
+      quiet: [
+        // A plain Error built to look like a Node error. Nothing is discarded,
+        // because a plain Error carries no framework code to begin with.
+        "var aerr = new Error(\"no AAAA records for \" + qname);\n      aerr.code = \"ENODATA\";\n      throw aerr;",
+        // The errno IS the code, constructed once.
+        "var e = new AtomicFileError(\"file not found: \" + filepath, \"ENOENT\");\n        return e;",
+        // Another object's code, not the error's.
+        "var e = new AtomicFileError(\"bad\", \"ns/bad\");\n  result.code = \"ns/other\";\n  throw e;",
+      ],
+    },
+    reason: "A framework error's `code` is its contract, and assigning over it after construction leaves the first code reachable by nobody while every block that names it promises a failure the caller can never receive. `lib/atomic-file.js` built `atomic-file/not-found` and immediately overwrote it with `ENOENT`, so `b.atomicFile.read`, `readSync` and `readJson` all delivered `ENOENT` while one block promised the framework code, one block promised `ENOENT`, and the two never agreed; `lib/notify.js` discarded `notify/timeout` the same way. The error-code gate reads constructions, so a discarded code is worse than invisible: it gets demanded in documentation and then cannot arrive. Both sites construct the code they deliver now. An errno-shaped code is fine when it is the code built (`lib/http-client.js` and `lib/log-stream-otlp-grpc.js` both raise `ETIMEDOUT` that way); so is setting `.code` on a plain `new Error` to give a caller a Node-shaped failure, which is what `lib/mail-auth.js`, `lib/network-dns-resolver.js` and `lib/ws-client.js` do for callers that read dns and lookup errors. The binding is carried by backreference so only the error's own code counts.",
+  },
+  {
+    id: "a-jmap-method-error-type-is-a-bare-name",
+    primitive: "b.mail.server.jmap.create",
+    scanScope: "lib",
+    skipCommentLines: true,
+    // A methodResponses entry whose `type` is written as the request-level
+    // URI. The tempered token stops at the closing bracket of the push, so
+    // the match stays inside one entry.
+    regex: /methodResponses\.push\((?:(?!\]\);)[\s\S]){0,400}type:\s*"urn:ietf:params:jmap:error:/,
+    allowlist: [],
+    fixtures: {
+      fires: [
+        'methodResponses.push(["error", { type: "urn:ietf:params:jmap:error:unknownMethod", description: d }, clientId]);',
+        'methodResponses.push(["error",\n  { type: "urn:ietf:params:jmap:error:serverFail", description: "x" },\n  clientId]);',
+      ],
+      quiet: [
+        'methodResponses.push(["error", { type: "unknownMethod", description: d }, clientId]);',
+        'methodResponses.push(["error", _methodError("serverFail", "Method threw"), clientId]);',
+        'return _refusalResponse("urn:ietf:params:jmap:error:notRequest", msg);',
+      ],
+    },
+    reason: "RFC 8620 draws the two error levels differently. Section 3.6.1 names a refusal of the whole request with a URI, `urn:ietf:params:jmap:error:notRequest` and its three siblings, because that body is problem details for the HTTP response. Section 3.6.2 writes a method error as the bare name in the response tuple: `[ \"error\", { \"type\": \"unknownMethod\" }, \"c0\" ]`. The listener sent the URI in both places, so a client matching the names the RFC prints, and the names RFC 8621 defines for the Email and Mailbox set errors, matched none of them and fell through to its unknown-error branch. Every method error now comes from `_methodError` / `methodErrorName`, which strip the prefix and refuse a name outside the RFC 8620 and RFC 8621 sets. Anchored inside a `methodResponses.push(` because that is the tuple section 3.6.2 governs; `_refusalResponse` and the blob and session HTTP handlers keep the URI form and are not matched. Empty allowlist: no method response carries the URI.",
+  },
+  {
+    id: "an-imap-name-split-must-span-a-quoted-string-escape",
+    primitive: "b.mail.server.imap.create",
+    scanScope: "lib",
+    skipCommentLines: true,
+    // Anchored on the atom-or-quoted mailbox-name alternation the split verbs
+    // use — `(\S+|"[^"]...`. A first-quote-terminated class stops at a `\"`
+    // inside the name; the escape-aware `(\S+|"(?:\\.|[^"\\])...` is the fixed
+    // shape and does not match. The optional date-time capture `("[^"]+")` has
+    // no `(\S+|` before it and never holds a quote, so it is not matched.
+    regex: /\(\\S\+\|"\[\^"\]/,
+    allowlist: [],
+    fixtures: {
+      fires: [
+        'var m = args.match(/^(\\S+|"[^"]+")\\s+\\(([^)]+)\\)$/);',
+        'var match = args.match(/^(\\S+|"[^"]*")\\s+\\((.+)\\)$/);',
+      ],
+      quiet: [
+        'var m = args.match(/^(\\S+|"(?:\\\\.|[^"\\\\])+")\\s+\\(([^)]+)\\)$/);',
+        'var dt = args.match(/(?:\\s+("[^"]+"))?$/);',
+        'var m = trimmed.match(/^(\\S+)\\s+(\\S.*)$/);',
+      ],
+    },
+    reason: "RFC 3501 §4.3 lets a quoted string carry a double quote as `\\\"`. The IMAP verbs that split a leading mailbox name from the arguments after it — STATUS, GETMETADATA, SETMETADATA, APPEND, APPEND CATENATE, and SELECT ... QRESYNC — did it with the alternation `(\\S+|\"[^\"]*\")`, an atom or a first-quote-terminated string. That class stops at the `\\\"` inside the name, and because each regex is anchored to the trailing structure with `$`, the match then fails and the command comes back BAD. A mailbox name with both a space and a quote (`\"a\\\"b c\"` on the wire, the name `a\"b c`) is a name _validateMailboxName accepts, so a conformant client could neither STATUS nor APPEND it. `\\S+` alone already carries a no-space name that contains a quote, so the gap is specifically the spaced quoted name. The fixed form spans the escape: `(\\S+|\"(?:\\\\.|[^\"\\\\])*\")`, keeping the site's own `*`/`+`, and then _unquote decodes it. The alternation `\\\\.|[^\"\\\\]` is disjoint on its first character, so the quoted run stays linear. Anchored on `(\\S+|\"[^\"]` because that atom-or-quoted alternation is the exact split idiom; SELECT unquotes the whole remainder and never uses it, and the optional date-time capture `(\"[^\"]+\")` is not a name and never holds a quote, so neither is matched. Empty allowlist: no IMAP name-split needs the first-quote-terminated class, and a verb added with it is the one to catch.",
+  },
+  {
+    id: "a-method-exemption-must-normalize-req-method-case",
+    primitive: "b.middleware.csrfProtect",
+    scanScope: "lib",
+    skipCommentLines: true,
+    // A safe-method exemption keyed on a raw `req.method` membership check.
+    // `methods` is uppercased at construction, but `req.method` arrives verbatim
+    // over HTTP/2, so `.indexOf(req.method)` / `.includes(req.method)` lets a
+    // non-canonical case (`Post`) miss the protected list and skip the gate. The
+    // fixed form compares `String(req.method || "").toUpperCase()`, which this
+    // does not match. Exact-equality checks (`req.method === "GET"`) reject on
+    // mismatch (fail-closed) and are a different, safe shape.
+    regex: /\.(?:indexOf|includes)\(\s*req\.method\s*\)/,
+    allowlist: [],
+    fixtures: {
+      fires: [
+        'if (methods.indexOf(req.method) === -1) return next();',
+        'if (!methods.includes(req.method)) return next();',
+      ],
+      quiet: [
+        'if (methods.indexOf(String(req.method || "").toUpperCase()) === -1) return next();',
+        'var m = (req.method || "").toUpperCase();',
+        'if (req.method !== "GET" && req.method !== "HEAD") return next();',
+      ],
+    },
+    reason: "b.middleware.csrfProtect and b.middleware.fetchMetadata exempt safe methods with `if (methods.indexOf(req.method) === -1) return next();`, where `methods` is uppercased at construction but `req.method` was compared raw. HTTP/1.1's llhttp rejects a non-canonical method case (400), but HTTP/2 delivers `req.method` verbatim, so a `Post`/`post` state-changing request skipped the whole gate (Origin + token / Sec-Fetch checks, both after the exemption line). The shipped router is case-sensitive and 404s such a request, but these are public standalone middlewares whose contract is that state-changing requests are gated under any downstream dispatch. Fixed by normalizing: `methods.indexOf(String(req.method || \"\").toUpperCase())`. This fires on a raw `.indexOf(req.method)` / `.includes(req.method)` membership check; the normalized form and exact-equality comparisons (fail-closed) are not matched. Empty allowlist: a method-based security exemption must normalize case, so any new raw compare is the one to catch.",
+  },
   {
     id: "a-collected-array-is-appended-not-spread-as-arguments",
     primitive: "b.markupTokenizer.parseAttrsRecovering",
@@ -14611,6 +15116,15 @@ var KNOWN_ANTIPATTERNS = [
     reason: "The toolkit's encodeName() wraps a string subject/issuer/name as a single commonName attribute VALUE, so a caller passing a preformatted DN string (subject: \"CN=\" + cn, or subject: \"CN=name,OU=CAvN\") produces CN=CN=cn — a double-encoded CN — and, for multi-RDN names, folds the whole comma-joined string into one CN with NO separate OU/O attribute. The mtls default engine issued every CA and leaf that way, so CN->identity mTLS authorization received \"CN=alice\" instead of \"alice\" and policies reading the OU=CAvN generation RDN found none. Pass the bare CN value for single-CN subjects and an array of { attributeName: value } RDN objects for multi-attribute DNs; the issuer is derived from the CA cert, not a string. The bound is a ReDoS backstop far above any real sign-call body. New pki sign call with a DN-prefixed string subject/issuer trips this.",
   },
   {
+    id: "test-path-resolve-relative-to-cwd",
+    primitive: "A test resolves a repository path from __dirname (path.resolve(__dirname, \"..\", \"index.js\")), never from the working directory (path.resolve(\"../blamejs/index.js\")).",
+    scanScope: "test",
+    skipCommentLines: true,
+    regex: /path\.resolve\(\s*["']/,
+    allowlist: [],
+    reason: "test/20-db.js wrote a migration fixture requiring path.resolve(\"../blamejs/index.js\") and test/30-chain.js built a child script the same way. That resolves against the working directory, so it only finds the framework when the checkout is named `blamejs` AND the runner's cwd is the repository root: both held on the host and under the documented bind mount at /blamejs, and neither holds for a copy of the tree at another path. The container framework smoke failed with \"migration '001-seed.js' failed to load: Cannot find module '/blamejs/index.js'\" when the suite ran from /work. A __dirname-anchored resolve holds wherever the tree sits. New path.resolve with a string-literal first argument in a test trips this.",
+  },
+  {
     id: "pki-sign-preformatted-dn-string-test",
     primitive: "@blamejs/pki x509.sign / crl.sign take a STRING subject/issuer/name as the common-name VALUE — pass the bare CN value or structured RDN objects, never subject: \"CN=\" + cn (double-encodes to CN=CN=cn). Test fixtures cargo-cult the wrong shape into shipped callers.",
     scanScope: "test",
@@ -14618,6 +15132,42 @@ var KNOWN_ANTIPATTERNS = [
     regex: /pki\.(?:x509|crl)\.sign\(\s*\{[\s\S]{0,800}?\b(?:subject|issuer|name)\s*:\s*"(?:CN|OU|O|C|L|ST|DC|UID|E)=/,
     allowlist: [],
     reason: "Same @blamejs/pki encodeName contract as pki-sign-preformatted-dn-string-lib, gated on test fixtures so a fixture minting a cert with subject: \"CN=\" + cn (double-encoded CN=CN=cn) can't seed the wrong pattern back into shipped code. Fixtures pass the bare CN value (subject: cn) — a self-signed cert derives its issuer from the subject, and a chain fixture passes the issuer name the same bare way so subject/issuer stay DER-equal. The bound is a ReDoS backstop. New fixture with a DN-prefixed string subject/issuer trips this.",
+  },
+  {
+    id: "backup-manifest-read-outside-readfile",
+    primitive: "b.backupManifest.readFile(manifestPath, { errorFor }) (lib/backup/manifest.js) reads and parses a backup manifest.json under MAX_MANIFEST_BYTES, the limit b.backupManifest.serialize enforces on the writer. A reader that calls fdSafeReadSync on the manifest path or backupManifest.parse on text it read itself picks its own limit.",
+    scanScope: "lib",
+    skipCommentLines: true,
+    regex: /\bbackupManifest\.parse\(|fdSafeReadSync\(\s*manifestPath\b/,
+    allowlist: [
+      "lib/backup/manifest.js",
+      "lib/audit-tools.js",
+      "lib/cli.js",
+      "lib/config-drift.js",
+    ],
+    reason: "The backup writer produced a manifest of any size while b.restoreBundle.extract, inspect, b.backup.verifyManifestSignature and the scheduleTest drill each read manifest.json with maxBytes: C.BYTES.mib(4), and backupManifest.parse applied 16 MiB, so a backup of several thousand files wrote a bundle none of them would read. Every reader now goes through backupManifest.readFile. The allowlisted files other than manifest.js read different manifests: the audit-log archive manifest (audit-tools.js, and cli.js audit verify-chain) and lib/vendor/MANIFEST.json (config-drift.js). New fdSafeReadSync(manifestPath, ...) or backupManifest.parse(...) in lib trips this.",
+  },
+  {
+    id: "restore-swap-work-dir-under-os-tmpdir",
+    primitive: "b.restore run() pulls and decrypts under stagingRoot (default: the parent directory of rollbackRoot), which _requireSwappableLayout checks is on dataDir's filesystem, so restoreRollback.swap's renames stay on one device.",
+    scanScope: "lib",
+    skipCommentLines: true,
+    regex: /os\.tmpdir\(\)\s*,\s*["'][^"']*restore-(?:pull|staging)/,
+    allowlist: [],
+    reason: "b.restore pulled a bundle into os.tmpdir()/blamejs-restore-pull-* and decrypted it into os.tmpdir()/blamejs-restore-staging-*, then renamed the staging directory onto dataDir. When os.tmpdir() and dataDir are on different filesystems (a container whose data lives on a volume) the rename fails with EXDEV, and the decrypted files stayed in the temp directory. New staging or pull directory under os.tmpdir() in a restore path trips this.",
+  },
+  {
+    id: "test-skip-recorded-as-passing-check",
+    primitive: "A test establishes its own preconditions (b.auditSign.init into a temp dir, a fixture key, a local server) instead of recording check(\"... skipped ...\", true) and returning when the precondition is absent.",
+    scanScope: "test",
+    skipCommentLines: true,
+    regex: /\bcheck\(\s*["'][^"'\n]*\bskip(?:ped|ping|s)?\b[^"'\n]*["']\s*,\s*true\s*\)/i,
+    allowlist: [
+      "test/layer-5-integration/bundler-output.test.js",
+      "test/layer-0-primitives/daemon.test.js",
+      "test/layer-0-primitives/network-nts.test.js",
+    ],
+    reason: "backup-manifest-signature.test.js recorded check(\"audit-sign not initialized — skipping sign assertion\", true) and returned when b.backupManifest.sign threw backup-manifest/no-signer. The smoke worker forks a fresh process per file and never initializes audit-sign, so every signing, verification, pinning and forged-fingerprint row after that return had never run, and the file reported green on its parser rows alone. The test now initializes audit-sign in a temp dir. A skip recorded as a passing check makes a precondition the test could create look like coverage. The allowlisted files skip on the host itself: an esbuild binary built for another platform, a win32-only process API, and a host with no ::1 loopback. New check(\"...skip...\", true) in a test trips this.",
   },
   {
     // v0.15.13 — the drop-silent, gated, prefixed audit emitter that every
@@ -15115,7 +15665,7 @@ var KNOWN_ANTIPATTERNS = [
   },
   {
     id: "control-char-check-hand-rolled",
-    primitive: "b.codepointClass.isForbiddenControlChar(code, { allowLf?, allowCr?, forbidTab? }) / firstControlCharOffset(s, opts) (lib/codepoint-class.js) — the RFC 5322 / header-injection control-byte predicate: DEL (0x7f) and any C0 control (< 0x20); TAB (0x09) permitted as folding whitespace by default and forbidden with `{ forbidTab: true }`; LF/CR refused by default, permitted with allowLf/allowCr. Hand-rolling `c === 0x00 || c === 0x7f || (c < 0x20 && c !== 0x09)` (allow-TAB) OR `c < 0x20 || c === 0x7f` (forbid-TAB) — a per-char loop returning bool / throwing with the char code+offset / counting — re-spells it; call codepointClass.firstControlCharOffset(s[, {forbidTab,allowLf,allowCr}]) (or isForbiddenControlChar(c, …) inside an existing scanner, keeping any interleaved slash / quote / backslash / non-ASCII check beside it) and wrap as bool / throw / strip.",
+    primitive: "b.codepointClass.isForbiddenControlChar(code, { allowLf?, allowCr?, forbidTab?, allowC1? }) / firstControlCharOffset(s, opts) (lib/codepoint-class.js): the RFC 5322 / header-injection control-byte predicate. It refuses DEL (0x7f), any C0 control (< 0x20) and the C1 controls (0x80-0x9f); TAB (0x09) permitted as folding whitespace by default and forbidden with `{ forbidTab: true }`; LF/CR refused by default, permitted with allowLf/allowCr; C1 permitted only with allowC1 for a latin1 byte view or a grammar that allows C1. Hand-rolling `c === 0x00 || c === 0x7f || (c < 0x20 && c !== 0x09)` (allow-TAB) OR `c < 0x20 || c === 0x7f` (forbid-TAB) — a per-char loop returning bool / throwing with the char code+offset / counting — re-spells it; call codepointClass.firstControlCharOffset(s[, {forbidTab,allowLf,allowCr}]) (or isForbiddenControlChar(c, …) inside an existing scanner, keeping any interleaved slash / quote / backslash / non-ASCII check beside it) and wrap as bool / throw / strip.",
     // Anchors on the control-byte tell — `< 0x20` (or `< 32`) within one
     // expression of EITHER the TAB-exemption `!== 0x09` (allow-TAB form) OR a
     // DEL compare `=== 0x7f` / `=== 127` (forbid-TAB form). The tempered
@@ -15127,6 +15677,55 @@ var KNOWN_ANTIPATTERNS = [
     skipCommentLines: true,
     allowlist: ["lib/safe-sieve.js", "lib/parsers/safe-xml.js"],
     reason: "~27 parsers / guards / validators hand-rolled the same control-byte refusal loop in TWO predicate variants. ALLOW-TAB (`c < 0x20 && c !== 0x09` ... / `c === 0 || (c < 32 && c !== 9) || c === 127`, RFC 5322 header / folding contexts): the mail guards (guard-dsn / guard-imap-command / guard-pop3-command / guard-managesieve-command / guard-list-id / guard-list-unsubscribe / guard-mail-compose), the text parsers (safe-ical / safe-mime / safe-vcard / parsers/safe-toml), ai-input, inbox._rejectControlChars, safe-jsonpath. FORBID-TAB (`c < 0x20 || c === 0x7f`, identifier / key / name / single-line-value contexts where TAB is not folding whitespace): auth/step-up._quote, middleware/bearer-auth realm, guard-idempotency-key / guard-mail-move / guard-message-id / guard-mail-sieve / guard-agent-registry / guard-event-bus-topic / guard-tenant-id / guard-saga-config / guard-posture-chain name checks, guard-jwt kid, guard-smtp-command, guard-sql identifier, mail-spam-score reasons, mail.feedbackId, mail-deploy (domain / jmap-url / email), mail-rbl zone (ASCII-only), mail-server-imap mailbox name, request-helpers bearer token, safe-redirect, external-db relation, storage assemblyId, structured-fields.refuseControlBytes. They varied only in the allow-set (TAB via forbidTab; LF/CR via allowLf/allowCr; LF conditionally via caps.allowBareLf), the disposition (bool / throw-with-char-code+offset / return-message / count / strip), and interleaved non-control checks (slash / backslash / quote / non-ASCII cc > 0x7e). Extracted codepointClass.isForbiddenControlChar(code, { forbidTab, allowLf, allowCr }) + firstControlCharOffset(s, opts) (forbidTab byte-equivalent to `code < 0x20 || code === 0x7f`, proven over every codepoint); clean loops route through firstControlCharOffset, interleaved scanners use the predicate inline keeping their extra checks. Allowlist is STRUCTURAL — safe-sieve splits the C0 vs DEL refusal into two DISTINCT error messages (the combined predicate can't reproduce both), and parsers/safe-xml checks a resolved numeric char reference for C0-OR-SURROGATE (0xD800-0xDFFF) with NO DEL — a different predicate/op. A re-introduced hand-rolled `< 0x20 ... !== 0x09` or `< 0x20 ... === 0x7f` control-byte check trips this — use codepointClass.firstControlCharOffset / isForbiddenControlChar.",
+  },
+  {
+    id: "control-char-allow-c1-outside-byte-readers",
+    primitive: "b.codepointClass.isForbiddenControlChar / firstControlCharOffset refuse the C1 controls U+0080-U+009F by default; `{ allowC1: true }` turns that off. Only a reader whose string is a latin1 view of bytes (an HTTP field value, where 0x80-0x9f are UTF-8 continuation bytes / obs-text) or whose grammar allows C1 (TOML 1.0 strings) may pass it. Any other caller reads decoded text, where U+009B is a one-character CSI and U+0085 a line break.",
+    // Anchors on the literal opt `allowC1: true`. The predicate itself reads
+    // `opts.allowC1 === true`, which this does not match, and its @example
+    // sits on a comment line.
+    regex: /\ballowC1\s*:\s*true\b/,
+    skipCommentLines: true,
+    allowlist: ["lib/structured-fields.js", "lib/parsers/safe-toml.js"],
+    reason: "The predicate refused C1 only behind an opt-in flag, so every decoded-text caller that did not pass it (safe-ical, safe-vcard, safe-mime headers, the SMTP / IMAP / POP3 / ManageSieve command guards, guard-dsn, guard-list-id, guard-list-unsubscribe, safe-redirect, mail.feedbackId, mail-spam-score, mail-deploy, bearer-auth realm, extractBearer, external-db relation names, local-http paths) accepted U+009B CSI and U+0085 NEL. The default now refuses C1 and the opt-out is allowC1. structured-fields.refuseControlBytes / containsControlBytes scan HTTP field values, which Node exposes as latin1 strings (obs-text, RFC 9110 5.5), and parsers/safe-toml follows TOML 1.0, which allows C1 in basic strings. A new allowC1 elsewhere trips this: decoded text must keep refusing C1.",
+  },
+  {
+    id: "vary-replaced-by-header-object",
+    primitive: "b.requestHelpers.finalizeHeaders(res, headers) / appendVary(res, token) (lib/request-helpers.js): the header object a writer passes to res.writeHead(status, headers) goes through finalizeHeaders, so a Vary already on the response (Origin from b.middleware.cors, Accept-Encoding from b.middleware.compression) joins the Vary the writer sends and a no-store already on the response survives the Cache-Control the object carries. node:http lets a header object passed to writeHead replace a header set with setHeader, and res.setHeader(\"Vary\", x) replaces it outright.",
+    // Anchors on res.writeHead(<status>, <identifier>) whose header argument is
+    // a variable not wrapped in finalizeHeaders (a literal object without Vary
+    // cannot replace one), with one level of parentheses allowed in the status
+    // expression, and on a direct setHeader("Vary", ...).
+    regex: /\.writeHead\(\s*(?:[^,()]|\([^()]*\))+,\s*(?![A-Za-z_$][\w$]*(?:\(\))?\.finalizeHeaders\()[A-Za-z_$][\w$]*\s*\)|\.setHeader\(\s*["']Vary["']/,
+    skipCommentLines: true,
+    allowlist: ["lib/request-helpers.js"],
+    reason: "b.middleware.sse merged Vary: Accept into the response with appendVary and then passed its configured headers to writeHead, so opts.headers { Vary: \"Origin\" } sent only Origin. The same replacement happened in b.render (every writer, opts.headers), b.middleware.openapiServe / asyncapiServe (their own Vary: Origin), b.middleware.noCache (setHeader Vary Cookie, Authorization), b.middleware.compression (Accept-Encoding appended to the handler's header object only), and the deny, static, tus and error-page writers that pass a header variable. The same objects also carried a Cache-Control that replaced the no-store b.middleware.noCache had set: b.render.json(res, body, { headers: { \"Cache-Control\": \"public, max-age=3600\" } }) sent the public value on an authenticated route. Every writer now passes its final object through finalizeHeaders, which merges Vary and keeps an existing no-store. request-helpers.js is the helpers' home.",
+  },
+  {
+    id: "vary-token-appender-hand-rolled",
+    primitive: "b.requestHelpers.appendVaryValue(existing, value) (lib/request-helpers.js): the one answer to \"add this token to a Vary value\". It reports the merged value, `null` when the token is already carried, and `*` alone whenever either side carries the wildcard, because RFC 9110 section 12.5.5 gives `*` its never-reuse meaning only when it stands alone.",
+    scanScope: "lib",
+    // Anchors on a Vary-named function that builds its own token list: the
+    // temper cannot cross a function-closing brace at column 0, so the
+    // `.join(` it finds is inside that function. A file that routes through
+    // the shared helper carries `appendVaryValue` and is exempt.
+    regex: /function\s+[A-Za-z_$]*[Vv]ary[\w$]*\s*\([^)]*\)\s*\{(?:(?!\n\})[\s\S]){0,800}?\.join\(/,
+    requires: /appendVaryValue/,
+    skipCommentLines: true,
+    allowlist: [],
+    reason: "b.requestHelpers.appendVary pushed the new token onto the parsed list without looking for the wildcard, so a `Vary: *` an earlier middleware had set became `*, Accept` when b.middleware.sse added Accept and `*, Cookie, Authorization` under b.middleware.noCache; a cache reading that list cannot apply the never-reuse `*` asks for. b.middleware.compression kept its own appender, which collapsed the wildcard only when it was the entire earlier value, so `Cookie, *` grew an `Accept-Encoding`. One question had three answers: mergeVary collapsed the wildcard, appendVary ignored it, compression half-handled it. Both appenders now go through appendVaryValue.",
+  },
+  {
+    id: "record-version-check-hand-rolled",
+    primitive: "b.structuredFields.recordVersionMatches(record, name, value, grammar) (lib/structured-fields.js) answers whether a DNS TXT record opens with the version tag its RFC defines, under that RFC's grammar: SPF `v=spf1` ended by SP or end of record (RFC 7208 4.5), DMARC `v` *WSP `=` *WSP `DMARC1` then *WSP `;` or end (RFC 9989), MTA-STS `v=STSv1` and TLS-RPT `v=TLSRPTv1` followed by *WSP `;` (RFC 8461 3.1, RFC 8460 3). Selecting a record with `indexOf(\"v=...\")`, `startsWith(\"v=...\")` or `/^v=.../` re-spells it and gets the edges wrong: a prefix test accepts `v=spf10` and `v=DMARC10`, an anywhere-test accepts a record that carries the tag later, and a case-folding regex accepts a lowercased token the grammar spells case-sensitively.",
+    // Anchors on a string-search call whose argument opens with `v=` (with or
+    // without space before the `=`) or a regex literal anchored on `^v=` plus
+    // a letter. The letter keeps /^v=(\d+)$/ (the PHC hash-string version
+    // segment in argon2-builtin) out; that is not a DNS record version tag.
+    regex: /\.(?:indexOf|lastIndexOf|startsWith|includes)\(\s*["'`]v\s*=|\/\^v=[A-Za-z]/i,
+    skipCommentLines: true,
+    allowlist: [],
+    reason: "SPF, DMARC, MTA-STS, TLS-RPT and the DKIM key-record lookups each selected the record by a hand-written version test: `indexOf(\"v=spf1\") === 0` (accepts v=spf10), `indexOf(\"v=DMARC1\") === 0` (accepts v=DMARC10 and refuses `v = DMARC1` and `V=DMARC1`, so a domain publishing either spelling of p=reject evaluated as `none`, and a stray v=DMARC10 record beside a valid one made the lookup see two records and fail open), `indexOf(\"v=STSv1\") === -1` (accepts the tag anywhere in the record), `/^v=TLSRPTv1\\b/i` (case-folds a case-sensitive token and accepts v=TLSRPTv1.5), and `indexOf(\"v=DKIM1\") === 0 || indexOf(\"p=\") !== -1` in both the DKIM and ARC key lookups (accepts v=DKIM10, a v= tag that is not the first tag, and any other version string when p= is present, where RFC 6376 3.6.1 requires v= to be absent or first and equal to DKIM1). recordVersionMatches carries each RFC's grammar as a frozen options object at the call site. Allowlist is EMPTY; a new hand-written version-tag test trips this.",
   },
   {
     id: "severity-gate-disposition-hand-rolled",
@@ -16052,6 +16651,16 @@ var KNOWN_ANTIPATTERNS = [
   { id: "line-listener-auth-step-must-be-returned", primitive: "a mail listener's SASL / authentication step is asynchronous and moves the session's stage, so a call to `_runAuthStep` / `_completeAuthenticate` / `_enterTransaction` / `runSaslStep` made as a BARE STATEMENT hands the reader nothing to wait for and the next command is read against a session that has not finished authenticating — return the call", scanScope: "lib", skipCommentLines: true, regex: /^[ \t]+(?:[A-Za-z_$][\w$.]*\.)?(?:_runAuthStep|_completeAuthenticate|_enterTransaction|runSaslStep)\s*\(/m, allowlist: ["lib/mail-server-submission.js"], reason: "v0.18.61, the same P1 class as line-listener-handler-must-return-its-async-work and found on the round AFTER it, which is why it gets its own matcher. Returning the promise chains was not enough: the authentication helpers were called as bare statements, so the value never reached the pump even where the handler returned what it had. Five sites survived the first sweep — imap `_handleAuthenticate` calling `_runAuthStep`, managesieve `_completeAuthenticate` (both the resume and the fresh-exchange arms), its `_runAuthStep` not returning `runSaslStep`, and its `_continueSaslExchange`. The consequence is worse than a plain ordering bug: with a command already buffered the reader treats it as the NEXT SASL response, so a valid authentication is abandoned by a client that merely pipelined. Allowlist names mail-server-submission.js alone, and for a reason rather than to pass: its reader is not promise-based — it holds the client's pipelined remainder on `state.commandPending` and resumes the drain when the handler answers — so a bare call there is correct PROVIDED the flag is held. Writing this detector is what found that its AUTH path did NOT hold it, unlike the sender-policy hook beside it, so two pipelined credential exchanges were verified concurrently on an unauthenticated session; `_runAuthStep` now sets the flag before its first yield and clears it on every arm. That is covered by a behavioural test rather than by this entry. For the other three listeners the allowlist is empty: these four helpers exist to change authentication state, and a caller with nothing to wait for is the bug. Proven by reverting `return mailServerNet.runSaslStep(` in mail-server-managesieve.js and watching it fire there.", },
 
   { id: "pem-body-wrap-must-not-emit-a-trailing-newline", primitive: "wrapping a base64 body into PEM lines must join the groups (`b64.match(/.{1,64}/g).join(\"\\n\")`) rather than append a newline to each of them — `replace(/(.{64})/g, \"$1\\n\")` also appends one after the LAST group when the body's length divides evenly by the width, and the caller then adds its own before the END line, so the body carries a blank line and the PEM does not parse", scanScope: "lib", regex: /\.replace\(\s*\/\(\.\{\d+\}\)\/g\s*,\s*["'`]\$1\\n["'`]\s*\)(?!\s*\.replace\(\s*\/\\n\$\/)/, allowlist: [], reason: "0.19.3 — b.auth.saml.verifyResponse rebuilt the holder-of-key KeyInfo certificate this way. The IdP's XML carries the certificate as base64 with whatever whitespace its writer used, so the reader strips the whitespace and re-wraps at 64 columns before handing node a PEM; when the body's length was a multiple of 64 the wrap left a blank line and createPublicKey refused it, so verifyResponse answered auth-saml/hok-bad-cert on a well-formed assertion. The length depends only on the certificate, so this is not an occasional failure: an IdP whose certificate lands on a multiple of 64 fails EVERY holder-of-key login, and one in sixteen certificates does. Measured directly: of 400 certificates built across a sweep of subject lengths, the 27 whose base64 length was a multiple of 64 were exactly the 27 that would not parse, and none of them failed under the joining form. Every other PEM builder in lib/ already joins — acme.js's CSR, fido-mds3.js's JWS chain, and the DKIM and mail-auth key readers — so the shape was the single outlier rather than a convention. The lookahead spares a wrapper that strips the trailing newline afterwards, which is how test/layer-0-primitives/privacy-pass.test.js spells it. The width is read as digits rather than fixed at 64 because the defect is in appending a separator per group, not in the column count. Behavioural coverage is testHolderOfKeyCertBodyMultipleOf64 in auth-saml.test.js, which mints a certificate whose body length is a multiple of 64 and requires the confirmation to succeed." },
+
+  { id: "actor-identity-fields-are-read-through-the-shared-reader", primitive: "a lib/ file that holds `b.requestHelpers.ACTOR_IDENTITY_FIELDS` reads an actor's identity through `b.requestHelpers.actorIdentityFields(actor)`, not by indexing the actor with a list entry. An entry may name a NESTED field, `claims.sub`, and `actor[\"claims.sub\"]` is not it — so a consumer that indexes directly silently cannot see that principal at all. Naming the list in a message is fine and is why `.join(` also satisfies this", scanScope: "lib", skipCommentLines: true, regex: /ACTOR_IDENTITY_FIELDS/, requires: /actorIdentityFields\s*\(|ACTOR_IDENTITY_FIELDS\s*\.join\s*\(/, allowlist: [], reason: "0.20.34 — `b.auth.jwt.verify` and its siblings in jar, oauth, oid4vp and openidFederation all answer with the token payload under `claims`, so an operator whose `bearerAuth` verify returns one of those results has `req.user = { claims: { sub } }`. `actorIdentityKey` read only top-level fields and answered `null` for that actor, which its own contract defines as refuse-the-operation, so file-upload ownership, crypto-field, db-query and idempotency scoping refused while flags, static and the bot-challenge ladder folded it onto the anonymous bucket. `b.auth.stepUp` meanwhile named it through its own `claims.sub` rung: one principal with two answers, which is the drift a single resolver exists to prevent. Measured before the fix: `actorIdentityKey({ claims: { sub: \"alice\" } })` was null while `stepUp._resolvePrincipal` answered \"alice\", and the drift ran the other way too — an actor carrying only `username` or `principalId` was named by the shared resolver and undefined to step-up, so requireStepUp refused an actor the rest of the framework names. `claims.sub` is appended LAST to both field lists so adding it could not re-key an actor an ownership record already names, `_ownField` walks a dotted entry by own properties at every step so a prototype cannot supply an identity, and agent-audit, mail-server-imap's same-account rule, flag-evaluation-context and step-up all read the shared reader now. Empty allowlist: the two files that only name the list in an error message satisfy the `.join(` branch, and request-helpers.js satisfies it by defining the reader. Behavioural cover is in request-helpers.test.js, which asserts step-up and this resolver name a principal by the same field across nine mixed shapes rather than re-pinning an order in a second place." },
+
+  { id: "principal-resolver-must-not-take-peer-input", primitive: "a resolver named for a principal — `_actorDomain`, `_principalX`, `_ownerX`, `_tenantX`, `_subjectX`, `_grantX`, `_accountX` — answers what the AUTHENTICATED identity carries, so it must not accept a peer-supplied parameter (`mailFrom`, `rcptTo`, `origin`, `serverName`, a `declared*` / `presented*` / `claimed*` / `advertised*` / `reported*` value, `envelope`, `referer`). A resolver that can read the peer's own value will fall back to it when the identity carries nothing, and the caller then compares that answer against another field of the same peer input — so the check passes on whatever the peer chose, and reports a pass rather than refusing", scanScope: "lib", skipCommentLines: true, regex: /function\s+_?(?:actor|principal|owner|tenant|subject|grant|account)[A-Za-z0-9_$]*\s*\([^)]*\b(?:mailFrom|rcptTo|origin|serverName|declared[A-Za-z]*|presented[A-Za-z]*|claimed[A-Za-z]*|advertised[A-Za-z]*|reported[A-Za-z]*|envelope|referer|hostHeader|fromHeader)\b/, allowlist: [], reason: "0.20.34 — lib/mail-server-submission.js's `_actorDomain(actor, mailFrom)` resolved the domain that dkimRequireMode \"self\" compares the message's d= tag against. Its first two rungs read the actor (its `.domain`, then the domain of an `.id` spelled as an address) and its last read the envelope sender, so a connection whose actor carried neither had its d= tag compared against its own MAIL FROM. Both sides are written by the same client in the same session, and nothing in that path verifies the signature cryptographically — only the tag is read — so \"self\" accepted a forged `DKIM-Signature: v=1; d=<anything>` whose domain agreed with the MAIL FROM beside it. Measured on the unfixed tree over a real listener: an unauthenticated connection and an authenticated one holding `{ id: \"u-1042\" }` both got `250 2.6.0 Message queued` for `d=attacker.example` with `MAIL FROM:<x@attacker.example>`, under `requireDkim: true, dkimRequireMode: \"self\"`. The existing suite asserted that pass as correct (\"dkim self: matching d= → 250\") because the connection agreed with itself. Reachable under `identityBinding: \"permissive\"`, and under a permissive profile where MAIL FROM needs no AUTH at all so there is no actor; under strict binding MAIL FROM is confined to the actor's mailbox set, which is why the fix resolves the domain from that set instead of the envelope and the strict path is unchanged. The function now takes the actor alone and returns every domain it carries, so the envelope is not reachable from it. Empty allowlist: a principal resolver has no business reading what the peer sent. The detector keys on the SIGNATURE, so it does not catch a resolver handed an opaque `state` that it dereferences inside; the behavioural cover for that is testDkimSelfNeedsADomainTheClientDidNotWrite in mail-server-submission.test.js, which drives the listener and pins the refusal." },
+
+  { id: "an-actor-key-hook-must-be-validated-as-a-function", primitive: "`actorIdentityKey` reads `opts.actorKey` only when it is a function and silently falls back to its own field list otherwise, so a module forwarding an operator-supplied `actorKey` must refuse a non-function at the call — the fallback is an identity the operator did not ask for, not an error they can see", scanScope: "lib", skipCommentLines: true, regex: /actorIdentityKey\(\s*[^,()]+,\s*\{\s*actorKey:/, requires: /optionalFunction\(\s*(?:opts\.)?actorKey|typeof\s+(?:opts\.)?actorKey\s*!==\s*"function"|actorKey:\s*function\s*\(\s*v\s*,\s*label\s*\)/, allowlist: [], reason: "0.20.34 — `b.flag.context.fromRequest` gained an `actorKey` option and forwarded it without a type check. A non-function is ignored by the resolver, so an actor carrying only the custom field became unnameable and took the address-derived `anon:<ip-hash>` targeting key: behind a shared proxy that merges unrelated callers into one percentage rollout and one cached decision, silently, where a throw would have named the typo. Found by the PR reviewer after the merge. Three sibling consumers already refused it and are exempted by the companion rather than by name: `lib/file-upload.js` validates through its option-validator map (`actorKey: function (v, label)`), `lib/mail-server-imap.js` throws on a non-function `accountKey` at create, and `lib/mail-server-jmap.js` calls `validateOpts.optionalFunction`. Empty allowlist: a forwarded identity hook has no correct form that skips the check. `clientIpResolver`, the other function-typed option on the same call, is validated inside `trustedClientIp`, which is why the detector keys on the actorKey forward specifically." },
+
+  { id: "a-grant-owner-lookup-must-filter-the-ownership-format", primitive: "the break-glass grants table is queried by a hash of the owner id, and the owner id format changed, so every query that matches on `issuedToActorHash` must also pin `ownerKeyVersion` — a row written under the earlier format carries the hash a current lookup derives for a DIFFERENT principal", scanScope: "lib", skipCommentLines: true, regex: /whereIn\("issuedToActorHash",[^)]*\)(?:(?!\n\})(?!ownerKeyVersion)[\s\S]){0,4000}\n\}/, allowlist: [], reason: "0.20.34 — owner ids are stored as `user:<id>` / `apikey:<id>`, and releases through 0.20.33 stored them bare. The two spellings collide exactly where a bare id spells a prefixed one: for a legacy grant belonging to the user whose literal id is `user:alice`, the stored hash is the one an ordinary user `alice` now derives, so `listActive` returned that other principal's grant id and `revokeAll({ actorId })` revoked it. Reproduced on the unfixed tree: alice's listing returned `bg-75161a27f27c54bb27636f0ed371a467`, and with only the revoke-side filter removed the revoke reported `revokedCount: 1`. The grants table gains `ownerKeyVersion` (1 = bare, 2 = prefixed) through the additive-column path both schema declarations support, so existing rows default to 1 and can never match a version-2 lookup; `revokeAll({ table })` still reaches them because it does not read the owner hash, and they expire within the policy's `grantTtl`. The `{0,4000}` bound is a ReDoS backstop far above either function body, not the precision mechanism: the match is bounded by a tempered token that cannot cross the function-closing brace at column 0. Empty allowlist: there are two such queries, `listActive` and `revokeAll`, and both must pin the version. This is why the sibling format on this branch is safe by construction — `actorIdentityKey` is length-tagged, so the idempotency scope's colliding legacy id would have to spell `u:0:|id:s:5:alice` verbatim, where break-glass's plain concatenation only needed the everyday `user:alice`." },
+
+  { id: "an-identity-check-must-not-be-narrowed-to-objects", primitive: "`actorIdentityKey` answers the same question for a string or a number as for an object, and returns null for an empty string and for a non-finite number, so a gate that consults it under a `typeof x === \"object\"` guard admits every primitive the resolver rejects — write the check on the resolver's answer alone and vary only the message", scanScope: "lib", skipCommentLines: true, regex: /typeof\s+[A-Za-z_$][\w$]*\s*===\s*"object"\s*&&[^\n]*actorIdentityKey\s*\(/, allowlist: [], reason: "0.20.34 — lib/db-query.js's `asActor` accepted an object, a string or a number, then ran the names-a-principal check as `typeof actor === \"object\" && actorIdentityKey(actor) === null`. Measured on the unfixed tree: `actorIdentityKey` returns null for \"\", NaN, Infinity and -Infinity, and a key for \"alice\", 42 and 0 — so the guard let all four invalid primitives through, while the error `asActor` promises is a configuration error. crypto-field's `_actorBucket` maps a null key to the shared UNNAMEABLE_ACTOR_BUCKET, so those callers pooled their unseal-failure counts and cooldowns with every other unnamed reader: one caller passing NaN spends another's budget, and the rate cap meant to isolate a principal stops isolating. The fix drops the type guard and keeps two messages, because \"carries none of the fields that name a principal\" is false of a string. Empty allowlist: the two other callers that consult the resolver as a gate, elevation-grant's create and verify, already test `=== null` with no type guard, which is the correct shape. The behavioural cover is the empty-string / NaN / Infinity / -Infinity refusals in testAsActorSeparatesTheUnsealFailureCap, each paired with a control that \"alice\", 42 and 0 are still accepted, zero especially, since it is falsy and a valid id." },
 
   { id: "pem-body-wrap-must-not-emit-a-trailing-newline-in-tests", primitive: "a test that builds a PEM from base64 has the same obligation as lib/: join the wrapped groups rather than append a newline to each, or the fixture is unparseable whenever its length divides evenly by the width", scanScope: "test", regex: /\.replace\(\s*\/\(\.\{\d+\}\)\/g\s*,\s*["'`]\$1\\n["'`]\s*\)(?!\s*\.replace\(\s*\/\\n\$\/)/, allowlist: [], reason: "0.19.3 — the same shape as the lib-side rule of this name, and it was in five fixture builders: test/helpers/tls.js, which several suites use to stand up a real TLS server, plus the certificate builders in http-client, network-tls, security-assert and mtls-ca-migration. There it reads as a flake rather than a failure, because the DER ECDSA signature length varies run to run, so a suite fails on roughly one process in sixteen with a certificate the previous run accepted. test/helpers/tls.js caches its pair for the process, so when it lands on the bad length every consumer of it fails at once and the run looks like a TLS regression. Kept as its own entry because the catalog selects one file set per rule.", },
 
@@ -17119,6 +17728,28 @@ var KNOWN_ANTIPATTERNS = [
     regex: /!\s*(?:[a-zA-Z_$][\w$]*\.)?[A-Z][A-Z0-9_]{2,}\[\s*[a-z]|[A-Z][A-Z0-9_]{2,}\[[a-z][\w.]*\]\s*===\s*undefined/,
     allowlist: [],
     reason: "Proto-shadow allowlist-bypass class (CWE-1321 prototype pollution / unsafe reflection). A reject-if-absent membership check on an object-literal allowlist — `if (!MAP[key])` or `if (MAP[key] === undefined)` — passes for any Object.prototype member name (constructor / __proto__ / toString / valueOf / hasOwnProperty) when `key` is attacker- or caller-supplied, bypassing the allowlist and (for value-lookup callers) handing a Function downstream. The v0.15.14 sweep converted every such gate across lib/ to the framework's canonical `Object.prototype.hasOwnProperty.call(MAP, key)` membership idiom (already 312 uses). Zero allowlist: a re-introduced `!SCREAMING_MAP[lowercaseKey]` or `SCREAMING_MAP[key] === undefined` membership gate anywhere in lib/ trips this — use hasOwnProperty.call instead. Reject-if-PRESENT gates (`if (DANGEROUS[scheme]) refuse`) are the opposite, fail-safe polarity and are written with the positive `if (MAP[key])` form, which this detector deliberately does not match (adding hasOwnProperty there would weaken them).",
+  },
+  {
+    id: "transaction-commit-outside-the-try-that-guards-it",
+    primitive: "run COMMIT / savepoint RELEASE inside the try whose catch unwinds the transaction",
+    // A statement that ENDS a transaction can FAIL. `COMMIT`, and a savepoint
+    // `RELEASE` that is the outermost one, both attempt the commit, and SQLite
+    // answers SQLITE_BUSY while another connection holds a read transaction in
+    // rollback-journal mode. When that statement sits AFTER the function's
+    // catch block rather than inside the try, nothing unwinds: the call
+    // throws, the transaction stays open, its rows stay pending on the writer
+    // connection, and the next write reports success inside a transaction
+    // nobody will commit.
+    //
+    // The catch body is bounded by the indentation of its own `} catch (...) {`
+    // line, captured and backreferenced. A `\n}` column-0 boundary does NOT
+    // work here: every helper in lib/mail-store.js is nested inside create(),
+    // so column 0 spans the whole file and the match runs from one function
+    // into an unrelated COMMIT in another.
+    scanScope: "lib",
+    regex: /(\r?\n[ \t]{1,12})\}[ \t]*catch[ \t]*\([^)\n]{0,40}\)[ \t]*\{(?:(?!\1\})[\s\S]){0,2000}\1\}\1(?!try\b)[^\r\n]{0,200}?["'](?:COMMIT|RELEASE)\b/,   // allow:regex-no-length-cap — every quantifier bounded; measured 41 ms across lib/
+    allowlist: [],
+    reason: "Failed-commit-leaves-the-transaction-open class. dbSchema.runInTransaction (sync and async), db.transaction, clusterStorage's local transaction and mailStore's FTS reindex all run COMMIT INSIDE the try, so a commit that throws lands in the catch and ROLLBACK runs. mailStore's savepoint helper ran RELEASE after the catch instead: with a second connection holding a read transaction, createFolder threw, db.isTransaction stayed true, the new folder row stayed pending on the writer, and the next createFolder reported success inside the abandoned transaction. Put the commit inside a try whose catch unwinds: roll back to the savepoint, and abort the transaction outright when the helper is the one that opened it. Zero allowlist.",
   },
   {
     id: "inline-optional-non-empty-string-array-validation",
@@ -20644,9 +21275,10 @@ function testValidateOptsAcceptedKeysAreRead() {
    "redisMaxReconnectAttempts"].forEach(function (k) {
     ALLOW["lib/cache.js::opts." + k] = true;
   });
-  // flag-providers: passed-through spec metadata — the whole spec is
-  // stored (flags[key] = opts.flags[key]) and returned via
-  // provider.get()/evaluate(); operator tooling reads the fields.
+  // flag-providers: passed-through spec metadata — _validateFlagSpec
+  // returns a copy of the whole spec with the validated rules, which the
+  // provider stores and returns via provider.get(); operator tooling
+  // reads the fields.
   ["description", "tags", "kind"].forEach(function (k) {
     ALLOW["lib/flag-providers.js::spec." + k] = true;
   });
@@ -21910,6 +22542,258 @@ function testKeycloakRealmFitsItsColumns() {
         tooLong.length === 0);
 }
 
+// An option read by an identity comparison turns every OTHER value into the
+// opposite, and says nothing. A configuration carrying the string "true" or
+// "false", which is what an environment variable or a config file hands a
+// program, therefore gets the setting it did not ask for.
+//
+// Only the direction that fails OPEN is flagged, because that is the direction
+// where the deployment ends up less protected than its own configuration says:
+//
+//   `opts.requireX === true`   — a requirement, switched OFF by any non-boolean
+//   `opts.allowX  !== false`   — a permission, left ON by any non-boolean
+//
+// The reverse readings fail closed and cost a feature, not a defence, so they
+// are not worth the churn. The behavioural walk is requirement-flags.test.js;
+// this is the structural half, and it states the guarantee as "the file that
+// reads it also checks it" rather than as a list, so a new primitive is covered
+// the day it is written.
+function testARequirementFlagIsValidatedWhereItIsRead() {
+  // What makes `=== true` a fail-open is not the word `require`: it is that the
+  // option TIGHTENS something. Every verb below was taken from the tree rather
+  // than guessed — a census of every policy-shaped boolean read in lib/ turned
+  // up `rejectUnknown`, `forbidProxy`, `forbidSelfApprove`, `refuseStopSequences`,
+  // `redactBcc` and `seal`, all read `=== true`, none of them matched by the
+  // five verbs this rule started with. `forbidProxy` sits in the same function
+  // as four `require*` options that were fixed while it was not.
+  //
+  // The other direction takes the mirror-image list. A tightening option read
+  // `!== false` stays ON for a value that is not the boolean `false`, which
+  // costs nothing; only an option that GRANTS something fails open read that
+  // way, and the granting verbs came from the same census: `acceptGrant`,
+  // `tolerateMissingPeerCert`, `ignoreSystem`, `replicaFallbackToPrimary`.
+  //
+  // The verb is matched wherever it sits in the name, not only at the front:
+  // `replicaFallbackToPrimary` carries its verb in the middle and
+  // `dpopBoundAccessTokensRequired` at the end, and a rule anchored at the
+  // start reported neither.
+  //
+  // Some verbs only mean what they say at the front, and matching those
+  // anywhere reads a policy into an ordinary word. `only` found nothing real
+  // and matched `readOnly`, `bearerOnly`, `structureOnly`, `verifyOnly` and
+  // `usesProfileOnly`, which name a MODE; `trust` matched `requireTrustedTypes`
+  // and `systemTrust`, which are a requirement and a piece of internal state.
+  // Those two are gone from the anywhere list, and the rest stay prefix-only.
+  function _verb(anywhere, prefixOnly) {
+    return new RegExp("(?:^|[a-z0-9_])(" + anywhere + ")|^(" + prefixOnly + ")", "i");
+  }
+  var FAIL_OPEN = [
+    // [ which names, how the read is spelled, how it is described ]
+    { names: _verb("require|enforce|must|mandat|demand|reject|refuse|forbid", "deny|block|strict|seal|redact"),
+      op: "===\\s*true",  as: "=== true" },
+    { names: _verb("allow|permit|accept|tolerate|ignore|bypass|lenient|relax|fallback",
+                   "trust|skip|disable|insecure|loose"),
+      op: "!==\\s*false", as: "!== false" },
+  ];
+  // The third spelling, which neither comparison above catches: a permission read
+  // TRUTHILY. `!!x.allowY` turns the string "false" into true, so the off switch
+  // an operator writes in a config file or an environment variable reads as on.
+  // Measured on `safeJson.parse`: `allowProto: "false"` kept `__proto__` as an own
+  // key, exactly as `allowProto: true` does.
+  //
+  // The leading boundary matters. Without it this matches the `Boolean(` inside
+  // `optionalBoolean(opts.allowX)` — a VALIDATION — and every validated option
+  // would report itself as a defect.
+  // The receiver is any identifier, not just one spelled `opts`. Scoping this to
+  // `opts` missed the same defect under `entry`, `spec`, `mwOpts`, `verifyOpts`,
+  // `sel` and `schema` — including a role's `requireMfa` and a route gate's, in a
+  // file whose neighbouring fields all throw.
+  //
+  // A dotted path is a receiver too. `!!opts.tls.allowSelfSigned` reads an
+  // option exactly as `!!opts.allowSelfSigned` does, and a single-identifier
+  // receiver matched `opts` and called the option `tls`, which no name rule
+  // recognizes. lib/ holds no such read today, which is why the narrower
+  // version reported zero and looked finished.
+  var RECEIVER = "[A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*){0,4}";
+  var GRANTS = _verb("allow|permit|accept|tolerate|ignore|bypass|lenient|relax|fallback",
+                     "trust|skip|disable|insecure|loose");
+  FAIL_OPEN.push({
+    names: GRANTS,
+    re:    "(?:^|[^A-Za-z0-9_$.])(?:!!|Boolean\\()(" + RECEIVER + ")\\.([A-Za-z0-9_]+)",
+    as:    "a truthy read",
+  });
+  // A BARE truthy read is the same defect without the `!!`: `if (opts.allowX)`
+  // and `!opts.allowX` both turn the string "false" into a granted permission.
+  // Reported only for an option the file's OWN `@opts` block declares
+  // `boolean`, because the bare shape also matches arrays, constants and
+  // internal results — `opts.allowedHosts`, `safeUrl.ALLOW_HTTP_TLS`,
+  // `verdict.allowed`. With the declaration as the filter, 84 matches became
+  // the 22 that are really options, and the claim is the one worth making: an
+  // option this module declares a boolean is read as one.
+  FAIL_OPEN.push({
+    names:        GRANTS,
+    declaredOnly: true,
+    re:           "(?:if\\s*\\(\\s*!?|\\breturn\\s+!?|\\|\\|\\s*!?|&&\\s*!?|\\?\\s*)(" +
+                  RECEIVER + ")\\.([A-Za-z0-9_]+)\\s*(?:\\)|\\?|&&|\\|\\||;|:)",
+    as:           "a bare truthy read",
+  });
+  FAIL_OPEN.forEach(function (kind) {
+    if (!kind.re) {
+      kind.re = "\\b(" + RECEIVER + ")\\.([A-Za-z0-9_]+)\\s*" + kind.op;
+    }
+  });
+  var bad = [];
+  _libFiles().forEach(function (file) {
+    // Comment-stripped throughout. A doc block that quotes the shape it
+    // documents is not a read of it (`mail-require-tls` refuses a non-boolean and
+    // was flagged by its own comment), and a comment mentioning a validator must
+    // not exempt a file that does not call one.
+    var raw = fs.readFileSync(file, "utf8");
+    var src = _stripComments(raw);
+    // `   name:   boolean,` inside a comment block. An exact `boolean` only: a
+    // union such as `boolean | string` is a different question.
+    var declared = Object.create(null);
+    raw.split(/\r?\n/).forEach(function (line) {
+      var d = /^\s*\*?\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*:\s*boolean\s*(?:,|$|\/\/)/.exec(line);
+      if (d) declared[d[1]] = true;
+    });
+    var seen = Object.create(null);
+    FAIL_OPEN.forEach(function (kind) {
+    var read = new RegExp(kind.re, "g");
+    var m;
+    while ((m = read.exec(src)) !== null) {
+      var name = m[2];
+      if (!kind.names.test(name)) continue;
+      if (kind.declaredOnly && !declared[name]) continue;
+      if (seen[name]) continue;
+      seen[name] = true;
+      // A validation is either an explicit optionalBoolean on that option or a
+      // declarative schema entry naming it with a boolean rule. Both are real
+      // and both are used in lib/, so neither is privileged here.
+      // Any validator whose name says "boolean", receiving that option: the
+      // shared `validateOpts.optionalBoolean` and a module's own
+      // `_requireBooleanIfPresent` are the same guarantee.
+      var explicit = new RegExp("[A-Za-z_$][A-Za-z0-9_$]*[Bb]oolean[A-Za-z0-9_$]*\\(\\s*" +
+                                RECEIVER + "\\." + name + "\\b");
+      var listed   = new RegExp("\\[[^\\]]*[\"']" + name + "[\"'][^\\]]*\\]\\s*\\.forEach");
+      var schema   = new RegExp("\\b" + name + "\\s*:\\s*\\{[^}]*optional-boolean");
+      // A hand-rolled type check is a validation too: a primitive low enough in
+      // the stack not to import the shared validator still has to refuse.
+      var byType   = new RegExp("typeof\\s+" + RECEIVER + "\\." + name +
+                                "\\s*!==\\s*[\"']boolean[\"']");
+      // `if (opts.X !== true) { throw ... }` IS the refusal, which is how
+      // `mail-require-tls` states it. The throw is what makes it one: accepting
+      // a bare `!== true` exempted `sql.js`, where that spelling is the
+      // default-deny BRANCH of a feature flag and refuses nothing, and it hid a
+      // genuine fail-open read of the same option two thousand lines away.
+      var byNotTrue = new RegExp(RECEIVER + "\\." + name +
+                                 "\\s*!==\\s*true\\s*\\)[^;{]{0,40}\\{[^}]{0,300}throw");
+      // `x.opt != null && x.opt !== false` is not a boolean read at all: the
+      // option holds an OBJECT and `false` is its disable sentinel, so anything
+      // else falls into the object check and is refused there.
+      // `breakGlass.policy.set`'s `serviceAccountBypass` is that shape, and the
+      // widened verb list reported it until this told the two apart.
+      var sentinel = new RegExp(RECEIVER + "\\." + name + "\\s*!=\\s*null\\s*&&");
+      // A guard does not validate its own options: it hands them to the shared
+      // resolver, which refuses a non-boolean for every key whose DEFAULT is a
+      // boolean. So a file that routes through that resolver and gives the
+      // option a boolean default has stated the same guarantee, one file over.
+      var byGuardDefault = /(?:defineGuard|defineParser|resolveProfileAndPosture|makeProfileResolver)\s*\(/.test(src) &&
+                           new RegExp("\\b" + name + "\\s*:\\s*(?:true|false)\\s*,").test(src);
+      var validated = explicit.test(src) || listed.test(src) || schema.test(src) ||
+                      byType.test(src) || byNotTrue.test(src) || sentinel.test(src) ||
+                      byGuardDefault;
+      if (validated) continue;
+      bad.push(file.replace(/\\/g, "/") + ": " + m[1] + "." + name +
+               " is read as " + kind.as + " and never checked as a boolean");
+    }
+    });
+  });
+  check("a requirement-shaped option is validated where it is read (" + bad.length + ")" +
+        (bad.length ? ":\n    " + bad.join("\n    ") : ""), bad.length === 0);
+}
+
+// Two constructor conventions live side by side. `defineClass` builds
+// `(code, message)`; a class registered with `messageFirstFactory` or built by
+// `defineMessageFirstClass` takes `(message, code)`. Writing one in the other's
+// order throws an error whose `.code` holds the whole diagnostic and whose
+// `.message` holds the stable code, so a caller matching on the code never
+// matches and a message-only log carries the code and nothing else. Nothing
+// fails: the throw still happens, the shape is just inside out.
+//
+// `lib/parsers/safe-xml.js` shipped that way for both of its option refusals.
+// A code is recognizable on its own: lowercase words either side of one slash,
+// which is why a first argument spelled that way is the signal.
+function testAMessageFirstErrorIsNotBuiltCodeFirst() {
+  var sources = {};
+  var files = _libFiles();
+  files.forEach(function (file) { sources[file] = _stripComments(fs.readFileSync(file, "utf8")); });
+
+  var messageFirst = Object.create(null);
+  files.forEach(function (file) {
+    var src = sources[file];
+    var registered = /(^|[^A-Za-z0-9_$])messageFirstFactory\(\s*([A-Za-z0-9_$]+)\s*\)/g;
+    var defined = /var\s+([A-Za-z0-9_$]+)\s*=\s*[A-Za-z0-9_$.]*defineMessageFirstClass\(/g;
+    var m;
+    while ((m = registered.exec(src)) !== null) {
+      // The definition of the registrar is not a registration of anything.
+      if (/function\s*$/.test(src.slice(Math.max(0, m.index - 12), m.index + m[1].length))) continue;
+      messageFirst[m[2]] = true;
+    }
+    while ((m = defined.exec(src)) !== null) messageFirst[m[1]] = true;
+  });
+
+  var bad = [];
+  files.forEach(function (file) {
+    var src = sources[file];
+    Object.keys(messageFirst).forEach(function (cls) {
+      var built = new RegExp("new\\s+" + cls + "\\(\\s*\"([a-z0-9-]+\\/[a-z0-9-]+)\"", "g");
+      var m;
+      while ((m = built.exec(src)) !== null) {
+        bad.push({ file: file.replace(/\\/g, "/"),
+                   line: src.slice(0, m.index).split("\n").length,
+                   content: "new " + cls + "(\"" + m[1] + "\", ...) passes the code where " + cls +
+                            " takes the message: this class is message-first, so `.code` ends up " +
+                            "holding the diagnostic and `.message` the code" });
+      }
+    });
+  });
+  _report("a message-first error class is constructed message-first (" +
+          Object.keys(messageFirst).length + " such classes)", bad);
+}
+
+// The fuzzing base image is pinned by digest in two Dockerfiles, one for
+// ClusterFuzzLite and one for the OSS-Fuzz project. Dependabot opens its bump
+// against a single directory, so accepting one leaves the other behind and the
+// two builds stop running the same base. Nothing else compares them.
+function testFuzzBaseImageDigestAgreesAcrossDockerfiles() {
+  var paths = [".clusterfuzzlite/Dockerfile", "oss-fuzz/projects/blamejs/Dockerfile"];
+  var pinned = [];
+  for (var i = 0; i < paths.length; i += 1) {
+    var text;
+    try { text = fs.readFileSync(paths[i], "utf8"); }
+    catch (_e) { return; }
+    var m = /base-builder-javascript@sha256:([0-9a-f]{64})/.exec(text);
+    if (!m) {
+      _report("the fuzzing base image is pinned by digest in both Dockerfiles",
+        [{ file: paths[i], line: 1,
+           content: "no `base-builder-javascript@sha256:<digest>` pin found; a floating tag " +
+                    "puts the fuzz build on whatever upstream published last" }]);
+      return;
+    }
+    pinned.push({ path: paths[i], digest: m[1], line: text.slice(0, m.index).split("\n").length });
+  }
+  var bad = [];
+  if (pinned[0].digest !== pinned[1].digest) {
+    bad.push({ file: pinned[1].path, line: pinned[1].line,
+      content: "base-builder-javascript is pinned to " + pinned[1].digest.slice(0, 12) +
+               " here and " + pinned[0].digest.slice(0, 12) + " in " + pinned[0].path +
+               "; both builds must run the same base, and a bump that touches one " +
+               "directory splits them" });
+  }
+  _report("the fuzzing base image digest agrees across both Dockerfiles", bad);
+}
+
 function testWikiPortAgreesAcrossArtifacts() {
   var bad = [];
   var dockerfile;
@@ -22148,20 +23032,121 @@ function testSessionUpdateDataMergesOneLevelDeep() {
   var noComments = src.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
   var bad = [];
   if (!/_isPlainObject\(\s*ev\s*\)\s*&&\s*_isPlainObject\(\s*nv\s*\)[\s\S]{0,80}next\[k\]\s*=\s*Object\.assign\(\s*\{\}\s*,\s*ev\s*,\s*nv\s*\)/.test(noComments) ||
-      !/function\s+_isPlainObject[\s\S]{0,180}getPrototypeOf\([\s\S]{0,60}Object\.prototype/.test(noComments) ||
+      !/function\s+_isPlainObject(?:(?!\n\})[\s\S]){0,400}getPrototypeOf\((?:(?!\n\})[\s\S]){0,200}getPrototypeOf\((?:(?!\n\})[\s\S]){0,60}===\s*null/.test(noComments) ||
       /next\[k\]\s*=\s*data\[k\]/.test(noComments)) {
     bad.push({ file: "lib/session.js", line: 1,
       content: "session.updateData({ merge: true }) must merge an inner PLAIN OBJECT one level deep so the existing inner " +
                "keys survive (its doc promises \"Inner objects merge ONE LEVEL DEEP\") — merge only when BOTH values are " +
                "plain objects (`_isPlainObject(ev) && _isPlainObject(nv)` → `next[k] = Object.assign({}, ev, nv)`), where " +
-               "_isPlainObject is prototype-based (Object.getPrototypeOf === Object.prototype/null) so a Date/Buffer/class " +
-               "instance REPLACES (reaching JSON as its own form) rather than being merged into the retained old object or " +
-               "mangled to byte keys. A bare `next[k] = data[k]` shallow-replaces the whole inner object, silently " +
-               "discarding the operator's existing nested keys (data loss)" });
+               "_isPlainObject reads the PROTOTYPE CHAIN (a prototype that is null, or whose own prototype is null) so a " +
+               "Date/Buffer/class instance REPLACES (reaching JSON as its own form) rather than being merged into the " +
+               "retained old object or mangled to byte keys. Asking whether the prototype IS Object.prototype answers no " +
+               "for an object built in another realm, which has that realm's Object.prototype, so a `node:vm` caller's " +
+               "inner object replaced the whole nested value and dropped the keys already in it; asking whether the " +
+               "prototype's own prototype is null answers the question without naming a realm. A bare " +
+               "`next[k] = data[k]` shallow-replaces the whole inner object, silently discarding the operator's existing " +
+               "nested keys (data loss). The behaviour itself is pinned by " +
+               "test/layer-0-primitives/session-extensions.test.js; this only keeps the shape that produces it" });
   }
   bad = _filterMarkers(bad, "session-updatedata-merges-one-level-deep");
   _report("session.updateData({ merge: true }) merges an inner object one level deep (existing nested keys survive), " +
           "never a shallow next[k] = data[k] that discards them",
+    bad);
+}
+
+// A serializer decides what bytes a value becomes, and a signature is taken
+// over those bytes. `x instanceof Date` asks whether x was built from THIS
+// realm's Date, so a value from a `node:vm` context answers no to every branch
+// and falls through to whatever the last one is. Measured before this fired:
+// a cross-realm Date canonicalized to `{}` instead of its ISO string, a
+// cross-realm Map and Set canonicalized to `{}` where a local one is REFUSED
+// as unserialisable, and a cross-realm Map encoded to CBOR as an empty map.
+// Each is a value silently dropped out of bytes something then signs.
+// node:util's types read the internal slot instead, so they answer for any
+// realm and cannot be spoofed by a Symbol.toStringTag.
+var _REALM_BOUND_BUILTINS = "Date|Map|Set|RegExp|WeakMap|WeakSet|Promise|ArrayBuffer|" +
+  "Uint8Array|Uint16Array|Uint32Array|Int8Array|Int16Array|Int32Array|" +
+  "Float32Array|Float64Array|BigInt64Array|BigUint64Array|DataView";
+
+function testSerializersDoNotDispatchOnRealmBoundInstanceof() {
+  // Named one by one: each decides what an arbitrary operator value IS, and
+  // then stores it, signs it, redacts it, refuses it, or files it under a
+  // timestamp. Which branch it takes is the whole answer, so the realm that
+  // happened to build the value must not choose. Measured on these before the
+  // rule: b.redact emitted a secret's bytes as {"0":115,...} where a local
+  // byte array collapses to [REDACTED], and its classifier returned
+  // verdict:"clean" for a body carrying an SSN, which is the verdict
+  // installOutboundDlp gates egress on; b.worm stored 3 bytes as the 19 bytes
+  // of {"0":1,"1":2,"2":3} in a write-once record and digested that;
+  // b.guardMailQuery accepted a RegExp its own rule refuses; b.time.toParts
+  // refused a Date as "got object"; compliance.aiAct.logging dropped a
+  // record's timestamp to null.
+  var SERIALIZERS = [
+    "lib/canonical-json.js", "lib/cbor.js", "lib/safe-json.js",
+    "lib/redact.js", "lib/worm.js", "lib/audit.js", "lib/audit-tools.js",
+    "lib/crypto-field.js", "lib/framework-schema.js", "lib/guard-mail-query.js",
+    "lib/compliance-ai-act-logging.js", "lib/db-collection.js", "lib/time.js",
+    "lib/i18n.js", "lib/cms-codec.js", "lib/archive.js", "lib/atomic-file.js",
+    "lib/mdoc.js", "lib/vc.js", "lib/safe-buffer.js", "lib/privacy-pass.js",
+    "lib/session-device-binding.js", "lib/mail-bimi.js",
+  ];
+  var re = new RegExp("instanceof\\s+(?:" + _REALM_BOUND_BUILTINS + ")\\b");
+  var bad = [];
+  SERIALIZERS.forEach(function (rel) {
+    var src;
+    try { src = fs.readFileSync(rel, "utf8"); }
+    catch (_e) { return; }
+    src.split("\n").forEach(function (line, i) {
+      var code = line.replace(/\/\/[^\n]*/g, "");
+      if (!re.test(code)) return;
+      bad.push({ file: rel, line: i + 1,
+        content: "a serializer dispatches on `instanceof` against a built-in, which compares this realm's " +
+                 "constructor: a value from a node:vm context answers no and takes a branch meant for " +
+                 "something else, so it serializes to different bytes or slips past a refusal. Use " +
+                 "node:util's types (nodeTypes.isDate / isMap / isSet / isRegExp / isUint8Array), which read " +
+                 "the internal slot. `Buffer.isBuffer` is already realm-independent and stays" });
+    });
+  });
+  bad = _filterMarkers(bad, "serializer-realm-bound-instanceof");
+  _report("a serializer decides a value's type with node:util types, never `instanceof` against a built-in " +
+          "(which answers no for a value from another realm)",
+    bad);
+}
+
+// The rule above names its modules, because `instanceof Date` in front of
+// `: new Date(x)` is a coercion whose other branch is correct, and there are
+// scores of those. Bytes have no such form: every place lib/ asked
+// `x instanceof Uint8Array` it was deciding whether a value IS bytes, and the
+// answer decided whether the bytes got redacted, capped, hex-encoded, wiped,
+// stored or refused. So bytes get the whole tree with no named list and no
+// allowlist, and the file-scoped rule above keeps the wider built-in set for
+// the modules where a wrong branch is a wrong signature.
+var _REALM_BOUND_BYTE_VIEWS = "Uint8Array|Uint16Array|Uint32Array|Int8Array|" +
+  "Int16Array|Int32Array|Float32Array|Float64Array|BigInt64Array|" +
+  "BigUint64Array|ArrayBuffer|DataView";
+
+function testNothingInLibDecidesBytesWithRealmBoundInstanceof() {
+  var re = new RegExp("instanceof\\s+(?:" + _REALM_BOUND_BYTE_VIEWS + ")\\b");
+  var bad = [];
+  _libFiles().forEach(function (full) {
+    var rel = _relPath(full);
+    if (rel.indexOf("lib/vendor/") === 0) return;
+    var src;
+    try { src = fs.readFileSync(full, "utf8"); }
+    catch (_e) { return; }
+    _stripComments(src).split("\n").forEach(function (line, i) {
+      if (!re.test(line)) return;
+      bad.push({ file: rel, line: i + 1,
+        content: "`instanceof` against a typed-array view compares THIS realm's constructor, so a byte " +
+                 "array built anywhere else answers no and takes the branch meant for something that is " +
+                 "not bytes. Use nodeTypes.isUint8Array (node:util's types), which reads the internal " +
+                 "slot and answers for every realm; it also refuses an object that only claims the " +
+                 "prototype, which `instanceof` accepts. Buffer.isBuffer stays where a Buffer and a " +
+                 "plain view are handled differently, but it cannot stand in for this test" });
+    });
+  });
+  bad = _filterMarkers(bad, "lib-realm-bound-byte-instanceof");
+  _report("nothing in lib/ decides whether a value is bytes with `instanceof` against a typed-array view",
     bad);
 }
 
@@ -24543,8 +25528,19 @@ function testLibCommentBlocksAreWholeSentences() {
       // when re-verifying the class, and two of them had been cut in half.
       var isMarker   = /^allow:/.test(first.text);
       var isDirective = /^@|eslint|c8 ignore|SPDX|^-|^\||^\d+\.|:$|^[A-Za-z_$][\w$]*\(/.test(first.text);
+      // A block whose last line ends on a comma or a semicolon, or that opens
+      // a parenthesis it never closes, ends mid-sentence whatever its last word
+      // is: a sweep that dropped a marker's continuation line left eleven of
+      // those, most of them ending on a noun the word list cannot see.
+      var opens = 0;
+      var closes = 0;
+      block.forEach(function (l) {
+        opens += (l.text.match(/\(/g) || []).length;
+        closes += (l.text.match(/\)/g) || []).length;
+      });
+      var cut = /[,;]$/.test(last.text) || opens > closes;
       if (!isDirective) {
-        if (last.text.length > 0 && DANGLING.test(last.text)) {
+        if (last.text.length > 0 && (DANGLING.test(last.text) || cut)) {
           bad.push({
             file: rel, line: last.n, content: "comment block ends mid-sentence on `" +
               last.text.split(/\s+/).pop() + "`: \"" + last.text.slice(-60) + "\"",
@@ -24553,6 +25549,14 @@ function testLibCommentBlocksAreWholeSentences() {
                    first.text.indexOf("(") === -1) {
           bad.push({
             file: rel, line: first.n, content: "comment block opens mid-clause: \"" +
+              first.text.slice(0, 60) + "\"",
+          });
+        } else if (!isMarker && /\ballow:[a-z0-9-]+/.test(first.text)) {
+          // A marker sits at the start of its comment line; prose before it on
+          // a block's first line is the tail of a sentence the lines above
+          // once carried ("honored. allow:hand-rolled-sql ...").
+          bad.push({
+            file: rel, line: first.n, content: "comment block opens on the tail of a sentence before its allow marker: \"" +
               first.text.slice(0, 60) + "\"",
           });
         }
@@ -24901,7 +25905,8 @@ async function run() {
   testNoApplyDefaultsDroppedOpt();
   testNoUnresolvedMarkers();
   testNoStaleDefers();
-  testNoLiteralNulBytesInSource();
+  testNoRawControlCharactersInSource();
+  testGrowthChecksRunSolo();
   testParserPrimitivesHaveFuzzHarness();
   testExemptingSkipGuardsReadStrippedSource();
   testCommentStripHelper();
@@ -24941,6 +25946,7 @@ async function run() {
   testQuotedIdentifiersMatchTheQueryBuilder();
   testRegexModulesContainNoRegexes();
   testOperatorRegexScreenedForReDoS();
+  testCacheControlDefaultsKeepNoStore();
   testModuleLoadListMatchesNativeModuleNaming();
   testCompetingConsumerClaimUsesSkipLocked();
   testCacheCounterUsesAtomicUpdate();
@@ -25071,6 +26077,9 @@ async function run() {
   // WIKI_PORT default must match the release-container.yml smoke
   // step's port mapping + curl host.
   testKeycloakRealmFitsItsColumns();
+  testARequirementFlagIsValidatedWhereItIsRead();
+  testAMessageFirstErrorIsNotBuiltCodeFirst();
+  testFuzzBaseImageDigestAgreesAcrossDockerfiles();
   testWikiPortAgreesAcrossArtifacts();
   testReleasePushPathsRunLiveIntegration();
   testReleaseUnresolvedThreadsFailClosedAtPageCap();
@@ -25079,6 +26088,8 @@ async function run() {
   testMtlsCaFingerprintMatchesGate();
   testRequireMtlsRevocationSourceReturnsBoolean();
   testSessionUpdateDataMergesOneLevelDeep();
+  testSerializersDoNotDispatchOnRealmBoundInstanceof();
+  testNothingInLibDecidesBytesWithRealmBoundInstanceof();
   testMtlsCaCommitJournalsPriorKeyBeforeRename();
   testMtlsCaIssuanceLedgerFailsClosedOnCorruptSchema();
   testMtlsCaIssuanceGenerationUndeterminableIsNull();

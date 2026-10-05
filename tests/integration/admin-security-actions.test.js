@@ -15,6 +15,7 @@
  */
 var { describe, it, before, after } = require("node:test");
 var assert = require("node:assert");
+var fs = require("fs");
 var path = require("path");
 
 var testServer = require("../helpers/test-server");
@@ -103,6 +104,15 @@ describe("POST /admin/security/seal/vault-passphrase", function () {
     assert.match(res.json.detail || res.json.error, /required/);
   });
 
+  it("refuses a passphrase longer than 4096 bytes", async function () {
+    var long = "p".repeat(4097);
+    var res = await client.post("/admin/security/seal/vault-passphrase", {
+      json: { passphrase: long, confirmPassphrase: long },
+    });
+    assert.strictEqual(res.status, 400);
+    assert.match(res.json.detail || res.json.error, /at most 4096 bytes/);
+  });
+
   it("seals vault key with matching passphrase + returns followUp checklist", async function () {
     var pw = "e2e-test-passphrase-abc-123";
     var res = await client.post("/admin/security/seal/vault-passphrase", {
@@ -150,6 +160,14 @@ describe("POST /admin/security/unseal/vault-passphrase", function () {
     assert.match(res.json.detail || res.json.error, /passphrase rejected/);
   });
 
+  it("refuses a passphrase longer than 4096 bytes with 400", async function () {
+    var res = await client.post("/admin/security/unseal/vault-passphrase", {
+      json: { passphrase: "p".repeat(4097) },
+    });
+    assert.strictEqual(res.status, 400);
+    assert.match(res.json.detail || res.json.error, /at most 4096 bytes/);
+  });
+
   it("unseals with correct passphrase", async function () {
     var pw = "e2e-test-passphrase-abc-123";
     var res = await client.post("/admin/security/unseal/vault-passphrase", {
@@ -161,6 +179,28 @@ describe("POST /admin/security/unseal/vault-passphrase", function () {
     assert.ok(Array.isArray(res.json.followUp));
     assert.ok(res.json.followUp.some(function (s) { return /unset VAULT_PASSPHRASE_MODE/i.test(s); }),
       "followUp mentions the env-var cleanup requirement");
+  });
+
+  it("answers an unseal of a damaged sealed file with 500, not as a wrong passphrase", async function () {
+    var pw = "e2e-damaged-sealed-passphrase-1";
+    // Required after the server started, so C.PATHS points at its data directory.
+    var C = require(path.join(testServer.projectRoot, "lib", "constants"));
+    var sealed = await client.post("/admin/security/seal/vault-passphrase", {
+      json: { passphrase: pw, confirmPassphrase: pw },
+    });
+    assert.strictEqual(sealed.status, 200, JSON.stringify(sealed.json));
+    var good = fs.readFileSync(C.PATHS.VAULT_KEY_SEALED);
+    var damaged = Buffer.from(good);
+    damaged[0] = 0x00;
+    fs.writeFileSync(C.PATHS.VAULT_KEY_SEALED, damaged);
+    try {
+      var res = await client.post("/admin/security/unseal/vault-passphrase", { json: { passphrase: pw } });
+      assert.strictEqual(res.status, 500);
+    } finally {
+      fs.writeFileSync(C.PATHS.VAULT_KEY_SEALED, good);
+    }
+    var unsealed = await client.post("/admin/security/unseal/vault-passphrase", { json: { passphrase: pw } });
+    assert.strictEqual(unsealed.status, 200, JSON.stringify(unsealed.json));
   });
 });
 

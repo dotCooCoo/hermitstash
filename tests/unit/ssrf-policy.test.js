@@ -198,3 +198,20 @@ describe("ssrf-policy — validateOutboundUrl", function () {
     assert.strictEqual(validateOutboundUrl("not a url").valid, false);
   });
 });
+
+describe("ssrf-policy relies on the b.ssrfGuard.isExactLoopbackName contract", function () {
+  it("isExactLoopbackName accepts the exact localhost name and loopback literals", function () {
+    ["localhost", "LOCALHOST.", "127.0.0.1", "127.8.9.10", "::1", "[::1]"]
+      .forEach(function (h) { assert.strictEqual(b.ssrfGuard.isExactLoopbackName(h), true, h); });
+  });
+
+  it("isExactLoopbackName refuses *.localhost, look-alike names and other addresses", function () {
+    ["app.localhost", "localhost.evil.com", "10.0.0.1", ""]
+      .forEach(function (h) { assert.strictEqual(b.ssrfGuard.isExactLoopbackName(h), false, h); });
+  });
+
+  it("isPrivateIp blocks every loopback spelling", function () {
+    ["localhost", "LOCALHOST.", "[::1]", "127.0.0.1"]
+      .forEach(function (h) { assert.strictEqual(isPrivateIp(h), true, h); });
+  });
+});

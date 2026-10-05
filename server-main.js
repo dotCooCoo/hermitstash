@@ -21,6 +21,7 @@ var logger = require("./app/shared/logger");
 var certUtils = require("./lib/cert-utils");
 var runtimeState = require("./lib/runtime-state");
 var mtlsCa = require("./lib/mtls-ca");
+var passwordGate = require("./lib/password-gate");
 
 // For auth and scope failures that must refuse before the handshake completes.
 // A failure after that point is b.websocket.handleUpgrade's to report.
@@ -59,12 +60,15 @@ var expiryCleanupJob = require("./app/jobs/expiry-cleanup.job");
 var orphanCleanupJob = require("./app/jobs/orphan-cleanup.job");
 var certExpiryJob = require("./app/jobs/cert-expiry.job");
 var backupJob = require("./app/jobs/backup.job");
+var sessionPurgeJob = require("./app/jobs/session-purge.job");
 
 // Every res.redirect() target must be listed here. Wildcards are not accepted
 // and an http:// origin is refused at construction.
 var app = new Router({
   allowedRedirectOrigins: ["https://accounts.google.com"],
 });
+// Wraps every middleware added after it, so it runs before the first app.use().
+errorHandler.guardRouterLogs(app);
 
 var dataDir = C.DATA_DIR;
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
@@ -79,7 +83,7 @@ startupChecks.run();
 // The setup wizard deletes the file on completion.
 if (users.count({}) === 0 && config.localAuth) {
   var initialPassword = b.crypto.generateBytes(12).toString("base64").replace(/[+/=]/g, "").slice(0, 16);
-  b.auth.password.hash(initialPassword).then(function (hash) {
+  passwordGate.hash(initialPassword).then(function (hash) {
     users.insert({
       email: "admin@hermitstash.com", displayName: "Admin",
       passwordHash: hash, authType: "local", role: "admin", status: "active",
@@ -141,7 +145,7 @@ app.use(b.middleware.composePipeline([
   // the request reaches its route handler with ipCheck, securityHeaders,
   // botGuard and cors all skipped. Ending the response here halts the chain.
   { name: "errorHandler", position: 90, mw: function (err, req, res, _next) {
-    try { require("./app/shared/logger").error("security pipeline error — failing closed", { error: err && err.message, path: req && req.pathname }); } catch (_e) { /* logging must never break the fail-closed response */ }
+    try { logger.error("security pipeline error — failing closed", { error: err && err.message, path: logger.requestPath(req) }); } catch (_e) { /* logging must never break the fail-closed response */ }
     if (!res.writableEnded) {
       b.problemDetails.send(res, { type: "https://hermitstash.com/problems/internal", title: "Internal Server Error", status: 500 });
     }
@@ -662,6 +666,11 @@ scheduler.register("expired_access_codes_cleanup", C.TIME.hours(1), function () 
 scheduler.register("expired_idempotency_keys_cleanup", C.TIME.hours(1), function () {
   try { expiryCleanupJob.cleanupExpiredIdempotencyKeys(); } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
+scheduler.register("session_purge", C.TIME.hours(1), function () {
+  return sessionPurgeJob.run().catch(function (e) { logger.error("session_purge failed", { error: e.message }); });
+});
+// The session purge also runs once at boot.
+sessionPurgeJob.run().catch(function (e) { logger.error("session_purge failed at boot", { error: e.message }); });
 scheduler.register("webhook_deliveries_cleanup", C.TIME.days(1), function () {
   try { expiryCleanupJob.cleanupWebhookDeliveries(); } catch (_e) { /* scheduled cleanup — retry next tick */ }
 });
@@ -1283,9 +1292,7 @@ server.on("upgrade", function (req, socket, head) {
     else apiKeyConnectionCount.delete(keyId);
   });
 
-  // Rebuilt rather than logged as received, so no token reaches the log.
-  var logUrl = parsed.pathname + "?bundleId=" + bundleId + "&since=" + since;
-  logger.info("[Sync] WebSocket connected", { bundleId: bundleId, user: user._id, url: logUrl });
+  logger.info("[Sync] WebSocket connected", { bundleId: bundleId, userId: user._id, since: since });
 });
 
 var shuttingDown = false;

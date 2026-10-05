@@ -18,7 +18,7 @@ var { canEditOwned } = require("../app/shared/authz");
 var filesRepo = require("../app/data/repositories/files.repo");
 var db = require("../lib/db");
 var credentialsRepo = require("../app/data/repositories/credentials.repo");
-var { sanitizeFilename, sanitizeRename } = require("../app/shared/sanitize-filename");
+var { sanitizeFilename, sanitizeRename, stripNameControls } = require("../app/shared/sanitize-filename");
 var config = require("../lib/config");
 var storage = require("../lib/storage");
 var audit = require("../lib/audit");
@@ -26,7 +26,25 @@ var requireAuth = require("../middleware/require-auth");
 var { send, host } = require("../middleware/send");
 var rateLimit = require("../lib/rate-limit");
 var vaultLock = require("../lib/vault-mutation-lock");
+var uploadValidator = require("../app/http/validators/upload.validator");
 var { AppError, ValidationError, AuthenticationError, NotFoundError, ConflictError } = require("../app/shared/errors");
+
+// An ML-KEM-1024 public key and an ML-KEM-1024 ciphertext are each 1568 bytes.
+var MLKEM1024_BYTES = 1568;
+// An XChaCha20-Poly1305 nonce is 24 bytes.
+var XCHACHA_NONCE_BYTES = 24;
+// The browser names a vault batch with Helpers.uuid(). VAULT_BATCH_ID_RE
+// accepts that and any other ID of 1 to 64 letters, digits, hyphens or
+// underscores.
+var VAULT_BATCH_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+// base64Bytes returns the bytes of a canonical standard base64 string, and null
+// for any other value. Buffer.from skips characters outside the base64
+// alphabet, so a key followed by any amount of other text decodes to the key's
+// length.
+function base64Bytes(value) {
+  return b.safeBuffer.isCanonicalBase64(value) ? Buffer.from(value, "base64") : null;
+}
 
 module.exports = function (app) {
 
@@ -41,12 +59,12 @@ module.exports = function (app) {
       var body = (await b.parsers.json(req)) || {};
       var publicKey = body.publicKey; // base64-encoded ML-KEM public key
       var mode = body.mode === "prf" ? "prf" : "passkey";
-      if (!publicKey || publicKey.length < 100) {
+      var decoded = base64Bytes(publicKey);
+      if (!decoded || publicKey.length < 100) {
         throw new ValidationError("Invalid public key.");
       }
       // Validate key size: ML-KEM-1024 = 1568 bytes only
-      var decoded = Buffer.from(publicKey, "base64");
-      if (decoded.length !== 1568) {
+      if (decoded.length !== MLKEM1024_BYTES) {
         throw new ValidationError("Invalid ML-KEM public key size. Only ML-KEM-1024 (1568 bytes) accepted.");
       }
 
@@ -59,7 +77,8 @@ module.exports = function (app) {
           throw new ValidationError("Vault seed required for passkey mode.");
         }
         // Validate seed size (32 bytes → 44 base64 chars)
-        var seedBytes = Buffer.from(seed, "base64");
+        var seedBytes = base64Bytes(seed);
+        if (!seedBytes) throw new ValidationError("The vault seed must be base64.");
         if (seedBytes.length !== 32 && seedBytes.length !== 64) {
           throw new ValidationError("Invalid seed size.");
         }
@@ -235,10 +254,22 @@ module.exports = function (app) {
       if (!body.ciphertext || !body.encapsulatedKey || !body.iv || !body.filename) {
         throw new ValidationError("Missing encrypted file data.");
       }
+      var keyBytes = base64Bytes(body.encapsulatedKey);
+      if (!keyBytes || keyBytes.length !== MLKEM1024_BYTES) {
+        throw new ValidationError("The encapsulated key must be 1568 bytes of base64.");
+      }
+      var ivBytes = base64Bytes(body.iv);
+      if (!ivBytes || ivBytes.length !== XCHACHA_NONCE_BYTES) {
+        throw new ValidationError("The IV must be 24 bytes of base64.");
+      }
+      var batchId = (body.batchId === undefined || body.batchId === null || body.batchId === "") ? null : body.batchId;
+      if (batchId !== null && (typeof batchId !== "string" || !VAULT_BATCH_ID_RE.test(batchId))) {
+        throw new ValidationError("The batch ID must be 1 to 64 letters, digits, hyphens or underscores.");
+      }
       // Sanitize filename — strip path components, limit length
       body.filename = nodePath.basename(String(body.filename)).slice(0, 255);
       // Strip null bytes and control characters
-      body.filename = body.filename.replace(/[\x00-\x1f\x7f]/g, "");
+      body.filename = stripNameControls(body.filename);
       if (!body.filename) body.filename = "unnamed";
 
       // Serialize against vault rotation for this user. An upload that
@@ -286,9 +317,9 @@ module.exports = function (app) {
         var createdVaultFile = filesRepo.create({
           shareId: shareId,
           originalName: sanitizeFilename(body.filename),
-          relativePath: sanitizeFilename(body.relativePath || body.filename, 500),
+          relativePath: sanitizeFilename(body.relativePath || body.filename, C.UPLOAD.RELATIVE_PATH_MAX),
           storagePath: storagePath,
-          mimeType: body.mimeType || "application/octet-stream",
+          mimeType: uploadValidator.acceptedMime(body.mimeType),
           size: ciphertext.length,
           uploadedBy: req.user._id,
           uploaderEmail: req.user.email,
@@ -297,7 +328,7 @@ module.exports = function (app) {
           vaultEncrypted: "true",
           vaultEncapsulatedKey: encapsulatedKey,
           vaultIv: iv,
-          vaultBatchId: body.batchId || null,
+          vaultBatchId: batchId,
           createdAt: new Date().toISOString(),
         });
 
@@ -404,15 +435,16 @@ module.exports = function (app) {
       // Validate new public key
       var newPublicKey = body.newPublicKey;
       var newMode = body.newMode === "prf" ? "prf" : "passkey";
-      if (!newPublicKey || newPublicKey.length < 100) throw new ValidationError("Invalid new public key.");
-      var decoded = Buffer.from(newPublicKey, "base64");
-      if (decoded.length !== 1568) throw new ValidationError("Invalid ML-KEM public key size. Only ML-KEM-1024 (1568 bytes) accepted.");
+      var decoded = base64Bytes(newPublicKey);
+      if (!decoded || newPublicKey.length < 100) throw new ValidationError("Invalid new public key.");
+      if (decoded.length !== MLKEM1024_BYTES) throw new ValidationError("Invalid ML-KEM public key size. Only ML-KEM-1024 (1568 bytes) accepted.");
 
       // Validate new seed for passkey mode
       var newSeed = null;
       if (newMode === "passkey") {
         if (!body.newSeed || body.newSeed.length < 20) throw new ValidationError("New vault seed required.");
-        var seedBytes = Buffer.from(body.newSeed, "base64");
+        var seedBytes = base64Bytes(body.newSeed);
+        if (!seedBytes) throw new ValidationError("The vault seed must be base64.");
         if (seedBytes.length !== 32 && seedBytes.length !== 64) throw new ValidationError("Invalid seed size.");
         newSeed = body.newSeed;
       }
@@ -444,6 +476,11 @@ module.exports = function (app) {
           var rec = reencMap[vaultFiles[j].shareId];
           if (!rec || !rec.ciphertext || !rec.encapsulatedKey || !rec.iv) {
             throw new ValidationError("Missing re-encrypted data for file: " + vaultFiles[j].originalName);
+          }
+          var recKey = base64Bytes(rec.encapsulatedKey);
+          var recIv = base64Bytes(rec.iv);
+          if (!recKey || recKey.length !== MLKEM1024_BYTES || !recIv || recIv.length !== XCHACHA_NONCE_BYTES) {
+            throw new ValidationError("The re-encrypted key or IV for file " + vaultFiles[j].originalName + " has the wrong format.");
           }
         }
 

@@ -147,7 +147,9 @@ module.exports = function (app) {
       // silently lift an active lockout. A corrupt value keeps the account locked
       // (the safe direction); the duration falls back to the standard 30-minute
       // window since the real remaining time can't be computed.
-      var existing = usersRepo.findByEmail(input.email);
+      // input.email is null for an address no account can hold, so the lookup
+      // is skipped and the attempt takes the unknown-account path.
+      var existing = input.email ? usersRepo.findByEmail(input.email) : null;
       var lockedUntilMs = existing && existing.lockedUntil ? Date.parse(existing.lockedUntil) : 0;
       var isLocked = !!(existing && existing.lockedUntil && (!Number.isFinite(lockedUntilMs) || lockedUntilMs > Date.now()));
 
@@ -176,6 +178,10 @@ module.exports = function (app) {
         // session — collapse to the uniform 401.
         if (isLocked) throw lockedReject();
       } catch (err) {
+        // A refused password check (503) did not test the password. It is
+        // rethrown unchanged, ahead of the lock and failed-attempt handling
+        // below, for locked and unlocked accounts alike.
+        if (err.code === "SERVICE_UNAVAILABLE") throw err;
         // Any failure on a locked account (wrong password, pending, suspended)
         // also collapses to the uniform 401 without incrementing the counter or
         // revealing the lock — a locked account never has its state mutated by a
@@ -206,7 +212,9 @@ module.exports = function (app) {
               audit.log(audit.ACTIONS.LOGIN_FAILED_BAD_PASSWORD, { targetId: existing._id, targetEmail: input.email, details: "Invalid password (attempt " + attempts + "/10)", req: req });
             }
           } else if (err.statusCode === 401) {
-            audit.log(audit.ACTIONS.LOGIN_FAILED_NO_ACCOUNT, { targetEmail: input.email, details: "No account found", req: req });
+            audit.log(audit.ACTIONS.LOGIN_FAILED_NO_ACCOUNT, input.email
+              ? { targetEmail: input.email, details: "No account found", req: req }
+              : { details: "Unusable email (" + input.emailLength + " characters)", req: req });
           } else if (err.statusCode === 403 && err.pending) {
             err.extras = { pending: true, email: err.email };
           } else if (err.statusCode === 403) {

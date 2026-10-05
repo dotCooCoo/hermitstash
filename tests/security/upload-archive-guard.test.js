@@ -317,3 +317,47 @@ describe("uploaded archives are inspected for hostile entries", function () {
       "expected validateArchive on both the single-shot and chunked paths; found " + calls.length);
   });
 });
+
+describe("validateArchive relies on the b.guardArchive.validateEntries contract", function () {
+  // app/http/validators/upload.validator.js passes these options.
+  var OPTS = { profile: "balanced", maxEntries: 10000 };
+  function ruleIds(result) { return result.issues.map(function (i) { return i.ruleId; }); }
+  function files(n) {
+    var out = [];
+    for (var i = 0; i < n; i++) out.push({ name: "f" + i + ".txt", size: 10, compressedSize: 5 });
+    return out;
+  }
+
+  it("validateEntries caps the bare defaults at 100 entries and the balanced profile at maxEntries", function () {
+    assert.deepStrictEqual(ruleIds(b.guardArchive.validateEntries(files(101))), ["archive.entry-count"]);
+    assert.strictEqual(b.guardArchive.validateEntries(files(101), OPTS).ok, true);
+    var over = b.guardArchive.validateEntries(files(10001), OPTS);
+    assert.strictEqual(over.ok, false);
+    assert.ok(ruleIds(over).indexOf("archive.entry-count") !== -1);
+  });
+
+  it("validateEntries refuses traversal, an absolute path, a duplicate name, an escaping symlink, any hardlink and a bidi name", function () {
+    [
+      [[{ name: "../evil.txt", size: 1 }], "archive.zip-slip"],
+      [[{ name: "/etc/passwd", size: 1 }], "archive.absolute-path"],
+      [[{ name: "a.txt", size: 1 }, { name: "a.txt", size: 1 }], "archive.duplicate-name"],
+      [[{ name: "l", isSymlink: true, linkTarget: "../../etc/passwd" }], "archive.symlink-traversal"],
+      [[{ name: "h", isHardlink: true, linkTarget: "docs/a.txt" }], "archive.hardlink"],
+      [[{ name: "invoice" + String.fromCharCode(0x202e) + "fdp.txt", size: 1 }], "archive.filename.bidi"],
+    ].forEach(function (pair) {
+      var r = b.guardArchive.validateEntries(pair[0], OPTS);
+      assert.strictEqual(r.ok, false, pair[1]);
+      assert.ok(ruleIds(r).indexOf(pair[1]) !== -1, pair[1] + " not in " + ruleIds(r).join(","));
+    });
+  });
+
+  it("validateEntries accepts a symlink inside the archive, encryption and a nested archive", function () {
+    assert.strictEqual(b.guardArchive.validateEntries([{ name: "l", isSymlink: true, linkTarget: "docs/a.txt" }], OPTS).ok, true);
+    var mixed = b.guardArchive.validateEntries([{ name: "a.txt", size: 1, isEncrypted: true }, { name: "b.txt", size: 1 }], OPTS);
+    assert.strictEqual(mixed.ok, true);
+    assert.deepStrictEqual(ruleIds(mixed), ["archive.encryption-mix"]);
+    var nested = b.guardArchive.validateEntries([{ name: "inner.zip", size: 10 }], OPTS);
+    assert.strictEqual(nested.ok, true);
+    assert.deepStrictEqual(ruleIds(nested), ["archive.nested"]);
+  });
+});

@@ -40,12 +40,14 @@ function codeToTitle(code) {
 
 /**
  * Emit an error response. opts:
- *   { status, code, title?, htmlTitle?, detail?, extras?, retryAfter? }
- * - title       → problem+json `title` (defaults to a prettified `code`)
- * - htmlTitle   → title shown on the HTML error template (defaults to `title`)
- * - detail      → problem+json `detail` (suppressed for 5xx) / HTML message
- * - extras      → RFC 9457 extension members merged at the top level
- * - retryAfter  → emits a Retry-After header (429) + a problem+json hint
+ *   { status, code, title?, htmlTitle?, detail?, exposeDetail?, extras?, retryAfter? }
+ * - title        → problem+json `title` (defaults to a prettified `code`)
+ * - htmlTitle    → title shown on the HTML error template (defaults to `title`)
+ * - detail       → problem+json `detail` / HTML message, withheld on a 5xx
+ *                  unless exposeDetail is true
+ * - exposeDetail → send `detail` on a 5xx (ServiceUnavailableError sets it)
+ * - extras       → RFC 9457 extension members merged at the top level
+ * - retryAfter   → on a 429 or 503, a Retry-After header + a problem+json hint
  */
 function emitError(req, res, opts) {
   if (res.writableEnded) return;
@@ -53,6 +55,14 @@ function emitError(req, res, opts) {
   var code = opts.code || "INTERNAL_ERROR";
   var problemTitle = opts.title || codeToTitle(code);
   var detail = opts.detail;
+  // A 5xx detail is withheld from the client unless the error sets exposeDetail.
+  var hideDetail = status >= 500 && !opts.exposeDetail;
+
+  // A 429 (RFC 6585 §4), or a 503 that names a delay, gets a Retry-After header
+  // (RFC 9110 §10.2.3) on both HTML and problem+json responses. A problem+json
+  // body also carries the value as `retryAfter`.
+  var retryAfter = (status === 429 || status === 503) && opts.retryAfter != null ? opts.retryAfter : null;
+  if (retryAfter != null && !res.headersSent) res.setHeader("Retry-After", String(retryAfter));
 
   var accept = req.headers && req.headers.accept || "";
   var wantsHtml = (req && !req.apiKey) && accept.indexOf("text/html") !== -1;
@@ -63,23 +73,22 @@ function emitError(req, res, opts) {
       send(res, "error", {
         user: req.user || null,
         title: htmlTitle,
-        message: status >= 500 ? "Something went wrong. Please try again later." : (detail || htmlTitle),
+        message: hideDetail ? "Something went wrong. Please try again later." : (detail || htmlTitle),
       }, status);
     } catch (_) {
       // Template rendering failed — fall back to plain text.
       res.writeHead(status, { "Content-Type": "text/plain" });
-      res.end(status >= 500 ? "Internal Server Error" : (detail || htmlTitle));
+      res.end(hideDetail ? "Internal Server Error" : (detail || htmlTitle));
     }
     return;
   }
 
-  // RFC 9457 problem-details. 5xx detail is suppressed so internal failure text
-  // never reaches the client.
+  // RFC 9457 problem-details.
   var problem = {
     type:   "https://hermitstash.com/problems/" + codeToTypeSlug(code),
     title:  problemTitle,
     status: status,
-    detail: status >= 500 ? undefined : detail,
+    detail: hideDetail ? undefined : detail,
   };
 
   if (opts.extras && typeof opts.extras === "object") {
@@ -93,13 +102,7 @@ function emitError(req, res, opts) {
     });
   }
 
-  // Retry-After (RFC 6585 §4 / RFC 9457): set the header AND surface the hint as
-  // a problem+json extension member so JSON clients that don't inspect headers
-  // still receive it.
-  if (status === 429 && opts.retryAfter != null) {
-    res.setHeader("Retry-After", String(opts.retryAfter));
-    if (problem.retryAfter === undefined) problem.retryAfter = opts.retryAfter;
-  }
+  if (retryAfter != null && problem.retryAfter === undefined) problem.retryAfter = retryAfter;
 
   if ((res._apiEncryptJson || (req && req.apiEncryptSessionKey)) && typeof res.json === "function") {
     res.statusCode = status;

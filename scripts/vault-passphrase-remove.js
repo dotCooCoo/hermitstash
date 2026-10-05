@@ -130,7 +130,11 @@ async function execute(passphrase) {
     plaintextBytes = await b.vaultWrap.unwrap(sealedBytes, passphrase);
   } catch (e) {
     console.error("ERROR: " + safeLog.scrub(e.message));
-    console.error("  The sealed file is unchanged. Verify you used the correct passphrase.");
+    if (e && e.code === "vault-wrap/passphrase-rejected") {
+      console.error("  The sealed file is unchanged. Verify you used the correct passphrase.");
+    } else {
+      console.error("  The sealed file is unchanged.");
+    }
     process.exit(1);
   }
 

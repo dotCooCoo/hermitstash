@@ -414,7 +414,9 @@ describe("regression", function () {
         try { stat = fs.statSync(dir); } catch (_e) { return; }
         if (stat.isFile() && dir.endsWith(".js")) {
           var content = fs.readFileSync(dir, "utf8");
-          if (content.includes('lib/password') || content.includes('lib", "password"')) {
+          // Matches the deleted module's own path only, so lib/password-gate
+          // does not count as an import of lib/password.
+          if (/lib\/password(?:\.js)?["'`]/.test(content) || content.includes('lib", "password"')) {
             violations.push(path.relative(projectRoot, dir));
           }
           return;

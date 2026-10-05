@@ -146,3 +146,32 @@ describe("web-guard soft-mTLS bearer validation (D-2)", function () {
     assert.strictEqual(r.destroyed, false);
   });
 });
+
+describe("web-guard and api-auth rely on the b.requestHelpers.extractBearer contract", function () {
+  var crlf = String.fromCharCode(0x0d, 0x0a);
+
+  it("extractBearer returns the token after a Bearer scheme in any letter case", function () {
+    assert.strictEqual(b.requestHelpers.extractBearer({ headers: { authorization: "Bearer hs_abc123" } }), "hs_abc123");
+    assert.strictEqual(b.requestHelpers.extractBearer({ headers: { authorization: "bearer hs_abc123" } }), "hs_abc123");
+  });
+
+  it("extractBearer returns null for another scheme, a list, a control character or no header", function () {
+    [
+      { headers: { authorization: "Basic dXNlcjpwYXNz" } },
+      { headers: { authorization: "Bearer hs_a, hs_b" } },
+      { headers: { authorization: "Bearer hs_a" + crlf + "X-Injected: 1" } },
+      { headers: {} },
+      {},
+    ].forEach(function (req) {
+      assert.strictEqual(b.requestHelpers.extractBearer(req), null, JSON.stringify(req));
+    });
+  });
+
+  it("extractBearer returns null when the request carries two Authorization headers", function () {
+    var req = {
+      headers: { authorization: "Bearer hs_abc123" },
+      rawHeaders: ["Authorization", "Bearer hs_abc123", "Authorization", "Bearer hs_other"],
+    };
+    assert.strictEqual(b.requestHelpers.extractBearer(req), null);
+  });
+});

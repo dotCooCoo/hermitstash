@@ -24,6 +24,7 @@ b = require("../../lib/vendor/blamejs");
 var C = require("../../lib/constants");
 var fieldCrypto = require("../../lib/field-crypto");
 var vault = require("../../lib/vault");
+var rotationInventory = require("../../lib/rotation-inventory");
 var { VAULT_PREFIX } = C;
 
 // Populate b.cryptoField with HS's FIELD_SCHEMA before any
@@ -42,8 +43,6 @@ var ROTATION_PATHS = {
   vaultKeyPlain:    "vault.key",
   vaultKeySealed:   "vault.key.sealed",
   additionalSealed: C.ROTATION_SEALED_FILES.filter(function (e) { return e.relativePath !== "db.key.enc"; }),
-  verbatimFiles:    C.ROTATION_VERBATIM_FILES,
-  verbatimDirs:     C.ROTATION_VERBATIM_DIRS,
 };
 var vaultRotate = {
   validateSchemaMatch: function (db, opts) {
@@ -53,14 +52,21 @@ var vaultRotate = {
     }, opts || {}));
   },
   formatValidationResult: b.vaultRotate.formatValidationResult,
-  rotateDataDirectory: function (opts) {
-    return b.vaultRotate.rotate(Object.assign({}, opts, {
-      paths: Object.assign({}, ROTATION_PATHS, opts.paths || {}),
+  // This runs the same inventory and symlink step as scripts/vault-key-rotate.js.
+  rotateDataDirectory: async function (opts) {
+    var paths = Object.assign({}, ROTATION_PATHS, opts.paths || {});
+    var carried = rotationInventory.carriedEntries(opts.dataDir, paths);
+    paths.verbatimFiles = carried.verbatimFiles;
+    paths.verbatimDirs = carried.verbatimDirs;
+    var result = await b.vaultRotate.rotate(Object.assign({}, opts, {
+      paths: paths,
       // HS uses none of the agent/dsr/archive-tenant external AAD stores that
       // blamejs 0.15.x now requires acknowledging before rotation; production
       // passes the same flag (scripts/vault-key-rotate.js).
       externalAadResealed: true,
     }));
+    rotationInventory.recreateSymlinks(opts.stagingDir, carried.symlinks);
+    return result;
   },
   verifyRotation: function (keys, db, opts) {
     return b.vaultRotate.verify(Object.assign({ keys: keys, db: db }, opts || {}));
@@ -260,6 +266,157 @@ describe("vault-rotate.rotateDataDirectory", function () {
     }
   });
 
+  it("carries every file the rotation does not rewrite into the rotated copy", async function () {
+    var oldKeys = b.crypto.generateEncryptionKeyPair();
+    var newKeys = b.crypto.generateEncryptionKeyPair();
+    var fix = buildFixtureDataDir(oldKeys, 1, 1);
+    var stagingDir = fix.dir + ".staging";
+    // The swap replaces the data directory with the rotated copy, so each of
+    // these would be lost if the copy left it out.
+    var carried = {
+      "ca.crt": "sync CA cert", "ca.key": "sync CA key", "revocations.json": "[]", "ca.crl": "crl",
+      "ca.crl-number": "7\n", "ca.crl-number.published": "7\n", "issuance.json": "[]",
+      "revoked-generation": "2", "ca.algorithm": "ML-DSA-87", "ca-migration.json": "{}",
+      "ca-browser.crt": "browser CA cert", "ca-browser-revocations.json": "[]",
+      "ca-browser.crl-number": "3\n", "audit-sign.key": "signing key",
+      "audit-schema-context.marker": "applied", "derived-hash-keyed.marker": "{}",
+      "custom-logos/logo.png": "png", "stash-logos/s1/logo.png": "png",
+      "audit-archives/audit-1.json": "{}", "tls/fullchain.pem": "chain",
+    };
+    var transient = ["ca.crt.lock", "hermitstash.db.enc.tmp-0123456789abcdef", "hermitstash-0a1b.db",
+      "vault.key.sealed.tmp"];
+    Object.keys(carried).forEach(function (rel) {
+      fs.mkdirSync(path.dirname(path.join(fix.dir, rel)), { recursive: true });
+      fs.writeFileSync(path.join(fix.dir, rel), carried[rel]);
+    });
+    transient.forEach(function (rel) { fs.writeFileSync(path.join(fix.dir, rel), "x"); });
+    fs.writeFileSync(path.join(fix.dir, "tls", "privkey.pem.sealed"),
+      VAULT_PREFIX + b.crypto.encrypt("TLS PRIVATE KEY", oldKeys));
+
+    try {
+      await vaultRotate.rotateDataDirectory({
+        oldKeys: oldKeys, newKeys: newKeys,
+        dataDir: fix.dir, stagingDir: stagingDir,
+        mode: "plaintext",
+      });
+      Object.keys(carried).forEach(function (rel) {
+        var p = path.join(stagingDir, rel);
+        assert.ok(fs.existsSync(p), rel + " is in the rotated copy");
+        assert.strictEqual(fs.readFileSync(p, "utf8"), carried[rel], rel + " is carried unchanged");
+      });
+      transient.forEach(function (rel) {
+        assert.ok(!fs.existsSync(path.join(stagingDir, rel)), rel + " is not carried");
+      });
+      var sealed = fs.readFileSync(path.join(stagingDir, "tls", "privkey.pem.sealed"), "utf8");
+      assert.strictEqual(b.crypto.decrypt(sealed.substring(VAULT_PREFIX.length), newKeys), "TLS PRIVATE KEY",
+        "the sealed TLS key in a carried directory is re-sealed under the new keypair");
+    } finally {
+      try { fs.rmSync(stagingDir, { recursive: true, force: true }); } catch {}
+      cleanupFixture(fix);
+    }
+  });
+
+  it("recreates a symbolic link in the rotated copy", async function (t) {
+    var oldKeys = b.crypto.generateEncryptionKeyPair();
+    var newKeys = b.crypto.generateEncryptionKeyPair();
+    var fix = buildFixtureDataDir(oldKeys, 1, 0);
+    var stagingDir = fix.dir + ".staging";
+    fs.mkdirSync(path.join(fix.dir, "tls"));
+    fs.writeFileSync(path.join(fix.dir, "tls", "fullchain.pem"), "chain");
+
+    try {
+      try {
+        fs.symlinkSync("fullchain.pem", path.join(fix.dir, "tls", "cert.pem"));
+      } catch (e) {
+        if (e.code === "EPERM") { t.skip("this host does not allow creating symbolic links"); return; }
+        throw e;
+      }
+      await vaultRotate.rotateDataDirectory({
+        oldKeys: oldKeys, newKeys: newKeys,
+        dataDir: fix.dir, stagingDir: stagingDir,
+        mode: "plaintext",
+      });
+      var link = path.join(stagingDir, "tls", "cert.pem");
+      assert.ok(fs.lstatSync(link).isSymbolicLink(), "tls/cert.pem is a symbolic link in the rotated copy");
+      assert.strictEqual(fs.readlinkSync(link), "fullchain.pem");
+      assert.strictEqual(fs.readFileSync(path.join(stagingDir, "tls", "fullchain.pem"), "utf8"), "chain");
+    } finally {
+      try { fs.rmSync(stagingDir, { recursive: true, force: true }); } catch {}
+      cleanupFixture(fix);
+    }
+  });
+
+  it("writes a rewritten file that was a symbolic link as a regular file", async function (t) {
+    var oldKeys = b.crypto.generateEncryptionKeyPair();
+    var newKeys = b.crypto.generateEncryptionKeyPair();
+    var fix = buildFixtureDataDir(oldKeys, 1, 0);
+    var stagingDir = fix.dir + ".staging";
+    var keysDir = fix.dir + ".keys";
+    fs.mkdirSync(keysDir);
+    fs.renameSync(path.join(fix.dir, "vault.key"), path.join(keysDir, "vault.key"));
+
+    try {
+      try {
+        fs.symlinkSync(path.join(keysDir, "vault.key"), path.join(fix.dir, "vault.key"));
+      } catch (e) {
+        if (e.code === "EPERM") { t.skip("this host does not allow creating symbolic links"); return; }
+        throw e;
+      }
+      await vaultRotate.rotateDataDirectory({
+        oldKeys: oldKeys, newKeys: newKeys,
+        dataDir: fix.dir, stagingDir: stagingDir,
+        mode: "plaintext",
+      });
+      var staged = path.join(stagingDir, "vault.key");
+      assert.ok(!fs.lstatSync(staged).isSymbolicLink(), "vault.key is a regular file in the rotated copy");
+      assert.deepStrictEqual(JSON.parse(fs.readFileSync(staged, "utf8")), JSON.parse(JSON.stringify(newKeys)),
+        "vault.key in the rotated copy holds the new keypair");
+    } finally {
+      try { fs.rmSync(stagingDir, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(keysDir, { recursive: true, force: true }); } catch {}
+      cleanupFixture(fix);
+    }
+  });
+
+  it("copies a linked directory that holds a re-sealed file into a real directory", async function (t) {
+    var oldKeys = b.crypto.generateEncryptionKeyPair();
+    var newKeys = b.crypto.generateEncryptionKeyPair();
+    var fix = buildFixtureDataDir(oldKeys, 1, 0);
+    var stagingDir = fix.dir + ".staging";
+    var tlsTarget = fix.dir + ".tls";
+    fs.mkdirSync(tlsTarget);
+    fs.writeFileSync(path.join(tlsTarget, "fullchain.pem"), "chain");
+    fs.writeFileSync(path.join(tlsTarget, "privkey.pem.sealed"),
+      VAULT_PREFIX + b.crypto.encrypt("TLS PRIVATE KEY", oldKeys));
+
+    try {
+      try {
+        fs.symlinkSync(tlsTarget, path.join(fix.dir, "tls"), "dir");
+      } catch (e) {
+        if (e.code === "EPERM") { t.skip("this host does not allow creating symbolic links"); return; }
+        throw e;
+      }
+      await vaultRotate.rotateDataDirectory({
+        oldKeys: oldKeys, newKeys: newKeys,
+        dataDir: fix.dir, stagingDir: stagingDir,
+        mode: "plaintext",
+      });
+      var stagedTls = path.join(stagingDir, "tls");
+      assert.ok(fs.lstatSync(stagedTls).isDirectory(), "tls is a real directory in the rotated copy");
+      assert.strictEqual(fs.readFileSync(path.join(stagedTls, "fullchain.pem"), "utf8"), "chain");
+      var sealed = fs.readFileSync(path.join(stagedTls, "privkey.pem.sealed"), "utf8");
+      assert.strictEqual(b.crypto.decrypt(sealed.substring(VAULT_PREFIX.length), newKeys), "TLS PRIVATE KEY",
+        "the sealed TLS key is re-sealed under the new keypair");
+      var original = fs.readFileSync(path.join(tlsTarget, "privkey.pem.sealed"), "utf8");
+      assert.strictEqual(b.crypto.decrypt(original.substring(VAULT_PREFIX.length), oldKeys), "TLS PRIVATE KEY",
+        "the link target outside the data directory is left as it was");
+    } finally {
+      try { fs.rmSync(stagingDir, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(tlsTarget, { recursive: true, force: true }); } catch {}
+      cleanupFixture(fix);
+    }
+  });
+
   it("rotation is real: staging sealed values decrypt with newKeys, fail with oldKeys", async function () {
     var oldKeys = b.crypto.generateEncryptionKeyPair();
     var newKeys = b.crypto.generateEncryptionKeyPair();
@@ -358,6 +515,34 @@ describe("vault-rotate.rotateDataDirectory", function () {
       // throw here both replaced the assertion error and skipped the unlink.
       try { h.db.close(); } catch (_e) { /* best effort */ }
       try { fs.unlinkSync(h.path); } catch {}
+    }
+  });
+});
+
+describe("vault-key rotation relies on the b.atomicFile.copyDirRecursive contract", function () {
+  it("copyDirRecursive copies nested regular files byte for byte and leaves symbolic links out", function (t) {
+    // b.vaultRotate.rotate copies each verbatimDirs entry with this primitive.
+    var src = path.join(testHarnessDir, "copy-src-" + b.crypto.generateToken(3));
+    var dest = src + ".copy";
+    fs.mkdirSync(path.join(src, "s1"), { recursive: true });
+    fs.writeFileSync(path.join(src, "logo.png"), "png");
+    fs.writeFileSync(path.join(src, "s1", "logo.png"), "nested png");
+    var linked = true;
+    try { fs.symlinkSync("logo.png", path.join(src, "link.png")); }
+    catch (e) { if (e.code !== "EPERM") throw e; linked = false; }
+    try {
+      assert.deepStrictEqual(b.atomicFile.copyDirRecursive(src, dest), { fileCount: 2, byteCount: 13 });
+      assert.strictEqual(fs.readFileSync(path.join(dest, "logo.png"), "utf8"), "png");
+      assert.strictEqual(fs.readFileSync(path.join(dest, "s1", "logo.png"), "utf8"), "nested png");
+      if (linked) {
+        assert.strictEqual(fs.readdirSync(dest).indexOf("link.png"), -1,
+          "carriedEntries lists a directory that holds a link file by file because the copy leaves the link out");
+      } else {
+        t.diagnostic("this host does not allow creating symbolic links, so the link case did not run");
+      }
+    } finally {
+      fs.rmSync(src, { recursive: true, force: true });
+      fs.rmSync(dest, { recursive: true, force: true });
     }
   });
 });

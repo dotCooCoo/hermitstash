@@ -74,3 +74,72 @@ describe("app/shared/logger (b.log.create wrapper)", function () {
     assert.strictEqual(typeof b.log.create, "function");
   });
 });
+
+describe("app/shared/logger keeps share IDs and tokens out of log lines", function () {
+  var share = b.crypto.generateToken(32);
+  var fileShare = b.crypto.generateToken(32);
+
+  it("requestPath returns the route pattern once a route has matched", function () {
+    var req = {
+      routePattern: "/b/:shareId/download",
+      pathname: "/b/" + share + "/download",
+      url: "/b/" + share + "/download?path=" + share,
+    };
+    assert.strictEqual(logger.requestPath(req), "/b/:shareId/download");
+    assert.strictEqual(logger.requestPath(req), b.requestHelpers.resolveRoute(req));
+  });
+
+  it("requestPath replaces token segments and drops the query before a route has matched", function () {
+    assert.strictEqual(
+      logger.requestPath({ pathname: "/b/" + share + "/file/" + fileShare, url: "/b/" + share + "/file/" + fileShare + "?ref=" + share }),
+      "/b/:token/file/:token");
+    assert.strictEqual(logger.requestPath({ url: "/auth/reset-password/" + share + "?next=/x" }), "/auth/reset-password/:token");
+    assert.strictEqual(logger.requestPath({ pathname: "/stash/acme-uploads/init" }), "/stash/acme-uploads/init");
+    assert.strictEqual(logger.requestPath({ pathname: "/b/" + share + ".zip" }), "/b/[redacted].zip");
+  });
+
+  it("requestPath returns / for a request it cannot read", function () {
+    var hostile = {};
+    Object.defineProperty(hostile, "routePattern", { get: function () { throw new Error("unreadable"); } });
+    assert.strictEqual(logger.requestPath(hostile), "/");
+    assert.strictEqual(logger.requestPath(null), "/");
+  });
+
+  it("redactTokens replaces share IDs in a storage key and keeps a SHA3-512 checksum", function () {
+    var key = "bundles/" + share + "/1727900000000-" + fileShare + ".pdf";
+    assert.strictEqual(logger.redactTokens("key not found: " + key),
+      "key not found: bundles/[redacted]/1727900000000-[redacted].pdf");
+    assert.strictEqual(logger.redactTokens("id=z" + share), "id=z[redacted]");
+    var checksum = b.crypto.sha3Hash("report");
+    assert.strictEqual(logger.redactTokens("checksum " + checksum), "checksum " + checksum);
+  });
+
+  it("masks the message, text fields and share-named fields, and keeps fields named for a record", function () {
+    var recordId = b.crypto.generateToken(32);
+    var lines = capture("stderr", function () {
+      logger.error("Download failed for /s/" + share, {
+        error: "EACCES: permission denied, open '/data/uploads/bundles/" + share + "/1-" + fileShare + ".bin'",
+        shareId: share,
+        bundle: share,
+        nested: { path: "/b/" + share },
+        bundleId: recordId,
+      });
+    });
+    var entry = lines.find(function (l) { return l.message.indexOf("Download failed for") === 0; });
+    assert.ok(entry, "the error line is written");
+    var text = JSON.stringify(entry);
+    assert.strictEqual(text.indexOf(share), -1, "a share ID reached the line");
+    assert.strictEqual(text.indexOf(fileShare), -1, "a file share ID reached the line");
+    assert.strictEqual(entry.shareId, "[redacted]");
+    assert.strictEqual(entry.bundleId, recordId, "a field named for a record is written unchanged");
+  });
+
+  it("passes a byte array to b.redact unchanged, and b.redact masks it", function () {
+    var lines = capture("stdout", function () {
+      logger.info("bytes", { payload: new Uint8Array([7, 8, 9]) });
+    });
+    var entry = lines.find(function (l) { return l.message === "bytes"; });
+    assert.ok(entry, "the line is written");
+    assert.strictEqual(typeof entry.payload, "string", "the bytes are masked, not written as an object: " + JSON.stringify(entry.payload));
+  });
+});

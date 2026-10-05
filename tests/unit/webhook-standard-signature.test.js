@@ -109,3 +109,34 @@ describe("webhook dispatch — StandardWebhooks signature (F-7)", function () {
     assert.strictEqual(captured.headers["Content-Type"], "application/json");
   });
 });
+
+describe("webhook dispatch relies on the b.standardWebhooks.sign contract", function () {
+  it("sign accepts the UTF-8 bytes of a stored webhook secret and returns the three standard headers", function () {
+    // webhook.service create() stores b.crypto.generateToken(32), which is 64
+    // hex characters.
+    var secret = Buffer.from(b.crypto.generateToken(32), "utf8");
+    assert.strictEqual(secret.length, 64);
+    var signed = b.standardWebhooks.sign({ body: '{"event":"bundle_finalized"}', secret: secret });
+    assert.deepStrictEqual(Object.keys(signed.headers).sort(),
+      ["webhook-id", "webhook-signature", "webhook-timestamp"]);
+    assert.match(signed.headers["webhook-id"], /^msg_[0-9a-f]+$/);
+    assert.match(signed.headers["webhook-timestamp"], /^[0-9]+$/);
+    assert.match(signed.headers["webhook-signature"], /^v1,[A-Za-z0-9+/]+={0,2}$/);
+  });
+
+  it("sign refuses a secret shorter than 32 bytes", function () {
+    assert.throws(function () {
+      b.standardWebhooks.sign({ body: "{}", secret: Buffer.alloc(31) });
+    }, function (e) { return e.code === "standard-webhooks/bad-secret"; });
+  });
+
+  it("the signature covers the timestamp header it is sent with", function () {
+    var secret = Buffer.from(b.crypto.generateToken(32), "utf8");
+    var ts = Math.floor(Date.now() / 1000) - 10;
+    var signed = b.standardWebhooks.sign({ body: "{}", secret: secret, timestamp: ts });
+    var moved = Object.assign({}, signed.headers, { "webhook-timestamp": String(ts + 1) });
+    assert.throws(function () {
+      b.standardWebhooks.verify({ headers: moved, body: "{}", secret: secret });
+    }, function (e) { return e.code === "standard-webhooks/bad-signature"; });
+  });
+});

@@ -8,6 +8,9 @@ var b = require("../../lib/vendor/blamejs");
 // Simple email check — no nested quantifiers to avoid ReDoS
 var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// validateEmail refuses an address longer than EMAIL_MAX_LENGTH characters.
+var EMAIL_MAX_LENGTH = 254;
+
 /**
  * Validate an email address.
  * Returns { valid: true, email: normalized } or { valid: false, reason: string }.
@@ -28,7 +31,7 @@ function validateEmail(email) {
   }
   var trimmed = email.trim().toLowerCase();
   if (trimmed.length === 0) return { valid: false, reason: "Email is required." };
-  if (trimmed.length > 254) return { valid: false, reason: "Email too long." };
+  if (trimmed.length > EMAIL_MAX_LENGTH) return { valid: false, reason: "Email too long." };
   if (!EMAIL_RE.test(trimmed)) return { valid: false, reason: "Invalid email format." };
   // Check for consecutive dots, leading/trailing dots in local part
   var local = trimmed.split("@")[0];
@@ -67,4 +70,4 @@ function validateBearerToken(token) {
   return /^[a-zA-Z0-9._\-]+$/.test(token);
 }
 
-module.exports = { validateEmail, validatePassword, validateDisplayName, validateBearerToken };
+module.exports = { validateEmail, validatePassword, validateDisplayName, validateBearerToken, EMAIL_MAX_LENGTH };

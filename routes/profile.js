@@ -3,6 +3,7 @@ var rateLimit = require("../lib/rate-limit");
 var audit = require("../lib/audit");
 var C = require("../lib/constants");
 var config = require("../lib/config");
+var passwordGate = require("../lib/password-gate");
 var logger = require("../app/shared/logger");
 var usersRepo = require("../app/data/repositories/users.repo");
 var { isAdmin } = require("../app/shared/authz");
@@ -53,10 +54,10 @@ module.exports = function (app) {
       if (!pwCheck.valid) throw new ValidationError(pwCheck.reason);
       if (req.user.authType !== "local") throw new ValidationError("Password change only available for local accounts.");
 
-      var valid = await b.auth.password.verify(req.user.passwordHash, currentPassword);
+      var valid = await passwordGate.verify(req.user.passwordHash, currentPassword);
       if (!valid) throw new AuthenticationError("Current password is incorrect.");
 
-      var passwordHash = await b.auth.password.hash(newPassword);
+      var passwordHash = await passwordGate.hash(newPassword);
       usersRepo.update(req.user._id, { $set: { passwordHash: passwordHash } });
 
       // Invalidate all other sessions for this user, then re-establish current
@@ -85,7 +86,7 @@ module.exports = function (app) {
       if (!password) throw new ValidationError("Current password required.");
       if (req.user.authType !== "local") throw new ValidationError("Email change only available for local accounts.");
 
-      var valid = await b.auth.password.verify(req.user.passwordHash, password);
+      var valid = await passwordGate.verify(req.user.passwordHash, password);
       if (!valid) throw new AuthenticationError("Password is incorrect.");
 
       var oldEmail = req.user.email;

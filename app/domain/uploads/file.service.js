@@ -203,7 +203,7 @@ async function saveAndCreateFileRecord(buffer, opts) {
     bundleId: opts.bundleId,
     bundleShareId: opts.bundleShareId,
     originalName: sanitizeFilename(opts.filename),
-    relativePath: sanitizeFilename(opts.relativePath || opts.filename, 500),
+    relativePath: sanitizeFilename(opts.relativePath || opts.filename, C.UPLOAD.RELATIVE_PATH_MAX),
     storagePath: saved.path,
     mimeType: opts.mimeType || "application/octet-stream",
     size: buffer.length,

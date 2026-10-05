@@ -4,6 +4,8 @@ const assert = require("node:assert");
 
 var clientIp = require("../../lib/client-ip");
 var rateLimit = require("../../lib/rate-limit");
+var b = require("../../lib/vendor/blamejs");
+var config = require("../../lib/config");
 
 // Client-IP extraction is the trustProxy-gated read every rate-limit and audit
 // path keys on. These cases pin the proxy-trust boundary: X-Forwarded-For is
@@ -63,8 +65,6 @@ describe("client-ip canonicalize()", function () {
 // IP is treated as a /32, and a malformed CIDR fails safe to loopback-only —
 // never throwing and never silently widening trust.
 describe("client-ip operator-configured trusted proxies (CIDR)", function () {
-  var config = require("../../lib/config");
-
   function withTrustProxy(value, fn) {
     var saved = config.trustProxy;
     config.trustProxy = value;
@@ -168,4 +168,55 @@ describe("rate-limit shim surface", function () {
   // integration level in tests/security/adversarial-resilience.test.js, where a
   // real limiter trips through the wrapped response object — the path that
   // matters, and the one a unit mock can't faithfully reproduce.
+});
+
+describe("parseCidrList relies on the b.gateContract.CHAR_THREATS_REJECT_ALL contract", function () {
+  var ch = String.fromCharCode;
+
+  it("CHAR_THREATS_REJECT_ALL is a frozen block that rejects all four invisible-character classes", function () {
+    assert.ok(Object.isFrozen(b.gateContract.CHAR_THREATS_REJECT_ALL));
+    assert.deepStrictEqual(b.gateContract.CHAR_THREATS_REJECT_ALL,
+      { bidiPolicy: "reject", controlPolicy: "reject", nullBytePolicy: "reject", zeroWidthPolicy: "reject" });
+  });
+
+  it("parseCidrList drops an entry carrying a zero-width, bidi or control character and keeps the rest", function () {
+    var parsed = clientIp.parseCidrList("10.0.0.0/8, 172.16.0.0/12" + ch(0x200b) + ", 192.168.0.0/16" +
+      ch(0x202e) + ", 10.1.0.0/16" + ch(0x07) + ", 192.0.2.0/24");
+    assert.deepStrictEqual(parsed.valid, ["10.0.0.0/8", "192.0.2.0/24"]);
+    assert.deepStrictEqual(parsed.invalid.map(function (x) { return x.entry; }),
+      ["172.16.0.0/12" + ch(0x200b), "192.168.0.0/16" + ch(0x202e), "10.1.0.0/16" + ch(0x07)]);
+  });
+});
+
+describe("client-ip relies on the b.requestHelpers.ipKey and trustedProtocol contracts", function () {
+  it("ipKey keeps an IPv4 address exact and folds its IPv4-mapped IPv6 form to it", function () {
+    assert.strictEqual(b.requestHelpers.ipKey("203.0.113.47", { ipv6Bits: 64 }), "203.0.113.47");
+    assert.strictEqual(b.requestHelpers.ipKey("::ffff:203.0.113.47", { ipv6Bits: 64 }), "203.0.113.47");
+  });
+
+  it("ipKey collapses an IPv6 address to its /64 and returns an empty string for garbage", function () {
+    assert.strictEqual(b.requestHelpers.ipKey("2001:db8:1:2:dead:beef:0:1", { ipv6Bits: 64 }),
+      "2001:db8:1:2:0:0:0:0/64");
+    assert.strictEqual(b.requestHelpers.ipKey("not-an-ip", { ipv6Bits: 64 }), "");
+  });
+
+  it("trustedProtocol honors X-Forwarded-Proto only from a trusted peer", function () {
+    var tp = b.requestHelpers.trustedProtocol({ trustedProxies: ["10.0.0.0/8"] });
+    var fwd = { "x-forwarded-proto": "https" };
+    assert.strictEqual(tp.resolve({ socket: { remoteAddress: "10.1.2.3" }, headers: fwd }), "https");
+    assert.strictEqual(tp.resolve({ socket: { remoteAddress: "192.0.2.5" }, headers: fwd }), "http");
+    assert.strictEqual(tp.resolve({ socket: { remoteAddress: "192.0.2.5", encrypted: true }, headers: {} }), "https");
+  });
+
+  it("isSecureRequest reads X-Forwarded-Proto only from a peer on the TRUST_PROXY list", function () {
+    var saved = config.trustProxy;
+    config.trustProxy = "10.0.0.0/8";
+    try {
+      var fwd = { "x-forwarded-proto": "https" };
+      assert.strictEqual(clientIp.isSecureRequest({ socket: { remoteAddress: "10.1.2.3" }, headers: fwd }), true);
+      assert.strictEqual(clientIp.isSecureRequest({ socket: { remoteAddress: "192.0.2.5" }, headers: fwd }), false);
+    } finally {
+      config.trustProxy = saved;
+    }
+  });
 });

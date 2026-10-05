@@ -123,3 +123,40 @@ describe("audit purge-anchor race (F-1)", function () {
       "regions must run to completion one at a time, in arrival order");
   });
 });
+
+describe("the purge anchor relies on the b.auditChain contract", function () {
+  var row;
+
+  before(async function () {
+    var cur = readAnchor();
+    var counter = (cur ? Number(cur.lastPurgedCounter) : 0) + 100;
+    await auditArchive.upsertPurgeAnchorNeverLower(counter, "c".repeat(128), "contract-bundle",
+      { firstPurgedCounter: 1, archiveManifestDigest: "d".repeat(128) });
+    row = db.rawGet("SELECT * FROM _blamejs_audit_purge_anchor WHERE scope = 'audit'");
+  });
+
+  it("the stored signature covers purgeAnchorPayload of the stored row", function () {
+    assert.strictEqual(b.auditSign.verify(b.auditChain.purgeAnchorPayload(row),
+      Buffer.from(row.signature), b.auditSign.getPublicKey()), true);
+  });
+
+  it("verifyPurgeAnchor reports the stored anchor as valid under the live signing key", function () {
+    var v = b.auditChain.verifyPurgeAnchor(row);
+    assert.strictEqual(v.status, "valid", v.reason);
+    assert.strictEqual(v.counter, Number(row.lastPurgedCounter));
+    assert.strictEqual(v.firstCounter, 1);
+    assert.strictEqual(v.fingerprint, b.auditSign.getPublicKeyFingerprint());
+  });
+
+  it("verifyPurgeAnchor reports an anchor with an edited field as forged", function () {
+    var edited = Object.assign({}, row, { archiveManifestDigest: "e".repeat(128) });
+    assert.strictEqual(b.auditChain.verifyPurgeAnchor(edited).status, "forged");
+  });
+
+  it("verifyPurgeAnchor refuses an anchor whose signature was removed", function () {
+    var stripped = Object.assign({}, row, { signature: null, publicKeyFingerprint: null });
+    var v = b.auditChain.verifyPurgeAnchor(stripped);
+    assert.strictEqual(v.status, "unsigned");
+    assert.strictEqual(v.accepted, false);
+  });
+});

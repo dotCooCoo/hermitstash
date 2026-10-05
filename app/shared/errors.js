@@ -72,4 +72,15 @@ class ConflictError extends AppError {
   constructor(message) { super(message || "Conflict.", 409, "CONFLICT"); }
 }
 
-module.exports = { AppError, ValidationError, AuthenticationError, ForbiddenError, NotFoundError, RateLimitError, ConflictError };
+// ServiceUnavailableError reports a temporary refusal, such as a full
+// password-check queue. The error handler sends its message to the client
+// (exposeDetail) and sets the Retry-After header from retryAfter.
+class ServiceUnavailableError extends AppError {
+  constructor(message, retryAfter) {
+    super(message || "Service temporarily unavailable.", 503, "SERVICE_UNAVAILABLE");
+    this.retryAfter = retryAfter;
+    this.exposeDetail = true;
+  }
+}
+
+module.exports = { AppError, ValidationError, AuthenticationError, ForbiddenError, NotFoundError, RateLimitError, ConflictError, ServiceUnavailableError };

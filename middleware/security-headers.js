@@ -116,7 +116,7 @@ module.exports = function securityHeaders(req, res, next) {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
-      res.setHeader("Vary", "Cookie");
+      b.requestHelpers.appendVary(res, "Cookie");
       // Overrides nginx proxy_cache even where nginx.conf enables it.
       res.setHeader("X-Accel-Expires", "0");
       res.setHeader("Surrogate-Control", "no-store");

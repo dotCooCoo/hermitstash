@@ -2,13 +2,16 @@ const { describe, it } = require("node:test");
 const assert = require("node:assert");
 const b = require("../../lib/vendor/blamejs");
 
-const { sanitizeFilename, sanitizeRename } = require("../../app/shared/sanitize-filename");
+const { sanitizeFilename, sanitizeRename, stripNameControls, safeContentDisposition } = require("../../app/shared/sanitize-filename");
 
 const ch = String.fromCharCode;
 const BIDI = ch(0x202e);    // RIGHT-TO-LEFT OVERRIDE
 const ZWSP = ch(0x200b);    // ZERO WIDTH SPACE
 const BEL = ch(0x07);       // C0 control
 const NUL = ch(0x00);
+const DEL = ch(0x7f);
+const NEL = ch(0x85);       // C1 NEXT LINE
+const CSI = ch(0x9b);       // C1 CONTROL SEQUENCE INTRODUCER
 
 describe("sanitize-filename — sanitizeFilename: parity for legitimate names", function () {
   it("passes ordinary filenames through unchanged", function () {
@@ -188,6 +191,22 @@ describe("sanitize-filename — sanitizeRename bounds its subject", function () 
   });
 });
 
+describe("sanitize-filename: control characters in renames and vault names", function () {
+  it("sanitizeRename strips C0, DEL and C1 control characters", function () {
+    assert.deepStrictEqual(sanitizeRename("a" + BEL + "b" + DEL + "c" + NEL + "d" + CSI + "e.txt"),
+      { valid: true, name: "abcde.txt" });
+  });
+
+  it("sanitizeRename strips TAB, LF and CR", function () {
+    assert.deepStrictEqual(sanitizeRename("a\tb\nc\rd.txt"), { valid: true, name: "abcd.txt" });
+  });
+
+  it("stripNameControls removes the same characters and keeps every other one", function () {
+    assert.strictEqual(stripNameControls("re" + NUL + "port" + NEL + "\t.pdf"), "report.pdf");
+    assert.strictEqual(stripNameControls("résumé (1).pdf"), "résumé (1).pdf");
+  });
+});
+
 describe("sanitize-filename — colons survive (adsPolicy/reservedCharPolicy stay honored)", function () {
   // A colon is an ordinary filename character outside Windows, and FNAME_OPTS
   // sets adsPolicy and reservedCharPolicy to "allow" to keep it. A framework
@@ -225,6 +244,62 @@ describe("sanitize-filename — b.guardFilename contract (the primitive sanitize
     // naming the option, rather than every name silently coming back empty.
     assert.throws(function () {
       b.guardFilename.sanitize("probe.txt", { adsPolicy: "definitely-not-a-policy" });
+    });
+  });
+});
+
+describe("sanitize-filename relies on the b.codepointClass control table", function () {
+  it("CTRL_RANGES holds C0 except TAB, LF and CR, plus DEL and C1, and no other code point up to U+00A0", function () {
+    for (var cp = 0; cp <= 0xa0; cp++) {
+      var expected = (cp <= 0x1f && cp !== 0x09 && cp !== 0x0a && cp !== 0x0d) || cp === 0x7f ||
+        (cp >= 0x80 && cp <= 0x9f);
+      assert.strictEqual(b.codepointClass.inRanges(cp, b.codepointClass.CTRL_RANGES), expected,
+        "U+" + cp.toString(16).toUpperCase());
+    }
+  });
+
+  it("stripRanges removes the listed code points and keeps every other character", function () {
+    var emoji = String.fromCodePoint(0x1f600);
+    assert.strictEqual(b.codepointClass.stripRanges("a" + NUL + "b" + DEL + "c" + NEL + "d" + ch(0x09) + "e",
+      b.codepointClass.CTRL_RANGES), "abcd" + ch(0x09) + "e");
+    assert.strictEqual(b.codepointClass.stripRanges("a" + emoji + "b", b.codepointClass.CTRL_RANGES), "a" + emoji + "b");
+    var clean = "report (final).pdf";
+    assert.strictEqual(b.codepointClass.stripRanges(clean, b.codepointClass.CTRL_RANGES), clean);
+  });
+});
+
+describe("safeContentDisposition relies on the b.staticServe.attachmentDisposition contract", function () {
+  function ad(name) { return b.staticServe.attachmentDisposition(name); }
+  function expected(ascii, extValue) {
+    return "attachment; filename=" + '"' + ascii + '"' + "; filename*=UTF-8''" + extValue;
+  }
+  var resume = "r" + ch(0xe9) + "sum" + ch(0xe9) + ".pdf";
+
+  it("attachmentDisposition pairs an ASCII filename with an RFC 8187 filename* that escapes the apostrophe", function () {
+    assert.strictEqual(ad("report (final).pdf"), expected("report (final).pdf", "report%20%28final%29.pdf"));
+    assert.strictEqual(ad("it's.txt"), expected("it's.txt", "it%27s.txt"));
+  });
+
+  it("attachmentDisposition folds non-ASCII and a double quote out of filename and keeps them in filename*", function () {
+    assert.strictEqual(ad(resume), expected("r_sum_.pdf", "r%C3%A9sum%C3%A9.pdf"));
+    assert.strictEqual(ad("a" + '"' + "b.txt"), expected("a_b.txt", "a%22b.txt"));
+  });
+
+  it("attachmentDisposition serves an empty name, or one carrying CR, LF or NUL, as download", function () {
+    var download = expected("download", "download");
+    assert.strictEqual(ad(""), download);
+    assert.strictEqual(ad(undefined), download);
+    assert.strictEqual(ad("evil" + ch(0x0d) + ch(0x0a) + "Set-Cookie: x=1"), download);
+    assert.strictEqual(ad("a" + NUL + "b.txt"), download);
+  });
+
+  it("attachmentDisposition keeps only the last segment of a stored relative path", function () {
+    assert.strictEqual(ad("docs/report.pdf"), expected("report.pdf", "report.pdf"));
+  });
+
+  it("safeContentDisposition returns the primitive's value unchanged", function () {
+    ["it's.txt", resume, "", "docs/report.pdf"].forEach(function (name) {
+      assert.strictEqual(safeContentDisposition(name), ad(name));
     });
   });
 });

@@ -63,15 +63,11 @@ var idempotencyKey = b.middleware.idempotencyKey({
     // (headers + body sealed via b.cryptoField once b.vault.init() has run).
   }),
   ttlMs: b.constants.TIME.hours(24),
-  // Scope the replay-cache SLOT to the authenticated principal. The framework's
-  // default scope resolves the actor via b.requestHelpers.extractActorContext,
-  // which reads actor.userId — but HS sets req.user._id / req.apiKey._id (not
-  // .userId), so the default collapses EVERY request to a single shared "anon"
-  // slot. With one slot for all principals, one principal's Idempotency-Key
-  // reuses another's slot: principal B is refused key K that principal A already
-  // used (cross-actor denial). Bind the slot to HS's own principal id so each
-  // principal has an isolated key namespace. Mounted after global auth
-  // (attachUser / api-auth), so req.user / req.apiKey are set before this runs.
+  // Scope the replay-cache slot to the record id of the authenticated principal,
+  // req.user._id or req.apiKey._id, so each user and each API key has its own
+  // key namespace. The framework's default scope would key a user by email and
+  // an API key by its owner's userId. Mounted after global auth (attachUser /
+  // api-auth), so req.user / req.apiKey are set before this runs.
   scopeFn: function (req) {
     return (req.user && req.user._id) || (req.apiKey && req.apiKey._id) || "anon";
   },

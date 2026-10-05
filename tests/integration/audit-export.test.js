@@ -107,3 +107,43 @@ describe("audit decrypt + export", function () {
     assert.ok(res.status === 403 || res.status === 302, "non-admin blocked, got " + res.status);
   });
 });
+
+describe("the CADF export relies on the b.auditTools.exportCadf contract", function () {
+  var b, auditService;
+
+  before(function () {
+    b = require(path.join(testServer.projectRoot, "lib", "vendor", "blamejs"));
+    auditService = require(path.join(testServer.projectRoot, "app", "domain", "admin", "audit.service"));
+  });
+
+  function rowWith(over) {
+    return Object.assign({
+      _id: "r1", recordedAt: Date.parse("2026-10-04T00:00:00Z"), action: "server_started", outcome: "success",
+      monotonicCounter: 1, prevHash: "a".repeat(128), rowHash: "b".repeat(128),
+    }, over || {});
+  }
+
+  it("exportCadf gives an entry with no actor and no target fixed placeholder IDs", async function () {
+    var batch = await b.auditTools.exportCadf({ readRows: function () { return [rowWith()]; } });
+    var ev = batch.events[0];
+    assert.strictEqual(ev.initiator.id, "blamejs:unattributed");
+    assert.strictEqual(ev.initiator.typeURI, "service/security");
+    assert.strictEqual(ev.target.id, "blamejs:unidentified");
+  });
+
+  it("exportCadf carries the actor and the target an entry names", async function () {
+    var batch = await b.auditTools.exportCadf({
+      readRows: function () { return [rowWith({ actorUserId: "u-1", resourceId: "file-9" })]; },
+    });
+    var ev = batch.events[0];
+    assert.strictEqual(ev.initiator.id, "u-1");
+    assert.strictEqual(ev.initiator.typeURI, "service/security/account/user");
+    assert.strictEqual(ev.target.id, "file-9");
+  });
+
+  it("an audit entry with no performedBy and no targetId exports the placeholder IDs", async function () {
+    var batch = await auditService.exportCadf([{ _id: "e1", action: "server_started", createdAt: "2026-10-04T00:00:00.000Z" }], {});
+    assert.strictEqual(batch.events[0].initiator.id, "blamejs:unattributed");
+    assert.strictEqual(batch.events[0].target.id, "blamejs:unidentified");
+  });
+});

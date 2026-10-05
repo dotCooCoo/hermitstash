@@ -63,6 +63,7 @@ function cleanCaFiles() {
     "ca.key.rollback", "ca.key.sealed.rollback",
     "ca.crt.lock", "issuance.json.lock", "revocations.json.lock", "revoked-generation.lock",
     "revocations.json", "ca.crl",
+    "ca.crl-number", "ca.crl-number.lock", "ca.crl-number.published",
   ];
   for (var i = 0; i < names.length; i++) {
     var p = nodePath.join(DATA_DIR, names[i]);

@@ -21,8 +21,9 @@
  *   changelog  Rebuild CHANGELOG.md from release-notes/ (a derived artifact).
  *              Run after filling the release-notes entry.
  *   preflight  Read-only gate: version agreement across the three files, the
- *              changelog-drift / rollup / extract / pattern gates, and the two
- *              currency gates (actions-currency + vendor-currency). It does NOT
+ *              changelog-drift / rollup / extract / pattern / test-coverage
+ *              gates, and the two currency gates (actions-currency +
+ *              vendor-currency). It does NOT
  *              rebuild CHANGELOG — it reports drift so `changelog` is a visible
  *              step, never a hidden side effect.
  *   e2e        Full end-to-end suite from ../hermitstash-sync.
@@ -549,6 +550,18 @@ var PATTERNS_NA = {
   "silent-catch-stream-teardown": "rename of silent-catch; HS covers via that detector, now app-scope-widened (best-effort teardown/cleanup catches in routes/, middleware/, server-main.js are allow-markered)",
   "timer-no-unref-unrefed-below": "rename of timer-no-unref; HS covers via that detector (setInterval handle must .unref() within the window)",
   "timer-no-unref-process-pinning": "sibling rename of timer-no-unref; blamejs split its exception marker into -unrefed-below + -process-pinning, HS's single timer-no-unref detector covers both (all lib timers .unref(); no HS timer deliberately pins the process)",
+  "a-jmap-method-error-type-is-a-bare-name": "The detector targets the blamejs JMAP server, and HS runs no mail server.",
+  "an-imap-name-split-must-span-a-quoted-string-escape": "The detector targets the blamejs IMAP server, and HS runs no mail server.",
+  "an-actor-identity-is-not-hand-rolled": "HS has no actor, actorOpts or actorCtx binding outside the vendored tree. Audit rows take the actor from req.user._id, and the idempotency scope uses req.user._id or req.apiKey._id.",
+  "backup-manifest-read-outside-readfile": "HS reads no blamejs backup manifest. lib/backup-worker.js writes HS's own manifest.json and lib/backup.js reads it back through the storage backend; b.backup is used only for runInWorker.",
+  "restore-swap-work-dir-under-os-tmpdir": "HS's restore stages nothing under os.tmpdir(). lib/restore-worker.js writes each file with a temp file and rename in the destination directory, and lib/ and app/ have no os.tmpdir() call.",
+  "control-char-allow-c1-outside-byte-readers": "HS passes no allowC1 option outside the vendored tree.",
+  "record-version-check-hand-rolled": "HS parses no DNS TXT record (SPF, DMARC, MTA-STS, TLS-RPT, DKIM).",
+  "serializer-realm-bound-instanceof": "The detector scans a named list of blamejs serializer modules. HS's one byte-type check in a serializer (lib/audit-archive.js _rowToWire) is covered by HS's lib-realm-bound-byte-instanceof detector, which scans lib/ and the app tree.",
+  "vary-token-appender-hand-rolled": "HS builds no Vary value itself. Its one Vary write calls b.requestHelpers.appendVary (middleware/security-headers.js), and HS's vary-replaced-by-header-object detector flags a direct Vary write.",
+  "audit-self-suppression-wraps-a-storage-call-only": "The detector checks the blamejs audit module's own storage calls (clusterStorage, _chainWriter, db().purgeAuditChain). HS writes its audit log through lib/audit.js and lib/db.js and never calls dbRoleContext.runAsAuditChainWrite.",
+  "an-audit-table-write-runs-outside-the-self-emit-suppression": "The detector checks reads and writes of the _blamejs_audit_* tables through clusterStorage or db().purgeAuditChain. HS keeps its audit log in its own audit_log table and calls neither.",
+  "a-catch-around-a-gated-argon2-call-swallows-the-capacity-refusal": "HS calls b.auth.password.gate() only in lib/password-gate.js, with no maxQueued and no waitTimeoutMs, so the framework never raises argon2/busy or argon2/queue-timeout for a catch to swallow. tests/unit/password-gate.test.js fails if either bound is set. lib/password-gate.js refuses excess checks itself, before any Argon2id work starts.",
 };
 
 // Extract the detector class-id set from a codebase-patterns gate file.
@@ -760,11 +773,9 @@ function eslintGate() {
 // something different. These run in-process against the source on disk.
 function unitTestGate() {
   process.stdout.write("  test suites … ");
-  // tests/lint/ is NOT globbed: codebase-patterns.test.js and test-coverage.test.js
-  // are standalone scripts with their own runners, and preflight invokes those
-  // directly. The rule test below is a node:test file and has to be named, or it
-  // sits in the tree running nowhere — which is the failure this comment block
-  // already describes.
+  // tests/lint/ is not globbed. codebase-patterns.test.js and test-coverage.test.js
+  // are standalone scripts, and cmdPreflight runs each of them through nodeGate.
+  // The rule test below is a node:test file, so it is named here.
   var globs = ["tests/unit/*.test.js", "tests/security/*.test.js", "tests/integration/*.test.js",
     "tests/lint/eslint-timing-compare-rule.test.js"];
   try {
@@ -982,6 +993,7 @@ function cmdPreflight() {
     + nodeGate("release-notes rollup", ["scripts/consolidate-release-notes.js", "--check"])
     + nodeGate("changelog extract", ["scripts/check-changelog-extract.js"])
     + nodeGate("codebase patterns", ["tests/lint/codebase-patterns.test.js"])
+    + nodeGate("test coverage", ["tests/lint/test-coverage.test.js"])
     // Catches a vendored-dependency bump that left a stale version stranded in
     // the operator-facing prose. The vendoring script syncs the few references
     // it knows about; every other mention was previously unguarded, which is how
@@ -1335,7 +1347,7 @@ function cmdHelp() {
     "",
     "  " + bold("read-only / gates"),
     "    status     versions, repo state, latest tags, in-flight Docker run",
-    "    preflight  version agreement + changelog/rollup/extract/pattern gates + currency gates",
+    "    preflight  version agreement + changelog/rollup/extract/pattern/test-coverage gates + currency gates",
     "    actions    actions-currency gate only (paste-ready owner/repo@<sha> # vX.Y.Z)",
     "    vendor     vendor-currency gate only (blamejs)",
     "    patterns   patterns-currency advisory — new blamejs codebase-patterns detectors to adopt",

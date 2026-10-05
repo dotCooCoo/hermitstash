@@ -12,15 +12,15 @@
  *      frameworkError catalog).
  *
  *   2. Scan HS source (lib/, middleware/, routes/, app/, server.js,
- *      server-main.js) for `b.X(` and `b.X.Y(` patterns. Primitives
- *      HS never imports get auto-skipped — only the surface HS
- *      consumes ends up under coverage review.
+ *      server-main.js) for each name written as a verbatim `b.X` or
+ *      `b.X.Y`, comments included. A primitive HS source never names
+ *      is skipped, so only the surface HS consumes is reviewed.
  *
- * For each HS-consumed primitive, check tests/ has a reference
- * (verbatim `b.X.Y`, a `require(...lib/<kebab-form>)` import, or a
- * test file basename equal to the kebab form). Flagged primitives
- * go to UNTESTED_BACKLOG with a one-line reason or get a direct
- * test reference added.
+ * For each HS-consumed primitive, check that a file under tests/,
+ * outside tests/lint, has a reference (verbatim `b.X.Y`, a
+ * `require(...lib/<kebab-form>)` import, or a test file basename equal
+ * to the kebab form). Flagged primitives go to UNTESTED_BACKLOG with a
+ * one-line reason or get a direct test reference added.
  *
  * The HS-shape change matters: HS uses ~100 framework primitives
  * through HS-side wrappers (lib/audit, lib/session, lib/vault,
@@ -141,7 +141,6 @@ var UNTESTED_BACKLOG = {
   "pick":                          "backfill — covered indirectly through a sibling primitive or by direct lib import",
   "safeEnv":                       "backfill — covered indirectly through a sibling primitive or by direct lib import",
   "safeRedirect":                  "backfill — covered indirectly through a sibling primitive or by direct lib import",
-  "auditTools":                    "HS doesn't consume — the only b.auditTools mention is a comment in lib/audit-archive.js explaining why the archival path is deliberately HS-native (HS runs no blamejs DB layer, so the b.auditTools helpers are unusable); no code path calls it",
   "auditSign.rotateSigningKey":    "audit-sign rotation needs a real init() with sealed/plaintext keypair on disk + a vault passphrase prompt — exercised by the audit-key rotation runbook documented in SECURITY.md, not unit-testable without a fixture vault",
   "auditSign.reSignAll":           "companion to auditSign.rotateSigningKey — async iterable + per-payload verify+sign needs real audit-sign init; covered by the rotation runbook",
   "circuitBreaker":                "thin re-export of b.retry.CircuitBreaker for ergonomic top-level discovery; the underlying class is tested via b.retry.CircuitBreaker references — direct b.circuitBreaker references aren't load-bearing",
@@ -337,7 +336,6 @@ var UNTESTED_BACKLOG = {
   // queue — sub-keys exercised through composition / direct lib imports.
   "queue.bootFromEnv":                           "backfill — covered indirectly under the queue test or via composition",
   // requestHelpers — sub-keys exercised through composition / direct lib imports.
-  "requestHelpers.appendVary":                   "backfill — covered indirectly under the requestHelpers test or via composition",
   "requestHelpers.clientIp":                     "backfill — covered indirectly under the requestHelpers test or via composition",
   "requestHelpers.parseListHeader":              "backfill — covered indirectly under the requestHelpers test or via composition",
   "requestHelpers.requestProtocol":              "backfill — covered indirectly under the requestHelpers test or via composition",
@@ -438,7 +436,6 @@ var UNTESTED_BACKLOG = {
   "mtlsEngine":                     "HS uses for cert signing in route handlers; covered via the mTLS CA integration flow",
   "safeJson":                       "HS uses pervasively (api-encrypt, api-crypto, passkey, vault, two-factor, admin, startup-checks); covered through every JSON-bodied integration test",
   "safeSchema":                     "HS uses in lib/settings-schema.js for admin-input validation; tests/integration/admin-api.test.js exercises the schema-validated update path",
-  "requestHelpers":                 "HS uses for req.protocol / req.ip resolution; covered through every request-handling integration test",
   "network":                        "HS uses for outbound HTTP (Resend / webhooks); covered through webhook + email integration tests",
   "ntpCheck":                       "HS uses at boot via b.ntpCheck.bootCheck; boot-flow exercised by every server-starting integration test",
 
@@ -480,10 +477,13 @@ function _walk(dir, out) {
     var ent = entries[i];
     var p = path.join(dir, ent.name);
     if (ent.isDirectory()) {
-      // Skip data dirs / node_modules / .test-output.
+      // Skip data dirs, node_modules, .test-output and lint. The lint
+      // directory holds the lint gates, this script among them, and a b.*
+      // name in a lint gate does not count as a test reference.
       if (ent.name === "node_modules") continue;
       if (ent.name.indexOf("data") === 0) continue;
       if (ent.name === ".test-output") continue;
+      if (ent.name === "lint") continue;
       _walk(p, out);
     } else if (ent.isFile() && /\.(js|cjs|mjs)$/.test(ent.name)) {
       out.push(p);
@@ -497,10 +497,6 @@ function _readAllTests() {
   var blob = "";
   var basenames = new Set();
   for (var i = 0; i < files.length; i += 1) {
-    // Don't let this file's own enumeration source count as test
-    // coverage — every primitive name appears in this script's
-    // output formatter, which would silently mark everything tested.
-    if (files[i] === __filename) continue;
     try { blob += fs.readFileSync(files[i], "utf8") + "\n"; }
     catch (_e) { /* drop unreadable */ }
     basenames.add(path.basename(files[i]));

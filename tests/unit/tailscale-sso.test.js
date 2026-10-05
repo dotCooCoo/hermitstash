@@ -2,6 +2,8 @@ const { describe, it, before, after } = require("node:test");
 const assert = require("node:assert");
 const path = require("path");
 const fs = require("fs");
+const http = require("http");
+const os = require("os");
 const b = require("../../lib/vendor/blamejs");
 
 // Isolated test database.
@@ -77,6 +79,12 @@ describe("tailscale — identityFrom (peer-gated family → normalized identity)
     assert.strictEqual(id.login, "alice@example.com");
     assert.strictEqual(id.displayName, "Alice A");
     assert.strictEqual(id.profilePicUrl, "https://x/y.jpg");
+  });
+  it("strips C0, DEL and C1 control characters from the display name", function () {
+    setGate({ allowlist: ["a@ex.com"] });
+    var ch = String.fromCharCode;
+    var id = tailscale.identityFrom(reqWith({ login: "a@ex.com", name: "Ali" + ch(0x9b) + "ce" + ch(0x07) + " A" + ch(0x7f) + ch(0x85) }));
+    assert.strictEqual(id.displayName, "Alice A");
   });
 });
 
@@ -212,5 +220,115 @@ describe("auth.service.resolveTailscaleUser", function () {
     assert.throws(function () {
       authService.resolveTailscaleUser({ login: "susp@example.com", displayName: "Susp", caps: [] });
     }, /suspended/i);
+  });
+});
+
+describe("tailscale LocalAPI client built with b.localHttp.create", function () {
+  var server = null;
+  var socketPath = null;
+  var savedSocketPath = null;
+  var requests = [];
+  var oversize = false;
+
+  before(async function () {
+    // On Windows the fake tailscaled listens on a named pipe; elsewhere it
+    // listens on a Unix socket in the OS temp directory.
+    var BS = String.fromCharCode(92);
+    var name = "hs-tailscaled-" + b.crypto.generateToken(6);
+    socketPath = process.platform === "win32"
+      ? BS + BS + "." + BS + "pipe" + BS + name
+      : path.join(os.tmpdir(), name + ".sock");
+    server = http.createServer(function (req, res) {
+      requests.push({ url: req.url, host: req.headers.host, origin: req.headers.origin, referer: req.headers.referer });
+      res.writeHead(200, { "Content-Type": "application/json" });
+      if (req.url === "/localapi/v0/status") {
+        if (oversize) { res.end(JSON.stringify({ pad: "x".repeat(b.constants.BYTES.mib(1)) })); return; }
+        res.end(JSON.stringify({ Self: { DNSName: "HS.Tailnet-Name.ts.net." } }));
+        return;
+      }
+      res.end(JSON.stringify({
+        UserProfile: { LoginName: " Alice@Example.COM ", DisplayName: "Ali" + String.fromCharCode(0x9b) + "ce",
+          ProfilePicURL: "https://x/y.png" },
+        CapMap: { "example.com/cap/hermitstash": [] },
+      }));
+    });
+    await new Promise(function (resolve) { server.listen(socketPath, resolve); });
+    savedSocketPath = config.tailscale.socketPath;
+    config.tailscale.socketPath = socketPath;
+  });
+
+  after(async function () {
+    config.tailscale.socketPath = savedSocketPath;
+    if (server) await new Promise(function (resolve) { server.close(function () { resolve(); }); });
+  });
+
+  it("whois sends the tailscaled Host header without Origin or Referer and normalizes the profile", async function () {
+    var id = await tailscale.whois("100.64.0.1:41641");
+    assert.deepStrictEqual(id, {
+      login: "alice@example.com", displayName: "Alice", profilePicUrl: "https://x/y.png",
+      caps: ["example.com/cap/hermitstash"],
+    });
+    var last = requests[requests.length - 1];
+    assert.strictEqual(last.url, "/localapi/v0/whois?addr=100.64.0.1%3A41641");
+    assert.strictEqual(last.host, "local-tailscaled.sock");
+    assert.strictEqual(last.origin, undefined);
+    assert.strictEqual(last.referer, undefined);
+  });
+
+  it("magicDnsName lowercases the node name and drops the trailing dot", async function () {
+    assert.strictEqual(await tailscale.magicDnsName(), "hs.tailnet-name.ts.net");
+  });
+
+  it("status refuses a LocalAPI response larger than 1 MiB", async function () {
+    oversize = true;
+    try {
+      await assert.rejects(tailscale.status(), function (e) { return e.code === "local-http/response-too-large"; });
+    } finally {
+      oversize = false;
+    }
+  });
+
+  it("b.localHttp.create refuses a hostname for the TCP transport and a client given two transports", function () {
+    assert.throws(function () { b.localHttp.create({ host: "localhost", port: 41112 }); },
+      function (e) { return e.code === "local-http/non-loopback-host"; });
+    assert.throws(function () { b.localHttp.create({ socketPath: socketPath, host: "127.0.0.1", port: 41112 }); },
+      function (e) { return e.code === "local-http/bad-transport"; });
+  });
+});
+
+describe("tailscale identity relies on the b.requestHelpers.trustedIdentityHeaders contract", function () {
+  // lib/tailscale.js builds its gate with these options.
+  function gate() {
+    return b.requestHelpers.trustedIdentityHeaders({
+      trustedProxies: ["127.0.0.0/8", "::1/128"], headers: tailscale.SERVE_HEADERS, as: "tailscaleIdentity",
+    });
+  }
+
+  it("resolve returns the raw header family from a loopback peer", function () {
+    assert.deepStrictEqual(gate().resolve(reqWith({ login: "a@ex.com", name: "Alice" })),
+      { trusted: true, identity: { login: "a@ex.com", name: "Alice" } });
+  });
+
+  it("middleware strips the family from any other peer and sets the identity to null", function () {
+    var req = reqWith({ login: "a@ex.com", name: "Alice" });
+    req.socket.remoteAddress = "100.64.0.7";
+    var nexted = false;
+    gate().middleware(req, {}, function () { nexted = true; });
+    assert.strictEqual(nexted, true);
+    assert.strictEqual(req.tailscaleIdentity, null);
+    assert.strictEqual(req.headers["tailscale-user-login"], undefined);
+    assert.strictEqual(req.headers["tailscale-user-name"], undefined);
+  });
+
+  it("tailscale.middleware trusts the family from loopback and strips it from a tailnet peer", function () {
+    config.tailscale.enabled = true;
+    var local = reqWith({ login: "a@ex.com", name: "Alice" });
+    tailscale.middleware(local, {}, function () {});
+    assert.deepStrictEqual(local.tailscaleIdentity, { login: "a@ex.com", name: "Alice" });
+    var remote = reqWith({ login: "a@ex.com", name: "Alice" });
+    remote.socket.remoteAddress = "100.64.0.7";
+    tailscale.middleware(remote, {}, function () {});
+    assert.strictEqual(remote.tailscaleIdentity, null);
+    assert.strictEqual(remote.headers["tailscale-user-login"], undefined);
   });
 });

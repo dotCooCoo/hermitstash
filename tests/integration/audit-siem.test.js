@@ -4,6 +4,7 @@ const path = require("path");
 const dgram = require("node:dgram");
 const http = require("node:http");
 const { setTimeout: delay } = require("node:timers/promises");
+var b = require("../../lib/vendor/blamejs");
 var testServer = require("../helpers/test-server");
 
 var audit, siem, config;
@@ -91,6 +92,35 @@ describe("SIEM forwarding (syslog)", function () {
     assert.ok(pkt, "packet arrived");
     assert.ok(pkt.indexOf(jwt) === -1, "the JWT-shaped secret is NOT forwarded verbatim");
     assert.ok(/REDACT/i.test(pkt), "a redaction marker is present");
+  });
+
+  it("forwards a share route as its route pattern and removes the share ID from details", async function () {
+    received.length = 0;
+    var share = b.crypto.generateToken(32);
+    audit.log("bundle_viewed", {
+      targetId: "s-6",
+      details: "shareId: " + share,
+      req: reqCtx({ method: "GET", pathname: "/b/" + share, routePattern: "/b/:shareId" }),
+    });
+    var pkt = await waitFor(function (m) { return m.indexOf("audit.bundle_viewed") !== -1; });
+    assert.ok(pkt, "packet arrived");
+    assert.strictEqual(pkt.indexOf(share), -1, "the share ID is not forwarded: " + pkt);
+    assert.ok(pkt.indexOf("\"path\":\"/b/:shareId\"") !== -1, "path is the route pattern: " + pkt);
+    var digest = b.crypto.sha3Hash("/b/" + share).slice(0, 32);
+    assert.ok(pkt.indexOf("\"pathDigest\":\"" + digest + "\"") !== -1, "pathDigest identifies the share link: " + pkt);
+  });
+
+  it("replaces a token segment in the path when no route pattern is known", async function () {
+    received.length = 0;
+    var token = b.crypto.generateToken(32);
+    audit.log("bundle_access_code_failed", {
+      targetId: "s-7",
+      req: reqCtx({ pathname: "/b/" + token + "/verify-code" }),
+    });
+    var pkt = await waitFor(function (m) { return m.indexOf("audit.bundle_access_code_failed") !== -1; });
+    assert.ok(pkt, "packet arrived");
+    assert.strictEqual(pkt.indexOf(token), -1, "the token is not forwarded: " + pkt);
+    assert.ok(pkt.indexOf("/b/:token/verify-code") !== -1, "the token segment is replaced: " + pkt);
   });
 
   it("does not forward when disabled", async function () {

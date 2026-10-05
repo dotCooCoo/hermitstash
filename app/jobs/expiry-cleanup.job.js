@@ -88,7 +88,7 @@ async function cleanupStaleBundles() {
       try {
         storage.removeBundleChunks(bundle.shareId);
       } catch (e) {
-        logger.warn("[expiry-cleanup] Failed to remove chunk directory for stale bundle (chunk-gc will retry)", { bundleShareId: bundle.shareId, bundleId: bundle._id, error: e.message });
+        logger.warn("[expiry-cleanup] Failed to remove chunk directory for stale bundle (chunk-gc will retry)", { bundleId: bundle._id, error: e.message });
       }
     }
     bundles.remove({ _id: bundle._id });

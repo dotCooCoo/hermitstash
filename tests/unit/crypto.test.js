@@ -6,7 +6,7 @@ var b = require("../../lib/vendor/blamejs");
 var hashPassword   = function (p) { return b.auth.password.hash(String(p)); };
 var verifyPassword = function (p, h) { return b.auth.password.verify(h, String(p)); };
 const {
-  sha3Hash, hashEmail, generateEncryptionKeyPair, decrypt,
+  sha3Hash, hashEmail, generateEncryptionKeyPair, decrypt, timingSafeEqual,
 } = require("../../lib/crypto");
 // encrypt() was retired from lib/crypto (the 0xE1 producer); the legacy blob is
 // built from the test-only constructor to verify decrypt still reads it.
@@ -105,5 +105,26 @@ describe("crypto module", function () {
       var decrypted = decrypt(encrypt(unicode, pair.publicKey), pair.privateKey);
       assert.strictEqual(decrypted, unicode);
     });
+  });
+});
+
+describe("lib/crypto relies on the b.crypto.timingSafeEqual contract", function () {
+  it("timingSafeEqual answers true for equal values and false for a different value of the same length", function () {
+    assert.strictEqual(b.crypto.timingSafeEqual("a1b2c3", "a1b2c3"), true);
+    assert.strictEqual(b.crypto.timingSafeEqual("a1b2c3", "a1b2c4"), false);
+    assert.strictEqual(b.crypto.timingSafeEqual(Buffer.from("a1b2c3"), "a1b2c3"), true);
+  });
+
+  it("timingSafeEqual answers false without throwing when the lengths differ", function () {
+    assert.strictEqual(b.crypto.timingSafeEqual("a1b2c3", "a1b2c3d4"), false);
+  });
+
+  it("timingSafeEqual throws a TypeError for an argument that is neither a string nor a Buffer", function () {
+    assert.throws(function () { b.crypto.timingSafeEqual(null, "a"); }, TypeError);
+    assert.throws(function () { b.crypto.timingSafeEqual("a", undefined); }, TypeError);
+  });
+
+  it("lib/crypto exports the framework function itself", function () {
+    assert.strictEqual(timingSafeEqual, b.crypto.timingSafeEqual);
   });
 });

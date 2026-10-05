@@ -245,6 +245,34 @@ describe("vault-passphrase integration: setup CLI", function () {
     assert.notStrictEqual(r.status, 0);
     assert.match(r.stderr + r.stdout, /stale/);
   });
+
+  it("remove asks to check the passphrase when it is wrong", function () {
+    seedPlaintext(dir);
+    var setup = runSetup(dir, { VAULT_PASSPHRASE: "pw-right" });
+    assert.strictEqual(setup.status, 0, setup.stderr);
+    var sealedBefore = fs.readFileSync(path.join(dir, "vault.key.sealed"));
+    var r = runRemove(dir, { VAULT_PASSPHRASE: "pw-wrong" });
+    assert.notStrictEqual(r.status, 0);
+    assert.match(r.stderr, /Verify you used the correct passphrase/);
+    assert.strictEqual(Buffer.compare(fs.readFileSync(path.join(dir, "vault.key.sealed")), sealedBefore), 0);
+    assert.ok(!fs.existsSync(path.join(dir, "vault.key")), "plaintext NOT created on a wrong passphrase");
+  });
+
+  it("remove reports a sealed file it cannot parse without blaming the passphrase", function () {
+    seedPlaintext(dir);
+    var setup = runSetup(dir, { VAULT_PASSPHRASE: "pw-right" });
+    assert.strictEqual(setup.status, 0, setup.stderr);
+    var sealedPath = path.join(dir, "vault.key.sealed");
+    var damaged = fs.readFileSync(sealedPath);
+    damaged[0] = 0x00;
+    fs.writeFileSync(sealedPath, damaged);
+    var r = runRemove(dir, { VAULT_PASSPHRASE: "pw-right" });
+    assert.notStrictEqual(r.status, 0);
+    assert.match(r.stderr, /not a wrapped vault file/);
+    assert.doesNotMatch(r.stderr, /correct passphrase/);
+    assert.strictEqual(Buffer.compare(fs.readFileSync(sealedPath), damaged), 0, "the sealed file is unchanged");
+    assert.ok(!fs.existsSync(path.join(dir, "vault.key")), "plaintext NOT created from a damaged file");
+  });
 });
 
 describe("vault-passphrase integration: migration marker recovery", function () {

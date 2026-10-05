@@ -199,6 +199,40 @@ describe("RFC 9457 problem-details (error-handler contract)", function () {
       assert.ok(!res._state.body.includes("secret=abc"), "internal text must not leak on 5xx");
     });
 
+    it("ServiceUnavailableError → 503 problem+json with its detail and Retry-After", function () {
+      var { ServiceUnavailableError } = loadAppErrors();
+      var req = Mocks.mockReq({ accept: "application/json" });
+      var res = Mocks.mockRes();
+      errorHandler(new ServiceUnavailableError("Too many password checks are in progress. Try again in a few seconds.", 2), req, res);
+      assert.strictEqual(res._state.statusCode, 503);
+      assert.strictEqual(res._state.headers["retry-after"], "2");
+      var body = JSON.parse(res._state.body);
+      assert.strictEqual(body.type, "https://hermitstash.com/problems/service-unavailable");
+      assert.strictEqual(body.title, "Service Unavailable");
+      assert.strictEqual(body.detail, "Too many password checks are in progress. Try again in a few seconds.");
+      assert.strictEqual(body.retryAfter, 2);
+    });
+
+    it("ServiceUnavailableError → HTML client sees its message and Retry-After", function () {
+      var { ServiceUnavailableError } = loadAppErrors();
+      var req = Mocks.mockReq({ accept: "text/html" });
+      var res = Mocks.mockRes();
+      errorHandler(new ServiceUnavailableError("Busy, retry shortly.", 2), req, res);
+      assert.strictEqual(res._state.statusCode, 503);
+      assert.strictEqual(res._state.headers["retry-after"], "2");
+      assert.ok(res._state.body.indexOf("Busy, retry shortly.") !== -1, "message rendered");
+      assert.ok(res._state.body.indexOf("Something went wrong") === -1, "generic 5xx text not used");
+    });
+
+    it("exposeDetail on a non-AppError leaves a 5xx detail suppressed", function () {
+      var req = Mocks.mockReq({ accept: "application/json" });
+      var res = Mocks.mockRes();
+      errorHandler({ isFrameworkError: true, statusCode: 503, exposeDetail: true, code: "upstream/unavailable", message: "pool exhausted secret=abc" }, req, res);
+      assert.strictEqual(res._state.statusCode, 503);
+      assert.strictEqual(JSON.parse(res._state.body).detail, undefined);
+      assert.ok(!res._state.body.includes("secret=abc"));
+    });
+
     it("FrameworkError with no status stays 500 (genuine internal failure), detail suppressed", function () {
       var req = Mocks.mockReq({ accept: "application/json" });
       var res = Mocks.mockRes();

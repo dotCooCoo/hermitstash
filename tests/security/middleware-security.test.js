@@ -7,6 +7,7 @@ const http = require("http");
 var testServer = require("../helpers/test-server");
 var { TestClient } = require("../helpers/http-client");
 var projectRoot = testServer.projectRoot;
+var b = require("../../lib/vendor/blamejs");
 var client;
 
 before(async function () {
@@ -257,5 +258,23 @@ describe("middleware-security", function () {
         config.rpOrigin = originalRpOrigin;
       }
     });
+  });
+});
+
+describe("the api-encrypt body cap relies on the b.safeBuffer.boundedChunkCollector contract", function () {
+  it("boundedChunkCollector keeps a body of exactly maxBytes and refuses the chunk that crosses it", function () {
+    var cap = b.constants.BYTES.mib(1);
+    var collector = b.safeBuffer.boundedChunkCollector({ maxBytes: cap });
+    collector.push(Buffer.alloc(cap - 1));
+    collector.push(Buffer.alloc(1));
+    assert.strictEqual(collector.bytesCollected(), cap);
+    assert.throws(function () { collector.push(Buffer.alloc(1)); },
+      function (e) { return e.code === "buffer/too-large"; });
+    assert.strictEqual(collector.bytesCollected(), cap, "the refused chunk is not kept");
+  });
+
+  it("boundedChunkCollector refuses an unbounded cap when it is built", function () {
+    assert.throws(function () { b.safeBuffer.boundedChunkCollector({ maxBytes: Infinity }); },
+      function (e) { return e.code === "buffer/bad-arg"; });
   });
 });

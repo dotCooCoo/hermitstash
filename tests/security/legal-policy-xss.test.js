@@ -1,6 +1,7 @@
 var { describe, it, before, after } = require("node:test");
 var assert = require("node:assert");
 var path = require("path");
+var b = require("../../lib/vendor/blamejs");
 
 var testServer = require("../helpers/test-server");
 var { TestClient } = require("../helpers/http-client");
@@ -81,5 +82,26 @@ describe("legal policy pages — stored-XSS sanitization (G-1)", function () {
     } finally {
       config.cookiePolicy = orig;
     }
+  });
+});
+
+describe("the legal policy pages rely on the b.guardHtml contract", function () {
+  it("sanitize with the balanced profile drops scripts, handlers and javascript: links and keeps formatting", function () {
+    var out = b.guardHtml.sanitize(
+      '<h2>T</h2><p onclick="x()">b <strong>s</strong></p><script>alert(1)</script>' +
+      '<a href="javascript:alert(1)">j</a><a href="https://example.com/">ok</a>', { profile: "balanced" });
+    assert.strictEqual(out, '<h2>T</h2><p>b <strong>s</strong></p><a>j</a><a href="https://example.com/">ok</a>');
+  });
+
+  it("sanitize throws on input over its byte cap, which sends sanitizePolicy to escapeText", function () {
+    assert.throws(function () {
+      b.guardHtml.sanitize("<p>policy</p>", { profile: "balanced", maxBytes: 4 });
+    }, function (e) { return e.code === "html.too-large"; });
+  });
+
+  it("escapeText encodes the five HTML special characters and renders null as empty", function () {
+    var input = "<img src=x onerror=" + '"' + "a('1')" + '"' + ">&";
+    assert.strictEqual(b.guardHtml.escapeText(input), "&lt;img src=x onerror=&quot;a(&#39;1&#39;)&quot;&gt;&amp;");
+    assert.strictEqual(b.guardHtml.escapeText(null), "");
   });
 });

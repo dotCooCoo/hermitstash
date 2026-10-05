@@ -46,7 +46,7 @@ module.exports = function (app) {
       fileService.incrementDownloads(doc);
       audit.log(audit.ACTIONS.FILE_DOWNLOADED, { targetId: doc._id, targetEmail: doc.uploaderEmail, details: "file: " + doc.originalName + ", size: " + doc.size, req: req });
       res.writeHead(200, {
-        "Content-Disposition": safeContentDisposition(doc.originalName, "attachment"),
+        "Content-Disposition": safeContentDisposition(doc.originalName),
         "Content-Type": result.headers["Content-Type"],
       });
       var stream = result.stream;
@@ -84,7 +84,7 @@ module.exports = function (app) {
         if (doc.size && Number(doc.size) > fileService.SVG_SIZE_LIMIT) {
           var dlResult = await fileService.getForceDownloadStream(doc);
           res.writeHead(200, {
-            "Content-Disposition": safeContentDisposition(doc.originalName, "attachment"),
+            "Content-Disposition": safeContentDisposition(doc.originalName),
             "Content-Type": "application/octet-stream",
           });
           req.on("close", function () { if (dlResult.stream && dlResult.stream.destroy) dlResult.stream.destroy(); });
@@ -116,7 +116,7 @@ module.exports = function (app) {
       // "download" mode — forced download for HTML/JS/unknown types
       var forceResult = await fileService.getForceDownloadStream(doc);
       res.writeHead(200, {
-        "Content-Disposition": safeContentDisposition(doc.originalName, "attachment"),
+        "Content-Disposition": safeContentDisposition(doc.originalName),
         "Content-Type": "application/octet-stream",
       });
       req.on("close", function () { if (forceResult.stream && forceResult.stream.destroy) forceResult.stream.destroy(); });
@@ -128,7 +128,7 @@ module.exports = function (app) {
     } catch (err) {
       // Storage backend (local fs or S3) or stream decrypt failed. Log so
       // operators can investigate; keep the user-facing body generic.
-      logger.error("[files/download] Error", { shareId: req.params.shareId, error: err.message });
+      logger.error("[files/download] Error", { fileId: doc._id, error: err.message });
       if (!res.writableEnded) { res.writeHead(500); res.end("File unavailable"); }
     }
   });
@@ -232,7 +232,7 @@ module.exports = function (app) {
 
         var result = await fileService.getDownloadStream(doc);
         res.writeHead(200, {
-          "Content-Disposition": safeContentDisposition(doc.originalName, "attachment"),
+          "Content-Disposition": safeContentDisposition(doc.originalName),
           "Content-Type": result.headers["Content-Type"],
         });
         var stream = result.stream;

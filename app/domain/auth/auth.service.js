@@ -5,6 +5,7 @@
 var b = require("../../../lib/vendor/blamejs");
 var config = require("../../../lib/config");
 var tailscale = require("../../../lib/tailscale");
+var passwordGate = require("../../../lib/password-gate");
 var usersRepo = require("../../data/repositories/users.repo");
 var filesRepo = require("../../data/repositories/files.repo");
 var { validateEmail, validatePassword, validateDisplayName } = require("../../shared/validate");
@@ -28,7 +29,15 @@ function emailIsVerified(user) {
 // emails have an active local password.
 var _dummyHashPromise = null;
 function dummyPasswordHash() {
-  if (!_dummyHashPromise) _dummyHashPromise = b.auth.password.hash(b.crypto.generateToken(16));
+  if (!_dummyHashPromise) {
+    var pending = passwordGate.hash(b.crypto.generateToken(16));
+    _dummyHashPromise = pending;
+    // A refused or failed hash is removed from the cache, and the next caller
+    // starts a new one.
+    pending.catch(function () {
+      if (_dummyHashPromise === pending) _dummyHashPromise = null;
+    });
+  }
   return _dummyHashPromise;
 }
 
@@ -47,7 +56,7 @@ async function registerLocal(displayName, email, password, opts) {
   var existing = usersRepo.findByEmail(emailResult.email);
   if (existing) throw new ConflictError("Email already registered.");
 
-  var passwordHash = await b.auth.password.hash(password);
+  var passwordHash = await passwordGate.hash(password);
   var isAdmin = usersRepo.count({}) === 0;
   var needsVerification = opts && opts.emailVerification && !isAdmin;
 
@@ -81,16 +90,17 @@ async function registerLocal(displayName, email, password, opts) {
 
 /**
  * Authenticate a local user by email and password.
- * Returns the user or throws.
+ * Returns the user or throws. An empty or null email finds no account, so it
+ * takes the unknown-account branch below, dummy verify included.
  */
 async function authenticateLocal(email, password) {
-  if (!email || !password) throw new ValidationError("Email and password required.");
+  if (!password) throw new ValidationError("Email and password required.");
 
-  var user = usersRepo.findByEmail(email);
+  var user = email ? usersRepo.findByEmail(email) : null;
   if (!user) {
     // Constant-cost verify so a non-existent account costs the same as a wrong
     // password on a real one — no account-existence timing oracle.
-    await b.auth.password.verify(await dummyPasswordHash(), password);
+    await passwordGate.verify(await dummyPasswordHash(), password);
     throw new AuthenticationError("Invalid email or password.");
   }
   if (!user.passwordHash) {
@@ -98,7 +108,7 @@ async function authenticateLocal(email, password) {
     // mark the error so the caller skips failed-attempt lockout — locking a
     // password that does not exist is a pure DoS / state-pollution vector, not a
     // brute-force defense.
-    await b.auth.password.verify(await dummyPasswordHash(), password);
+    await passwordGate.verify(await dummyPasswordHash(), password);
     var noPwErr = new AuthenticationError("Invalid email or password.");
     noPwErr.noPassword = true;
     throw noPwErr;
@@ -108,7 +118,7 @@ async function authenticateLocal(email, password) {
   // account's status to anyone holding only its email. Now the same verify cost is
   // paid on every existing-account branch, and only a caller who proves the
   // password learns pending/suspended state.
-  var valid = await b.auth.password.verify(user.passwordHash, password);
+  var valid = await passwordGate.verify(user.passwordHash, password);
   if (!valid) throw new AuthenticationError("Invalid email or password.");
 
   if (user.status === "pending") {

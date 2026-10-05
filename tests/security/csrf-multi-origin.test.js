@@ -29,11 +29,11 @@ var config = require("../../lib/config");
 // let this test pass while the shipped gate did something else — the exact
 // failure mode a security regression test exists to prevent. The route is a
 // JSON POST, the branch where the Origin check is the primary CSRF defense.
-function accepts(origin) {
+function accepts(origin, method) {
   var passed = false;
   var status = null;
   var req = {
-    method: "POST",
+    method: method || "POST",
     pathname: "/admin/settings",          // not exempt; a real state-changing path
     headers: { "content-type": "application/json", origin: origin },
     session: {},
@@ -118,6 +118,19 @@ describe("CSRF origin gate — multi-origin acceptance", function () {
     assert.ok(Array.isArray(set));
     assert.strictEqual(set[0], originPolicy.getOrigin());
     assert.strictEqual(set.length, 3);
+  });
+});
+
+describe("CSRF origin gate: method case", function () {
+  // HTTP/2 passes :method in the case the client sent, so `Post` reaches the
+  // middleware as written. The gate has to check it like POST.
+  it("checks a state-changing method sent in mixed or lower case", function () {
+    assert.strictEqual(accepts("https://evil.example.net", "Post"), false);
+    assert.strictEqual(accepts("https://evil.example.net", "patch"), false);
+  });
+
+  it("passes a safe method in any case without the origin check", function () {
+    assert.strictEqual(accepts("https://evil.example.net", "get"), true);
   });
 });
 

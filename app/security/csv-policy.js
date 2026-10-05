@@ -1,15 +1,12 @@
 /**
- * CSV policy — safe CSV generation for admin exports.
+ * This module builds the CSV files for admin exports.
  *
- * Delegates to b.guardCsv.serialize. Formula-injection triggers
- * (=, +, -, @, |, tab, CR, LF, and the full-width homoglyph variants
- * ＝ ＋ － ＠) are neutralised with a leading apostrophe; Unicode bidi
- * overrides (CVE-2021-42574 "Trojan Source"), C0 control characters, and
- * NUL bytes are stripped; and cell / row / total size is capped against
- * CSV-amplification bombs. Output is byte-identical to the prior
- * hand-rolled escaper for ordinary data — only hostile cells are altered,
- * always in the safe direction — and an export never throws on a hostile
- * field (control/bidi/null are stripped, not rejected).
+ * buildCsv delegates to b.guardCsv.serialize. A cell that opens with a formula
+ * trigger (=, +, -, @, TAB, CR, LF, or the full-width variants ＝ ＋ － ＠) is
+ * prefixed with an apostrophe and quoted. Unicode bidi overrides
+ * (CVE-2021-42574 "Trojan Source"), control characters and NUL bytes are
+ * stripped. Other cells are written unchanged, and an export does not throw on
+ * a hostile field.
  */
 var b = require("../../lib/vendor/blamejs");
 

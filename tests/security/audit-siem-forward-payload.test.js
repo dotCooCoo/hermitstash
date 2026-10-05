@@ -144,14 +144,27 @@ describe("the details scrub", function () {
 
   it("leaves the forensic content HermitStash logs on purpose", function () {
     // High entropy but not secret. Stripping these would empty the field of the
-    // only things that make an entry investigable.
+    // only things that make an entry investigable. File checksums are SHA3-512:
+    // 128 hexadecimal characters.
+    var checksum = b.crypto.sha3Hash("report");
     var detail = "backend: resend, reason: quota exceeded, "
-      + "checksum: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08, "
+      + "checksum: " + checksum + ", "
       + "path: uploads/bundle-42/report.pdf";
     var out = String(siem._scrubDetails(detail));
-    assert.ok(out.indexOf("9f86d081884c7d659a2feaa0c55ad015") !== -1, "checksum must survive: " + out);
+    assert.ok(out.indexOf(checksum) !== -1, "checksum must survive: " + out);
     assert.ok(out.indexOf("uploads/bundle-42/report.pdf") !== -1, "path must survive: " + out);
     assert.ok(out.indexOf("quota exceeded") !== -1, "reason must survive: " + out);
+  });
+
+  it("removes share IDs, including the share-ID segments of a storage key", function () {
+    var share = b.crypto.generateToken(32);
+    var fileShare = b.crypto.generateToken(32);
+    var out = String(siem._scrubDetails("shareId: " + share
+      + ", key: bundles/" + share + "/1727900000000-" + fileShare + ".pdf"));
+    assert.strictEqual(out.indexOf(share), -1, "the bundle share ID must not reach the SIEM");
+    assert.strictEqual(out.indexOf(fileShare), -1, "the file share ID must not reach the SIEM");
+    assert.ok(out.indexOf("bundles/[redacted]/1727900000000-[redacted].pdf") !== -1,
+      "the rest of the key survives: " + out);
   });
 
   it("reports an absent detail as null", function () {

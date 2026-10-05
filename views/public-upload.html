@@ -207,6 +207,8 @@
 
         <div class="folder-tree" id="folderTree"></div>
 
+        <div id="initError" class="skipped-notice" role="alert" style="display:none"></div>
+
         <div class="preview-footer">
           <span class="preview-summary" id="summaryText"></span>
           <button class="butn butn-bg butn-md radius-30" id="uploadBtn" onclick="startUpload()"><span>Upload</span></button>
@@ -304,6 +306,9 @@
 <script>
 var MAX_FILE={{{maxSize}}},MAX_BUNDLE={{{maxBundleSize}}},MAX_FILES={{{maxFiles}}},ALLOWED={{{__scriptJson(allowedExtensions)}}};
 var CONCURRENCY={{{uploadConcurrency}}},RETRIES={{{uploadRetries}}},TIMEOUT={{{uploadTimeout}}};
+// The server stores the first SKIPPED_SENT skipped entries. A render that does
+// not pass skippedFilesStored sends every entry.
+var SKIPPED_SENT={% if (typeof skippedFilesStored !== 'undefined') { %}{{{skippedFilesStored}}}{% } else { %}Infinity{% } %};
 var CHUNK_SIZE=10*1024*1024; // 10MB chunks
 var IS_AUTHED={% if (user) { %}true{% } else { %}false{% } %};
 var VAULT_ENABLED={% if (vaultEnabled) { %}true{% } else { %}false{% } %};
@@ -557,6 +562,16 @@ function cancelUpload(){
   document.getElementById('setupForm').style.transform='none';
 }
 
+// showInitError returns to the setup form and shows why the server refused to
+// create the bundle. It waits for the 300 ms transition that startUpload began.
+function showInitError(msg){
+  setTimeout(function(){
+    document.getElementById('progressPanel').style.display='none';
+    var sf=document.getElementById('setupForm');sf.style.display='block';sf.style.opacity='1';sf.style.transform='none';
+    var el=document.getElementById('initError');el.textContent=msg;el.style.display='block';
+  },350);
+}
+
 // Build the per-file status list with progress bars
 function buildFileList(items){
   var list=document.getElementById('fileStatusList');list.textContent='';
@@ -601,6 +616,7 @@ async function startUpload(){
 
   var name=document.getElementById('uploaderName').value.trim()||'Crabby';
   var email=document.getElementById('uploaderEmail').value.trim();
+  document.getElementById('initError').style.display='none';
 
   // Transition
   document.getElementById('setupForm').style.opacity='0';document.getElementById('setupForm').style.transform='translateY(-10px)';
@@ -624,8 +640,19 @@ async function startUpload(){
   var allowedEmailsEl=document.getElementById('bundleAllowedEmails');
   var allowedEmails=allowedEmailsEl?allowedEmailsEl.value.trim():'';
 
-  var ir=await fetch(uploadBase+'/init',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uploaderName:name,uploaderEmail:email||null,password:password||null,message:message||null,bundleName:bundleName||null,allowedEmails:allowedEmails||null,expiryDays:expiryDays,fileCount:toUpload.length,skippedCount:skipped.length,skippedFiles:skipped.map(function(f){return{path:f.rel,reason:f.reason}})})});
-  var bd=await ir.json();var bundleId=bd.bundleId;var finalizeToken=bd.finalizeToken;
+  var initBody=JSON.stringify({uploaderName:name,uploaderEmail:email||null,password:password||null,message:message||null,bundleName:bundleName||null,allowedEmails:allowedEmails||null,expiryDays:expiryDays,fileCount:toUpload.length,skippedCount:skipped.length,skippedFiles:skipped.slice(0,SKIPPED_SENT).map(function(f){return{path:f.rel,reason:f.reason}})});
+  // A 503 means the server is busy. The page waits for Retry-After and tries
+  // again, up to RETRIES times.
+  var ir,bd,initTries=0;
+  for(;;){
+    ir=await fetch(uploadBase+'/init',{method:'POST',headers:{'Content-Type':'application/json'},body:initBody});
+    bd=await ir.json().catch(function(){return{}});
+    if(ir.status!==503||initTries>=RETRIES)break;
+    initTries++;
+    await new Promise(function(r){setTimeout(r,(parseInt(ir.headers.get('Retry-After'),10)||2)*1000)});
+  }
+  if(!ir.ok||!bd.bundleId){showInitError(bd.detail||bd.error||'The upload could not start.');return}
+  var bundleId=bd.bundleId;var finalizeToken=bd.finalizeToken;
 
   // Concurrent queue with per-file status
   var up=0,errs=[],bUp=0,done=0;

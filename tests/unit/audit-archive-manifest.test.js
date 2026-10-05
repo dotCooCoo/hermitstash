@@ -28,6 +28,7 @@ var config = require("../../lib/config");
 var audit = require("../../lib/audit");
 var auditArchive = require("../../lib/audit-archive");
 var C = require("../../lib/constants");
+var b = require("../../lib/vendor/blamejs");
 
 var PASS = "correct-horse-battery-staple-manifest";
 
@@ -119,5 +120,34 @@ describe("audit archive top-level manifest integrity (F-5)", function () {
 
     var restored = await auditArchive.verifyArchive(archiveId, PASS);
     assert.strictEqual(restored.ok, true, "restoring the body verifies again: " + restored.reason);
+  });
+});
+
+describe("audit archival relies on the b.canonicalJson contract", function () {
+  it("stringify gives the same bytes for the same fields in any order", function () {
+    var a = { version: "hs-audit-archive-v1", count: 3, range: { last: 9, first: 7 } };
+    var reordered = { range: { first: 7, last: 9 }, count: 3, version: "hs-audit-archive-v1" };
+    assert.strictEqual(b.canonicalJson.stringify(a), b.canonicalJson.stringify(reordered));
+    assert.strictEqual(b.canonicalJson.stringify(a),
+      '{"count":3,"range":{"first":7,"last":9},"version":"hs-audit-archive-v1"}');
+  });
+
+  it("stringify gives a manifest read back from its envelope the bytes that were signed", function () {
+    // This is the manifest shape _archiveNowLocked builds. It writes null for
+    // each absent value.
+    var manifest = {
+      version: "hs-audit-archive-v1", id: "audit-2026-10-03T00-00-00-000Z-c9",
+      createdAt: "2026-10-03T00:00:00.000Z", count: 3,
+      firstCreatedAt: null, lastCreatedAt: "2026-10-02T23:59:59.000Z",
+      chainEnabled: true, firstCounter: 7, lastCounter: 9,
+      firstRowHash: "a".repeat(128), lastRowHash: "b".repeat(128), predecessorRowHash: null,
+    };
+    var readBack = JSON.parse(JSON.stringify({ manifest: manifest })).manifest;
+    assert.strictEqual(b.canonicalJson.stringify(readBack), b.canonicalJson.stringify(manifest));
+  });
+
+  it("stringify writes an undefined field as null, and the envelope round trip drops it", function () {
+    assert.strictEqual(b.canonicalJson.stringify({ a: undefined }), '{"a":null}');
+    assert.strictEqual(b.canonicalJson.stringify(JSON.parse(JSON.stringify({ a: undefined }))), "{}");
   });
 });

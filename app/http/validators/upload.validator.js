@@ -4,6 +4,8 @@
  */
 var nodePath = require("node:path");
 var b = require("../../../lib/vendor/blamejs");
+var C = require("../../../lib/constants");
+var { validateEmail } = require("../../shared/validate");
 
 /**
  * Validate a file against allowed extensions, max size, and empty check.
@@ -42,6 +44,78 @@ function validateBundleLimits(fileCount, maxFiles, totalSize, maxBundleSize) {
   if (maxFiles && fileCount > maxFiles) return { valid: false, reason: "Too many files (max " + maxFiles + ")." };
   if (maxBundleSize && totalSize > maxBundleSize) return { valid: false, reason: "Bundle too large." };
   return { valid: true };
+}
+
+// ---- Bundle init request fields ----
+
+/**
+ * Read a count from a bundle init body. Returns 0 for an absent or empty value,
+ * the count for a non-negative safe integer or a string of up to 15 digits,
+ * and null for anything else.
+ */
+function readCount(value) {
+  if (value === undefined || value === null || value === "") return 0;
+  if (typeof value === "string" && /^\d{1,15}$/.test(value)) return Number(value);
+  return (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) ? value : null;
+}
+
+/**
+ * Validate the init fields that both /drop/init and /stash/:slug/init store:
+ * fileCount, skippedCount and skippedFiles.
+ * Returns { error } or { fileCount, skippedCount, skippedFiles }.
+ *
+ * skippedFiles keeps the first C.UPLOAD.SKIPPED_FILES_STORED entries, each as
+ * { path, reason }. path is cut to C.UPLOAD.RELATIVE_PATH_MAX characters and
+ * reason to C.UPLOAD.SKIPPED_REASON_MAX. Entries past the first
+ * SKIPPED_FILES_STORED are not read.
+ */
+function validateInitInput(body) {
+  body = body || {};
+  var fileCount = readCount(body.fileCount);
+  if (fileCount === null) return { error: "fileCount must be a whole number." };
+  var skippedCount = readCount(body.skippedCount);
+  if (skippedCount === null) return { error: "skippedCount must be a whole number." };
+
+  var skippedFiles = [];
+  if (body.skippedFiles !== undefined && body.skippedFiles !== null) {
+    if (!Array.isArray(body.skippedFiles)) return { error: "skippedFiles must be a list." };
+    var kept = body.skippedFiles.slice(0, C.UPLOAD.SKIPPED_FILES_STORED);
+    for (var i = 0; i < kept.length; i++) {
+      var entry = kept[i];
+      if (!entry || typeof entry !== "object" || typeof entry.path !== "string") {
+        return { error: "Each skipped file needs a path." };
+      }
+      skippedFiles.push({
+        path: entry.path.slice(0, C.UPLOAD.RELATIVE_PATH_MAX),
+        reason: typeof entry.reason === "string" ? entry.reason.slice(0, C.UPLOAD.SKIPPED_REASON_MAX) : "",
+      });
+    }
+  }
+  return { fileCount: fileCount, skippedCount: skippedCount, skippedFiles: skippedFiles };
+}
+
+/**
+ * Validate the allowedEmails field of a /drop/init body: a comma-separated
+ * list of at most C.UPLOAD.ALLOWED_EMAILS_MAX addresses, each one accepted by
+ * validateEmail. Returns { error } or { value }, where value is the list of
+ * normalized addresses joined with commas, or null when the field is empty.
+ */
+function validateAllowedEmails(value) {
+  if (value === undefined || value === null || value === "") return { value: null };
+  if (typeof value !== "string") return { error: "Allowed emails must be a comma-separated list." };
+  var parts = value.split(",");
+  var emails = [];
+  for (var i = 0; i < parts.length; i++) {
+    var part = parts[i].trim();
+    if (!part) continue;
+    if (emails.length === C.UPLOAD.ALLOWED_EMAILS_MAX) {
+      return { error: "At most " + C.UPLOAD.ALLOWED_EMAILS_MAX + " email addresses can be allowed." };
+    }
+    var check = validateEmail(part);
+    if (!check.valid) return { error: "Allowed email " + (emails.length + 1) + " is not a valid address." };
+    emails.push(check.email);
+  }
+  return { value: emails.length ? emails.join(",") : null };
 }
 
 // ---- Magic byte content validation ----
@@ -272,7 +346,7 @@ function toGuardEntry(e) {
  * already contains a zip produces.
  *
  * Still refused: an entry escaping its directory, an absolute path, a symlink
- * or hardlink pointing outside, a duplicate name, and direction-changing,
+ * pointing outside, any hardlink, a duplicate name, and direction-changing,
  * control, null or zero-width characters in a name. Encryption is recorded
  * rather than refused — refusing a password-protected archive would refuse the
  * product's own purpose.
@@ -365,23 +439,29 @@ var INLINE_SNIFFABLE_MIME = new Set([
   "application/pdf", "image/gif", "image/jpeg", "image/png", "image/webp",
 ]);
 
-function safeServeMime(declaredMime, buffer) {
-  if (!declaredMime || typeof declaredMime !== "string") return "application/octet-stream";
-
-  // Screen the declared type first. Only the inline types below are sniff-bound;
-  // every other declared type is stored and later written as a Content-Type
-  // header. The multipart parser preserves a field byte for byte, carriage
-  // returns included, so "text/plain\r\nX-Injected: 1" reached writeHead — which
-  // refuses it. Node stops the header injection; what it cannot stop is the
-  // throw recurring on every later download, so an anonymous upload could make
-  // one file permanently unfetchable while its counter kept incrementing.
-  var mimeCheck = b.guardMime.validate(declaredMime);
-  if (!mimeCheck || !mimeCheck.ok) return "application/octet-stream";
-
-  if (!INLINE_SNIFFABLE_MIME.has(declaredMime)) return declaredMime;
-  if (!buffer || buffer.length < 4) return "application/octet-stream";
-  var sniffed = b.fileType.detect(buffer);
-  return (sniffed && sniffed.mime === declaredMime) ? declaredMime : "application/octet-stream";
+/**
+ * Return a client-declared MIME type when b.guardMime accepts it, and
+ * "application/octet-stream" otherwise. b.guardMime refuses a value longer than
+ * 255 bytes and one that contains a carriage return or line feed.
+ *
+ * The file download routes write a stored type as the Content-Type header, and
+ * writeHead throws on a value that contains a carriage return or line feed.
+ */
+function acceptedMime(value) {
+  if (!value || typeof value !== "string") return "application/octet-stream";
+  var mimeCheck = b.guardMime.validate(value);
+  return (mimeCheck && mimeCheck.ok) ? value : "application/octet-stream";
 }
 
-module.exports = { validateFile, validateChunk, validateBundleLimits, detectContentType, validateMagicBytes, validateArchive, safeServeMime };
+function safeServeMime(declaredMime, buffer) {
+  var mime = acceptedMime(declaredMime);
+  if (!INLINE_SNIFFABLE_MIME.has(mime)) return mime;
+  if (!buffer || buffer.length < 4) return "application/octet-stream";
+  var sniffed = b.fileType.detect(buffer);
+  return (sniffed && sniffed.mime === mime) ? mime : "application/octet-stream";
+}
+
+module.exports = {
+  validateFile, validateChunk, validateBundleLimits, detectContentType, validateMagicBytes, validateArchive,
+  safeServeMime, acceptedMime, validateInitInput, validateAllowedEmails,
+};

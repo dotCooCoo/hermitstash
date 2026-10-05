@@ -13,11 +13,16 @@ module.exports = function requireAdmin(req, res, next) {
   if (!req.user || req.user.role !== "admin") {
     if (req.user) {
       audit.log(audit.ACTIONS.ADMIN_ACCESS_DENIED, {
-        details: "path: " + req.pathname,
+        details: "path: " + logger.requestPath(req),
         req: req,
       });
     }
-    logger.error("requireAdmin denied", { method: req.method, path: req.pathname, user: req.user ? req.user._id + "/" + req.user.role : "none" });
+    logger.error("requireAdmin denied", {
+      method: req.method,
+      path: logger.requestPath(req),
+      userId: req.user ? req.user._id : null,
+      role: req.user ? req.user.role : null,
+    });
     // Content-negotiated: HTML error page for browsers, RFC 9457 problem+json
     // for JSON/Bearer clients (encrypted-session-safe via emitError).
     emitError(req, res, { status: 403, code: "FORBIDDEN", detail: "Admin access required." });
@@ -29,7 +34,7 @@ module.exports = function requireAdmin(req, res, next) {
   if (req.apiKey) {
     if (!hasScope(req.apiKey, "admin")) {
       audit.log(audit.ACTIONS.ADMIN_ACCESS_DENIED, {
-        details: "API key lacks admin scope, path: " + req.pathname,
+        details: "API key lacks admin scope, path: " + logger.requestPath(req),
         req: req,
       });
       emitError(req, res, { status: 403, code: "FORBIDDEN", detail: "API key does not have admin access." });

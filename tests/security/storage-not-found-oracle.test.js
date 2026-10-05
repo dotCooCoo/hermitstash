@@ -34,6 +34,7 @@ fs.mkdirSync(process.env.UPLOAD_DIR, { recursive: true });
 var testEnv = require("../helpers/test-env");
 var vault = require("../../lib/vault");
 var storage = require("../../lib/storage");
+var b = require("../../lib/vendor/blamejs");
 
 // Can this machine make a symlink at all?
 var canSymlink = (function () {
@@ -121,5 +122,23 @@ describe("a refused storage read is not an existence oracle", function () {
   it("refuses an empty path rather than resolving it to the root", async function () {
     assert.strictEqual(storage.resolveLocalPath("").ok, false);
     assert.strictEqual(storage.resolveLocalPath(null).ok, false);
+  });
+});
+
+describe("resolveLocalPath relies on the b.safePath.confineToBase contract", function () {
+  var base = path.resolve(process.env.UPLOAD_DIR);
+
+  it("confineToBase returns the resolved path for a name inside the base", function () {
+    assert.strictEqual(b.safePath.confineToBase(base, "bundle-1/file.bin"), path.resolve(base, "bundle-1/file.bin"));
+  });
+
+  it("confineToBase returns null for traversal, a path elsewhere and a sibling whose name starts with the base", function () {
+    assert.strictEqual(b.safePath.confineToBase(base, "../x.bin"), null);
+    assert.strictEqual(b.safePath.confineToBase(base, path.join(scratch, "elsewhere.bin")), null);
+    assert.strictEqual(b.safePath.confineToBase(base, "../" + path.basename(base) + "-evil/x.bin"), null);
+  });
+
+  it("confineToBase returns the base itself for an empty name", function () {
+    assert.strictEqual(b.safePath.confineToBase(base, ""), base);
   });
 });

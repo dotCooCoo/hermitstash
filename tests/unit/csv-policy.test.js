@@ -94,8 +94,12 @@ describe("csv-policy — hardening (only hostile cells are altered, always safer
     assert.doesNotThrow(function () { one("c", "a" + ch(0x7f) + "b"); });
   });
 
-  it("apostrophe-prefixes a leading pipe", function () {
-    assert.strictEqual(one("c", "|cmd"), qRow("c") + qRow("'|cmd"));
+  it("emits a cell that opens with a pipe unchanged", function () {
+    assert.strictEqual(one("c", "|cmd"), "c\n|cmd\n");
+  });
+
+  it("prefixes a DDE formula that opens with = and contains a pipe", function () {
+    assert.strictEqual(one("c", "=cmd|' /C calc'!A0"), qRow("c") + qRow("'=cmd|' /C calc'!A0"));
   });
 
   it("apostrophe-prefixes a leading full-width homoglyph (U+FF1D)", function () {

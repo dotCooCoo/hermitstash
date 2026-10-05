@@ -71,11 +71,19 @@ async function migrateStorage(direction, progressCb) {
         if (!nodeFs.existsSync(localPath)) {
           throw new Error("Local file not found: " + sp);
         }
-        // Async + symlink-refusing read. b.atomicFile.read opens O_NOFOLLOW (so a
-        // symlink planted at the predictable upload path can't redirect the read
-        // to an arbitrary file that would then be uploaded to S3) and stays async
-        // so the event loop is responsive during large migrations.
-        var data = await b.atomicFile.read(localPath);
+        // storage.getFileStream with no key opens the file with O_NOFOLLOW and
+        // returns its stored bytes as a stream, read without blocking the event
+        // loop. A symlink at the upload path is refused as not found, so the file
+        // it points to is not uploaded.
+        var data = await storage.getFileStream(sp, null);
+        // The upload to S3 holds the whole file in memory. A file larger than
+        // storage.LOCAL_READ_CAP fails here, and the migration moves on to the
+        // next file.
+        var fileSize = nodeFs.fstatSync(data.fd).size;
+        if (fileSize > storage.LOCAL_READ_CAP) {
+          data.destroy();
+          throw new Error("File is larger than " + storage.LOCAL_READ_CAP + " bytes: " + sp);
+        }
 
         // Derive the S3 key from the relative path
         var s3Key = sp;
@@ -146,7 +154,7 @@ async function migrateStorage(direction, progressCb) {
     } catch (err) {
       result.failed++;
       result.errors.push({ file: file.shareId, error: err.message });
-      logger.error("[migration] Failed to migrate file", { shareId: file.shareId, direction: direction, error: err.message });
+      logger.error("[migration] Failed to migrate file", { fileId: file._id, direction: direction, error: err.message });
     }
 
     if (progressCb) progressCb(result);

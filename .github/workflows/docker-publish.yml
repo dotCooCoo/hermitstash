@@ -139,6 +139,19 @@ jobs:
           if [ $EXIT_CODE -ne 0 ]; then echo "::error::codebase-patterns found violations"; fi
           exit $EXIT_CODE
 
+      - name: Run test-coverage
+        # Every b.* primitive that HS source names must be named by a test
+        # outside tests/lint, or carry an UNTESTED_BACKLOG entry with a reason.
+        if: always()
+        id: test_coverage
+        run: |
+          set +e
+          node tests/lint/test-coverage.test.js
+          EXIT_CODE=$?
+          set -e
+          if [ $EXIT_CODE -ne 0 ]; then echo "::error::test-coverage found HS-consumed b.* primitives with no test reference"; fi
+          exit $EXIT_CODE
+
       - name: Verify release-notes rollup
         # Non-current minor lines must collapse to a single
         # `release-notes/v<minor>.x.json` rollup. The `--check` mode
@@ -214,6 +227,7 @@ jobs:
           HADOLINT_OK=${{ steps.hadolint.outcome == 'success' }}
           SHELLCHECK_OK=${{ steps.shellcheck.outcome == 'success' }}
           PATTERNS_OK=${{ steps.codebase_patterns.outcome == 'success' }}
+          COVERAGE_OK=${{ steps.test_coverage.outcome == 'success' }}
           ROLLUP_OK=${{ steps.rollup_check.outcome == 'success' }}
           CHANGELOG_OK=${{ steps.changelog_drift.outcome == 'success' }}
           ACTIONS_CUR_OK=${{ steps.actions_currency.outcome == 'success' }}
@@ -224,6 +238,7 @@ jobs:
           HADOLINT_ICON=$( [ "$HADOLINT_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
           SHELLCHECK_ICON=$( [ "$SHELLCHECK_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
           PATTERNS_ICON=$( [ "$PATTERNS_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
+          COVERAGE_ICON=$( [ "$COVERAGE_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
           ROLLUP_ICON=$( [ "$ROLLUP_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
           CHANGELOG_ICON=$( [ "$CHANGELOG_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
           ACTIONS_CUR_ICON=$( [ "$ACTIONS_CUR_OK" = "true" ] && echo "$PASS" || echo "$FAIL" )
@@ -237,6 +252,7 @@ jobs:
             echo "| Hadolint (Dockerfile)          | $HADOLINT_ICON |"
             echo "| ShellCheck (shell)             | $SHELLCHECK_ICON |"
             echo "| codebase-patterns (vendored)   | $PATTERNS_ICON |"
+            echo "| test-coverage (b.* refs)       | $COVERAGE_ICON |"
             echo "| release-notes rollup           | $ROLLUP_ICON |"
             echo "| CHANGELOG.md drift             | $CHANGELOG_ICON |"
             echo "| actions-currency (SHA pins)    | $ACTIONS_CUR_ICON |"
@@ -288,10 +304,10 @@ jobs:
           echo "Version: ${VERSION}"
 
       - name: Set up QEMU (for ARM64 cross-build)
-        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to GitHub Container Registry
         if: ${{ !inputs.dry_run }}
@@ -319,7 +335,7 @@ jobs:
 
       - name: Build and push multi-arch image
         id: build
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64

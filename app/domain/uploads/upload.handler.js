@@ -264,7 +264,7 @@ async function handleFileUpload(ctx) {
   // that would make the sync replace lookup below match on "", so two uploads whose
   // paths both reduce to "" would resolve to the same record and the second would
   // overwrite the first. Reject instead of storing a path the caller did not send.
-  var cleanRelPath = sanitizeFilename(fields.relativePath || file.filename, 500);
+  var cleanRelPath = sanitizeFilename(fields.relativePath || file.filename, C.UPLOAD.RELATIVE_PATH_MAX);
   if (!cleanRelPath) {
     audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: unusable relativePath" + suffix, req: ctx.req });
     return { error: "Invalid file path.", status: 400 };
@@ -338,7 +338,7 @@ async function handleFileUpload(ctx) {
   // recording again would double-count.
 
   var action = replaced ? "file_replaced" : "file_added";
-  audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: bundle._id, details: auditDetail({ action: action, bundleId: bundle._id, file: file.filename, relativePath: cleanRelPath, size: file.size, checksum: checksum }), req: ctx.req });
+  audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: bundle._id, details: auditDetail({ action: action, bundleId: bundle._id, file: sanitizeFilename(file.filename), relativePath: cleanRelPath, size: file.size, checksum: checksum }), req: ctx.req });
 
   // Update counters atomically (seq already bumped atomically above). A plain
   // read-modify-write from the pre-save `bundle` snapshot lost increments under
@@ -402,7 +402,7 @@ async function handleFileUpload(ctx) {
     });
   }
 
-  return { success: true, replaced: replaced, received: counters ? counters.receivedFiles : (bundle.receivedFiles + fileCountChange), total: bundle.expectedFiles };
+  return { success: true, replaced: replaced, received: counters ? counters.receivedFiles : (bundle.receivedFiles + fileCountChange), total: Number(bundle.expectedFiles) || 0 };
 }
 
 // A final chunk concatenates the whole plaintext file and holds it across the
@@ -474,8 +474,8 @@ async function handleChunkUpload(ctx) {
   try {
     storage.saveChunk(bundle.shareId, fileId, chunkIndex, chunk.data);
   } catch (e) {
-    logger.error("Chunk save failed", { error: e.message || String(e), bundle: bundle._id });
-    return { error: "Invalid nodePath." };
+    logger.error("Chunk save failed", { error: e.message || String(e) });
+    return { error: "Invalid path." };
   }
 
   // Check if all chunks received
@@ -620,7 +620,9 @@ async function handleChunkUpload(ctx) {
       }
     }
 
-    audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: bundle._id, details: auditDetail({ action: "file_added", bundleId: bundle._id, file: filename, size: fullData.length, chunks: totalChunks, checksum: checksum }), req: ctx.req });
+    // fields.filename is a raw multipart field of up to 1 MiB. The audit row
+    // records the sanitized name the file row stores as originalName.
+    audit.log(audit.ACTIONS.BUNDLE_FILE_UPLOADED, { targetId: bundle._id, details: auditDetail({ action: "file_added", bundleId: bundle._id, file: sanitizeFilename(filename), size: fullData.length, chunks: totalChunks, checksum: checksum }), req: ctx.req });
     return { success: true, assembled: true, received: chunkCounters ? chunkCounters.receivedFiles : (bundle.receivedFiles + 1) };
   } finally {
     _activeReassemblies--;
@@ -635,6 +637,13 @@ function handleFinalize(ctx) {
   var existing = bundlesRepo.findById(ctx.bundleId);
   if (!existing) return { error: "Bundle not found.", status: 404 };
   if (existing.status === "complete") {
+    // A repeated finalize returns the share link only to the bundle's owner or
+    // to a caller that sends the bundle's finalize token. Any other caller gets
+    // the reply an unknown bundle gets.
+    var isOwner = !!(existing.ownerId && ctx.req && ctx.req.user && ctx.req.user._id === existing.ownerId);
+    if (!isOwner && !bundleService.verifyFinalizeToken(existing, ctx.token)) {
+      return { error: "Bundle not found.", status: 404 };
+    }
     return { success: true, shareId: existing.shareId, shareUrl: host(ctx.req) + "/b/" + existing.shareId, emailSent: false };
   }
 
@@ -659,7 +668,9 @@ function handleFinalize(ctx) {
       uploaderEmail: ctx.sendUploaderEmail ? refreshed.uploaderEmail : null,
       bundleUrl: bundleUrl,
       uploadedCount: refreshed.receivedFiles, uploadedFiles: uploadedFiles,
-      skippedCount: refreshed.skippedCount || 0, skippedFiles: refreshed.skippedFiles || [],
+      // The emails interpolate skippedCount into HTML without escaping it.
+      skippedCount: Number(refreshed.skippedCount) || 0,
+      skippedFiles: Array.isArray(refreshed.skippedFiles) ? refreshed.skippedFiles : [],
       totalSize: refreshed.totalSize,
     };
 
@@ -744,12 +755,18 @@ async function handleSyncFileRename(ctx) {
   var oldPath = String(ctx.oldRelativePath || "").replace(/\\/g, "/");
   var newPath = String(ctx.newRelativePath || "").replace(/\\/g, "/");
   if (!oldPath || !newPath) return { error: "Both oldRelativePath and newRelativePath required.", status: 400 };
+  // An upload stores at most RELATIVE_PATH_MAX characters of a path, and a
+  // rename is held to the same limit. A raw path past RELATIVE_PATH_INPUT_MAX
+  // is refused before its segments are sanitized.
+  var tooLong = { error: "The new path is longer than " + C.UPLOAD.RELATIVE_PATH_MAX + " characters.", status: 400 };
+  if (newPath.length > C.UPLOAD.RELATIVE_PATH_INPUT_MAX) return tooLong;
 
   // Sanitize new path
   var segments = newPath.split("/");
   segments = segments.map(function (s) { return sanitizeFilename(s); }).filter(Boolean);
   if (segments.length === 0) return { error: "Invalid new nodePath.", status: 400 };
   newPath = segments.join("/");
+  if (newPath.length > C.UPLOAD.RELATIVE_PATH_MAX) return tooLong;
 
   // Find existing file by oldRelativePath
   var allFiles = filesRepo.findAll({ bundleId: bundle._id }).filter(function (f) {

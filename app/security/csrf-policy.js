@@ -122,9 +122,11 @@ function csrfMiddleware(req, res, next) {
 
   // Only state-changing methods need validation. The framework also
   // checks method, but bailing here saves the lookup + audit emit on
-  // every GET.
-  if (req.method !== "POST" && req.method !== "PUT" &&
-      req.method !== "DELETE" && req.method !== "PATCH") {
+  // every GET. HTTP/2 passes the method in the case the client sent, so
+  // it is compared upper-cased.
+  var method = String(req.method || "").toUpperCase();
+  if (method !== "POST" && method !== "PUT" &&
+      method !== "DELETE" && method !== "PATCH") {
     return next();
   }
 

@@ -26,6 +26,7 @@
 require("../helpers/isolate-db"); // must precede every HermitStash require
 var { describe, it, before, after } = require("node:test");
 var assert = require("node:assert");
+var b = require("../../lib/vendor/blamejs");
 
 var config = require("../../lib/config");
 var email = require("../../lib/email");
@@ -232,4 +233,18 @@ describe("the send functions refuse an address carrying a header break", functio
         }), false);
       });
     });
+});
+
+describe("the button href relies on the b.forms.escapeAttribute contract", function () {
+  it("escapeAttribute encodes the seven attribute-breaking characters and renders null and undefined as empty", function () {
+    var specials = "&<>" + '"' + "'" + "`=";
+    assert.strictEqual(b.forms.escapeAttribute(specials), "&amp;&lt;&gt;&quot;&#x27;&#x60;&#x3D;");
+    assert.strictEqual(b.forms.escapeAttribute(null), "");
+    assert.strictEqual(b.forms.escapeAttribute(undefined), "");
+  });
+
+  it("the button's href is the escaper's output for the URL", function () {
+    var url = "https://x.example/a" + '"' + "b`c=d&e";
+    assert.strictEqual(hrefOf(email._emailButton("Open", url)), b.forms.escapeAttribute(url));
+  });
 });

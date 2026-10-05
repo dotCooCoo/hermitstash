@@ -1601,6 +1601,127 @@ function testNoUnsafeFsWatch() {
   _report("no raw fs.watch without realpathSync.native short-name expansion (use fs.watchFile)", hits);
 }
 
+// ---- A Vary write adds its token to the existing header ----
+// res.setHeader("Vary", ...) and res.writeHead(status, headersVar) replace a
+// Vary that earlier middleware set (Origin from CORS, Accept-Encoding from
+// compression), and a cache then keys the response on the wrong request
+// headers. b.requestHelpers.appendVary(res, token) adds a token to the value
+// already on the response, and b.requestHelpers.finalizeHeaders(res, headers)
+// merges a header object before writeHead. This check mirrors the blamejs
+// detector of the same class id.
+function testVaryMergedNotReplaced() {
+  // class: vary-replaced-by-header-object
+  var matches = _scan(/\.writeHead\(\s*(?:[^,()]|\([^()]*\))+,\s*(?![A-Za-z_$][\w$]*(?:\(\))?\.finalizeHeaders\()[A-Za-z_$][\w$]*\s*\)|\.setHeader\(\s*["']Vary["']/,
+    { skipComments: true, appScope: true });
+  matches = _filterMarkers(matches, "vary-replaced-by-header-object");
+  _report("every Vary write goes through b.requestHelpers.appendVary or finalizeHeaders", matches);
+}
+
+// ---- A byte check uses nodeUtil.types.isUint8Array ----
+// `x instanceof Uint8Array` compares against the constructor of the current
+// realm. The test is false for a byte array created in a node:vm context, and
+// the code then takes the branch meant for a value that is not bytes.
+// nodeUtil.types.isUint8Array reads the internal slot and returns true for a
+// byte array from any realm, including a Buffer. This check mirrors the
+// blamejs detector of the same class id.
+function testNoRealmBoundByteInstanceof() {
+  // class: lib-realm-bound-byte-instanceof
+  var matches = _scan(/instanceof\s+(?:Uint8Array|Uint16Array|Uint32Array|Int8Array|Int16Array|Int32Array|Float32Array|Float64Array|BigInt64Array|BigUint64Array|ArrayBuffer|DataView)\b/,
+    { skipComments: true, appScope: true });
+  matches = _filterMarkers(matches, "lib-realm-bound-byte-instanceof");
+  _report("a byte check uses nodeUtil.types.isUint8Array", matches);
+}
+
+// ---- A method membership test upper-cases req.method first ----
+// On an HTTP/2 request, req.method carries the :method value in whatever case
+// the client sent. A membership test such as PROTECTED.includes(req.method)
+// returns false for `Post` when the list holds `POST`, and the request skips
+// the check the list exists for. Upper-case the method first with
+// String(req.method || "").toUpperCase(). The check does not flag an exact
+// comparison such as req.method === "GET". It mirrors the blamejs detector of
+// the same class id.
+function testMethodExemptionNormalizesCase() {
+  // class: a-method-exemption-must-normalize-req-method-case
+  var matches = _scan(/\.(?:indexOf|includes)\(\s*req\.method\s*\)/, { skipComments: true, appScope: true });
+  matches = _filterMarkers(matches, "a-method-exemption-must-normalize-req-method-case");
+  _report("a req.method membership test upper-cases the method first", matches);
+}
+
+// ---- COMMIT runs inside the try whose catch rolls the transaction back ----
+// COMMIT, and the outermost savepoint RELEASE, can fail with SQLITE_BUSY. When
+// the COMMIT is placed after the catch block instead of inside the try, a
+// failed commit throws without running the ROLLBACK, and the transaction stays
+// open on the connection. Later writes on that connection then join a
+// transaction that is never committed. The regex bounds the catch body by the
+// indentation of its own `} catch (...) {` line. This check mirrors the
+// blamejs detector of the same class id.
+function testTransactionCommitInsideTry() {
+  // class: transaction-commit-outside-the-try-that-guards-it
+  var re = /(\r?\n[ \t]{1,12})\}[ \t]*catch[ \t]*\([^)\n]{0,40}\)[ \t]*\{(?:(?!\1\})[\s\S]){0,2000}\1\}\1(?!try\b)[^\r\n]{0,200}?["'](?:COMMIT|RELEASE)\b/g;
+  var bad = [];
+  _libFiles().concat(_appFiles()).forEach(function (full) {
+    var src;
+    try { src = fs.readFileSync(full, "utf8"); }
+    catch (_e) { return; }
+    re.lastIndex = 0;
+    var m;
+    while ((m = re.exec(src)) !== null) {
+      bad.push({
+        file: _relPath(full),
+        line: src.slice(0, m.index + m[0].length).split(/\r?\n/).length,
+        content: "COMMIT / RELEASE after the catch that rolls the transaction back",
+      });
+    }
+  });
+  bad = _filterMarkers(bad, "transaction-commit-outside-the-try-that-guards-it");
+  _report("a transaction's COMMIT / RELEASE runs inside the try whose catch rolls it back", bad);
+}
+
+// ---- An error's code is not reassigned after the error is built ----
+// An AppError subclass carries the code that the error handler turns into the
+// problem type, and a framework error's code is the one its documentation
+// names. Assigning over that code after construction delivers a code no caller
+// was told about. The check flags a `var x = new <Name>Error(...)`, `_err(...)`
+// or `<Name>.factory(...)` binding whose own `.code` is assigned later in the
+// same function. Setting `.code` on a plain `new Error` is allowed, which is how
+// a Node-shaped failure such as ENOENT is built. It mirrors the blamejs detector
+// of the same class id.
+function testErrorCodeNotReassignedAfterBuild() {
+  // class: a-framework-errors-code-is-reassigned-after-it-is-built
+  var re = /(?:var|let|const)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:new\s+[A-Za-z_$][\w$]*Error\s*\(|_err\s*\(|[A-Za-z_$][\w$]*\.factory\s*\()(?:(?!\n\})[\s\S]){0,400}?\b\1\.code\s*=/g;
+  var bad = [];
+  _libFiles().concat(_appFiles()).forEach(function (full) {
+    var src;
+    try { src = fs.readFileSync(full, "utf8"); }
+    catch (_e) { return; }
+    re.lastIndex = 0;
+    var m;
+    while ((m = re.exec(src)) !== null) {
+      bad.push({
+        file: _relPath(full),
+        line: src.slice(0, m.index).split(/\r?\n/).length,
+        content: "the code of " + m[1] + " is reassigned after the error is built",
+      });
+    }
+  });
+  bad = _filterMarkers(bad, "a-framework-errors-code-is-reassigned-after-it-is-built");
+  _report("an error's code is not reassigned after the error is built", bad);
+}
+
+// ---- b.auth.password is called only from lib/password-gate.js ----
+// lib/password-gate.js runs at most C.PASSWORD_HASH.MAX_CONCURRENT Argon2id
+// checks at once, holds at most C.PASSWORD_HASH.MAX_QUEUED more, and refuses
+// the rest with a 503. A direct b.auth.password call skips that limit and waits
+// in the framework queue, which has no length limit. The check flags every
+// reference to auth.password in the server code outside that file.
+function testPasswordHashingThroughGate() {
+  // class: password-hash-outside-gate
+  var matches = _scan(/\bauth\.password\b/, { skipComments: true, appScope: true });
+  matches = matches.filter(function (m) { return m.file !== "lib/password-gate.js"; });
+  matches = _filterMarkers(matches, "password-hash-outside-gate");
+  _report("b.auth.password is called only from lib/password-gate.js", matches);
+}
+
 // ---- Release-named test files refused ----
 // Tests must live in per-domain files (e.g. honeytoken.test.js,
 // resource-access-lock.test.js) not release-bucket files like
@@ -5170,6 +5291,24 @@ var KNOWN_ANTIPATTERNS = [
     ],
     reason: "Tests spinning up a real DB handle without a per-test isolation primitive leak SQLite state to a shared directory; subsequent tests see prior rows under parallel runs. Static-API tests that reference b.db without instantiating a real handle don't trip the detector.",
   },
+
+  {
+    id: "test-path-resolve-relative-to-cwd",
+    primitive: "path.resolve(__dirname, \"..\", ...)",
+    scanScope: "test",
+    regex: /path\.resolve\(\s*["']/,
+    allowlist: [],
+    reason: "path.resolve(\"lib/x.js\") resolves against the working directory. The release preflight runs the suites from the repository root and npm test runs them from tests/, so a cwd-relative path resolves to the right file under only one of them.",
+  },
+
+  {
+    id: "test-skip-recorded-as-passing-check",
+    primitive: "establish the precondition in the test (a temp directory, a fixture key, a local server), or skip the test through node:test so the run reports a skip",
+    scanScope: "test",
+    regex: /\bcheck\(\s*["'][^"'\n]*\bskip(?:ped|ping|s)?\b[^"'\n]*["']\s*,\s*true\s*\)/i,
+    allowlist: [],
+    reason: "check(\"... skipped ...\", true) records a pass for an assertion that never ran.",
+  },
 ];
 
 // @example placeholder detection lives in
@@ -6093,6 +6232,12 @@ async function run() {
   testGuardedKeyParse();
   testMultipartMemoryStorage();
   testNoUnsafeFsWatch();
+  testVaryMergedNotReplaced();
+  testNoRealmBoundByteInstanceof();
+  testMethodExemptionNormalizesCase();
+  testTransactionCommitInsideTry();
+  testErrorCodeNotReassignedAfterBuild();
+  testPasswordHashingThroughGate();
   testKnownAntipatterns();
 
   // Final cumulative assertion — every detector is a hard gate.
