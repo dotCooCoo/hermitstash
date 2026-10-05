@@ -21,7 +21,7 @@
         "server": "sha256:acdcf1ba4bde8177cbfcfef22b543022284a1529afb68bc8329303837c8c021e",
         "browser": "sha256:fc422d85a65c5dc1208066b0156e100c4790be3c8791f644b80524c25d4bc3ee"
       },
-      "refreshedAt": "2026-10-02T07:55:38.818Z"
+      "refreshedAt": "2026-10-05T06:42:39.223Z"
     },
     "@noble/hashes": {
       "version": "2.4.0",
@@ -48,7 +48,7 @@
       "hashes": {
         "browser": "sha256:0e135cbb496a1b7d15bf36b8c611a8feaad49ced60a03bf916bada78b589aa66"
       },
-      "refreshedAt": "2026-10-02T07:55:38.818Z"
+      "refreshedAt": "2026-10-05T06:42:39.223Z"
     },
     "@noble/curves": {
       "version": "2.4.0",
@@ -70,7 +70,7 @@
       "hashes": {
         "server": "sha256:477359f445eed241ad4ededb84921483c3c97618a160ef78b74bb1a421c17da7"
       },
-      "refreshedAt": "2026-10-02T07:55:38.818Z",
+      "refreshedAt": "2026-10-05T06:42:39.223Z",
       "components": {
         "@noble/hashes": {
           "url": "https://github.com/paulmillr/noble-hashes",
@@ -114,7 +114,7 @@
         "server": "sha256:04eaaa4838b43162912c851dd2cab52ab82f56decad8542934171247017a6893",
         "browser": "sha256:30ceef750bc57ae5f59c5aa7454eafb7aad55d30c261a1b5c538a66c569fc031"
       },
-      "refreshedAt": "2026-10-02T07:55:38.818Z",
+      "refreshedAt": "2026-10-05T06:42:39.223Z",
       "components": {
         "@noble/hashes": {
           "url": "https://github.com/paulmillr/noble-hashes",
@@ -148,7 +148,7 @@
       },
       "runtime_artifact": "lib/vendor/common-passwords-top-10000.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-10-02T07:55:38.818Z"
+      "refreshedAt": "2026-10-05T06:42:39.223Z"
     },
     "bimi-trust-anchors": {
       "version": "operator-managed",
@@ -173,7 +173,7 @@
       },
       "runtime_artifact": "lib/vendor/bimi-trust-anchors.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-10-02T07:55:38.818Z"
+      "refreshedAt": "2026-10-05T06:42:39.223Z"
     },
     "publicsuffix-list": {
       "version": "master",
@@ -193,10 +193,10 @@
       },
       "runtime_artifact": "lib/vendor/public-suffix-list.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-10-02T07:55:38.818Z"
+      "refreshedAt": "2026-10-05T06:42:39.223Z"
     },
     "@blamejs/pki": {
-      "version": "0.8.31",
+      "version": "0.8.48",
       "license": "Apache-2.0",
       "author": "blamejs",
       "source": "https://github.com/blamejs/pki",
@@ -216,12 +216,12 @@
         "server": "lib/vendor/blamejs-pki.cjs"
       },
       "bundler": "esbuild --format=cjs --platform=node --external:crypto --external:node:crypto",
-      "bundledAt": "2026-09-29T00:00:00Z",
-      "cpe": "cpe:2.3:a:blamejs:pki:0.8.31:*:*:*:*:node.js:*:*",
+      "bundledAt": "2026-10-04T00:00:00Z",
+      "cpe": "cpe:2.3:a:blamejs:pki:0.8.48:*:*:*:*:node.js:*:*",
       "hashes": {
-        "server": "sha256:0367b19e409adefc3c0af584af12b7524580a3ac975175ba17f9bb6b1c515b82"
+        "server": "sha256:6d0e3867995f0e39427e9f534e1174f3de15f88922ff45b0f6c9165cf431d108"
       },
-      "refreshedAt": "2026-10-02T07:55:38.818Z"
+      "refreshedAt": "2026-10-05T06:42:39.223Z"
     }
   }
 }

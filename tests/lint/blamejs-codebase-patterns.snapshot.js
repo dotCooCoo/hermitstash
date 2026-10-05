@@ -13225,6 +13225,34 @@ var KNOWN_ANTIPATTERNS = [
     reason: "A framework error's `code` is its contract, and assigning over it after construction leaves the first code reachable by nobody while every block that names it promises a failure the caller can never receive. `lib/atomic-file.js` built `atomic-file/not-found` and immediately overwrote it with `ENOENT`, so `b.atomicFile.read`, `readSync` and `readJson` all delivered `ENOENT` while one block promised the framework code, one block promised `ENOENT`, and the two never agreed; `lib/notify.js` discarded `notify/timeout` the same way. The error-code gate reads constructions, so a discarded code is worse than invisible: it gets demanded in documentation and then cannot arrive. Both sites construct the code they deliver now. An errno-shaped code is fine when it is the code built (`lib/http-client.js` and `lib/log-stream-otlp-grpc.js` both raise `ETIMEDOUT` that way); so is setting `.code` on a plain `new Error` to give a caller a Node-shaped failure, which is what `lib/mail-auth.js`, `lib/network-dns-resolver.js` and `lib/ws-client.js` do for callers that read dns and lookup errors. The binding is carried by backreference so only the error's own code counts.",
   },
   {
+    id: "an-options-object-is-forwarded-through-the-poison-aware-filter",
+    primitive: "b.pick",
+    scanScope: "lib",
+    skipCommentLines: true,
+    // `pick(` with an opts-shaped first argument. The `.` in
+    // `pick.assertSafeKey(` and the characters in `pickClientOpts(` both stop
+    // the anchor, so only a direct filter call on an options object matches.
+    regex: /\bpick\s*\(\s*[A-Za-z_$]*[Oo]pts\b\s*,/,
+    allowlist: [],
+    fixtures: {
+      fires: [
+        "var form = adherenceForm(pick(opts, FORM_ALLOWED_KEYS));",
+        "  var forwarded = pick(callerOpts, INNER_KEYS);",
+      ],
+      quiet: [
+        // The poisoned-key helpers on untrusted parser input, which is what
+        // they are for.
+        "pick.assertSafeKey(key, function () { throw _err(\"safe-json/poisoned-key\", key); });",
+        "if (pick.isPoisonedKey(name)) continue;",
+        // A local helper that reads one named field, not the shared filter.
+        "function pickClientOpts(cfg, prefix) { return { url: pick(\"url\") }; }",
+        // Filtering genuinely untrusted input rather than validated options.
+        "var safe = pick(requestBody, [\"name\", \"email\"]);",
+      ],
+    },
+    reason: "`b.pick` refuses a prototype-moving key and consults `b.pick.registerPoisonedKeys`, a public registry that only ever grows and that an application sets for its own object layer. That makes it the right filter for untrusted input and the wrong one for forwarding a primitive's own options, whose keys are a fixed literal that has already passed `b.validateOpts`. `b.compliance.aiAct.gpai.declareAdherence` forwarded its options to `adherenceForm` through it, so an application that registered any name the form reads changed what got signed: registering `provider` made a declaration carrying `{ name: \"Acme\" }` sign `{ name: null, address: null, contact: null }`, dropping operator data between the validation that accepted it and the signature that attested to it, and registering `modelId` made a valid declaration fail. The forwarding question does not depend on that policy, so it copies the fixed key list directly. Filtering an operator-supplied body or a parsed document through `b.pick` is the intended use and is out of scope, as are the `assertSafeKey` and `isPoisonedKey` helpers.",
+  },
+  {
     id: "a-jmap-method-error-type-is-a-bare-name",
     primitive: "b.mail.server.jmap.create",
     scanScope: "lib",

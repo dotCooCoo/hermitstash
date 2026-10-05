@@ -1,0 +1,20 @@
+{
+  "version": "1.15.9",
+  "date": "2026-10-05",
+  "headline": "Ship the session, password-check and log fixes that v1.15.8 could not publish",
+  "summary": "v1.15.8 was tagged but produced no image and no release page. blamejs 0.20.39 was published after that release was prepared, and the build's check that the vendored framework is the latest release refused it. Use this version instead. It carries every v1.15.8 change with blamejs 0.20.39. Read the v1.15.8 entry in CHANGELOG.md before you upgrade from 1.15.7 or earlier: it lists changes to log fields, to the bundle init routes and to `BACKUP_PASSPHRASE_HASH` that can need action. The v1.15.8 tag exists and has nothing attached to it.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Vendored blamejs moves to 0.20.39",
+          "body": "The framework's bundled `@blamejs/pki` library moves from 0.8.31 to 0.8.48. The server uses it to verify passkey registrations, passkey sign-ins and the passkey check that unlocks the vault, and to create the client and browser certificate authorities, issue their certificates and package browser certificates as PKCS#12 files. In 0.8.48 the passkey checks use the `Promise.resolve`, `Promise.reject` and WebCrypto `verify` functions as they were when the library loaded. Code that replaces those functions after the library loads no longer changes the result of a passkey check. Passkey checks and the certificates the server issues give the same results as with 0.8.31. The other changes in blamejs 0.20.39 correct the framework's documentation or change functions that this server does not call."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "v1.15.8 changes (CHANGELOG.md)", "url": "https://github.com/dotCooCoo/hermitstash/blob/main/CHANGELOG.md" }
+  ]
+}

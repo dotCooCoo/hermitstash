@@ -562,6 +562,7 @@ var PATTERNS_NA = {
   "audit-self-suppression-wraps-a-storage-call-only": "The detector checks the blamejs audit module's own storage calls (clusterStorage, _chainWriter, db().purgeAuditChain). HS writes its audit log through lib/audit.js and lib/db.js and never calls dbRoleContext.runAsAuditChainWrite.",
   "an-audit-table-write-runs-outside-the-self-emit-suppression": "The detector checks reads and writes of the _blamejs_audit_* tables through clusterStorage or db().purgeAuditChain. HS keeps its audit log in its own audit_log table and calls neither.",
   "a-catch-around-a-gated-argon2-call-swallows-the-capacity-refusal": "HS calls b.auth.password.gate() only in lib/password-gate.js, with no maxQueued and no waitTimeoutMs, so the framework never raises argon2/busy or argon2/queue-timeout for a catch to swallow. tests/unit/password-gate.test.js fails if either bound is set. lib/password-gate.js refuses excess checks itself, before any Argon2id work starts.",
+  "an-options-object-is-forwarded-through-the-poison-aware-filter": "The detector checks a framework primitive that forwards its own validated options through b.pick. HS calls b.pick nowhere outside the vendored tree, and the detector's pattern matches nothing in lib/, app/, routes/, middleware/, scripts/, server.js or server-main.js.",
 };
 
 // Extract the detector class-id set from a codebase-patterns gate file.

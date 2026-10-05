@@ -53,8 +53,8 @@
       "bundledAt": "2026-10-05"
     },
     "blamejs": {
-      "version": "0.20.38",
-      "tag": "v0.20.38",
+      "version": "0.20.39",
+      "tag": "v0.20.39",
       "license": "Apache-2.0",
       "author": "blamejs contributors",
       "source": "https://github.com/blamejs/blamejs",
@@ -63,7 +63,7 @@
         "server": "lib/vendor/blamejs/"
       },
       "bundler": "shallow git clone of release tag from github.com/blamejs/blamejs",
-      "bundledAt": "2026-10-04",
+      "bundledAt": "2026-10-05",
       "components": {
         "@noble/ciphers": {
           "version": "2.4.0",
@@ -174,11 +174,11 @@
           "file": "lib/vendor/blamejs/lib/vendor/public-suffix-list.dat"
         },
         "@blamejs/pki": {
-          "version": "0.8.31",
+          "version": "0.8.48",
           "license": "Apache-2.0",
           "author": "blamejs",
           "source": "https://github.com/blamejs/pki",
-          "cpe": "cpe:2.3:a:blamejs:pki:0.8.31:*:*:*:*:node.js:*:*",
+          "cpe": "cpe:2.3:a:blamejs:pki:0.8.48:*:*:*:*:node.js:*:*",
           "exports": [
             "x509",
             "crl",
@@ -194,7 +194,7 @@
           "file": "lib/vendor/blamejs/lib/vendor/blamejs-pki.cjs"
         }
       },
-      "integrity": "sha512-WW0yChj2eP45I5+Ds2vgBtxgYaI/1qKV29pKPYiOr4tMbyf4oGsMMKuVAukXlnF29Fz2F4qOjC2krnQCZ1AUpQ=="
+      "integrity": "sha512-vTPCoQwl/djsge9bpaqnjSTXdHAHrX2wpcRGE5lRTktQXqO9fSbploIOOhTiif3fVpzp7DsPMEwLbcKBrPCEGw=="
     }
   }
 }
