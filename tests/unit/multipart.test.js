@@ -207,10 +207,10 @@ describe("multipart — parseMultipart", function () {
       await assert.rejects(
         function () { return parseMultipart(req, 100); },
         function (err) {
-          // blamejs throws either body-parser/multipart-too-large (totalSize)
+          // blamejs throws either body-parser/multipart-total-too-large (totalSize)
           // or body-parser/multipart-file-too-large (per-file fileSize).
           // The HS adapter sets both opts to maxSize, so either matches.
-          assert.match(err.code, /multipart-(file-)?too-large/);
+          assert.match(err.code, /^body-parser\/multipart-(total|file)-too-large$/);
           assert.strictEqual(err.statusCode, 413);
           return true;
         }

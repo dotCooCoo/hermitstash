@@ -23,7 +23,7 @@
 # digest in the same change, and building the image locally to confirm it starts.
 # The release preflight reports a moved base as advisory, which is not enough on
 # its own when the Node floor moves with it.
-ARG RUNTIME_BASE=cgr.dev/chainguard/wolfi-base@sha256:9c2092b053779e14c82fb50f77b37bcc38b7d2c83972352d5813280f9d035b03  # wolfi-base 2026-10-02
+ARG RUNTIME_BASE=cgr.dev/chainguard/wolfi-base@sha256:360896efb0753a5701c48f860e17130c205eae5a264797aa3e7ea126ee2923a7  # wolfi-base 2026-10-24
 FROM ${RUNTIME_BASE}
 # Chainguard wolfi-base — glibc-dynamic (not musl), continuously rebuilt when
 # upstream CVE fixes land. CVE count at any given digest is typically near-zero;

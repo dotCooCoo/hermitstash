@@ -355,12 +355,12 @@ Built on Node.js 24.21.0+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - Real-time file change events over WebSocket (file_added, file_replaced, file_removed, heartbeat — sent immediately on connect, then every 30s)
 - Catch-up on reconnect via seq cursor (`?since=N` on WebSocket upgrade)
 - PQC TLS enforcement — ClientHello inspection rejects connections without PQC hybrid key exchange groups
-- PQC gate architecture — TCP proxy inspects `supported_groups` extension before TLS handshake completes
+- PQC gate architecture — TCP proxy inspects the ClientHello before the TLS handshake completes, and refuses one whose `supported_versions` extension does not list TLS 1.3 or whose `supported_groups` extension names no hybrid group
 - Localhost bypass for Docker health probes (127.0.0.1/::1 skip PQC check)
-- `PQC_ENFORCE=false` disables gate for transition periods (PQC preferred but not required)
+- `PQC_ENFORCE=false` disables gate for transition periods (PQC preferred but not required: the listener negotiates a hybrid group whenever the client offers one, and classical X25519 only when it offers none)
 - PQC TLS — conditional HTTPS with SecP384r1MLKEM1024 + X25519MLKEM768 + SecP256r1MLKEM768 hybrid key exchange (TLS 1.3 only, Level 5 preferred)
 - Certificate auto-reload on Let's Encrypt renewal (file poll every minute)
-- PQC outbound HTTPS agent — S3, SMTP, Resend, webhook and OAuth calls offer the hybrid groups ahead of classical X25519 at a TLS 1.3 floor, so a hybrid is used whenever the upstream supports one. There is no outbound equivalent of the inbound gate: an upstream that offers no hybrid still connects, and each such handshake is recorded as a `tls.classical_downgrade` audit event naming the group and host
+- PQC outbound HTTPS agent — S3, SMTP, Resend, webhook and OAuth calls offer the hybrid groups ahead of classical X25519 at a TLS 1.3 floor, so a hybrid is used whenever the upstream supports one. There is no outbound equivalent of the inbound gate: an upstream that offers no hybrid still connects over X25519. Every outbound connection checks the upstream's certificate chain up to a trusted root and refuses a certificate whose private key is publicly known
 - mTLS for sync clients — server runs its own Certificate Authority. Two CAs sign under different algorithms: a **sync CA** (post-quantum ML-DSA-87) for machine/sync client certs, and a separate **browser CA** (classical ECDSA-P384-SHA384) for the certs humans import into a browser/OS keystore. The TLS server trusts both, and each rotates and revokes independently. See "mTLS certificate authorities" below
 - Client certificate generation on sync token creation with one-click PEM bundle download
 - Certificate revocation table with SHA3-512 hashed fingerprint lookups
@@ -945,6 +945,8 @@ Passkey sign-in uses the browser's WebAuthn API, which is exposed only over HTTP
 
 Configure S3-compatible storage (AWS, MinIO, Cloudflare R2, DigitalOcean Spaces, Backblaze B2) from Admin > Settings > Storage tab. All credentials are vault-sealed and validated by the settings schema on save. For R2, set the endpoint to `https://<account-id>.r2.cloudflarestorage.com` and region to `auto`.
 
+Storage Migration on the same tab moves every stored file between local disk and S3. When moving to S3, the server deletes a file's local copy only after S3 reports that it stored the file's full size. A file that fails keeps its local copy and its record and is listed in the migration result, and running the migration again retries it and skips the files already moved. A file larger than 2 GiB is not moved to S3.
+
 ### Other platforms
 
 **Umbrel:** Available in the [Umbrel App Store](https://apps.umbrel.com/app/hermitstash) — open the App Store on your Umbrel, search HermitStash, and click Install. Volumes, ports, and shared memory are configured automatically.
@@ -1487,7 +1489,7 @@ Managed via `scripts/vendor-update.sh`:
 
 | Vendored | Version | Author | Purpose |
 |----------|---------|--------|---------|
-| [`blamejs`](https://github.com/blamejs/blamejs) | 0.20.39 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, and envelope-bound field crypto. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
+| [`blamejs`](https://github.com/blamejs/blamejs) | 0.21.4 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, and envelope-bound field crypto. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
 | [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) (browser only) | 2.4.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | XChaCha20-Poly1305 in the browser vault + outbox flows |
 | [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (browser only) | 2.4.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | SHAKE256 KDF in the browser |
 | [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) (browser only) | 0.7.1 | [Paul Miller](https://github.com/paulmillr) (MIT) | ML-KEM-1024 in the browser vault flow |
@@ -1541,8 +1543,6 @@ lib/
   expiry.js           File expiry cleanup
   scheduler.js        Task scheduler with watchdog timeouts
   webhook.js          Webhook dispatch queue
-  pqc-gate.js         ClientHello PQC group inspection at TCP level
-  pqc-agent.js        PQC-only outbound HTTPS agent
   vendor/blamejs/     Vendored framework (server-side crypto + identity primitives)
 
 app/

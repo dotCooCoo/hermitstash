@@ -461,9 +461,9 @@ Browser certs are unaffected by any sync-CA migration or regeneration.
 
 ### 5.9 TLS-level PQC enforcement (pqc-gate)
 
-When HermitStash terminates TLS directly (no reverse proxy), a TCP-level gate inspects each incoming connection's ClientHello **before** the TLS handshake completes. If the ClientHello does not offer at least one PQC hybrid group, the connection is rejected with `handshake_failure`.
+When HermitStash terminates TLS directly (no reverse proxy), a TCP-level gate inspects each incoming connection's ClientHello **before** the TLS handshake completes. If the ClientHello does not offer at least one PQC hybrid group that the listener accepts, does not list TLS 1.3 in its `supported_versions` extension, or repeats an extension, the connection is rejected with `handshake_failure`.
 
-Code: HermitStash no longer ships this file — the gate is provided by blamejs (`lib/vendor/blamejs/lib/pqc-gate.js`) and wired in `server-main.js` via `b.pqcGate.create({ internalPort, log })`.
+Code: the gate is provided by blamejs (`lib/vendor/blamejs/lib/pqc-gate.js`) and wired in `server-main.js` via `b.pqcGate.create({ internalPort, groups: listenerGroupList(), log })`, so it accepts the same hybrid groups the listener is configured with.
 
 **Recognized PQC groups (`PQC_GROUPS` in `lib/vendor/blamejs/lib/constants.js`; HermitStash re-exports them via `lib/constants.js`):**
 
@@ -513,7 +513,7 @@ Code: HermitStash no longer ships this file — the gate is provided by blamejs 
 - Localhost (`127.0.0.1`, `::1`) requests bypass the gate so Docker health checks don't fail
 - `PQC_ENFORCE=false` env var disables the gate for transition periods
 
-**Outbound:** `b.pqcAgent` (`lib/vendor/blamejs/lib/pqc-agent.js`) backs every outbound HTTPS dial made through `b.httpClient` — S3, SMTP over TLS, Resend, webhooks, OAuth. It offers the three ML-KEM hybrids ahead of classical X25519 at a TLS 1.3 floor, so a hybrid is preferred on every handshake. Unlike the inbound gate there is no outbound refusal: a peer that offers no hybrid still connects over X25519. Each such connection is recorded as a `tls.classical_downgrade` audit event carrying the negotiated group and peer host, so the audit log is where to see which upstreams are still classical.
+**Outbound:** `b.pqcAgent` (`lib/vendor/blamejs/lib/pqc-agent.js`) backs every outbound HTTPS dial made through `b.httpClient` — S3, SMTP over TLS, Resend, webhooks, OAuth. It offers the three ML-KEM hybrids ahead of classical X25519 at a TLS 1.3 floor, so a hybrid is preferred on every handshake. Unlike the inbound gate there is no outbound refusal for a classical group: a peer that offers no hybrid still connects over X25519. The framework's `tls.classical_downgrade` event for such a connection is not recorded in HermitStash's audit log, because `server.js` discards framework audit events. Every outbound connection checks the peer's certificate chain up to a trusted root and refuses a certificate whose private key is publicly known.
 
 ### 5.10 Webhook HMAC signatures
 

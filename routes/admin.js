@@ -635,9 +635,16 @@ module.exports = function (app) {
       } catch (err) {
         if (err.isAppError) throw err;
         // unsealVaultKey throws "passphrase rejected: ..." on a wrong passphrase
-        // and "unseal failed: ..." on a sealed file it cannot parse.
+        // and "unseal failed: ..." on a sealed file it cannot parse or one whose
+        // header names an Argon2id cost above the ceiling. The admin receives the
+        // "unseal failed" message, which names the defect in vault.key.sealed.
         if (/^passphrase rejected: /.test(err.message)) throw new AuthenticationError(err.message);
-        throw new AppError(err.message, 500);
+        var failure = new AppError(err.message, 500);
+        if (/^unseal failed: /.test(err.message)) {
+          logger.error("Vault key unseal failed", { error: err.message });
+          failure.exposeDetail = true;
+        }
+        throw failure;
       }
     });
   });

@@ -63,13 +63,16 @@ function shown(text, secret) {
   return String(text).split(secret).join("<share ID>");
 }
 
+// Every line that b.router writes includes this field.
+var ROUTER_LINE = "\"component\":\"router\"";
+
 describe("share IDs in log output when a request fails", function () {
   var share = b.crypto.generateToken(32);
 
-  it("logs a failing route handler with its route pattern", async function () {
+  it("logs a failing route handler with its route pattern and a redacted error message", async function () {
     var bundlesRepo = require(path.join(testServer.projectRoot, "app", "data", "repositories", "bundles.repo"));
     var restore = stub(bundlesRepo, "findCompleteByShareId", function () {
-      throw new Error("forced lookup failure");
+      throw new Error("forced lookup failure for bundles/" + share + "/1-x.bin");
     });
     var res;
     var output;
@@ -84,10 +87,11 @@ describe("share IDs in log output when a request fails", function () {
     assert.strictEqual(output.indexOf(share), -1, "a share ID reached the log output:\n" + shown(output, share));
     assert.ok(output.indexOf("Unhandled server error") !== -1, "the failure is logged:\n" + shown(output, share));
     assert.ok(output.indexOf("/b/:shareId") !== -1, "with its route pattern:\n" + shown(output, share));
-    assert.strictEqual(output.indexOf("route error:"), -1, "the router writes no line of its own:\n" + shown(output, share));
+    assert.ok(output.indexOf("bundles/[redacted]/1-x.bin") !== -1, "with the share ID in the message redacted:\n" + shown(output, share));
+    assert.strictEqual(output.indexOf(ROUTER_LINE), -1, "the router writes no line of its own:\n" + shown(output, share));
   });
 
-  it("logs a failing global middleware with the token segment replaced and no query", async function () {
+  it("logs a failing global middleware with the route pattern the request matches", async function () {
     var db = require(path.join(testServer.projectRoot, "lib", "db"));
     var restore = stub(db.apiKeys, "findOne", function () {
       throw new Error("forced key lookup failure");
@@ -106,8 +110,30 @@ describe("share IDs in log output when a request fails", function () {
     assert.strictEqual(res.status, 500);
     assert.strictEqual(output.indexOf(share), -1, "a share ID reached the log output:\n" + shown(output, share));
     assert.ok(output.indexOf("Unhandled server error") !== -1, "the failure is logged:\n" + shown(output, share));
-    assert.ok(output.indexOf("/b/:token/folder") !== -1, "with the token segment replaced:\n" + shown(output, share));
-    assert.strictEqual(output.indexOf("middleware error:"), -1, "the router writes no line of its own:\n" + shown(output, share));
+    assert.ok(output.indexOf("\"path\":\"/b/:shareId/folder\"") !== -1, "with the route pattern:\n" + shown(output, share));
+    assert.strictEqual(output.indexOf(ROUTER_LINE), -1, "the router writes no line of its own:\n" + shown(output, share));
+  });
+
+  it("logs a failing global middleware on a path no route matches with its token segments replaced", async function () {
+    var db = require(path.join(testServer.projectRoot, "lib", "db"));
+    var restore = stub(db.apiKeys, "findOne", function () {
+      throw new Error("forced key lookup failure");
+    });
+    var res;
+    var output;
+    try {
+      output = await captureOutput(async function () {
+        res = await client.get("/nope/" + share + "/x?t=" + share, {
+          headers: { authorization: "Bearer hs_" + b.crypto.generateToken(32) },
+        });
+      });
+    } finally {
+      restore();
+    }
+    assert.strictEqual(res.status, 500);
+    assert.strictEqual(output.indexOf(share), -1, "a share ID reached the log output:\n" + shown(output, share));
+    assert.ok(output.indexOf("\"path\":\"/nope/:token/x\"") !== -1, "with the token segment replaced:\n" + shown(output, share));
+    assert.strictEqual(output.indexOf(ROUTER_LINE), -1, "the router writes no line of its own:\n" + shown(output, share));
   });
 
   it("logs a refused request at debug level with its route pattern and writes no router line", async function () {
@@ -127,7 +153,34 @@ describe("share IDs in log output when a request fails", function () {
     assert.strictEqual(output.indexOf(share), -1, "a share ID reached the log output:\n" + shown(output, share));
     assert.ok(output.indexOf("Request refused") !== -1, "the refusal is logged:\n" + shown(output, share));
     assert.ok(output.indexOf("/b/:shareId/unlock") !== -1, "with its route pattern:\n" + shown(output, share));
-    assert.strictEqual(output.indexOf("route refused:"), -1, "the router writes no line of its own:\n" + shown(output, share));
+    assert.strictEqual(output.indexOf(ROUTER_LINE), -1, "the router writes no line of its own:\n" + shown(output, share));
+  });
+
+  it("answers a refused password check with 503 and writes no error line", async function () {
+    var passwordGate = require(path.join(testServer.projectRoot, "lib", "password-gate"));
+    var { ServiceUnavailableError } = require(path.join(testServer.projectRoot, "app", "shared", "errors"));
+    var refusing = new TestClient(testServer.baseUrl());
+    await refusing.initApiKey();
+    var saved = process.env.BLAMEJS_BOOT_LOG_LEVEL;
+    process.env.BLAMEJS_BOOT_LOG_LEVEL = "debug";
+    var restore = stub(passwordGate, "verify", async function () {
+      throw new ServiceUnavailableError("Too many password checks are in progress. Try again in a few seconds.", 5);
+    });
+    var res;
+    var output;
+    try {
+      output = await captureOutput(async function () {
+        res = await refusing.post("/auth/login", { json: { email: "nobody@example.com", password: "not-the-password-1" } });
+      });
+    } finally {
+      restore();
+      if (saved === undefined) delete process.env.BLAMEJS_BOOT_LOG_LEVEL;
+      else process.env.BLAMEJS_BOOT_LOG_LEVEL = saved;
+    }
+    assert.strictEqual(res.status, 503);
+    assert.strictEqual(res.headers["retry-after"], "5");
+    assert.strictEqual(output.indexOf("\"level\":\"error\""), -1, "a refused password check is not logged as an error:\n" + output);
+    assert.strictEqual(output.indexOf(ROUTER_LINE), -1, "the router writes no line of its own:\n" + output);
   });
 
   it("stores a refused unlock with the route pattern in details and the full path in path", async function () {

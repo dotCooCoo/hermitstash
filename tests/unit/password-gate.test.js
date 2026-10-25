@@ -44,7 +44,7 @@ describe("lib/password-gate", function () {
     assert.strictEqual(argon2Probe.stats().maxRunning, C.PASSWORD_HASH.MAX_CONCURRENT);
   });
 
-  it("isVerifiable compares a stored hash's cost with b.auth.password.costCeiling()", function () {
+  it("isVerifiable refuses a non-Argon2id hash and one b.auth.password.exceedsCostCeiling() reports", function () {
     var c = b.auth.password.costCeiling();
     var tail = "$c2FsdHNhbHRzYWx0c2FsdA$aGFzaGhhc2hoYXNoaGFzaGhhc2hoYXNoaGFzaGhhc2g";
     function phc(m, t, p) { return "$argon2id$v=19$m=" + m + ",t=" + t + ",p=" + p + tail; }
@@ -53,6 +53,10 @@ describe("lib/password-gate", function () {
     assert.strictEqual(passwordGate.isVerifiable(phc(65536, c.timeCost + 1, 4)), false);
     assert.strictEqual(passwordGate.isVerifiable(phc(65536, 3, c.parallelism + 1)), false);
     assert.strictEqual(passwordGate.isVerifiable(phc(512, 2, 1)), true, "a memory cost under 1 MiB is below the ceiling");
+    assert.strictEqual(passwordGate.isVerifiable("$argon2id$v=19$t=" + (c.timeCost + 1) + ",m=1024,p=1" + tail), false,
+      "cost fields in another order are read");
+    assert.strictEqual(passwordGate.isVerifiable("$argon2id$v=19$m=1024,t=1,p=1$c2FsdA"), true,
+      "a string the framework cannot decode is left to verify()");
     assert.strictEqual(passwordGate.isVerifiable("$2b$12$abcdefghijklmnopqrstuuWJ1Pp0SUYYMp8zSrkkyIa2Wq4JHgB."), false);
     assert.strictEqual(passwordGate.isVerifiable(""), false);
   });

@@ -97,6 +97,15 @@ describe("a refused storage read is not an existence oracle", function () {
       });
   });
 
+  it("getRawBuffer reports a directory at the object path exactly as it reports a missing object", async function () {
+    fs.mkdirSync(path.join(process.env.UPLOAD_DIR, "dir-not-blob.bin"));
+    var viaDir = await errorFrom(function (p) { return storage.getRawBuffer(p); }, "dir-not-blob.bin");
+    var viaMissing = await errorFrom(function (p) { return storage.getRawBuffer(p); }, "absent-dir-case.bin");
+    assert.ok(viaDir, "a directory is not a stored object");
+    assert.strictEqual(viaDir.code, viaMissing.code);
+    assert.strictEqual(viaDir.message, viaMissing.message);
+  });
+
   it("refuses a path that climbs out of the upload directory", async function () {
     // Checked lexically before any filesystem call, so it holds whether or not
     // the target exists.

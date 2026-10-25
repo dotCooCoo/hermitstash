@@ -250,7 +250,7 @@ module.exports = function (app) {
   app.post("/vault/upload", async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {
-      var body = (await b.parsers.json(req, { maxBytes: config.maxFileSize * 2 })) || {}; // base64 overhead
+      var body = (await b.parsers.json(req, { maxBytes: (config.maxFileSize || C.UPLOAD.NO_LIMIT_CEILING_BYTES) * 2 })) || {}; // base64 overhead; 0 means no limit
       if (!body.ciphertext || !body.encapsulatedKey || !body.iv || !body.filename) {
         throw new ValidationError("Missing encrypted file data.");
       }
@@ -428,7 +428,7 @@ module.exports = function (app) {
   app.post("/vault/rotate", async (req, res) => {
     if (!requireAuth(req, res)) return;
     try {
-      var body = (await b.parsers.json(req, { maxBytes: config.maxFileSize * 2 })) || {}; // base64 overhead
+      var body = (await b.parsers.json(req, { maxBytes: (config.maxFileSize || C.UPLOAD.NO_LIMIT_CEILING_BYTES) * 2 })) || {}; // base64 overhead; 0 means no limit
       var user = usersRepo.findById(req.user._id);
       if (user.vaultEnabled !== "true") throw new ValidationError("Vault not enabled.");
 

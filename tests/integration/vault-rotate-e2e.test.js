@@ -444,10 +444,74 @@ describe("vault-rotate E2E: wrapped mode", function () {
       VAULT_PASSPHRASE_NEW: "something",
     }, []);
     assert.notStrictEqual(r.status, 0, "must fail with wrong old passphrase");
+    assert.match(r.stderr, /current passphrase rejected: /);
     // data/ must be untouched
     assert.strictEqual(Buffer.compare(fs.readFileSync(path.join(dataDir, "vault.key.sealed")), originalSealed), 0);
     var parent = path.dirname(dataDir);
     assert.strictEqual(findDataOldDir(parent, path.basename(dataDir)), null, "no data.old.* on failure");
     assert.ok(!fs.existsSync(dataDir + ".rotating"), "staging cleaned up on failure");
+  });
+
+  it("reports a truncated vault.key.sealed as unreadable, not as a rejected passphrase", async function () {
+    var dataDir = path.join(testRoot, "trunc-" + b.crypto.generateToken(3));
+    var oldKeys = cryptoLib.generateEncryptionKeyPair();
+    buildFixture(dataDir, oldKeys);
+    fs.unlinkSync(path.join(dataDir, "vault.key"));
+    var pw = "the correct one";
+    await wrapVaultKey(dataDir, oldKeys, pw);
+    var sealedPath = path.join(dataDir, "vault.key.sealed");
+    var truncated = fs.readFileSync(sealedPath).subarray(0, 30);
+    fs.writeFileSync(sealedPath, truncated);
+
+    var r = runRotate(dataDir, { VAULT_PASSPHRASE_OLD: pw, VAULT_PASSPHRASE_NEW: pw }, []);
+    assert.notStrictEqual(r.status, 0, "must fail on a truncated sealed file");
+    assert.match(r.stderr, /vault\.key\.sealed could not be unwrapped: /);
+    assert.match(r.stderr, /The passphrase was not checked\./);
+    assert.doesNotMatch(r.stderr, /passphrase rejected/);
+    assert.strictEqual(Buffer.compare(fs.readFileSync(sealedPath), truncated), 0, "vault.key.sealed is unchanged");
+    assert.strictEqual(findDataOldDir(path.dirname(dataDir), path.basename(dataDir)), null, "no data.old.* on failure");
+    assert.ok(!fs.existsSync(dataDir + ".rotating"), "no staging directory is left");
+  });
+});
+
+function runVerify(dataDir, env) {
+  var fullEnv = Object.assign({}, process.env, {
+    HERMITSTASH_DATA_DIR: dataDir,
+    ARGON2_FAST: "1",
+  }, env || {});
+  return spawnSync("node", ["scripts/vault-key-verify.js"], {
+    cwd: REPO_ROOT, env: fullEnv, encoding: "utf8", timeout: 90000,
+  });
+}
+
+describe("vault-key-verify: wrapped vault key that cannot be unsealed", function () {
+
+  it("reports a wrong passphrase as rejected", async function () {
+    var dataDir = path.join(testRoot, "verify-badpw-" + b.crypto.generateToken(3));
+    var keys = cryptoLib.generateEncryptionKeyPair();
+    buildFixture(dataDir, keys);
+    fs.unlinkSync(path.join(dataDir, "vault.key"));
+    await wrapVaultKey(dataDir, keys, "the correct one");
+
+    var r = runVerify(dataDir, { VAULT_PASSPHRASE: "THE WRONG ONE" });
+    assert.strictEqual(r.status, 1, "exit: " + r.status + "\nstderr: " + r.stderr);
+    assert.match(r.stderr, /ERROR: passphrase rejected: /);
+  });
+
+  it("reports a truncated vault.key.sealed as unreadable, not as a rejected passphrase", async function () {
+    var dataDir = path.join(testRoot, "verify-trunc-" + b.crypto.generateToken(3));
+    var keys = cryptoLib.generateEncryptionKeyPair();
+    buildFixture(dataDir, keys);
+    fs.unlinkSync(path.join(dataDir, "vault.key"));
+    var pw = "the correct one";
+    await wrapVaultKey(dataDir, keys, pw);
+    var sealedPath = path.join(dataDir, "vault.key.sealed");
+    fs.writeFileSync(sealedPath, fs.readFileSync(sealedPath).subarray(0, 30));
+
+    var r = runVerify(dataDir, { VAULT_PASSPHRASE: pw });
+    assert.strictEqual(r.status, 1, "exit: " + r.status + "\nstderr: " + r.stderr);
+    assert.match(r.stderr, /ERROR: vault\.key\.sealed could not be unwrapped: /);
+    assert.match(r.stderr, /The passphrase was not checked\./);
+    assert.doesNotMatch(r.stderr, /passphrase rejected/);
   });
 });

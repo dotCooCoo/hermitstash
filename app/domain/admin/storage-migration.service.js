@@ -76,9 +76,8 @@ async function migrateStorage(direction, progressCb) {
         // loop. A symlink at the upload path is refused as not found, so the file
         // it points to is not uploaded.
         var data = await storage.getFileStream(sp, null);
-        // The upload to S3 holds the whole file in memory. A file larger than
-        // storage.LOCAL_READ_CAP fails here, and the migration moves on to the
-        // next file.
+        // A stored file is read back whole, up to storage.LOCAL_READ_CAP, so a
+        // larger file fails here, and the migration moves on to the next file.
         var fileSize = nodeFs.fstatSync(data.fd).size;
         if (fileSize > storage.LOCAL_READ_CAP) {
           data.destroy();
@@ -92,8 +91,15 @@ async function migrateStorage(direction, progressCb) {
           s3Key = nodePath.relative(uploadDir, sp).replace(/\\/g, "/");
         }
 
-        // Upload to S3
-        await s3.put(s3Key, data);
+        // Upload to S3. put() resolves with the number of bytes it stored. When
+        // that differs from the local file's size, the object is deleted, the
+        // local copy and its DB record are kept, and the file fails.
+        var uploaded = await s3.put(s3Key, data);
+        if (!uploaded || uploaded.size !== fileSize) {
+          try { await s3.del(s3Key); } catch (_e) { /* the DB record still names the local copy */ }
+          throw new Error("S3 stored " + (uploaded && typeof uploaded.size === "number" ? uploaded.size : "an unknown number of") +
+            " of " + fileSize + " bytes for " + sp);
+        }
 
         // Update DB record
         var newPath = "s3://" + s3cfg.bucket + "/" + s3Key;

@@ -42,6 +42,7 @@ var logger = b.log.create({
 });
 
 var REDACTED = "[redacted]";
+var UNRESOLVED_PATH = "(unresolved)";
 // 64 hexadecimal characters with no hexadecimal character directly before or
 // after them.
 var TOKEN_IN_TEXT_RE = /(?<![0-9A-Fa-f])[0-9A-Fa-f]{64}(?![0-9A-Fa-f])/g;
@@ -52,26 +53,29 @@ var ID_FIELD_RE = /(?:Id|_id)$/;
 var MAX_FIELD_DEPTH = 4;
 
 /**
- * The request path to write in a log line, an audit detail or a SIEM event.
- * After the router has matched a route, this is the route pattern, for example
- * /b/:shareId/download. Before that, it is the request path with each segment
- * of 32 or more letters, digits, "-" or "_" replaced by :token and each
- * 64-character hexadecimal value replaced by [redacted]. The query string is
- * never included. Returns "/" when the request cannot be read.
+ * Returns the request path to write in a log line, an audit detail or a SIEM
+ * event. After the router has matched a route, it returns the route pattern,
+ * for example /b/:shareId/download. Before that, it returns req.routeLabel when
+ * req.routeLabel holds a route pattern. b.router sets req.routeLabel from its
+ * route table before the first middleware runs, and sets it to (unrouted) for
+ * a path that no route matches. For such a path, it returns the request path
+ * with each segment of 32 or more letters, digits, "-" or "_" replaced by
+ * :token and each 64-character hexadecimal value replaced by [redacted]. The
+ * query string is never included. Returns (unresolved) when the request has no
+ * path to read.
  */
 function requestPath(req) {
   try {
-    if (req && typeof req.routePattern === "string" && req.routePattern.length > 0) {
-      return req.routePattern;
-    }
-    // resolveRoute returns req.url without its query string when no route matched.
-    var raw = (req && typeof req.pathname === "string") ? req.pathname : b.requestHelpers.resolveRoute(req);
-    var masked = String(raw).split("/").map(function (segment) {
+    if (!req) return UNRESOLVED_PATH;
+    if (typeof req.routePattern === "string" && req.routePattern.length > 0) return req.routePattern;
+    if (typeof req.routeLabel === "string" && req.routeLabel.charAt(0) === "/") return req.routeLabel;
+    if (typeof req.pathname !== "string") return UNRESOLVED_PATH;
+    var masked = req.pathname.split("/").map(function (segment) {
       return TOKEN_SEGMENT_RE.test(segment) ? ":token" : segment;
     }).join("/");
     return redactTokens(masked) || "/";
   } catch (_e) {
-    return "/";
+    return UNRESOLVED_PATH;
   }
 }
 

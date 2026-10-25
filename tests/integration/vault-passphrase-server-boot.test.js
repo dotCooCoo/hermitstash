@@ -199,6 +199,30 @@ describe("full-server wrapped-mode boot", function () {
     child = null;
   });
 
+  it("boot with a truncated vault.key.sealed reports the file, not the passphrase", async function () {
+    child = startServer(dir, port, {
+      VAULT_PASSPHRASE_MODE: "required",
+      VAULT_PASSPHRASE: "correct-pw",
+    });
+    assert.strictEqual(await waitForHealth(port, 15000), null, "initial seed boot failed");
+    await stopServer(child);
+    child = null;
+
+    var sealedPath = path.join(dir, "vault.key.sealed");
+    fs.writeFileSync(sealedPath, fs.readFileSync(sealedPath).subarray(0, 30));
+    var port2 = await pickPort();
+    child = startServer(dir, port2, {
+      VAULT_PASSPHRASE_MODE: "required",
+      VAULT_PASSPHRASE: "correct-pw",
+    });
+    var err = await waitForHealth(port2, 5000);
+    assert.ok(err, "server should NOT have reached healthy state with a truncated sealed file");
+    await new Promise(function (r) { setTimeout(r, 1000); });
+    assert.match(child._stderr, /vault\.key\.sealed could not be unwrapped, and the passphrase was not checked/);
+    assert.doesNotMatch(child._stderr, /passphrase rejected/);
+    child = null;
+  });
+
   it("full rotation flow: boot → rotate offline → re-boot with new passphrase", async function () {
     // 1. Initial boot wraps keys with "old-pw"
     child = startServer(dir, port, {

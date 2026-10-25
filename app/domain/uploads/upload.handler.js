@@ -764,7 +764,7 @@ async function handleSyncFileRename(ctx) {
   // Sanitize new path
   var segments = newPath.split("/");
   segments = segments.map(function (s) { return sanitizeFilename(s); }).filter(Boolean);
-  if (segments.length === 0) return { error: "Invalid new nodePath.", status: 400 };
+  if (segments.length === 0) return { error: "Invalid new path.", status: 400 };
   newPath = segments.join("/");
   if (newPath.length > C.UPLOAD.RELATIVE_PATH_MAX) return tooLong;
 
@@ -772,7 +772,7 @@ async function handleSyncFileRename(ctx) {
   var allFiles = filesRepo.findAll({ bundleId: bundle._id }).filter(function (f) {
     return !f.deletedAt && f.relativePath === oldPath;
   });
-  if (allFiles.length === 0) return { error: "File not found at old nodePath.", status: 404 };
+  if (allFiles.length === 0) return { error: "File not found at old path.", status: 404 };
 
   var file = allFiles[0];
   var now = new Date().toISOString();

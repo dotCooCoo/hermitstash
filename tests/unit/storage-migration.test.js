@@ -4,7 +4,8 @@ var scratch = require("../helpers/isolate-db"); // must precede every HermitStas
  * storage.getFileStream with no key: the file is opened with O_NOFOLLOW and
  * read as a stream, and a file larger than storage.LOCAL_READ_CAP fails. A
  * symlink at an upload path is refused, and the file it points to is not
- * uploaded.
+ * uploaded. An upload that S3 reports with a size other than the local file's
+ * fails, and the local copy and its record are kept.
  *
  * The symlink case needs a host that can create symbolic links, so it runs on
  * Linux CI and in Docker and is skipped where creating one fails.
@@ -137,5 +138,36 @@ describe("a file larger than the local read cap", function () {
     assert.ok(fs.existsSync(path.join(process.env.UPLOAD_DIR, "bundles/d/over-cap.bin")), "the local copy stays");
     var failure = capResult.errors.find(function (e) { return e.file === "migovercap01"; });
     assert.ok(failure && /larger than 1024 bytes/.test(failure.error), JSON.stringify(capResult.errors));
+  });
+});
+
+describe("an upload that S3 reports as shorter than the local file", function () {
+  var shortResult;
+
+  before(async function () {
+    // A retried put() of a stream that has already ended stores an empty
+    // object and resolves { size: 0 }. The stub drains the stream and does the
+    // same.
+    var S3Client = require("../../lib/s3-client");
+    var realPut = S3Client.prototype.put;
+    S3Client.prototype.put = async function (key, body) {
+      for await (var _chunk of body) { /* drain */ }
+      return realPut.call(this, key, Buffer.alloc(0));
+    };
+    writeUpload("bundles/e/short.bin", Buffer.alloc(4096, 5));
+    seedFile("migshort0001", "bundles/e/short.bin");
+    try {
+      shortResult = await migration.migrateStorage("local-to-s3");
+    } finally {
+      S3Client.prototype.put = realPut;
+    }
+  });
+
+  it("deletes the stored object, keeps the local copy and its record, and reports the file as failed", function () {
+    assert.strictEqual(storedObject("bundles/e/short.bin"), null, "the short object is deleted from S3");
+    assert.strictEqual(filesRepo.findByShareId("migshort0001").storagePath, "bundles/e/short.bin");
+    assert.ok(fs.existsSync(path.join(process.env.UPLOAD_DIR, "bundles/e/short.bin")), "the local copy stays");
+    var failure = shortResult.errors.find(function (e) { return e.file === "migshort0001"; });
+    assert.ok(failure && /stored 0 of 4096 bytes/.test(failure.error), JSON.stringify(shortResult.errors));
   });
 });

@@ -89,20 +89,33 @@ describe("app/shared/logger keeps share IDs and tokens out of log lines", functi
     assert.strictEqual(logger.requestPath(req), b.requestHelpers.resolveRoute(req));
   });
 
-  it("requestPath replaces token segments and drops the query before a route has matched", function () {
+  it("requestPath returns the router's label for a routed path before the route runs", function () {
+    var req = {
+      routeLabel: "/b/:shareId/folder",
+      pathname: "/b/" + share + "/folder",
+      url: "/b/" + share + "/folder?path=" + share,
+    };
+    assert.strictEqual(logger.requestPath(req), "/b/:shareId/folder");
+    assert.strictEqual(logger.requestPath(req), b.requestHelpers.resolveRoute(req));
+  });
+
+  it("requestPath replaces token segments and drops the query for a path no route matches", function () {
     assert.strictEqual(
-      logger.requestPath({ pathname: "/b/" + share + "/file/" + fileShare, url: "/b/" + share + "/file/" + fileShare + "?ref=" + share }),
-      "/b/:token/file/:token");
-    assert.strictEqual(logger.requestPath({ url: "/auth/reset-password/" + share + "?next=/x" }), "/auth/reset-password/:token");
-    assert.strictEqual(logger.requestPath({ pathname: "/stash/acme-uploads/init" }), "/stash/acme-uploads/init");
+      logger.requestPath({ routeLabel: "(unrouted)", pathname: "/x/" + share + "/file/" + fileShare, url: "/x/" + share + "/file/" + fileShare + "?ref=" + share }),
+      "/x/:token/file/:token");
+    assert.strictEqual(logger.requestPath({ routeLabel: "(unrouted)", pathname: "/stash/acme-uploads/init" }), "/stash/acme-uploads/init");
     assert.strictEqual(logger.requestPath({ pathname: "/b/" + share + ".zip" }), "/b/[redacted].zip");
   });
 
-  it("requestPath returns / for a request it cannot read", function () {
+  it("requestPath does not read req.url", function () {
+    assert.strictEqual(logger.requestPath({ url: "/auth/reset-password/" + share + "?next=/x" }), "(unresolved)");
+  });
+
+  it("requestPath returns (unresolved) for a request it cannot read", function () {
     var hostile = {};
     Object.defineProperty(hostile, "routePattern", { get: function () { throw new Error("unreadable"); } });
-    assert.strictEqual(logger.requestPath(hostile), "/");
-    assert.strictEqual(logger.requestPath(null), "/");
+    assert.strictEqual(logger.requestPath(hostile), "(unresolved)");
+    assert.strictEqual(logger.requestPath(null), "(unresolved)");
   });
 
   it("redactTokens replaces share IDs in a storage key and keeps a SHA3-512 checksum", function () {

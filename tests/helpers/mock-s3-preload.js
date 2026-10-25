@@ -32,8 +32,8 @@ function bucketOf(opts) { return (opts && opts.bucket) || "__default__"; }
 function MockS3Client(opts) {
   this._bucket = bucketOf(opts);
 }
-// put accepts a Buffer, a string or a readable stream, as the framework's
-// object-store backends do.
+// put accepts a Buffer, a string or a readable stream and resolves with the
+// number of bytes stored, as the framework's object-store backends do.
 MockS3Client.prototype.put = async function (key, body) {
   var buf;
   if (body && typeof body.pipe === "function") {
@@ -47,6 +47,7 @@ MockS3Client.prototype.put = async function (key, body) {
   if (!store[this._bucket]) store[this._bucket] = {};
   store[this._bucket][key] = buf.toString("base64");
   save(store);
+  return { size: buf.length };
 };
 MockS3Client.prototype.getBuffer = function (key) {
   var store = load();

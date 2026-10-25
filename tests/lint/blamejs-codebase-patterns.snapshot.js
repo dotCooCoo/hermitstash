@@ -94,7 +94,6 @@
 
 var fs = require("fs");
 var path = require("path");
-var childProcess = require("child_process");
 var nodeCrypto = require("crypto");
 var helpers = require("../helpers");
 var check = helpers.check;
@@ -513,6 +512,7 @@ var VALID_ALLOW_CLASSES = {
   "backup-adapter-storage-without-posture-check": 1,
   "bare-canonicalize-walk": 1,
   "outbound-tls-posture": 1,
+  "listener-group-preference": 1,
   "secure-context-cert-compression": 1,
   "bare-error-throw": 1,
   "bare-split-on-quoted-header-token-grammar": 1,
@@ -554,7 +554,9 @@ var VALID_ALLOW_CLASSES = {
   "silent-catch-stream-teardown": 1,
   "slsa-framework-action-not-sha-pinned": 1,
   "timer-no-unref-unrefed-below": 1,
-  "timer-no-unref-process-pinning": 1,
+  "timer-no-unref-process-pinning": 2,
+  "tls-servername-not-dialed": 1,
+  "url-hostname-not-dialed": 1,
   "wildcard-suffix-match-without-single-label-check": 1,
 };
 
@@ -4118,8 +4120,10 @@ function testFormatValidatorLengthCap() {
 // The threshold is wide on purpose: 4x the input is ~4x the work when linear
 // and ~16x when quadratic, so 8x separates them with room for a loaded
 // machine, and each timing is the best of three to drop scheduler noise. A
-// regex is only escalated to the growth measurement when a cheap 600-character
-// probe is already slow, which keeps the whole gate around 400ms.
+// subject is only escalated to the growth measurement when a 2048-character
+// first look is already slow. Every pattern is measured in child processes
+// that run in parallel under a per-match deadline, and the gate takes a few
+// seconds over the whole of lib/.
 // A pattern the source builds out of a string rather than writing as a
 // literal. The extractor above reads literals, so `new RegExp("\\bCOPY\\b" +
 // ...)` and the `_re("...")` table in b.guardSql were measured by nothing:
@@ -5340,6 +5344,362 @@ function _quantifiedChars(body, unicode) {
   return out;
 }
 
+// A costly pair of quantifiers is often BEHIND an earlier quantifier:
+// `you\s+are\s+(?:now)?\s*(?:a|an)` costs on `you are` and a run of spaces, and
+// `^\s*[a-z]+\s+eq(?:\s+(.+))?\s*$` on `a eq` and a run of spaces. A subject
+// made of one literal run and one filler never satisfies the earlier token
+// with a single repetition and then enters the pair, so a stop point is built
+// for every repeatable token instead: the shortest text the pattern accepts up
+// to that token, and what the token repeats.
+//
+// The walk goes past each quantified token at its minimum count (one for `+`),
+// past `^`, `$`, `\b`, `\B`, lookaheads and negative lookbehinds, which consume
+// nothing, into every alternative of a group, and past an optional group both
+// skipped and taken once. A positive lookbehind is taken both as nothing and
+// as its own text, and a backreference repeats the text its group took on the
+// same path. Lookarounds are not evaluated, so a stop behind one may carry a
+// seed the pattern refuses; the other stops are still built.
+//
+// `_WITNESS_PATHS_MAX` is how many texts are carried forward past one token,
+// and `_WITNESS_SEEDS_PER_SITE` how many of them become seeds for one
+// repeatable token and filler, so every repeatable token the walk reaches gets
+// a stop point whatever the earlier ones collected. `_WITNESS_STOPS_MAX` is a
+// backstop on the whole set, far above the 163 stops the widest pattern in
+// lib/ produces. A pattern past it, or one whose walk ends because
+// a seed outgrew what a subject can carry, is reported as not measured rather
+// than cleared on the stops that were built.
+var _WITNESS_PATHS_MAX = 16;
+var _WITNESS_SEEDS_PER_SITE = 4;
+var _WITNESS_STOPS_MAX = 4096;
+
+// The characters a stop's tail is built from. A token followed by a quantifier
+// that accepts a character the token refuses fails only on that character, and
+// only when something after it refuses the quantifier: `^a\s+(.+)\s*$` is cubic
+// on `a` + spaces + `x\n!` and linear on every one-character tail, and
+// `^a\s+([^\t]+)\s*$` is cubic on `x\t!`. Every whitespace character and line
+// terminator is tried; of the other characters, the first one that separates
+// the two tokens is enough.
+var _TAIL_SPACE_CHARS = ["\n", "\r", "\t", "\f", String.fromCharCode(0x0B),
+                         String.fromCharCode(0x2028), String.fromCharCode(0x2029),
+                         " ", String.fromCharCode(0xA0), String.fromCharCode(0xFEFF)];
+var _TAIL_OTHER_CHARS = (function () {
+  var out = [];
+  for (var cp = 0x21; cp <= 0x7E; cp += 1) out.push(String.fromCharCode(cp));
+  return out;
+})();
+
+// The tails `^a\s+(.+)\s*$` needs at its `.` stop, kept as a fixture for the
+// derivation in _stopTails: a line terminator, with and without a character
+// before it that `\s` refuses, then a character `\s` refuses.
+var _LINE_TERMINATOR_TAILS = ["\n!", "x\n!", "\u2028!", "x\u2028!"];
+
+// The quantifier after the token ending at `endPos`: its bounds and the
+// position of its last character, or a single repetition when there is none.
+// A brace that spells no count is a literal and leaves the token unquantified.
+function _witnessQuantifier(body, endPos) {
+  var at = endPos + 1;
+  var q = body.charAt(at);
+  var lo = 1;
+  var hi = 1;
+  var last = endPos;
+  if (q === "*") { lo = 0; hi = Infinity; last = at; }
+  else if (q === "+") { lo = 1; hi = Infinity; last = at; }
+  else if (q === "?") { lo = 0; hi = 1; last = at; }
+  else if (q === "{") {
+    var close = body.indexOf("}", at);
+    var qb = close === -1 ? null : _quantifierBounds(body.slice(at + 1, close));
+    if (qb && qb.lo <= qb.hi) { lo = qb.lo; hi = qb.hi; last = close; }
+  }
+  if (last !== endPos && body.charAt(last + 1) === "?") last += 1;     // lazy
+  return { lo: lo, hi: hi, last: last };
+}
+
+// The text one token consumes on the shortest path: a member of a class, the
+// character an escape names, the empty string for an anchor, or null when no
+// character satisfies it.
+function _witnessChar(text, unicode) {
+  if (text === ".") return _charMatching(".", unicode);
+  if (text.charAt(0) === "\\") {
+    if (/^\\[bB]$/.test(text)) return "";
+    var lit = _decodeEscape(text);
+    return lit !== null ? lit : _charMatching(text, unicode);
+  }
+  if (text.charAt(0) === "[") return _charMatching(text, unicode);
+  return text;
+}
+
+// The capturing groups of a whole pattern body: the group number and name of
+// each one, keyed by the offset of its `(`, and the group number of each name.
+function _witnessCaptures(body, unicode) {
+  var at = Object.create(null);
+  var names = Object.create(null);
+  var count = 0;
+  _regexTokens(body, unicode).forEach(function (tok) {
+    if (tok.text !== "(") return;
+    var after = body.slice(tok.end + 1);
+    var named = /^\?<([A-Za-z_$][A-Za-z0-9_$]*)>/.exec(after);
+    if (after.charAt(0) === "?" && !named) return;
+    count += 1;
+    at[tok.end] = count;
+    if (named) names[named[1]] = count;
+  });
+  return { at: at, names: names, count: count };
+}
+
+// The group a backreference token at `toks[i]` names, and the index of its last
+// token, or null when the token is not a backreference. `\1` takes the digits
+// after it while they still name a group, and `\k<name>` is a backreference
+// only where a group of that name exists.
+function _witnessBackref(toks, i, ctx) {
+  var text = toks[i].text;
+  if (/^\\[1-9]$/.test(text)) {
+    var n = Number(text.charAt(1));
+    if (n > ctx.caps.count) return null;
+    var last = i;
+    while (last + 1 < toks.length && /^[0-9]$/.test(toks[last + 1].text) &&
+           n * 10 + Number(toks[last + 1].text) <= ctx.caps.count) {
+      n = n * 10 + Number(toks[last + 1].text);
+      last += 1;
+    }
+    return { group: n, last: last };
+  }
+  if (text === "\\k" && i + 1 < toks.length && toks[i + 1].text === "<") {
+    var name = "";
+    for (var j = i + 2; j < toks.length; j += 1) {
+      if (toks[j].text === ">") {
+        var g = ctx.caps.names[name];
+        return g === undefined ? null : { group: g, last: j };
+      }
+      name += toks[j].text;
+    }
+  }
+  return null;
+}
+
+// One alternative, walked from its start. `base` is the offset of the
+// alternative in the whole pattern body, which names each repeatable token's
+// site and each group's capture number. Returns `ends`, the paths that carry
+// the walk to its end as { t, c } (the text, and the text each capturing group
+// took), and `stops`, each seed relative to the alternative's start. A stop on
+// a single token carries the token, so the caller can try it with every
+// character the pattern's other repeated tokens share with it and build its
+// tails from what the token refuses.
+function _witnessWalk(body, unicode, depth, ctx, base) {
+  var outs = [{ t: "", c: null }];
+  var stops = [];
+  var perSite = Object.create(null);
+  if (depth > _MOTIF_MAX) return { ends: [], stops: stops };
+  var toks = _regexTokens(body, unicode);
+  function addStop(s) {
+    var key = s.site + "\u0000" + s.filler;
+    var list = perSite[key] || (perSite[key] = []);
+    if (list.length >= _WITNESS_SEEDS_PER_SITE || list.indexOf(s.seed) !== -1) return;
+    list.push(s.seed);
+    stops.push(s);
+  }
+  function captured(o, group) {
+    if (o.c !== null && o.c[group] !== undefined) return o.c[group];
+    return ctx.first[group] !== undefined ? ctx.first[group] : "";
+  }
+  for (var i = 0; i < toks.length && outs.length; i += 1) {
+    var text = toks[i].text;
+    if (text === "^" || text === "$" || text === "|" || text === ")") continue;
+    var site = base + toks[i].end;
+    var endTok = i;
+    var piece = { ends: [], stops: [], tok: null, group: 0, ref: 0 };
+    var ref = _witnessBackref(toks, i, ctx);
+    if (ref !== null) {
+      piece.ref = ref.group;
+      endTok = ref.last;
+    } else if (text === "(") {
+      var gd = 1;
+      var gj = i + 1;
+      for (; gj < toks.length && gd > 0; gj += 1) {
+        if (toks[gj].text === "(") gd += 1;
+        else if (toks[gj].text === ")") gd -= 1;
+      }
+      if (gd !== 0) break;                                  // unbalanced: read no further
+      endTok = gj - 1;
+      var raw = body.slice(toks[i].end + 1, toks[endTok].end);
+      // A positive lookbehind reads text the walk may not have put there, so
+      // it is taken both as nothing and as its own text. Every other
+      // lookaround is passed over.
+      piece.lookbehind = raw.slice(0, 3) === "?<=";
+      if (_ASSERTION_OPENER.test(raw) && !piece.lookbehind) {
+        var qa = _witnessQuantifier(body, toks[endTok].end);
+        i = endTok;
+        while (i + 1 < toks.length && toks[i + 1].end <= qa.last) i += 1;
+        continue;
+      }
+      piece.group = ctx.caps.at[site] || 0;
+      var inner = raw.replace(/^\?(?::|<=|<[A-Za-z_$][A-Za-z0-9_$]*>)/, "");
+      var altBase = site + 1 + (raw.length - inner.length);
+      var seenEnd = Object.create(null);
+      _topLevelAlternatives(inner, unicode).forEach(function (alt) {
+        var got = _witnessWalk(alt, unicode, depth + 1, ctx, altBase);
+        altBase += alt.length + 1;
+        got.ends.forEach(function (e) {
+          if (seenEnd[e.t] === 1) return;
+          seenEnd[e.t] = 1;
+          piece.ends.push(e);
+        });
+        got.stops.forEach(function (s) { piece.stops.push(s); });
+      });
+    } else {
+      var w = _witnessChar(text, unicode);
+      if (w !== null) piece.ends.push({ t: w, c: null });
+      piece.tok = text;
+    }
+    var q = _witnessQuantifier(body, toks[endTok].end);
+    i = endTok;
+    while (i + 1 < toks.length && toks[i + 1].end <= q.last) i += 1;
+    if (piece.lookbehind) q = { lo: 0, hi: 1, last: q.last };
+    var fixedUnits = piece.ends.slice(0, _WITNESS_PATHS_MAX);
+    var unitsFor = function (o) {
+      return piece.ref ? [{ t: captured(o, piece.ref), c: null }] : fixedUnits;
+    };
+    outs.forEach(function (o) {
+      piece.stops.forEach(function (s) {
+        addStop({ seed: o.t + s.seed, filler: s.filler, tok: s.tok, site: s.site });
+      });
+      if (q.hi > 1) {
+        unitsFor(o).forEach(function (u) {
+          if (u.t !== "") addStop({ seed: o.t, filler: u.t, tok: piece.tok, site: site });
+        });
+      }
+    });
+    if (q.hi === 0) continue;                                // matches nothing
+    var next = q.lo === 0 ? outs.slice() : [];
+    var seenOut = Object.create(null);
+    next.forEach(function (o) { seenOut[o.t] = 1; });
+    var reps = Math.max(1, q.lo);
+    var tooLong = false;
+    outs.forEach(function (o) {
+      unitsFor(o).forEach(function (u) {
+        if (o.t.length + u.t.length * reps > _PREFIX_MAX) { tooLong = true; return; }
+        var t = o.t + u.t.repeat(reps);
+        if (seenOut[t] === 1) return;
+        seenOut[t] = 1;
+        var c = o.c;
+        if (u.c !== null || piece.group) {
+          c = Object.assign({}, o.c, u.c);
+          if (piece.group) {
+            c[piece.group] = u.t;
+            if (ctx.first[piece.group] === undefined) ctx.first[piece.group] = u.t;
+          }
+        }
+        next.push({ t: t, c: c });
+      });
+    });
+    // Every path outgrew what a subject can carry, so the walk ends here and
+    // no stop after this token is built.
+    if (next.length === 0 && tooLong) ctx.overlong = true;
+    outs = next.slice(0, _WITNESS_PATHS_MAX);
+  }
+  return { ends: outs, stops: stops };
+}
+
+// Every stop point of a pattern body, as { stops: [{ seed, filler, tails }],
+// capped, overlong }. A stop on a single token is also tried with each
+// character another repeated token of the pattern accepts, when this token
+// accepts it too: `^x(.+)\s*$` splits a run of spaces between `.` and `\s`,
+// and the member of `.` the walk picks is a letter `\s` refuses. `tails` are
+// the stop's own tails, read off the tokens it repeats (see _stopTails).
+// `capped` says the backstop was reached, and `overlong` that a walk ended
+// because a seed outgrew a subject, so some stops were never built.
+function _witnessStops(body, unicode) {
+  var alts;
+  try { alts = _topLevelAlternatives(body, unicode); } catch (_e) { alts = [body]; }
+  var ctx = { caps: _witnessCaptures(body, unicode), first: Object.create(null),
+              overlong: false };
+  var shared = _quantifiedChars(body, unicode);
+  var others = _quantifiedTokens(body, unicode);
+  var tailsByTok = Object.create(null);
+  var out = [];
+  var capped = false;
+  var byKey = Object.create(null);
+  function add(seed, filler, tok) {
+    var key = seed + "\u0000" + filler;
+    var stop = byKey[key];
+    if (stop === undefined) {
+      if (out.length >= _WITNESS_STOPS_MAX) { capped = true; return; }
+      stop = byKey[key] = { seed: seed, filler: filler, tails: [], toks: [] };
+      out.push(stop);
+    }
+    var tk = tok === null || tok === undefined ? "." : tok;
+    if (stop.toks.indexOf(tk) !== -1) return;
+    stop.toks.push(tk);
+    if (tailsByTok[tk] === undefined) tailsByTok[tk] = _stopTails(tk, others, unicode);
+    tailsByTok[tk].forEach(function (t) {
+      if (stop.tails.indexOf(t) === -1) stop.tails.push(t);
+    });
+  }
+  var altBase = 0;
+  alts.forEach(function (alt) {
+    var got;
+    var thisBase = altBase;
+    altBase += alt.length + 1;
+    try { got = _witnessWalk(alt, unicode, 0, ctx, thisBase); } catch (_e) { return; }
+    got.stops.forEach(function (s) {
+      add(s.seed, s.filler, s.tok);
+      if (s.tok === null || s.tok === undefined) return;
+      shared.forEach(function (ch) {
+        if (ch !== s.filler && _tokenAccepts(s.tok, ch, unicode)) {
+          add(s.seed, ch, s.tok);
+        }
+      });
+    });
+  });
+  out.forEach(function (s) { delete s.toks; });
+  return { stops: out, capped: capped, overlong: ctx.overlong };
+}
+
+// The tails a stop on `tok` is tried with, read off the pattern's quantified
+// tokens. For each other quantified token, each character it accepts and `tok`
+// refuses is followed by a character it refuses, with and without a character
+// in front that `tok` accepts and it refuses. A stop on a group is read as a
+// stop on `.`, which refuses only line terminators.
+function _stopTails(tok, others, unicode) {
+  var out = [];
+  function push(s) { if (out.indexOf(s) === -1) out.push(s); }
+  function splits(u, c) { return _tokenAccepts(u, c, unicode) && !_tokenAccepts(tok, c, unicode); }
+  others.forEach(function (u) {
+    if (u === tok) return;
+    var picks = _TAIL_SPACE_CHARS.filter(function (c) { return splits(u, c); });
+    var named = _charMatching(u, unicode);
+    var rest = named !== null ? [named].concat(_TAIL_OTHER_CHARS) : _TAIL_OTHER_CHARS;
+    for (var k = 0; k < rest.length; k += 1) {
+      if (picks.indexOf(rest[k]) === -1 && splits(u, rest[k])) { picks.push(rest[k]); break; }
+    }
+    if (picks.length === 0) return;
+    var stopper = !_tokenAccepts(u, "!", unicode) ? "!" : _charNotMatching(u, unicode);
+    if (stopper === null) return;                            // `u` accepts every character
+    var lead = null;
+    var leads = ["x"].concat(_TAIL_OTHER_CHARS, _TAIL_SPACE_CHARS);
+    for (var m = 0; m < leads.length && lead === null; m += 1) {
+      if (_tokenAccepts(tok, leads[m], unicode) && !_tokenAccepts(u, leads[m], unicode)) lead = leads[m];
+    }
+    picks.forEach(function (c) {
+      push(c + stopper);
+      if (lead !== null) push(lead + c + stopper);
+    });
+  });
+  return out;
+}
+
+// Does one token accept one character? The token is a single class, escape or
+// character, so the match is linear and safe to run here.
+var _TOKEN_ACCEPTS_CACHE = Object.create(null);
+function _tokenAccepts(tok, ch, unicode) {
+  var key = (unicode ? "u|" : "-|") + tok + "\u0000" + ch;
+  if (_TOKEN_ACCEPTS_CACHE[key] !== undefined) return _TOKEN_ACCEPTS_CACHE[key];
+  var ok = false;
+  try { ok = new RegExp("^(?:" + tok + ")$", unicode ? "u" : "").test(ch); }
+  catch (_e) { ok = false; }
+  _TOKEN_ACCEPTS_CACHE[key] = ok;
+  return ok;
+}
+
 // What a probe subject for one pattern body is built from. Extracted so the
 // claim it rests on -- that a subject reaches the body a pattern quantifies
 // over -- can be asserted against a pattern written to test it, rather than
@@ -5490,11 +5850,19 @@ function _probeSubjectPieces(body, unicode) {
   });
   if (tails.indexOf("!") === -1) tails.push("!");
 
-  // `overlong` says the required prefix was longer than a subject can carry, so
-  // no subject built here reaches the body. The caller reports the pattern as
-  // one it could not measure rather than as one it drove and found fast.
+  // A stop point is tried with the tails above and with its own, which carry
+  // the character its token refuses and a later quantifier accepts.
+  var witness = _witnessStops(body, unicode);
+
+  // `overlong` says a prefix or a stop's seed was longer than a subject can
+  // carry, so no subject built here reaches the part behind it, and
+  // `stopsCapped` that more stop points exist than were built. The caller
+  // reports either as a pattern it could not measure rather than as one it
+  // drove and found fast.
   return { seeds: seeds, fillers: fillers, tails: tails,
-           overlong: prefixes.overlong === true,
+           stops: witness.stops,
+           overlong: prefixes.overlong === true || witness.overlong === true,
+           stopsCapped: witness.capped === true,
            unresolved: motifs.unresolved === true };
 }
 
@@ -5634,159 +6002,67 @@ function _composedRegexSourcesByLine(content) {
   return byLine;
 }
 
-function _timeRegex(re, s) {
-  var t0 = process.hrtime.bigint();
-  try { re.lastIndex = 0; re.test(s); } catch (_e) { /* a pattern that throws is not this gate's business */ }
-  return Number(process.hrtime.bigint() - t0) / 1e6;
-}
+// Every pattern is measured in child processes under a deadline, by
+// test/helpers/_regex-probe-pool.js, and never in this process. A pattern that
+// b.guardRegex.assertSafe accepts can still be cubic: `\s+(.+)\s*$` is one, and
+// a subject that reaches it costs minutes at 8192 characters. A match cannot be
+// interrupted, so measuring here would stall the run that exists to report it.
+var _regexProbePool = require("../helpers/_regex-probe-pool");
 
-function _couldBacktrack(re) {
-  try {
-    require("../../lib/guard-regex").assertSafe(re, "codebase-patterns regex probe");
-    return false;
-  } catch (_e) { return true; }
-}
+// Characters every pattern is tried with, whatever it spells: the classes
+// library patterns quantify over. Started as digits, letters and whitespace,
+// which missed a markdown-link scan whose `[^\]]+` only runs away on a subject
+// of `[`, so the delimiters are drawn from the patterns rather than from what
+// looks like text.
+var _GENERIC_PROBE_FILLERS = [
+  "1", "a", " ", "\t", ".", "/", "0", "-",
+  "[", "]", "{", "}", "<", ">", "(", ")",
+  "\"", "'", "\\", "&", "@", ":", ";", ",", "=", "%", "*", "+", "#", "$",
+];
+// A tail that denies the overall match so the engine has to exhaust its
+// alternatives, and the empty one, since a pattern can fail on length alone.
+var _GENERIC_PROBE_TAILS = ["!", ""];
 
-var PROBE_TIMEOUT_MS = 20000;
-// A single match still running after this long is not slow, it is not
-// returning. The slowest finite pattern this gate has measured costs 400ms.
-var PROBE_PER_MATCH_MS = 5000;
-
-// The child runs the same steps in the same order as the main path, so a
-// pattern is judged the same way wherever it was measured: a 2048-character
-// look decides whether the pattern is worth measuring, a call at 8192
-// characters gives the cost, and 8192 to 32768 gives the growth.
-//
-// Each match writes its start time to the descriptor before it begins and a
-// finish line after it returns. A match interrupted by the deadline leaves a
-// start with no finish, and its start time says how long that one match had
-// been running.
-var _RISKY_PROBE_CHILD = [
-  "var cfs = require('fs');",
-  "var re = new RegExp(process.env.PROBE_SOURCE, process.env.PROBE_FLAGS);",
-  "var subjects = JSON.parse(process.env.PROBE_SUBJECTS);",
-  "var t0 = process.hrtime.bigint();",
-  "function now() { return Number(process.hrtime.bigint() - t0) / 1e6; }",
-  "function ms(s) {",
-  "  try { cfs.writeSync(2, 'S' + now().toFixed(1) + '\\n'); } catch (e) { /* ignore */ }",
-  "  var a = process.hrtime.bigint();",
-  "  try { re.lastIndex = 0; re.test(s); } catch (e) { /* not this gate's business */ }",
-  "  var d = Number(process.hrtime.bigint() - a) / 1e6;",
-  "  try { cfs.writeSync(2, 'F\\n'); } catch (e) { /* ignore */ }",
-  "  return d;",
-  "}",
-  "function best(s) { ms(s); var b = Infinity;",
-  "  for (var k = 0; k < 3; k += 1) b = Math.min(b, ms(s)); return b; }",
-  "var seed = JSON.parse(process.env.PROBE_SEED || '{}');",
-  "var worstCost = seed.cost || 0, worstGrowth = seed.growth || 0;",
-  "var worstLabel = seed.label || '';",
-  "var SIZES = [8192, 16384, 32768];",
-  "for (var i = Number(process.env.PROBE_FROM || 0); i < subjects.length; i += 1) {",
-  "  var fill = subjects[i][0], tail = subjects[i][1];",
-  // Sizes are in characters, so a multi-character motif repeats fewer times.
-  "  function rep(k) { return fill.repeat(Math.max(1, Math.floor(k / fill.length))); }",
-  // A pattern opening with a literal never reaches its body on filler alone,
-  // so a subject may carry a prefix that gets it past that token.
-  "  var pre = subjects[i][3] || '';",
-  "  if (ms(pre + rep(2048) + tail) >= 0.3) {",
-  "    var cost = Math.min(ms(pre + rep(8192) + tail), ms(pre + rep(8192) + tail));",
-  "    if (cost >= 5) {",
-  "      var row = [];",
-  "      for (var si = 0; si < SIZES.length; si += 1) {",
-  "        row.push(best(pre + rep(SIZES[si]) + tail));",
-  "      }",
-  "      if (row[0] > 0.02 && (row[2] / row[0]) > worstGrowth) {",
-  "        worstGrowth = row[2] / row[0]; worstCost = cost; worstLabel = subjects[i][2];",
-  "      }",
-  "    }",
-  "  }",
-  // The subject just finished, and the worst seen so far. A killed probe is
-  // resumed from the next subject carrying this forward, so nothing measured
-  // is thrown away and the run does not restart from the beginning.
-  "  try { cfs.writeSync(2, 'D' + i + ' ' + JSON.stringify({",
-  "    cost: worstCost, growth: worstGrowth, label: worstLabel }) + '\\n'); }",
-  "  catch (e) { /* ignore */ }",
-  "}",
-  "process.stdout.write(JSON.stringify({",
-  "  cost: worstCost, growth: worstGrowth, label: worstLabel }));",
-].join("\n");
-
-// How long the match that was running when the deadline landed had been
-// running, or 0 when every match that started also finished.
-function _longestUnfinishedMatch(marks) {
-  var lines = String(marks || "").split("\n");
-  var startedAt = null;
-  for (var i = 0; i < lines.length; i += 1) {
-    var ln = lines[i];
-    if (ln.charAt(0) === "S") { startedAt = parseFloat(ln.slice(1)); }
-    else if (ln.charAt(0) === "F") { startedAt = null; }
+// Every subject one pattern body is measured on, as [prefix, filler, tail]
+// tuples. The child repeats the filler to the size it is measuring, between
+// the prefix and the tail. Duplicates are dropped by the tuple, so a seed
+// tried with two tails that happen to coincide is measured once.
+function _ownRegexSubjects(body, unicode) {
+  var pieces = _probeSubjectPieces(body, unicode);
+  var subjects = [];
+  var seen = Object.create(null);
+  function add(pre, fill, tail) {
+    if (!fill) return;
+    var key = pre + "\u0000" + fill + "\u0000" + tail;
+    if (seen[key] === 1) return;
+    seen[key] = 1;
+    subjects.push([pre, fill, tail]);
   }
-  if (startedAt === null || !isFinite(startedAt)) return 0;
-  return PROBE_TIMEOUT_MS - startedAt;
-}
-
-// The last subject the child finished, and the worst measurement it held at
-// that point.
-function _lastCompletedSubject(marks) {
-  var lines = String(marks || "").split("\n");
-  for (var i = lines.length - 1; i >= 0; i -= 1) {
-    if (lines[i].charAt(0) !== "D") continue;
-    var sp = lines[i].indexOf(" ");
-    if (sp === -1) continue;
-    var idx = parseInt(lines[i].slice(1, sp), 10);
-    if (!isFinite(idx)) continue;
-    try { return { index: idx, seed: JSON.parse(lines[i].slice(sp + 1)) }; }
-    catch (_e) { return { index: idx, seed: null }; }
-  }
-  return null;
-}
-
-// Four rounds is far more than any pattern here needs; it bounds a probe that
-// keeps being interrupted rather than letting one pattern run without end.
-var PROBE_MAX_ROUNDS = 4;
-
-function _probeRiskyPattern(source, flags, subjects) {
-  var from = 0;
-  var seed = { cost: 0, growth: 0, label: "" };
-  for (var round = 0; round < PROBE_MAX_ROUNDS; round += 1) {
-    var res = childProcess.spawnSync(process.execPath, ["-e", _RISKY_PROBE_CHILD], {
-      timeout: PROBE_TIMEOUT_MS, encoding: "utf8",
-      env: Object.assign({}, process.env, { PROBE_SOURCE: source, PROBE_FLAGS: flags,
-        PROBE_SUBJECTS: JSON.stringify(subjects), PROBE_FROM: String(from),
-        PROBE_SEED: JSON.stringify(seed) }),
+  _GENERIC_PROBE_FILLERS.forEach(function (f) {
+    _GENERIC_PROBE_TAILS.forEach(function (t) { add("", f, t); });
+  });
+  pieces.seeds.forEach(function (seed) {
+    pieces.fillers.forEach(function (f) {
+      pieces.tails.forEach(function (t) { add(seed, f, t); });
     });
-    var done = res.status === 0 && typeof res.stdout === "string";
-    if (done) {
-      var parsed = null;
-      try { parsed = JSON.parse(res.stdout); } catch (_e) { parsed = null; }
-      if (parsed && isFinite(parsed.cost) && isFinite(parsed.growth)) {
-        return { neverReturned: false, unmeasured: false, cost: parsed.cost,
-                 growth: parsed.growth, label: parsed.label };
-      }
-      return { neverReturned: false, unmeasured: true, cost: seed.cost,
-               growth: seed.growth, label: seed.label };
-    }
-    // Killed on the deadline, or died. One match still running after
-    // PROBE_PER_MATCH_MS is the pattern this branch reports; many short
-    // matches that each returned only mean the probe ran out of time, so it
-    // resumes at the subject that was in flight with a fresh deadline.
-    if (_longestUnfinishedMatch(res.stderr) >= PROBE_PER_MATCH_MS) {
-      return { neverReturned: true, unmeasured: false, cost: 0, growth: 0, label: "" };
-    }
-    var progress = _lastCompletedSubject(res.stderr);
-    if (progress && progress.seed) seed = progress.seed;
-    var next = progress ? progress.index + 1 : from;
-    if (next <= from) break;                    // no subject completed: resuming repeats this
-    from = next;
-    if (from >= subjects.length) {
-      return { neverReturned: false, unmeasured: false, cost: seed.cost,
-               growth: seed.growth, label: seed.label };
-    }
-  }
-  // Never measured to the end. Reported rather than passed: a pattern this
-  // gate could not measure is not a pattern it has cleared.
-  return { neverReturned: false, unmeasured: true, cost: seed.cost,
-           growth: seed.growth, label: seed.label };
+  });
+  // A stop point with an empty seed is also tried behind a character its
+  // filler is not, so a first branch anchored at the start (`^[ \t]+|[ \t]+$`)
+  // cannot match the subject at position 0 and return at once.
+  pieces.stops.forEach(function (stop) {
+    pieces.tails.concat(stop.tails).forEach(function (t) {
+      add(stop.seed, stop.filler, t);
+      if (stop.seed === "") add("!", stop.filler, t);
+    });
+  });
+  return { subjects: subjects, overlong: pieces.overlong === true,
+           stopsCapped: pieces.stopsCapped === true,
+           unresolved: pieces.unresolved === true };
+}
+
+function _probeSubjectLabel(tuple) {
+  return JSON.stringify(tuple[0]) + " + " + JSON.stringify(tuple[1]) + " x N + " +
+         JSON.stringify(tuple[2]);
 }
 
 // ---- lib/ carries no comment a reader cannot check against the code -------
@@ -6251,6 +6527,88 @@ function testProbeSubjectsReachTheQuantifiedBody() {
           missing.length === 0, "missing=" + JSON.stringify(missing) +
           " seeds=" + JSON.stringify(brSeeds));
   }
+
+  // Every repeatable token is a stop point, reached by the shortest text the
+  // pattern accepts up to it: earlier quantified tokens taken at their
+  // minimum, word boundaries passed over, one branch of each group taken, and
+  // an optional group skipped or taken once. The stop's filler is what that
+  // token repeats. Joining every literal run in source order builds
+  // `ab cd ef gh`, which the pattern refuses, so a pair behind an alternation
+  // is reached only through the walk.
+  var STOPS = [
+    ["\\bab\\s+(?:cd|ef\\s+gh)\\s+(?:x)?\\s*z",                       "ab cd",   " "],
+    ["\\bab\\s+(?:cd|ef\\s+gh)\\s+(?:x)?\\s*z",                       "ab ef",   " "],
+    ["^\\s*[a-z]+\\s+eq(?:\\s+(.+))?\\s*$",                           "a eq",    " "],
+    ["^\\S+\\s+\\(K\\s+\\d+\\)\\s+(.+)$",                             "a (K 0)", " "],
+    ["\\byou\\s+(?:are|will\\s+be)\\s+(?:now)?\\s*(?:a|an)\\s+\\w{2,40}", "you are", " "],
+    // A fixed count is taken in full, and a quantified group is a stop whose
+    // filler is one pass through the group.
+    ["^A{3}-(?:xy)+$",                                                "AAA-",    "xy"],
+    // A backreference repeats the text its group captured on the same path.
+    ["^(a)\\1-\\s+\\s*;",                                             "aa-",     " "],
+    ["^(?<n>a)\\k<n>-\\s+\\s*;",                                      "aa-",     " "],
+    // A positive lookbehind is tried both as the text it reads and as nothing.
+    ["(?<=Q)R:\\s+\\s*;",                                             "QR:",     " "],
+    ["Q(?<=Q)R:\\s+\\s*;",                                            "QR:",     " "],
+    // Forty-one repeatable tokens, each reached by sixteen paths. The last one
+    // is still a stop point, however many seeds the earlier ones collect.
+    ["^" + "(?:a|b|c|d)\\s+".repeat(40) + "Z\\s+\\s*;",               "a ".repeat(40) + "Z", " "],
+  ];
+  for (var st = 0; st < STOPS.length; st += 1) {
+    var stPieces = _probeSubjectPieces(STOPS[st][0]);
+    var stHit = (stPieces.stops || []).some(function (s) {
+      return s.seed === STOPS[st][1] && s.filler === STOPS[st][2];
+    });
+    check("regex probe: /" + STOPS[st][0] + "/ has a stop point " +
+          JSON.stringify(STOPS[st][1]) + " repeating " + JSON.stringify(STOPS[st][2]),
+          stHit, "stops=" + JSON.stringify((stPieces.stops || []).slice(0, 24)));
+  }
+  // `(.+)\s*$` fails only where `.` stops and `\s` does not, which is a line
+  // terminator, and only when something after it refuses `\s`.
+  var LS = String.fromCharCode(0x2028);
+  var dotStops = (_probeSubjectPieces("^a\\s+(.+)\\s*$").stops || []).filter(function (s) {
+    return s.seed === "a " && s.filler === " ";
+  });
+  var wantTails = ["\n!", "x\n!", LS + "!", "x" + LS + "!"];
+  check("regex probe: a stop point is tried with a line terminator and a refused " +
+        "character after it",
+        _LINE_TERMINATOR_TAILS.length === wantTails.length &&
+        _LINE_TERMINATOR_TAILS.every(function (t, ti) { return t === wantTails[ti]; }) &&
+        dotStops.some(function (s) {
+          return _LINE_TERMINATOR_TAILS.every(function (t) { return s.tails.indexOf(t) !== -1; });
+        }),
+        "stops=" + JSON.stringify(dotStops));
+  // The same holds for any character the stop's token refuses and a later
+  // quantifier accepts, so a stop's tails are read from the pattern: a tab for
+  // `[^\t]+` before `\s*`, and a comma for `[^,]+` before `[ ,]*`.
+  var TAILED = [
+    ["^a\\s+([^\\t]+)\\s*$", "a ", "x\t!"],
+    ["^a +([^,]+)[ ,]*$",    "a ", "x,!"],
+  ];
+  TAILED.forEach(function (tc) {
+    var tcStops = _probeSubjectPieces(tc[0]).stops || [];
+    var tcHit = tcStops.some(function (s) {
+      return s.seed === tc[1] && s.filler === " " && (s.tails || []).indexOf(tc[2]) !== -1;
+    });
+    check("regex probe: /" + tc[0] + "/ has a stop point " + JSON.stringify(tc[1]) +
+          " repeating \" \" tried with the tail " + JSON.stringify(tc[2]), tcHit,
+          "stops=" + JSON.stringify(tcStops.slice(0, 12)));
+  });
+
+  // A pattern whose stop points cannot all be built is reported as one the
+  // gate could not measure, never cleared on the stops it did build. Two ways
+  // to get there: more repeatable tokens than the backstop on stop points, and
+  // a stop whose shortest seed is longer than a subject can carry.
+  var UNBUILT = [
+    "^" + "(?:a|b)\\s+".repeat(1200) + "$",
+    "^a+b{9000}\\s+\\s*;",
+  ];
+  UNBUILT.forEach(function (ub) {
+    var plan = _planOwnRegex("/" + ub + "/", []);
+    check("regex probe: /" + ub.slice(0, 40) + ".../ is reported as not measured",
+          typeof plan.finding === "string" && plan.finding.indexOf("could not be measured") !== -1,
+          "plan=" + JSON.stringify(plan).slice(0, 200));
+  });
 
   // A pattern handed to the constructor as a string is re-spelled as a literal
   // so the caller can slice pattern from flags. What comes back has to be the
@@ -6842,9 +7200,12 @@ function testProbeSubjectsReachTheQuantifiedBody() {
 // catastrophic, the pieces build a subject that makes it cost. Five review
 // rounds each found a different token the builder stopped at, and every one of
 // them was invisible to a check on the pieces alone and visible here. The
-// measurement runs in the same child process the gate uses, so a pattern that
-// never returns is killed there rather than stopping this run.
-function testProbeSubjectsMakeACatastrophicPatternCost() {
+// PATTERNS loop times subjects of 14 to 26 repetitions in this process and
+// stops at the first match that takes over 2ms. The BEHIND
+// fixtures include a cubic pattern that never returns at full size, and they
+// are measured in the child pool the gate uses, which kills a match that runs
+// past its deadline.
+async function testProbeSubjectsMakeACatastrophicPatternCost() {
   // class: catastrophic-probe-reach (no marker)
   var PATTERNS = [
     "^PREFIX(z+)+$",
@@ -7011,61 +7372,143 @@ function testProbeSubjectsMakeACatastrophicPatternCost() {
   check("regex probe: every known-catastrophic pattern is driven to cost by the " +
         "subjects its own pieces build (" + PATTERNS.length + " patterns)",
         missed.length === 0, missed.slice(0, 4).join(" | "));
+
+  // A costly pair of quantifiers that sits BEHIND an earlier quantifier. A
+  // subject reaches the pair only by satisfying the earlier token with one
+  // repetition, taking a branch the pattern accepts, and then repeating what
+  // the pair splits: `ab cd` followed by spaces, `a eq` followed by spaces, `a
+  // (K 0)` followed by spaces. The second is cubic and fails only on a line
+  // terminator followed by a character `\s` refuses, and the two after the
+  // third are cubic the same way on a tab and on a comma, so every fixture is
+  // measured the way the gate measures lib/, in the child pool under a
+  // deadline, and never in this process.
+  var BEHIND = [
+    "\\bab\\s+(?:cd|ef\\s+gh)\\s+(?:x)?\\s*z",
+    "^\\s*[a-z]+\\s+eq(?:\\s+(.+))?\\s*$",
+    "^\\S+\\s+\\(K\\s+\\d+\\)\\s+(.+)$",
+    // Cubic where the captured class refuses a character the quantifier after
+    // it accepts: a tab, and a comma.
+    "^a\\s+([^\\t]+)\\s*$",
+    "^a +([^,]+)[ ,]*$",
+    // Quadratic behind a backreference to a non-empty capture.
+    "^(a)\\1-\\s+\\s*;",
+  ];
+  var behindJobs = BEHIND.map(function (b) {
+    return { source: b, flags: "", subjects: _ownRegexSubjects(b, false).subjects };
+  });
+  // A shorter deadline than the gate's: the cubic fixtures never return, and
+  // the slowest match a quadratic one takes is under a second.
+  var behindResults = await _regexProbePool.measure(behindJobs, { perMatchMs: 1500 });
+  var behindMissed = [];
+  behindResults.forEach(function (r, bi) {
+    var reached = r.neverReturned ||
+      (r.growth >= _regexProbePool.GROWTH_FLAG && r.cost >= _regexProbePool.COST_MS);
+    if (!reached) behindMissed.push("/" + BEHIND[bi] + "/ " + JSON.stringify(r));
+  });
+  check("regex probe: a costly pair behind an earlier quantifier is driven to cost " +
+        "by the subjects built for it (" + BEHIND.length + " patterns)",
+        behindMissed.length === 0, behindMissed.join(" | "));
 }
 
-function testOwnRegexesRunLinear() {
-  // Characters worth repeating (the classes library patterns quantify over)
-  // and a tail that denies the overall match so the engine has to exhaust its
-  // alternatives rather than succeeding on the first path.
-  // The alphabet a pattern can be made to chew on. Started as digits, letters
-  // and whitespace, which missed a markdown-link scan whose `[^\]]+` only runs
-  // away on a subject of `[`. The delimiters below are the characters library
-  // patterns actually quantify over, so the set is drawn from the patterns
-  // rather than from what looks like text.
-  var FILLERS = [
-    "1", "a", " ", "\t", ".", "/", "0", "-",
-    "[", "]", "{", "}", "<", ">", "(", ")",
-    "\"", "'", "\\", "&", "@", ":", ";", ",", "=", "%", "*", "+", "#", "$",
-  ];
-  var TAILS = ["!", ""];
-  // Built once. Rebuilding an 8192-character subject for every pattern is tens
-  // of thousands of allocations and dominates the run.
-  var SUBJECTS = [];
-  for (var pf = 0; pf < FILLERS.length; pf += 1) {
-    for (var pt = 0; pt < TAILS.length; pt += 1) {
-      SUBJECTS.push({
-        label: JSON.stringify(FILLERS[pf]) + " x N + " + JSON.stringify(TAILS[pt]),
-        filler: FILLERS[pf],
-        tail: TAILS[pt],
-        // A cheap first look. Scanning 8192 characters with two thousand
-        // patterns is most of the run even when every one of them is fast, so
-        // a quarter-size subject decides who is worth the full measurement.
-        // Something that costs 25ms at 8192 is already milliseconds here,
-        // while a linear pattern stays in the microseconds.
-        small: FILLERS[pf].repeat(2048) + TAILS[pt],
-        big:   FILLERS[pf].repeat(8192) + TAILS[pt],
-        // The growth window sits ABOVE the cost probe, where the asymptote
-        // shows. A pattern that bounds its own inner scan (`[^\]]{0,2048}`)
-        // looks quadratic until the input passes that bound and linear after,
-        // so a window below it reports a shape the caller can never reach:
-        // measured across 2k to 64k, that pattern settles at 2.0x per
-        // doubling, which is linear with a large constant rather than the
-        // runaway this gate is for.
-        sizes: [FILLERS[pf].repeat(8192) + TAILS[pt],
-                FILLERS[pf].repeat(16384) + TAILS[pt],
-                FILLERS[pf].repeat(32768) + TAILS[pt]],
-      });
-    }
+// What one pattern needs before it is measured: a finding already decided
+// without measuring it, nothing at all, or the job the child pool runs.
+function _planOwnRegex(src, jobs) {
+  var lastSlash = src.lastIndexOf("/");
+  var body = src.slice(1, lastSlash);
+  var flags = src.slice(lastSlash + 1);
+  // `v` mode allows character classes to nest, and the reader that found
+  // this token treats the first `]` as closing the class. A `/` after that
+  // point ends the token early, so what gets rebuilt is a different pattern
+  // from the one that ships, measured and cleared under the wrong name.
+  // Refused rather than guessed at: the framework has no `v` pattern today,
+  // and the day it has one this says so.
+  if (flags.indexOf("v") !== -1) {
+    return { finding: src.slice(0, 60) + " uses the `v` flag, whose nested " +
+      "character classes this reader does not parse, so the pattern it " +
+      "rebuilds may not be the pattern that runs. Measure it in the " +
+      "module's own tests, or write it without the flag" };
   }
-  var files = _libFiles();
-  var bad = [];
+  // `g`/`y` are dropped so lastIndex cannot carry between probes. The
+  // captured text is only ever compiled as a pattern, never executed as code,
+  // and it is compiled here only to drop what is not a pattern at all.
+  var runFlags = flags.replace(/[gy]/g, "");
+  try { new RegExp(body, runFlags); } catch (_e) { return { skip: true }; }
+  var built = _ownRegexSubjects(body, flags.indexOf("u") !== -1);
+  // A required prefix longer than a subject can carry, more repeatable tokens
+  // than stop points were built for, or a repeated unit no reading could
+  // build, means some part of the pattern is reached by no subject here, so
+  // the pattern is reported rather than measured and cleared.
+  if (built.overlong || built.stopsCapped || built.unresolved) {
+    return { finding: src.slice(0, 60) + " could not be measured: " +
+      (built.overlong
+        ? "the prefix it requires is longer than a subject can carry, so no " +
+          "subject built here reaches the body"
+        : built.stopsCapped
+          ? "it has more repeatable tokens than the " + _WITNESS_STOPS_MAX +
+            " stop points the probe builds, so the ones past that are reached " +
+            "by no subject"
+          : "no reading of the choices in its repeated part produced a unit the " +
+            "pattern accepts, so nothing built here repeats what it repeats") +
+      ", so nothing here has cleared it" };
+  }
+  jobs.push({ source: body, flags: runFlags, subjects: built.subjects });
+  return { job: jobs.length - 1, subjects: built.subjects };
+}
+
+// The finding a measurement makes, or null when the pattern is linear.
+//
+// Cost first, growth second. Growth alone flags idioms nobody would rewrite: a
+// pattern trimming trailing slashes is quadratic in principle and irrelevant in
+// practice when the value is a short path. What separated the patterns
+// actually worth fixing is that each cost about 25ms for a single call at the
+// byte cap its own caller enforces, which is a CPU amplifier for one request.
+// So the child measures once at 8192 characters, the cap this codebase uses
+// for a request-supplied string, and asks about growth only when that is
+// already slow. The growth window sits ABOVE the cost probe, where the
+// asymptote shows: a pattern that bounds its own inner scan (`[^\]]{0,2048}`)
+// looks quadratic until the input passes that bound and linear after.
+//
+// Both conditions: expensive at the cap AND super-linear. Four times the input
+// is about four times the work when linear and about sixteen when quadratic,
+// so eight separates them with room for a loaded machine.
+function _ownRegexVerdict(src, plan, result) {
+  if (result.neverReturned) {
+    return src.slice(0, 60) + " never returned: probed in a child process " +
+      "under a deadline, it did not finish one match in " +
+      (_regexProbePool.PER_MATCH_MS / 1000) + " seconds, which is what a " +
+      "pattern does when its work grows exponentially or with a high power " +
+      "of the input";
+  }
+  if (result.unmeasured) {
+    return src.slice(0, 60) + " could not be measured: the probe was " +
+      "interrupted in every round without finishing its subjects, so nothing " +
+      "here has cleared it";
+  }
+  if (result.growth >= _regexProbePool.GROWTH_FLAG && result.cost >= _regexProbePool.COST_MS) {
+    var tuple = plan.subjects[result.subject];
+    return src.slice(0, 60) + " costs " + result.cost.toFixed(0) +
+      "ms at 8192 chars and grows " + result.growth.toFixed(1) +
+      "x for 4x the input (" + (tuple ? _probeSubjectLabel(tuple) : "?") +
+      "): rewrite so two quantifiers cannot split the same run";
+  }
+  return null;
+}
+
+// Every finding for the regexes in the lib/ tree at `libRoot`, as
+// { file, line, content } with `file` relative to the directory above it.
+async function _ownRegexFindings(libRoot) {
+  var treeRoot = path.dirname(libRoot);
+  var files = _walk(libRoot);
+  // In reading order: a site spelling a pattern, or a finding already made.
+  var entries = [];
   // The same pattern is written in many files (`/\/+$/` appeared in six), and
   // measuring is the expensive part, so each distinct pattern is measured once
   // and every site that spells it is reported.
-  var measured = {};
+  var plans = Object.create(null);
+  var jobs = [];
 
   for (var fi = 0; fi < files.length; fi += 1) {
-    var rel = _relPath(files[fi]);
+    var rel = path.relative(treeRoot, files[fi]).replace(/\\/g, "/");
     // regex-linear exists to RUN a hostile pattern safely; its fixtures are
     // meant to be catastrophic.
     if (rel === "lib/regex-linear.js") continue;
@@ -7093,7 +7536,7 @@ function testOwnRegexesRunLinear() {
       // an empty answer for it reads exactly like a file with none. It is
       // reported instead, at the line it begins on.
       (literals.unread || []).forEach(function (range) {
-        bad.push({
+        entries.push({
           file: rel,
           line: shapeMatch.positionToLineCol(content, range[0]).line,
           content: "a region of this file could not be read, so any pattern " +
@@ -7111,184 +7554,34 @@ function testOwnRegexesRunLinear() {
       (composedByLine[li + 1] || []).forEach(function (s) {
         if (sources.indexOf(s) === -1) sources.push(s);
       });
-      if (!sources.length) continue;
-
       for (var sx = 0; sx < sources.length; sx += 1) {
-      var src = sources[sx];
-      if (Object.prototype.hasOwnProperty.call(measured, src)) {
-        var prior = measured[src];
-        if (prior) bad.push({ file: rel, line: li + 1, content: prior });
-        continue;
-      }
-      measured[src] = null;
-      var lastSlash = src.lastIndexOf("/");
-      // `v` mode allows character classes to nest, and the reader that found
-      // this token treats the first `]` as closing the class. A `/` after
-      // that point ends the token early, so what gets rebuilt is a different
-      // pattern from the one that ships, measured and cleared under the wrong
-      // name. Refused rather than guessed at: the framework has no `v`
-      // pattern today, and the day it has one this says so.
-      if (src.slice(lastSlash + 1).indexOf("v") !== -1) {
-        measured[src] = src.slice(0, 60) + " uses the `v` flag, whose nested " +
-          "character classes this reader does not parse, so the pattern it " +
-          "rebuilds may not be the pattern that runs. Measure it in the " +
-          "module's own tests, or write it without the flag";
-        bad.push({ file: rel, line: li + 1, content: measured[src] });
-        continue;
-      }
-      var re;
-      // Rebuilt through the constructor: the captured text is only ever used
-      // as a pattern, never executed as code. `g`/`y` are dropped so lastIndex
-      // cannot carry between probes.
-      try { re = new RegExp(src.slice(1, lastSlash), src.slice(lastSlash + 1).replace(/[gy]/g, "")); }
-      catch (_e) { continue; }
-
-      var pieces = _probeSubjectPieces(src.slice(1, lastSlash),
-                                       src.slice(lastSlash + 1).indexOf("u") !== -1);
-      var seeds = pieces.seeds;
-      var fillers = pieces.fillers;
-
-      // The tail is what makes the match FAIL, and a pattern only backtracks
-      // on the way to failing. `PREFIX(a+)+$` matches a subject that ends in
-      // its own filler and returns at once; the same subject with one
-      // character it cannot accept is what costs.
-      var probeSet = SUBJECTS;
-      if (seeds.length) {
-        probeSet = SUBJECTS.slice();
-        // A one-character filler and a motif made of that character repeat
-        // into the same subject, so the pieces are combined and the subjects
-        // they build are counted once.
-        var built = Object.create(null);
-        seeds.forEach(function (seed) {
-          fillers.forEach(function (f) {
-            pieces.tails.forEach(function (tail) {
-              // Sizes are in CHARACTERS, which is what the cost threshold is
-              // set against. A two-character motif repeated 8192 times is a
-              // 16 KiB subject, and a pattern that only turns costly past the
-              // caller's cap would be reported for work no caller can ask for.
-              function at(n) {
-                return seed + f.repeat(Math.max(1, Math.floor(n / f.length))) + tail;
-              }
-              var key = at(2048);
-              if (built[key] === 1) return;
-              built[key] = 1;
-              probeSet.push({
-                label: JSON.stringify(seed) + " + " + JSON.stringify(f) +
-                       " x N + " + JSON.stringify(tail),
-                small: at(2048), big: at(8192),
-                sizes: [at(8192), at(16384), at(32768)],
-              });
-            });
-          });
-        });
-      }
-
-      var worst = 0, worstSubject = "", worstCost = 0;
-      var blewUpAt = null;
-      var measuredInChild = false;
-      // A required prefix longer than a subject can carry means no subject
-      // built here reaches the body, so nothing that follows has driven this
-      // pattern and it is reported rather than cleared.
-      var unmeasured = pieces.overlong === true || pieces.unresolved === true;
-      if (_couldBacktrack(re)) {
-        // Measured over there, so a pattern that never returns is killed
-        // there instead of stopping this run. The child answers the same two
-        // questions, so the verdict below is reached the same way.
-        var tuples = SUBJECTS.map(function (s) { return [s.filler, s.tail, s.label]; });
-        seeds.forEach(function (seed) {
-          fillers.forEach(function (f) {
-            pieces.tails.forEach(function (tail) {
-              tuples.push([f, tail, JSON.stringify(seed) + " + " +
-                JSON.stringify(f) + " x N + " + JSON.stringify(tail), seed]);
-            });
-          });
-        });
-        var probe = _probeRiskyPattern(src.slice(1, lastSlash),
-          src.slice(lastSlash + 1).replace(/[gy]/g, ""), tuples);
-        if (probe.neverReturned) {
-          blewUpAt = true;
-        } else {
-          measuredInChild = true;
-          unmeasured = unmeasured || probe.unmeasured;
-          worst = probe.growth;
-          worstCost = probe.cost;
-          worstSubject = probe.label;
-        }
-      }
-      for (var sj = 0; !blewUpAt && !measuredInChild && sj < probeSet.length; sj += 1) {
-        var subj = probeSet[sj];
-        // Cost first, growth second.
-        //
-        // Growth alone flags idioms nobody would rewrite: a pattern trimming
-        // trailing slashes is quadratic in principle and irrelevant in
-        // practice when the value is a short path. What separated the patterns
-        // actually worth fixing is that each cost about 25ms for a single call
-        // at the byte cap its own caller enforces, which is a CPU amplifier
-        // for one request.
-        //
-        // So the expensive subject is the filter: measure once at 8192
-        // characters, the cap this codebase uses for a request-supplied
-        // string, and ask about growth only when that is already slow. Almost
-        // nothing gets past it, which is also what keeps the gate quick.
-        if (_timeRegex(re, subj.small) < 0.3) continue;
-        var cost = Math.min(_timeRegex(re, subj.big), _timeRegex(re, subj.big));
-        if (cost < 5) continue;
-
-        var row = [];
-        for (var si = 0; si < subj.sizes.length; si += 1) {
-          _timeRegex(re, subj.sizes[si]);                  // warm
-          var best = Infinity;
-          for (var k = 0; k < 3; k += 1) best = Math.min(best, _timeRegex(re, subj.sizes[si]));
-          row.push(best);
-        }
-        if (row[0] <= 0.02) continue;                      // too fast to measure a ratio
-        var growth = row[2] / row[0];
-        if (growth > worst) {
-          worst = growth;
-          worstCost = cost;
-          worstSubject = subj.label;
-        }
-      }
-
-      if (unmeasured) {
-        measured[src] = src.slice(0, 60) + " could not be measured: " +
-                        (pieces.overlong === true
-                          ? "the prefix it requires is longer than a subject can " +
-                            "carry, so no subject built here reaches the body"
-                          : pieces.unresolved === true
-                            ? "no reading of the choices in its repeated part " +
-                              "produced a unit the pattern accepts, so nothing " +
-                              "built here repeats what it repeats"
-                            : "the probe was interrupted in every round without " +
-                              "finishing its subjects") +
-                        ", so nothing here has cleared it";
-        bad.push({ file: rel, line: li + 1, content: measured[src] });
-        continue;
-      }
-
-      if (blewUpAt) {
-        measured[src] = src.slice(0, 60) + " never returned: probed in a child " +
-                        "process under a deadline, it did not finish one match, " +
-                        "which is what a pattern does when its work doubles with " +
-                        "every character added";
-        bad.push({ file: rel, line: li + 1, content: measured[src] });
-        continue;
-      }
-
-      // Both conditions: expensive at the cap AND super-linear. Four times the
-      // input is about four times the work when linear and about sixteen when
-      // quadratic, so eight separates them with room for a loaded machine.
-      if (worst >= 8 && worstCost >= 5) {
-        measured[src] = src.slice(0, 60) + " costs " + worstCost.toFixed(0) +
-                        "ms at 8192 chars and grows " + worst.toFixed(1) +
-                        "x for 4x the input (" + worstSubject + ") — rewrite so " +
-                        "two quantifiers cannot split the same run";
-        bad.push({ file: rel, line: li + 1, content: measured[src] });
-      }
+        var src = sources[sx];
+        if (plans[src] === undefined) plans[src] = _planOwnRegex(src, jobs);
+        entries.push({ file: rel, line: li + 1, src: src });
       }
     }
   }
 
+  var results = await _regexProbePool.measure(jobs);
+  var bad = [];
+  var verdicts = Object.create(null);
+  entries.forEach(function (entry) {
+    if (entry.src === undefined) { bad.push(entry); return; }
+    var plan = plans[entry.src];
+    if (verdicts[entry.src] === undefined) {
+      verdicts[entry.src] = plan.finding !== undefined ? plan.finding
+        : plan.job !== undefined ? _ownRegexVerdict(entry.src, plan, results[plan.job])
+        : null;
+    }
+    if (verdicts[entry.src] !== null) {
+      bad.push({ file: entry.file, line: entry.line, content: verdicts[entry.src] });
+    }
+  });
+  return bad;
+}
+
+async function testOwnRegexesRunLinear() {
+  var bad = await _ownRegexFindings(LIB_ROOT);
   bad = _filterMarkers(bad, "regex-superlinear-by-design");
   _report("the framework's own regexes run in time proportional to their input", bad);
 }
@@ -9616,8 +9909,8 @@ async function testNoDuplicateCodeBlocks() {
       // Three unrelated one-job functions whose shingle is the shape of a
       // short body next to an export run, not shared behaviour:
       // idempotency-key's resealMigrate re-seals stored replay records under a
-      // rotated key, http-request's promiseToStream adapts a promise to the
-      // Readable an object-store caller expects, and validate-opts's
+      // rotated key, http-request's responseToStream adapts a response body
+      // into a readable, and validate-opts's
       // checkOrThrow rethrows an unknown-option error as the caller's own
       // class. Nothing is extractable across them -- a key rotation, a stream
       // adapter and an error wrapper have no common operation, and collapsing
@@ -9631,7 +9924,7 @@ async function testNoDuplicateCodeBlocks() {
       mode:  "family-subset",
       files: [
         "lib/middleware/idempotency-key.js:resealMigrate",
-        "lib/object-store/http-request.js:promiseToStream",
+        "lib/object-store/http-request.js:responseToStream",
         "lib/validate-opts.js:checkOrThrow",
       ],
     },
@@ -10961,7 +11254,7 @@ async function testNoDuplicateCodeBlocks() {
     { mode: "family-subset", files: ["lib/ai-dp.js:mechanism", "lib/dora.js:_validateReportInput", "lib/guard-snapshot-envelope.js:validate"] },                        // fp:b0dceb3bd2fe
     { mode: "family-subset", files: ["lib/auth/sd-jwt-vc-issuer.js:create", "lib/fsm.js:define", "lib/mail.js:_validateMessage"] },                                      // fp:dff4eab2b4e0
     { mode: "family-subset", files: ["lib/csp.js:_parsePermissionsPolicyString", "lib/http-message-signature.js:_parseSignatureInput", "lib/network-tls.js:_parseSanString"] }, // fp:c998d327f9c0
-    { mode: "family-subset", files: ["lib/middleware/idempotency-key.js:resealMigrate", "lib/object-store/http-request.js:promiseToStream", "lib/validate-opts.js:observabilityShape"] }, // fp:824f10cf9f10 (was notModifiedGetResult/fp:711a58281dd7 before promiseToStream landed adjacent — coincidental object-literal/return shingle across 3 unrelated fns)
+    { mode: "family-subset", files: ["lib/middleware/idempotency-key.js:resealMigrate", "lib/object-store/http-request.js:responseToStream", "lib/validate-opts.js:observabilityShape"] }, // fp:824f10cf9f10 (was notModifiedGetResult/fp:711a58281dd7 before the stream adapter landed adjacent — coincidental object-literal/return shingle across 3 unrelated fns)
     { mode: "family-subset", files: ["lib/auth/sd-jwt-vc-issuer.js:create", "lib/guard-saga-config.js:validate", "lib/network-heartbeat.js:_validateTarget"] },          // fp:c8f43d4d1941
     { mode: "family-subset", files: ["lib/auth/oauth.js:deviceAuthorization", "lib/auth/oauth.js:parseCallback", "lib/ddl-change-control.js:_hashSql", "lib/mail-rbl.js:query"] }, // fp:882fd32d8e11
     { mode: "family-subset", files: ["lib/auth/oid4vp.js:matchDcql", "lib/gate-contract.js:_ctxValueForKind", "lib/http-message-signature.js:_parseUrl"] },              // fp:726ed545b065
@@ -12473,22 +12766,519 @@ function testVendorComponentsAttributedInNotice() {
 
 // ---- Pattern 48b: outbound TLS constructions merge the shared posture ----
 
-// Given the region immediately around a createSecureContext call, decide
-// whether the options it passes were assembled by a named builder in the same
-// file that DOES set certificateCompression. Returns false whenever the chain
-// cannot be followed exactly, so an unreadable shape is reported rather than
-// assumed compliant.
-function _certCompressionSetByLocalBuilder(content, region) {
-  // The identifier passed to the call, e.g. `createSecureContext(ctxOpts)`.
-  var callArg = /createSecureContext\s*\(\s*([A-Za-z_$][\w$]*)\s*\)/.exec(region);
-  if (!callArg) return false;
-  // Its assignment, e.g. `var ctxOpts = _contextOptions(opts, cert, key);`
-  var assign = new RegExp("\\b" + callArg[1] + "\\s*=\\s*([A-Za-z_$][\\w$]*)\\s*\\(").exec(content);
-  if (!assign) return false;
-  // The builder's own body.
-  var bodyAt = content.indexOf("function " + assign[1] + "(");
-  if (bodyAt === -1) return false;
-  return /certificateCompression/.test(content.slice(bodyAt, bodyAt + 1200));
+// ---- Token readers shared by the TLS construction detectors ----
+
+var CLOSER_OF = { "(": ")", "[": "]", "{": "}" };
+var OPENER_OF = { ")": "(", "]": "[", "}": "{" };
+var BRACKET_PAIRS = new WeakMap();
+
+function _tokIs(sig, k, type, value) {
+  return k >= 0 && k < sig.length && sig[k].type === type && (value === undefined || sig[k].value === value);
+}
+
+// The partner of every bracket token in `sig`, by index, or -1 for one that
+// has no partner. Computed once per token array.
+function _bracketPairs(sig) {
+  var pairs = BRACKET_PAIRS.get(sig);
+  if (pairs) return pairs;
+  pairs = new Int32Array(sig.length).fill(-1);
+  var stack = [];
+  for (var k = 0; k < sig.length; k += 1) {
+    if (sig[k].type !== shapeMatch.TOK_PUNCT) continue;
+    var v = sig[k].value;
+    if (CLOSER_OF[v]) { stack.push(k); continue; }
+    if (!OPENER_OF[v]) continue;
+    var at = stack.length - 1;
+    while (at >= 0 && sig[stack[at]].value !== OPENER_OF[v]) at -= 1;
+    if (at < 0) continue;
+    pairs[k] = stack[at];
+    pairs[stack[at]] = k;
+    stack.length = at;
+  }
+  BRACKET_PAIRS.set(sig, pairs);
+  return pairs;
+}
+
+// Index of the bracket closing the one at token index `open`, or -1.
+function _closingIndex(sig, open) { return _bracketPairs(sig)[open]; }
+
+// Index of the bracket opening the one at token index `close`, or -1.
+function _openingIndex(sig, close) { return _bracketPairs(sig)[close]; }
+
+// The significant tokens of `masked`, with the tokens of each template
+// substitution placed after the template's own token, so a call written inside
+// `${...}` is read like any other. A template token gets `subs`, the
+// { start, end } offsets of its substitutions.
+function _tokensWithSubstitutions(masked) {
+  var out = [];
+  function _add(toks, base, depth) {
+    for (var i = 0; i < toks.length; i += 1) {
+      var t = base === 0 ? toks[i] :
+        Object.assign({}, toks[i], { start: toks[i].start + base, end: toks[i].end + base });
+      out.push(t);
+      if (t.type === shapeMatch.TOK_TEMPLATE && depth < 32) _expand(t, depth);
+    }
+  }
+  function _expand(t, depth) {
+    t.subs = [];
+    var i = t.start + 1;
+    while (i < t.end) {
+      var c = masked.charAt(i);
+      if (c === "\\") { i += 2; continue; }
+      if (c === "`") return;
+      if (c !== "$" || masked.charAt(i + 1) !== "{") { i += 1; continue; }
+      var from = i + 2;
+      var toks = shapeMatch.significantTokens(shapeMatch.tokenize(masked.slice(from, t.end),
+        { stopAtCloseBrace: true, expressionStart: true, bodyKind: t.bodyKind || null }));
+      var last = toks.length > 0 ? toks[toks.length - 1] : null;
+      if (last === null || last.type !== shapeMatch.TOK_PUNCT || last.value !== "}") return;
+      t.subs.push({ start: from, end: from + last.start });
+      _add(toks.slice(0, -1), from, depth + 1);
+      i = from + last.end;
+    }
+  }
+  _add(shapeMatch.significantTokens(shapeMatch.tokenize(masked)), 0, 0);
+  return out;
+}
+
+// Whether `pos` is inside the text of a string or of a template, past its
+// opening quote. A position inside a template substitution is not.
+function _insideLiteral(sig, pos) {
+  for (var t = 0; t < sig.length && sig[t].start <= pos; t += 1) {
+    var tok = sig[t];
+    if (pos <= tok.start || pos >= tok.end) continue;
+    if (tok.type === shapeMatch.TOK_STRING) return true;
+    if (tok.type !== shapeMatch.TOK_TEMPLATE) continue;
+    var inSub = (tok.subs || []).some(function (s) { return pos >= s.start && pos < s.end; });
+    if (!inSub) return true;
+  }
+  return false;
+}
+
+function _afterDot(sig, k) {
+  return _tokIs(sig, k - 1, shapeMatch.TOK_PUNCT, ".") || _tokIs(sig, k - 1, shapeMatch.TOK_PUNCT, "?.");
+}
+
+// The token at `k` is the name a `function`, `function*` or `class` declares.
+function _isDeclarationName(sig, k) {
+  var K = shapeMatch.TOK_KEYWORD;
+  return _tokIs(sig, k - 1, K, "function") || _tokIs(sig, k - 1, K, "class") ||
+    (_tokIs(sig, k - 1, shapeMatch.TOK_PUNCT, "*") && _tokIs(sig, k - 2, K, "function"));
+}
+
+// The token at `k` is the name a `var`, `let`, `const`, `function` or `class` declares.
+function _isDeclaredName(sig, k) {
+  var K = shapeMatch.TOK_KEYWORD;
+  return _isDeclarationName(sig, k) || _tokIs(sig, k - 1, K, "var") ||
+    _tokIs(sig, k - 1, K, "let") || _tokIs(sig, k - 1, K, "const");
+}
+
+function _endsValue(t) {
+  if (!t) return false;
+  if (t.type === shapeMatch.TOK_IDENT || t.type === shapeMatch.TOK_STRING ||
+      t.type === shapeMatch.TOK_TEMPLATE) return true;
+  if (t.type === shapeMatch.TOK_KEYWORD) return t.value === "this";
+  return t.type === shapeMatch.TOK_PUNCT && (t.value === ")" || t.value === "]");
+}
+
+// The member read at token index `k` as { name, next }: `.name`, `?.name`,
+// `["name"]` or `?.["name"]`, where `next` is the index after it. Null when
+// `k` starts none of them, including a bracket that opens an array or a
+// computed key rather than following a value.
+function _memberAccessAt(sig, k) {
+  var P = shapeMatch.TOK_PUNCT;
+  if (_tokIs(sig, k, P, ".") || (_tokIs(sig, k, P, "?.") && !_tokIs(sig, k + 1, P, "["))) {
+    var nt = sig[k + 1];
+    if (nt && (nt.type === shapeMatch.TOK_IDENT || nt.type === shapeMatch.TOK_KEYWORD)) {
+      return { name: nt.value, next: k + 2 };
+    }
+    return null;
+  }
+  var b = _tokIs(sig, k, P, "?.") ? k + 1 : k;
+  if (!_tokIs(sig, b, P, "[") || !_tokIs(sig, b + 1, shapeMatch.TOK_STRING) || !_tokIs(sig, b + 2, P, "]")) return null;
+  if (b === k && !_endsValue(sig[k - 1])) return null;
+  var lit = /^(["'])([A-Za-z_$][\w$]*)\1$/.exec(sig[b + 1].value);
+  return lit ? { name: lit[2], next: b + 3 } : null;
+}
+
+// Index of the `(` of a call starting at `k`: `(` or `?.(`, else -1.
+function _callOpenAt(sig, k) {
+  var P = shapeMatch.TOK_PUNCT;
+  if (_tokIs(sig, k, P, "(")) return k;
+  if (_tokIs(sig, k, P, "?.") && _tokIs(sig, k + 1, P, "(")) return k + 1;
+  return -1;
+}
+
+// The parens at `open` close a parameter list: a method, or a declaration.
+function _closesParams(sig, open) {
+  var close = _closingIndex(sig, open);
+  return close !== -1 && sig[close].closedParams === true;
+}
+
+// The function bodies holding `pos`, innermost first.
+function _ancestorSpans(spans, pos) {
+  return spans.filter(function (s) { return s.start < pos && pos < s.end; })
+    .sort(function (a, b) { return b.start - a.start; });
+}
+
+// A flag per token, set for each token inside a function body that does not
+// hold `pos`.
+function _hiddenTokens(sig, spans, pos) {
+  var hidden = new Uint8Array(sig.length);
+  for (var s = 0; s < spans.length; s += 1) {
+    if (spans[s].start < pos && pos < spans[s].end) continue;
+    for (var j = spans[s].open; j <= spans[s].close; j += 1) hidden[j] = 1;
+  }
+  return hidden;
+}
+
+// The names in the parameter list of the function whose body is `span`.
+function _paramNames(sig, span) {
+  var P = shapeMatch.TOK_PUNCT;
+  var b = span.open;
+  var close = -1;
+  if (_tokIs(sig, b - 1, P, ")")) close = b - 1;
+  else if (_tokIs(sig, b - 1, P, "=>")) {
+    if (_tokIs(sig, b - 2, shapeMatch.TOK_IDENT)) return [sig[b - 2].value];
+    if (_tokIs(sig, b - 2, P, ")")) close = b - 2;
+  }
+  if (close === -1) return [];
+  var open = _openingIndex(sig, close);
+  var names = [];
+  for (var j = open + 1; j < close; j += 1) {
+    if (sig[j].type === shapeMatch.TOK_IDENT && !_afterDot(sig, j)) names.push(sig[j].value);
+  }
+  return names;
+}
+
+// The function holding `pos` or one around it declares `name`, as a parameter
+// or as a name in its own body. Declarations listed in `skip` (token index to
+// true) do not count. Returns the innermost such body, or null.
+function _declaringSpan(sig, spans, pos, name, skip) {
+  var anc = _ancestorSpans(spans, pos);
+  var hidden = _hiddenTokens(sig, spans, pos);
+  for (var a = 0; a < anc.length; a += 1) {
+    if (_paramNames(sig, anc[a]).indexOf(name) !== -1) return anc[a];
+    for (var d = anc[a].open + 1; d < anc[a].close; d += 1) {
+      if (hidden[d] || (skip && skip[d]) || !_tokIs(sig, d, shapeMatch.TOK_IDENT, name)) continue;
+      if (_isDeclaredName(sig, d)) return anc[a];
+    }
+  }
+  return null;
+}
+
+// The last token of the value after the `=` at token index `eq`: before a `;`
+// or `,` at its own depth or a bracket closing past it, or `limit`.
+function _rhsEnd(sig, eq, limit) {
+  var depth = 0;
+  for (var r = eq + 1; r <= limit; r += 1) {
+    if (sig[r].type !== shapeMatch.TOK_PUNCT) continue;
+    var v = sig[r].value;
+    if (CLOSER_OF[v]) depth += 1;
+    else if (OPENER_OF[v]) { if (depth === 0) return r - 1; depth -= 1; }
+    else if (depth === 0 && (v === ";" || v === ",")) return r - 1;
+  }
+  return limit;
+}
+
+var COMPRESSION_KEY_RE = /^(?:certificateCompression|(["'])certificateCompression\1)$/;
+var ASSIGNMENT_OPS = { "=": 1, "??=": 1, "||=": 1, "&&=": 1 };
+
+// Findings for one file: { line, content } for each createSecureContext call
+// whose options do not carry certificateCompression. The argument carries it
+// when its top-level object has the key, written `key:` or as a shorthand,
+// when it spreads a variable that carries it, or when it starts with a call
+// to a same-file builder whose body writes the key or a property. A builder
+// is a `function <name>(` declaration or `<name> = ` a function or an arrow.
+// An argument that is one variable carries it when, reading forward to the
+// call, its last assignment had a value that carries it or a later write
+// `<id>.certificateCompression = ...` (or `??=`, `||=`, `&&=`, or a quoted key
+// in brackets) set it. The read starts in the innermost enclosing function
+// that declares the variable, or at the top of the file, and skips the
+// bodies of functions the call is not inside. A declaration or method named
+// createSecureContext is not a call, a call inside a string or a comment is
+// not read, and an unterminated call is reported.
+function _certCompressionFindings(content) {
+  var masked = _maskComments(content);
+  if (masked.indexOf("createSecureContext") === -1) return [];
+  var sig = _tokensWithSubstitutions(masked);
+  var spans = _functionBodySpans(sig);
+  var IDENT = shapeMatch.TOK_IDENT;
+  var STRING = shapeMatch.TOK_STRING;
+  var P = shapeMatch.TOK_PUNCT;
+  var builders = Object.create(null);
+  var hiddenAt = Object.create(null);
+  function _hidden(pos) {
+    if (!hiddenAt[pos]) hiddenAt[pos] = _hiddenTokens(sig, spans, pos);
+    return hiddenAt[pos];
+  }
+  function _isAssignOp(k) { return k < sig.length && sig[k].type === P && ASSIGNMENT_OPS[sig[k].value] === 1; }
+  // Token k is the option written as an object key.
+  function _isKeyAt(k) {
+    if (!_tokIs(sig, k, IDENT) && !_tokIs(sig, k, STRING)) return false;
+    if (!COMPRESSION_KEY_RE.test(sig[k].value)) return false;
+    if (!_tokIs(sig, k - 1, P, "{") && !_tokIs(sig, k - 1, P, ",")) return false;
+    if (_tokIs(sig, k + 1, P, ":")) return true;
+    return sig[k].type === IDENT && (_tokIs(sig, k + 1, P, ",") || _tokIs(sig, k + 1, P, "}"));
+  }
+  // Tokens from k are `.certificateCompression <op>` or `["certificateCompression"] <op>`.
+  function _isWriteAt(k) {
+    if (_tokIs(sig, k, P, ".") && _tokIs(sig, k + 1, IDENT, "certificateCompression")) return _isAssignOp(k + 2);
+    return _tokIs(sig, k, P, "[") && _tokIs(sig, k + 1, STRING) && COMPRESSION_KEY_RE.test(sig[k + 1].value) &&
+      _tokIs(sig, k + 2, P, "]") && _isAssignOp(k + 3);
+  }
+  function _writesIt(range) {
+    for (var k = range.first; k <= range.last; k += 1) if (_isKeyAt(k) || _isWriteAt(k)) return true;
+    return false;
+  }
+  function _bodyAfterParams(open) {
+    var close = _closingIndex(sig, open);
+    if (close === -1 || !_tokIs(sig, close + 1, P, "{")) return null;
+    var end = _closingIndex(sig, close + 1);
+    return end === -1 ? null : { first: close + 2, last: end - 1 };
+  }
+  function _arrowBody(a) {
+    if (!_tokIs(sig, a, P, "{")) return { first: a, last: _rhsEnd(sig, a - 1, sig.length - 1) };
+    var end = _closingIndex(sig, a);
+    return end === -1 ? null : { first: a + 1, last: end - 1 };
+  }
+  // The body of the function or arrow written at token index `j`, or null.
+  function _functionValueAt(j) {
+    if (_tokIs(sig, j, shapeMatch.TOK_KEYWORD, "async")) j += 1;
+    if (_tokIs(sig, j, shapeMatch.TOK_KEYWORD, "function")) {
+      j += 1;
+      if (_tokIs(sig, j, P, "*")) j += 1;
+      if (_tokIs(sig, j, IDENT)) j += 1;
+      return _tokIs(sig, j, P, "(") ? _bodyAfterParams(j) : null;
+    }
+    if (_tokIs(sig, j, IDENT) && _tokIs(sig, j + 1, P, "=>")) return _arrowBody(j + 2);
+    if (!_tokIs(sig, j, P, "(")) return null;
+    var close = _closingIndex(sig, j);
+    return close !== -1 && _tokIs(sig, close + 1, P, "=>") ? _arrowBody(close + 2) : null;
+  }
+  // The token range of the body of the same-file builder `name`, or null.
+  function _builderBody(name) {
+    if (name in builders) return builders[name];
+    builders[name] = null;
+    for (var b = 0; b + 1 < sig.length; b += 1) {
+      if (!_tokIs(sig, b, IDENT, name) || _afterDot(sig, b)) continue;
+      var range = null;
+      if (_isDeclarationName(sig, b) && _tokIs(sig, b + 1, P, "(")) range = _bodyAfterParams(b + 1);
+      else if (_tokIs(sig, b + 1, P, "=")) range = _functionValueAt(b + 2);
+      if (range !== null) { builders[name] = range; break; }
+    }
+    return builders[name];
+  }
+  function _startsWithBuilderCall(first, last) {
+    if (!_tokIs(sig, first, IDENT) || _afterDot(sig, first) || !_tokIs(sig, first + 1, P, "(")) return false;
+    var close = _closingIndex(sig, first + 1);
+    if (close === -1 || close > last) return false;
+    var body = _builderBody(sig[first].value);
+    return body !== null && _writesIt(body);
+  }
+  // The expression in tokens first..last, read at token index `at`, carries the option.
+  function _valueCarries(first, last, at, depth) {
+    if (first > last || depth > 4) return false;
+    if (first === last && sig[first].type === IDENT) return _variableCarries(sig[first].value, at, depth + 1);
+    if (_startsWithBuilderCall(first, last)) return true;
+    var braces = 0;
+    for (var k = first; k <= last; k += 1) {
+      if (_tokIs(sig, k, P, "{")) braces += 1;
+      else if (_tokIs(sig, k, P, "}")) braces -= 1;
+      else if (braces === 1 && _isKeyAt(k)) return true;
+      else if (braces === 1 && _tokIs(sig, k, P, "...") && _tokIs(sig, k + 1, IDENT) &&
+               _variableCarries(sig[k + 1].value, at, depth + 1)) return true;
+    }
+    return false;
+  }
+  // The variable `id` carries the option where token index `at` reads it.
+  function _variableCarries(id, at, depth) {
+    var pos = sig[at].start;
+    var hidden = _hidden(pos);
+    var scope = _declaringSpan(sig, spans, pos, id, null);
+    var carries = false;
+    for (var k = scope === null ? 0 : scope.open + 1; k < at; k += 1) {
+      if (hidden[k] || !_tokIs(sig, k, IDENT, id) || _afterDot(sig, k)) continue;
+      if (_isWriteAt(k + 1)) carries = true;
+      else if (_tokIs(sig, k + 1, P, "=")) carries = _valueCarries(k + 2, _rhsEnd(sig, k + 1, at - 1), k, depth);
+    }
+    return carries;
+  }
+  var out = [];
+  for (var i = 0; i < sig.length; i += 1) {
+    var open = -1;
+    var acc = _memberAccessAt(sig, i);
+    if (acc !== null) {
+      if (acc.name === "createSecureContext") open = _callOpenAt(sig, acc.next);
+    } else if (_tokIs(sig, i, IDENT, "createSecureContext") && !_afterDot(sig, i)) {
+      open = _callOpenAt(sig, i + 1);
+    }
+    if (open === -1 || _closesParams(sig, open)) continue;
+    var close = _closingIndex(sig, open);
+    if (close !== -1 && _valueCarries(open + 1, close - 1, i, 0)) continue;
+    out.push({ line: masked.slice(0, sig[i].start).split("\n").length,
+      content: "createSecureContext does not set certificateCompression; a " +
+               "context built here replaces the server's, so handshakes using " +
+               "it send the full uncompressed certificate chain" });
+  }
+  return out;
+}
+
+// The detector's shapes, each against a source it must or must not report.
+function testCertCompressionDetectorShapes() {
+  // class: cert-compression-detector-shapes (no marker)
+  var FILLER = "  var x = 1;\n".repeat(120);
+  var cases = [
+    ["a server context with no compression", true,
+      "function build() {\n  return nodeTls.createSecureContext({ key: k, cert: c });\n}\n"],
+    ["options assembled in the function without compression", true,
+      "function build() {\n  var o = { key: k, cert: c };\n  o.ecdhCurve = g;\n  return nodeTls.createSecureContext(o);\n}\n"],
+    ["compression set on another variable", true,
+      "function build() {\n  var other = {};\n  other.certificateCompression = algs;\n" +
+      "  var o = { key: k };\n  return nodeTls.createSecureContext(o);\n}\n"],
+    ["compression set on the same name in another function", true,
+      "function prep(o) {\n  o.certificateCompression = algs;\n}\n" +
+      "function build() {\n  var o = { key: k };\n  return nodeTls.createSecureContext(o);\n}\n"],
+    ["compression named only in the next function", true,
+      "function build() {\n  return nodeTls.createSecureContext({ key: k });\n}\n" +
+      "function other() {\n  return { certificateCompression: algs };\n}\n"],
+    ["compression named only in a comment beside the call", true,
+      "function build() {\n  return nodeTls.createSecureContext({ key: k }); // no certificateCompression here\n}\n"],
+    ["a builder that does not set compression", true,
+      "function _opts() {\n  return { key: k };\n}\n" +
+      "function build() {\n  var o = _opts();\n  return nodeTls.createSecureContext(o);\n}\n"],
+    ["a builder call in the arguments that does not set compression", true,
+      "function _opts() {\n  return { key: k };\n}\n" +
+      "function build() {\n  return nodeTls.createSecureContext(_opts());\n}\n"],
+    ["options passed in as a parameter", true,
+      "function build(o) {\n  return nodeTls.createSecureContext(o);\n}\n"],
+    ["compression written under a bracketed key", false,
+      "function build() {\n  var o = { key: k };\n  o[\"certificateCompression\"] = algs;\n" +
+      "  return nodeTls.createSecureContext(o);\n}\n"],
+    ["compression in the arguments", false,
+      "function build() {\n  return nodeTls.createSecureContext({ key: k, certificateCompression: algs });\n}\n"],
+    ["a property write with a comment line between it and the call", false,
+      "function cb() {\n  var o = { key: k };\n  var algs = C.TLS_CERT_COMPRESSION();\n" +
+      "  if (algs.length > 0) o.certificateCompression = algs;\n  // a note on the next line\n" +
+      "  var ctx = require(\"node:tls\").createSecureContext(o);\n}\n"],
+    ["an object literal with compression assigned far above", false,
+      "function build() {\n  var o = { key: k, certificateCompression: algs };\n" + FILLER +
+      "  return nodeTls.createSecureContext(o);\n}\n"],
+    ["Object.assign naming compression", false,
+      "function build(base) {\n  var o = Object.assign({}, base, { certificateCompression: algs });\n" +
+      "  return nodeTls.createSecureContext(o);\n}\n"],
+    ["a long local builder that sets compression", false,
+      "function _contextOptions(src) {\n  var base = { key: k };\n" + FILLER +
+      "  if (algs.length > 0) base.certificateCompression = algs;\n  return base;\n}\n" +
+      "function build() {\n  var ctx;\n  try {\n    var ctxOpts = _contextOptions(opts);\n" +
+      "    ctx = nodeTls.createSecureContext(ctxOpts);\n  } catch (e) { throw e; }\n  return ctx;\n}\n"],
+    ["a builder call in the arguments that sets compression", false,
+      "function _opts() {\n  return { key: k, certificateCompression: algs };\n}\n" +
+      "function build() {\n  return nodeTls.createSecureContext(_opts());\n}\n"],
+    ["the call named inside an error message", false,
+      "function check() {\n  throw new Error(\"build it with tls.createSecureContext( yourself\");\n}\n"],
+    ["the call named in a comment", false,
+      "function doc() {\n  // nodeTls.createSecureContext({ key: k })\n  return 1;\n}\n"],
+    ["a write after the call", true,
+      "function build() {\n  var o = { key: k };\n  var ctx = nodeTls.createSecureContext(o);\n" +
+      "  o.certificateCompression = algs;\n  return ctx;\n}\n"],
+    ["options reassigned without compression before the call", true,
+      "function build() {\n  var o = { key: k, certificateCompression: algs };\n  o = { key: k2 };\n" +
+      "  return nodeTls.createSecureContext(o);\n}\n"],
+    ["the name only in a string value in the arguments", true,
+      "function build() {\n  return nodeTls.createSecureContext({ key: k, note: \"certificateCompression\" });\n}\n"],
+    ["a builder that only reads the option", true,
+      "function _opts(src) {\n  if (src.certificateCompression) log(1);\n  return { key: k };\n}\n" +
+      "function build(src) {\n  return nodeTls.createSecureContext(_opts(src));\n}\n"],
+    ["the option inside a nested object in the arguments", true,
+      "function build() {\n  return nodeTls.createSecureContext({ key: k, extra: { certificateCompression: algs } });\n}\n"],
+    ["an optional call", true,
+      "function build() {\n  return nodeTls.createSecureContext?.({ key: k });\n}\n"],
+    ["a bracketed member call", true,
+      "function build() {\n  return nodeTls[\"createSecureContext\"]({ key: k });\n}\n"],
+    ["a bare call from a destructured require", true,
+      "var { createSecureContext } = require(\"node:tls\");\n" +
+      "function build() {\n  return createSecureContext({ key: k });\n}\n"],
+    ["a top-level call with the write in an unrelated function", true,
+      "function prep(o) {\n  o.certificateCompression = algs;\n}\n" +
+      "var o = { key: k };\nvar ctx = nodeTls.createSecureContext(o);\n"],
+    ["a write inside a nested function that is never called", true,
+      "function build() {\n  var o = { key: k };\n  function later() { o.certificateCompression = algs; }\n" +
+      "  return nodeTls.createSecureContext(o);\n}\n"],
+    ["a comparison, not a write", true,
+      "function build() {\n  var o = { key: k };\n  if (o.certificateCompression === undefined) log(1);\n" +
+      "  return nodeTls.createSecureContext(o);\n}\n"],
+    ["a write to a nested property of the same name", true,
+      "function build(a) {\n  var o = { key: k };\n  a.o.certificateCompression = algs;\n" +
+      "  return nodeTls.createSecureContext(o);\n}\n"],
+    ["the option in a second declarator", true,
+      "function build() {\n  var o = { key: k }, other = { certificateCompression: algs };\n" +
+      "  return nodeTls.createSecureContext(o);\n}\n"],
+    ["the second of two calls in one statement", true,
+      "function build() {\n  var a = nodeTls.createSecureContext({ key: k, certificateCompression: algs }), " +
+      "b = nodeTls.createSecureContext({ key: k });\n}\n"],
+    ["a spread of options without compression", true,
+      "function build() {\n  var o = { key: k };\n  return nodeTls.createSecureContext({ ...o });\n}\n"],
+    ["a call inside a template substitution", true,
+      "function build() {\n  return `${nodeTls.createSecureContext({ key: k })}`;\n}\n"],
+    ["an unterminated call", true,
+      "function build() {\n  return nodeTls.createSecureContext({ key: k,\n"],
+    ["a parameter shadowing a top-level variable that has compression", true,
+      "var o = { key: k, certificateCompression: algs };\n" +
+      "function build(o) {\n  return nodeTls.createSecureContext(o);\n}\n"],
+    ["a local declaration shadowing a top-level variable that has compression", true,
+      "var o = { key: k, certificateCompression: algs };\n" +
+      "function build() {\n  var o;\n  return nodeTls.createSecureContext(o);\n}\n"],
+    ["the name as a ternary branch", true,
+      "function build(on) {\n  return nodeTls.createSecureContext({ key: k, mode: on ? \"certificateCompression\" : \"none\" });\n}\n"],
+    ["the name as a string argument inside the options", true,
+      "function build() {\n  return nodeTls.createSecureContext({ key: pick(\"a\", \"certificateCompression\", 1) });\n}\n"],
+    ["options built in the outer function and the call in a callback", false,
+      "function build() {\n  var o = { key: k, certificateCompression: algs };\n" +
+      "  return ready(function () {\n    return nodeTls.createSecureContext(o);\n  });\n}\n"],
+    ["a write in the callback before the call", false,
+      "function build() {\n  var o = { key: k };\n  return ready(function () {\n" +
+      "    o.certificateCompression = algs;\n    return nodeTls.createSecureContext(o);\n  });\n}\n"],
+    ["a function declaration named createSecureContext", false,
+      "function createSecureContext(o) {\n  return wrap(o);\n}\n"],
+    ["a method named createSecureContext", false,
+      "var api = {\n  createSecureContext(o) {\n    return wrap(o);\n  },\n};\n"],
+    ["a class method named createSecureContext", false,
+      "class Api {\n  createSecureContext(o) {\n    return wrap(o);\n  }\n}\n"],
+    ["a spread of options that have compression", false,
+      "function build() {\n  var o = { key: k, certificateCompression: algs };\n" +
+      "  return nodeTls.createSecureContext({ ...o });\n}\n"],
+    ["a logical assignment", false,
+      "function build() {\n  var o = { key: k };\n  o.certificateCompression ??= algs;\n" +
+      "  return nodeTls.createSecureContext(o);\n}\n"],
+    ["a function-expression builder", false,
+      "var _opts = function () { return { key: k, certificateCompression: algs }; };\n" +
+      "function build() {\n  return nodeTls.createSecureContext(_opts());\n}\n"],
+    ["a concise arrow builder", false,
+      "var _opts = () => ({ key: k, certificateCompression: algs });\n" +
+      "function build() {\n  return nodeTls.createSecureContext(_opts());\n}\n"],
+    ["a braced arrow builder that writes it", false,
+      "const _opts = (src) => {\n  var base = { key: k };\n  base.certificateCompression = algs;\n  return base;\n};\n" +
+      "function build() {\n  return nodeTls.createSecureContext(_opts(1));\n}\n"],
+    ["options copied from a variable that has compression", false,
+      "function build() {\n  var base = { key: k, certificateCompression: algs };\n  var o = base;\n" +
+      "  return nodeTls.createSecureContext(o);\n}\n"],
+    ["a shorthand property", false,
+      "function build(certificateCompression) {\n  return nodeTls.createSecureContext({ key: k, certificateCompression });\n}\n"],
+    ["a top-level call after a top-level write", false,
+      "var o = { key: k };\no.certificateCompression = algs;\nvar ctx = nodeTls.createSecureContext(o);\n"],
+    ["the call in a pattern literal", false,
+      "var re = /createSecureContext\\(/;\n"],
+  ];
+  var bad = [];
+  cases.forEach(function (c) {
+    var n = _certCompressionFindings(c[2]).length;
+    if ((n > 0) !== c[1]) {
+      bad.push({ file: "test/layer-0-primitives/codebase-patterns.test.js", line: 0,
+        content: c[0] + ": expected " + (c[1] ? "a finding" : "no finding") + ", got " + n });
+    }
+  });
+  _report("the certificate-compression detector reports each shape it guards and nothing else", bad);
 }
 
 function testSecureContextsAdvertiseCertificateCompression() {
@@ -12512,30 +13302,9 @@ function testSecureContextsAdvertiseCertificateCompression() {
     var content;
     try { content = fs.readFileSync(files[fi], "utf8"); }
     catch (_e) { continue; }
-    var re = /createSecureContext\s*\(/g;
-    var m;
-    while ((m = re.exec(content)) !== null) {
-      var lineStart = content.lastIndexOf("\n", m.index) + 1;
-      var beforeOnLine = content.slice(lineStart, m.index);
-      if (/\/\//.test(beforeOnLine) || /^\s*\*/.test(beforeOnLine)) continue;   // prose
-      var lineNum = content.slice(0, m.index).split("\n").length;
-      // The options object, plus the few lines above it where a prepared
-      // options variable is usually assembled.
-      var from = content.lastIndexOf("\n", content.lastIndexOf("\n", m.index) - 1);
-      var region = content.slice(from === -1 ? 0 : from, m.index + 600);
-      if (/certificateCompression/.test(region)) continue;
-      // Follow one hop. When the options are assembled by a named builder in
-      // the same file — the shape a listener reaches for so the live build and
-      // its test hook cannot diverge — the setting is real but lives outside
-      // the window above. Resolve the identifier to its assignment, and the
-      // assignment to the local function it calls, and read THAT body. One hop
-      // only: past that this stops checking the code and starts guessing at it.
-      if (_certCompressionSetByLocalBuilder(content, region)) continue;
-      bad.push({ file: rel, line: lineNum,
-        content: "createSecureContext does not set certificateCompression — a " +
-                 "context built here replaces the server's, so handshakes using " +
-                 "it send the full uncompressed certificate chain" });
-    }
+    _certCompressionFindings(content).forEach(function (f) {
+      bad.push({ file: rel, line: f.line, content: f.content });
+    });
   }
   bad = _filterMarkers(bad, "secure-context-cert-compression");
   _report("secure contexts advertise RFC 8879 certificate compression", bad);
@@ -12593,6 +13362,1073 @@ function testOutboundTlsMergesSharedPosture() {
   }
   bad = _filterMarkers(bad, "outbound-tls-posture");
   _report("outbound TLS constructions merge b.network.tls.outboundPosture()", bad);
+}
+
+// ---- Pattern 48c: outbound TLS constructions run the compromised-key chain check ----
+
+var CHAIN_CHECK_MODULE_SPEC_RE = /^(["'])(?:node:)?(?:tls|https|http2)\1$/;
+var TLS_MODULE_REQUIRE_RE = /require\(\s*["'](?:node:)?(?:tls|https|http2)["']\s*\)/;
+var TLS_DIAL_METHODS = { connect: 1, request: 1, get: 1 };
+var TLS_DIAL_CLASSES = { Agent: 1, TLSSocket: 1 };
+var CLIENT_ROLE_RE = /^(["'])client\1$/;
+
+// Outbound TLS constructions that dial without the chain check, each keyed on
+// the file, the named function around the call and the callee as written,
+// with the reason the site cannot carry the check.
+var CHAIN_CHECK_EXEMPT = [
+  { file: "lib/network-tls.js", fn: "_isEchSupported", callee: "nodeTls.connect",
+    reason: "a feature probe whose lookup fails before a socket opens, so no certificate is ever received" },
+  { file: "lib/http-client.js", fn: "_connectH2c", callee: "http2.connect",
+    reason: "an h2c session to an http: origin over cleartext TCP, with no TLS handshake to check" },
+];
+
+// The name of the nearest named function around `pos`: a declaration, a
+// method, or a function or arrow assigned to a name or a key. Null at the top
+// level or inside anonymous functions only.
+function _namedFunctionAround(sig, spans, pos) {
+  var P = shapeMatch.TOK_PUNCT;
+  var IDENT = shapeMatch.TOK_IDENT;
+  var K = shapeMatch.TOK_KEYWORD;
+  var anc = _ancestorSpans(spans, pos);
+  for (var a = 0; a < anc.length; a += 1) {
+    var b = anc[a].open;
+    var close = -1;
+    if (_tokIs(sig, b - 1, P, ")")) close = b - 1;
+    else if (_tokIs(sig, b - 1, P, "=>") && _tokIs(sig, b - 2, P, ")")) close = b - 2;
+    if (close === -1) continue;
+    var open = _openingIndex(sig, close);
+    if (open === -1) continue;
+    var t = open - 1;
+    if (_tokIs(sig, t, IDENT) && (_tokIs(sig, t - 1, K, "function") || _tokIs(sig, t - 1, P, "*"))) return sig[t].value;
+    if (_tokIs(sig, t, IDENT) && !_tokIs(sig, b - 1, P, "=>") && !_afterDot(sig, t)) return sig[t].value;
+    if (_tokIs(sig, t, K, "function")) t -= 1;
+    if (_tokIs(sig, t, K, "async")) t -= 1;
+    if ((_tokIs(sig, t, P, "=") || _tokIs(sig, t, P, ":")) && _tokIs(sig, t - 1, IDENT)) return sig[t - 1].value;
+  }
+  return null;
+}
+
+// Findings for one file: { line, content, fn, callee } for each outbound TLS
+// construction whose options do not pass through the compromised-key chain
+// check. A construction is `<m>.connect(`, `<m>.request(` or `<m>.get(`, or
+// `new <m>.Agent(` or `new <m>.TLSSocket(`, where `<m>` is a name the file
+// binds to require("node:tls"), "node:https" or "node:http2" (directly or
+// through lazyRequire, so `<m>()` counts), `require(...)` itself, or a name or
+// key assigned a value that reads one of those names (`lib: secure ? https :
+// http`). A TLSSocket built with `isServer` is a listener's socket and is not
+// read. The options carry the check when the arguments call
+// `_withCompromisedChainCheck`, `.buildOptions` or `applyToContext` with role
+// "client", call a same-file builder whose body does, or read a variable that
+// carries it where the call reads it: its last assignment had such a value, a
+// later `<id>.checkServerIdentity = ...` had one, or `Object.assign(<id>, ...)`
+// merged one in. The read starts in the innermost function that declares the
+// variable, or at the top of the file, and skips the bodies of functions the
+// call is not inside; function bodies written in the arguments (a response
+// callback) are not read. An Agent also passes when the function that builds
+// it replaces its `createConnection` with a function that carries the check.
+// A call inside a comment or a string is not read, and an unterminated call is
+// reported.
+function _outboundTlsChainCheckFindings(content) {
+  var masked = _maskComments(content);
+  if (!TLS_MODULE_REQUIRE_RE.test(masked)) return [];
+  var sig = _tokensWithSubstitutions(masked);
+  var spans = _functionBodySpans(sig);
+  var IDENT = shapeMatch.TOK_IDENT;
+  var STRING = shapeMatch.TOK_STRING;
+  var P = shapeMatch.TOK_PUNCT;
+  var K = shapeMatch.TOK_KEYWORD;
+  var hiddenAt = Object.create(null);
+  function _hidden(pos) {
+    if (!hiddenAt[pos]) hiddenAt[pos] = _hiddenTokens(sig, spans, pos);
+    return hiddenAt[pos];
+  }
+  function _isAssignOp(k) { return k < sig.length && sig[k].type === P && ASSIGNMENT_OPS[sig[k].value] === 1; }
+  function _isRequireOfTls(k) {
+    return _tokIs(sig, k, IDENT, "require") && _tokIs(sig, k + 1, P, "(") && _tokIs(sig, k + 2, STRING) &&
+      CHAIN_CHECK_MODULE_SPEC_RE.test(sig[k + 2].value) && _tokIs(sig, k + 3, P, ")");
+  }
+  // The value assigned at token index `eq` (an `=` or an object key's `:`).
+  function _valueRange(eq) { return { first: eq + 1, last: _rhsEnd(sig, eq, sig.length - 1) }; }
+  // Names bound to a TLS module, then names assigned a value reading one.
+  var modules = Object.create(null);
+  var assignments = [];
+  for (var a = 1; a < sig.length; a += 1) {
+    if (!_tokIs(sig, a - 1, IDENT)) continue;
+    var isKey = _tokIs(sig, a, P, ":") && (_tokIs(sig, a - 2, P, "{") || _tokIs(sig, a - 2, P, ","));
+    if (!_tokIs(sig, a, P, "=") && !isKey) continue;
+    assignments.push({ name: sig[a - 1].value, range: _valueRange(a) });
+  }
+  assignments.forEach(function (as) {
+    for (var k = as.range.first; k <= as.range.last; k += 1) {
+      if (_isRequireOfTls(k)) { modules[as.name] = true; return; }
+    }
+  });
+  for (var pass = 0; pass < 3; pass += 1) {
+    assignments.forEach(function (as) {
+      if (modules[as.name]) return;
+      for (var k = as.range.first; k <= as.range.last; k += 1) {
+        if (_tokIs(sig, k, IDENT) && modules[sig[k].value] && !_afterDot(sig, k) &&
+            !_tokIs(sig, k + 1, P, ".") && !_tokIs(sig, k + 1, P, "(") && !_isObjectKeyAt(k)) {
+          modules[as.name] = true;
+          return;
+        }
+      }
+    });
+  }
+  // The token index where the receiver ending at `end` starts, or -1 when the
+  // receiver is not a TLS module.
+  function _receiverStart(end) {
+    if (_tokIs(sig, end, IDENT) && modules[sig[end].value]) {
+      var s = end;
+      while (_tokIs(sig, s - 1, P, ".") && _tokIs(sig, s - 2, IDENT)) s -= 2;
+      return s;
+    }
+    if (!_tokIs(sig, end, P, ")")) return -1;
+    var open = _openingIndex(sig, end);
+    if (open === -1) return -1;
+    if (open + 1 === end && _tokIs(sig, open - 1, IDENT) && modules[sig[open - 1].value] && !_afterDot(sig, open - 1)) {
+      return open - 1;
+    }
+    if (_isRequireOfTls(open - 1)) return open - 1;
+    return -1;
+  }
+  function _isCarrierAt(k) {
+    if (!_tokIs(sig, k, IDENT)) return false;
+    var open = _callOpenAt(sig, k + 1);
+    if (open === -1) return false;
+    var v = sig[k].value;
+    if (v === "_withCompromisedChainCheck") return true;
+    if (v === "buildOptions") return _afterDot(sig, k);
+    if (v !== "applyToContext") return false;
+    var close = _closingIndex(sig, open);
+    for (var j = open + 1; j < close; j += 1) {
+      if (_tokIs(sig, j, STRING) && CLIENT_ROLE_RE.test(sig[j].value)) return true;
+    }
+    return false;
+  }
+  function _bodyAfterParams(open) {
+    var close = _closingIndex(sig, open);
+    if (close === -1 || !_tokIs(sig, close + 1, P, "{")) return null;
+    var end = _closingIndex(sig, close + 1);
+    return end === -1 ? null : { first: close + 2, last: end - 1 };
+  }
+  function _arrowBody(at) {
+    if (!_tokIs(sig, at, P, "{")) return { first: at, last: _rhsEnd(sig, at - 1, sig.length - 1) };
+    var end = _closingIndex(sig, at);
+    return end === -1 ? null : { first: at + 1, last: end - 1 };
+  }
+  function _functionValueAt(j) {
+    if (_tokIs(sig, j, K, "async")) j += 1;
+    if (_tokIs(sig, j, K, "function")) {
+      j += 1;
+      if (_tokIs(sig, j, P, "*")) j += 1;
+      if (_tokIs(sig, j, IDENT)) j += 1;
+      return _tokIs(sig, j, P, "(") ? _bodyAfterParams(j) : null;
+    }
+    if (_tokIs(sig, j, IDENT) && _tokIs(sig, j + 1, P, "=>")) return _arrowBody(j + 2);
+    if (!_tokIs(sig, j, P, "(")) return null;
+    var close = _closingIndex(sig, j);
+    return close !== -1 && _tokIs(sig, close + 1, P, "=>") ? _arrowBody(close + 2) : null;
+  }
+  var builders = Object.create(null);
+  function _builderBody(name) {
+    if (name in builders) return builders[name];
+    builders[name] = null;
+    for (var b = 0; b + 1 < sig.length; b += 1) {
+      if (!_tokIs(sig, b, IDENT, name) || _afterDot(sig, b)) continue;
+      var range = null;
+      if (_isDeclarationName(sig, b) && _tokIs(sig, b + 1, P, "(")) range = _bodyAfterParams(b + 1);
+      else if (_tokIs(sig, b + 1, P, "=")) range = _functionValueAt(b + 2);
+      if (range !== null) { builders[name] = range; break; }
+    }
+    return builders[name];
+  }
+  var builderVerdicts = Object.create(null);
+  // A body carries the check when it calls a carrier, or a same-file builder
+  // whose body does.
+  function _bodyCarries(range, depth) {
+    if (range === null || depth > 6) return false;
+    for (var k = range.first; k <= range.last; k += 1) {
+      if (_isCarrierAt(k)) return true;
+      if (_tokIs(sig, k, IDENT) && !_afterDot(sig, k) && _tokIs(sig, k + 1, P, "(") &&
+          _builderCarries(sig[k].value, depth + 1)) return true;
+    }
+    return false;
+  }
+  function _builderCarries(name, depth) {
+    if (name in builderVerdicts) return builderVerdicts[name];
+    builderVerdicts[name] = false;
+    var verdict = _bodyCarries(_builderBody(name), depth);
+    builderVerdicts[name] = verdict;
+    return verdict;
+  }
+  // A flag per token in first..last that sits in a function body written
+  // inside that range.
+  function _innerBodies(first, last) {
+    var inner = new Uint8Array(sig.length);
+    spans.forEach(function (s) {
+      if (s.open < first || s.close > last) return;
+      for (var j = s.open; j <= s.close; j += 1) inner[j] = 1;
+    });
+    return inner;
+  }
+  function _isObjectKeyAt(k) {
+    return _tokIs(sig, k + 1, P, ":") && (_tokIs(sig, k - 1, P, "{") || _tokIs(sig, k - 1, P, ","));
+  }
+  // The expression in tokens first..last, read at token index `at`, carries the check.
+  function _valueCarries(first, last, at, depth) {
+    if (first > last || depth > 6) return false;
+    var inner = _innerBodies(first, last);
+    for (var k = first; k <= last; k += 1) {
+      if (inner[k]) continue;
+      if (_isCarrierAt(k)) return true;
+      if (!_tokIs(sig, k, IDENT) || _afterDot(sig, k) || _isObjectKeyAt(k)) continue;
+      if (_tokIs(sig, k + 1, P, "(")) {
+        if (_builderCarries(sig[k].value, depth + 1)) return true;
+        continue;
+      }
+      if (_variableCarries(sig[k].value, at, depth + 1)) return true;
+    }
+    return false;
+  }
+  function _isIdentityWriteAt(k) {
+    if (_tokIs(sig, k, P, ".") && _tokIs(sig, k + 1, IDENT, "checkServerIdentity")) return _isAssignOp(k + 2) ? k + 2 : -1;
+    if (_tokIs(sig, k, P, "[") && _tokIs(sig, k + 1, STRING) && /^(["'])checkServerIdentity\1$/.test(sig[k + 1].value) &&
+        _tokIs(sig, k + 2, P, "]") && _isAssignOp(k + 3)) return k + 3;
+    return -1;
+  }
+  // The variable `id` carries the check where token index `at` reads it.
+  function _variableCarries(id, at, depth) {
+    if (depth > 6) return false;
+    var pos = sig[at].start;
+    var hidden = _hidden(pos);
+    var scope = _declaringSpan(sig, spans, pos, id, null);
+    var carries = false;
+    for (var k = scope === null ? 0 : scope.open + 1; k < at; k += 1) {
+      if (hidden[k] || !_tokIs(sig, k, IDENT, id) || _afterDot(sig, k)) continue;
+      var w = _isIdentityWriteAt(k + 1);
+      if (w !== -1) {
+        carries = _valueCarries(w + 1, _rhsEnd(sig, w, at - 1), k, depth);
+      } else if (_tokIs(sig, k + 1, P, "=")) {
+        carries = _valueCarries(k + 2, _rhsEnd(sig, k + 1, at - 1), k, depth);
+      } else if (_tokIs(sig, k - 1, P, "(") && _tokIs(sig, k - 2, IDENT, "assign") && _tokIs(sig, k - 3, P, ".") &&
+                 _tokIs(sig, k - 4, IDENT, "Object") && _tokIs(sig, k + 1, P, ",")) {
+        var oc = _closingIndex(sig, k - 1);
+        if (oc !== -1 && oc < at && _valueCarries(k + 2, oc - 1, k, depth)) carries = true;
+      }
+    }
+    return carries;
+  }
+  // `new <m>.Agent(...)` assigned to a name whose createConnection the same
+  // function replaces with one that carries the check.
+  function _agentConnectionCarries(newAt, callAt) {
+    var t = newAt - 1;
+    if (!_tokIs(sig, t, P, "=") || !_tokIs(sig, t - 1, IDENT)) return false;
+    var name = sig[t - 1].value;
+    var scope = _innermostSpan(spans, sig[callAt].start, masked.length);
+    var from = scope.open === undefined ? 0 : scope.open + 1;
+    var to = scope.close === undefined ? sig.length - 1 : scope.close - 1;
+    for (var k = from; k + 3 <= to; k += 1) {
+      if (!_tokIs(sig, k, IDENT, name) || _afterDot(sig, k) || !_tokIs(sig, k + 1, P, ".") ||
+          !_tokIs(sig, k + 2, IDENT, "createConnection") || !_tokIs(sig, k + 3, P, "=")) continue;
+      if (_bodyCarries(_functionValueAt(k + 4), 0)) return true;
+    }
+    return false;
+  }
+  var out = [];
+  for (var i = 1; i + 1 < sig.length; i += 1) {
+    if (!_tokIs(sig, i, P, ".") && !_tokIs(sig, i, P, "?.")) continue;
+    if (!_tokIs(sig, i + 1, IDENT)) continue;
+    var method = sig[i + 1].value;
+    var isClass = TLS_DIAL_CLASSES[method] === 1;
+    if (!isClass && TLS_DIAL_METHODS[method] !== 1) continue;
+    var start = _receiverStart(i - 1);
+    if (start === -1) continue;
+    var afterNew = _tokIs(sig, start - 1, K, "new");
+    if (isClass !== afterNew) continue;
+    var open = _callOpenAt(sig, i + 2);
+    if (open === -1 || _closesParams(sig, open)) continue;
+    var close = _closingIndex(sig, open);
+    var callee = masked.slice(sig[start].start, sig[i + 1].end);
+    var line = masked.slice(0, sig[start].start).split("\n").length;
+    var fn = _namedFunctionAround(sig, spans, sig[start].start);
+    if (close === -1) {
+      out.push({ line: line, fn: fn, callee: callee, content: callee + " call is not terminated" });
+      continue;
+    }
+    if (method === "TLSSocket") {
+      var serverSide = false;
+      for (var s = open + 1; s < close; s += 1) {
+        if (_tokIs(sig, s, IDENT, "isServer") && _tokIs(sig, s + 1, P, ":")) serverSide = true;
+      }
+      if (serverSide) continue;
+    }
+    if (_valueCarries(open + 1, close - 1, start, 0)) continue;
+    if (method === "Agent" && _agentConnectionCarries(start - 1, start)) continue;
+    out.push({ line: line, fn: fn, callee: callee,
+      content: callee + "(...) options do not pass through networkTls()._withCompromisedChainCheck() or " +
+               "applyToContext({ role: \"client\" }), so a server chain carrying a compromised key is accepted" });
+  }
+  return out;
+}
+
+// The detector's shapes, each against a source it must or must not report.
+function testOutboundTlsChainCheckDetectorShapes() {
+  // class: outbound-tls-chain-check-detector-shapes (no marker)
+  var REQ = "var nodeTls = require(\"node:tls\");\nvar https = require(\"node:https\");\n" +
+            "var http2 = require(\"node:http2\");\n";
+  var FILLER = "  var x = 1;\n".repeat(120);
+  var cases = [
+    ["a dial with posture only", true,
+      REQ + "function dial() {\n  return nodeTls.connect(Object.assign({ host: h }, networkTls().outboundPosture()));\n}\n"],
+    ["an https.request with options built without the check", true,
+      REQ + "function go() {\n  var o = { hostname: h, port: p };\n  return https.request(o, function (res) {});\n}\n"],
+    ["an http2.connect with no options", true,
+      REQ + "function go() {\n  return http2.connect(\"https://\" + h);\n}\n"],
+    ["a new https.Agent with posture only", true,
+      REQ + "function make() {\n  return new https.Agent(networkTls().outboundPosture());\n}\n"],
+    ["a lazy-required module", true,
+      "var nodeTls = lazyRequire(function () { return require(\"node:tls\"); });\n" +
+      "function dial() {\n  return nodeTls().connect({ host: h });\n}\n"],
+    ["a direct require", true,
+      "function dial() {\n  return require(\"node:tls\").connect({ host: h });\n}\n"],
+    ["an alias chosen by protocol", true,
+      REQ + "var http = require(\"node:http\");\n" +
+      "function go(u) {\n  var t = { lib: u.secure ? https : http };\n  return t.lib.request({ hostname: h });\n}\n"],
+    ["the check only in the response callback", true,
+      REQ + "function go() {\n  return https.request({ hostname: h }, function (res) {\n" +
+      "    res.checkServerIdentity = networkTls()._withCompromisedChainCheck();\n  });\n}\n"],
+    ["the check set after the call", true,
+      REQ + "function dial() {\n  var o = { host: h };\n  var s = nodeTls.connect(o);\n" +
+      "  o.checkServerIdentity = networkTls()._withCompromisedChainCheck();\n  return s;\n}\n"],
+    ["the check replaced before the call", true,
+      REQ + "function dial(mine) {\n  var o = { host: h, checkServerIdentity: networkTls()._withCompromisedChainCheck() };\n" +
+      "  o.checkServerIdentity = mine;\n  return nodeTls.connect(o);\n}\n"],
+    ["the check on another variable", true,
+      REQ + "function dial() {\n  var other = { checkServerIdentity: networkTls()._withCompromisedChainCheck() };\n" +
+      "  var o = { host: h };\n  return nodeTls.connect(o);\n}\n"],
+    ["the check in another function", true,
+      REQ + "function prep(o) {\n  o.checkServerIdentity = networkTls()._withCompromisedChainCheck();\n}\n" +
+      "function dial() {\n  var o = { host: h };\n  return nodeTls.connect(o);\n}\n"],
+    ["applyToContext with the server role", true,
+      REQ + "function dial() {\n  return nodeTls.connect(networkTls().applyToContext({ base: {}, role: \"server\" }));\n}\n"],
+    ["a builder that does not run the check", true,
+      REQ + "function _opts() {\n  return networkTls().outboundPosture();\n}\n" +
+      "function dial() {\n  return nodeTls.connect(_opts());\n}\n"],
+    ["a client TLSSocket", true,
+      REQ + "function upgrade(sock) {\n  return new nodeTls.TLSSocket(sock, { servername: h });\n}\n"],
+    ["an Agent whose createConnection does not run the check", true,
+      REQ + "function make() {\n  var agent = new https.Agent({});\n" +
+      "  agent.createConnection = function (o) { return nodeTls.connect(o); };\n  return agent;\n}\n"],
+    ["an options parameter passed through", true,
+      REQ + "function dial(o) {\n  return nodeTls.connect(o);\n}\n"],
+    ["an unterminated call", true,
+      REQ + "function dial() {\n  return nodeTls.connect({ host: h,\n"],
+    ["the check written as the identity option", false,
+      REQ + "function dial(o) {\n  return nodeTls.connect(Object.assign({}, o, {\n" +
+      "    checkServerIdentity: networkTls()._withCompromisedChainCheck(o.checkServerIdentity) }));\n}\n"],
+    ["the check written on the options before the call", false,
+      REQ + "function dial(opts) {\n  var o = Object.assign({ host: h }, opts);\n" + FILLER +
+      "  o.checkServerIdentity = networkTls()._withCompromisedChainCheck(opts.checkServerIdentity);\n" +
+      "  return nodeTls.connect(o);\n}\n"],
+    ["the check under a bracketed key", false,
+      REQ + "function dial() {\n  var o = { host: h };\n" +
+      "  o[\"checkServerIdentity\"] = networkTls()._withCompromisedChainCheck();\n  return nodeTls.connect(o);\n}\n"],
+    ["the check written conditionally on the options", false,
+      REQ + "function go(u) {\n  var o = { hostname: h };\n" +
+      "  if (u.secure) o.checkServerIdentity = networkTls()._withCompromisedChainCheck();\n" +
+      "  return https.request(o, function (res) {});\n}\n"],
+    ["Object.assign merging the check in", false,
+      REQ + "function dial() {\n  var o = { host: h };\n" +
+      "  Object.assign(o, { checkServerIdentity: networkTls()._withCompromisedChainCheck() });\n  return nodeTls.connect(o);\n}\n"],
+    ["applyToContext with the client role", false,
+      REQ + "function dial() {\n  return http2.connect(u, networkTls().applyToContext({ base: {}, role: \"client\" }));\n}\n"],
+    ["buildOptions", false,
+      REQ + "function dial() {\n  return nodeTls.connect(networkTls().buildOptions({ ca: ca }));\n}\n"],
+    ["a builder that runs applyToContext", false,
+      REQ + "function _clientTlsOptions(base) {\n  return networkTls().applyToContext({ base: base, role: \"client\" });\n}\n" +
+      "function dial() {\n  var o = _clientTlsOptions({ host: h });\n  return nodeTls.connect(o);\n}\n"],
+    ["a builder calling a builder that runs the check", false,
+      REQ + "function _inner(o) {\n  o.checkServerIdentity = networkTls()._withCompromisedChainCheck();\n  return o;\n}\n" +
+      "var _outer = function (o) { return _inner(o); };\n" +
+      "function dial() {\n  return nodeTls.connect(_outer({ host: h }));\n}\n"],
+    ["options built in the outer function and the call in a callback", false,
+      REQ + "function dial() {\n  var o = { host: h, checkServerIdentity: networkTls()._withCompromisedChainCheck() };\n" +
+      "  return ready(function () {\n    return nodeTls.connect(o);\n  });\n}\n"],
+    ["an alias request whose options carry the check", false,
+      REQ + "var http = require(\"node:http\");\n" +
+      "function go(u, t) {\n  var o = { hostname: h };\n" +
+      "  if (u.secure) o.checkServerIdentity = networkTls()._withCompromisedChainCheck();\n" +
+      "  return t.lib.request(o);\n}\n" +
+      "function pick(u) {\n  return { lib: u.secure ? https : http };\n}\n"],
+    ["an Agent whose createConnection runs applyToContext", false,
+      REQ + "function make() {\n  var agent = new https.Agent({});\n" +
+      "  agent.createConnection = function (o) {\n" +
+      "    return nodeTls.connect(networkTls().applyToContext({ base: o, role: \"client\" }));\n  };\n  return agent;\n}\n"],
+    ["a server TLSSocket", false,
+      REQ + "function accept(sock, ctx) {\n  return new nodeTls.TLSSocket(sock, { isServer: true, secureContext: ctx });\n}\n"],
+    ["the call named in a comment", false,
+      REQ + "function doc() {\n  // nodeTls.connect({ host: h })\n  return 1;\n}\n"],
+    ["the call named in a string", false,
+      REQ + "function doc() {\n  throw new Error(\"build it with nodeTls.connect( yourself\");\n}\n"],
+    ["a method named connect on another object", false,
+      REQ + "function dial(pool) {\n  return pool.connect({ host: h });\n}\n"],
+    ["a function declaration named connect", false,
+      REQ + "var api = {\n  connect(o) {\n    return wrap(o);\n  },\n};\n"],
+  ];
+  var bad = [];
+  cases.forEach(function (c) {
+    var n = _outboundTlsChainCheckFindings(c[2]).length;
+    if ((n > 0) !== c[1]) {
+      bad.push({ file: "test/layer-0-primitives/codebase-patterns.test.js", line: 0,
+        content: c[0] + ": expected " + (c[1] ? "a finding" : "no finding") + ", got " + n });
+    }
+  });
+  var probe = _outboundTlsChainCheckFindings(REQ + "function _isEchSupported() {\n  return nodeTls.connect({ host: h });\n}\n");
+  if (probe.length !== 1 || probe[0].fn !== "_isEchSupported" || probe[0].callee !== "nodeTls.connect") {
+    bad.push({ file: "test/layer-0-primitives/codebase-patterns.test.js", line: 0,
+      content: "a finding names the function around the call and the callee: " + JSON.stringify(probe) });
+  }
+  _report("the outbound TLS chain-check detector reports each shape it guards and nothing else", bad);
+}
+
+function testOutboundTlsRunsCompromisedChainCheck() {
+  // class: outbound-tls-chain-check (no marker)
+  var files = _libFiles();
+  var bad = [];
+  var used = new Set();
+  for (var fi = 0; fi < files.length; fi++) {
+    var rel = _relPath(files[fi]);
+    if (rel.indexOf("lib/vendor/") === 0) continue;
+    var content;
+    try { content = fs.readFileSync(files[fi], "utf8"); }
+    catch (_e) { continue; }
+    _outboundTlsChainCheckFindings(content).forEach(function (f) {
+      var exempt = -1;
+      CHAIN_CHECK_EXEMPT.forEach(function (e, idx) {
+        if (e.file === rel && e.fn === f.fn && e.callee === f.callee) exempt = idx;
+      });
+      if (exempt !== -1) { used.add(exempt); return; }
+      bad.push({ file: rel, line: f.line, content: f.content });
+    });
+  }
+  CHAIN_CHECK_EXEMPT.forEach(function (e, idx) {
+    if (!used.has(idx)) {
+      bad.push({ file: e.file, line: 0,
+        content: "CHAIN_CHECK_EXEMPT entry " + e.fn + " / " + e.callee + " matches no construction; remove it" });
+    }
+  });
+  _report("outbound TLS constructions run the compromised-key chain check", bad);
+}
+
+// The value written to an `ecdhCurve` key, bare, quoted or bracketed: from the
+// key to the end of its statement (`;`), its property (`,` or `}` ending a
+// line) or a blank line. The tempered token is the precision mechanism;
+// {0,400} is a ReDoS backstop.
+var ECDH_CURVE_WRITE_RE =
+  /(?:\becdhCurve|\[[ \t]*["']ecdhCurve["'][ \t]*\]|["']ecdhCurve["'])[ \t]*(?:=(?!=)|:)\s*((?:(?!;|,[ \t]*\r?\n|\r?\n[ \t]*\}|\r?\n[ \t]*\r?\n)[\s\S]){0,400})/g;
+// A value that is the flat, colon-joined offer order: a joined list, the
+// shared flat constant, the key-share list itself, the flat helper, the
+// outbound posture's string, or a quoted group list with ":" and no "/".
+var FLAT_GROUP_OFFER_RE =
+  /\.join\(\s*["']:["']\s*\)|\bTLS_GROUP_CURVE_STR\b|\btlsKeyShares\b|(?:^|[^\w$])keyAgreementGroups\s*\(|outboundPosture\s*\(\s*\)\s*\.ecdhCurve|["'][\w?*]+(?::[\w?*]+)+["']/;
+// The node:tls, node:https and node:http2 members that build a TLS listener or
+// a context a listener can serve from, by module.
+var TLS_LISTENER_MEMBERS = {
+  tls:   ["createServer", "Server", "createSecureContext", "TLSSocket"],
+  https: ["createServer", "Server"],
+  http2: ["createSecureServer"],
+};
+// Members matched on any receiver, because no other core module has the name.
+// setSecureContext replaces a running listener's context, groups included.
+var TLS_LISTENER_ANY_RECEIVER = { createSecureServer: 1, createSecureContext: 1, setSecureContext: 1, TLSSocket: 1 };
+// The quoted module name in `require("tls")` or `require("node:tls")`, and
+// the same for https and http2. Group 1 names the module.
+var TLS_MODULE_SPEC_RE = /^["'](?:node:)?(tls|https|http2)["']$/;
+// A file that can hold a listener call requires one of the modules or names a
+// member no other module has.
+var TLS_LISTENER_TRIGGER_RE =
+  /require\(\s*["'](?:node:)?(?:tls|https|http2)["']\s*\)|createSecureServer|createSecureContext|setSecureContext|TLSSocket/;
+var SERVER_GROUPS_CALL_RE = /\bserverKeyAgreementGroups\s*\(/;
+
+// `require("<module>")` at token index `k` for one of the three modules, as
+// { mod, end } where `end` is the index of its `)`, or null.
+function _requireModuleAt(sig, k) {
+  var P = shapeMatch.TOK_PUNCT;
+  if (!_tokIs(sig, k, shapeMatch.TOK_IDENT, "require") || _afterDot(sig, k) || !_tokIs(sig, k + 1, P, "(") ||
+      !_tokIs(sig, k + 2, shapeMatch.TOK_STRING) || !_tokIs(sig, k + 3, P, ")")) return null;
+  var spec = TLS_MODULE_SPEC_RE.exec(sig[k + 2].value);
+  return spec ? { mod: spec[1], end: k + 3 } : null;
+}
+
+// A module expression at token index `k`: a require of one of the three
+// modules, or a lazyRequire whose function or arrow returns one. Returns
+// { mod, end, lazy } where `end` is the index of the last `)`, or null.
+function _moduleExprAt(sig, k) {
+  var P = shapeMatch.TOK_PUNCT;
+  var K = shapeMatch.TOK_KEYWORD;
+  var direct = _requireModuleAt(sig, k);
+  if (direct !== null) return { mod: direct.mod, end: direct.end, lazy: false };
+  if (!_tokIs(sig, k, shapeMatch.TOK_IDENT, "lazyRequire") || _afterDot(sig, k) || !_tokIs(sig, k + 1, P, "(")) return null;
+  var close = _closingIndex(sig, k + 1);
+  if (close === -1) return null;
+  var j = k + 2;
+  if (_tokIs(sig, j, K, "function") && _tokIs(sig, j + 1, P, "(") && _tokIs(sig, j + 2, P, ")")) j += 3;
+  else if (_tokIs(sig, j, P, "(") && _tokIs(sig, j + 1, P, ")") && _tokIs(sig, j + 2, P, "=>")) j += 3;
+  else return null;
+  var braced = _tokIs(sig, j, P, "{");
+  if (braced) {
+    if (!_tokIs(sig, j + 1, K, "return")) return null;
+    j += 2;
+  }
+  var inner = _requireModuleAt(sig, j);
+  if (inner === null) return null;
+  j = inner.end + 1;
+  if (braced) {
+    if (_tokIs(sig, j, P, ";")) j += 1;
+    if (!_tokIs(sig, j, P, "}")) return null;
+    j += 1;
+  }
+  return j === close ? { mod: inner.mod, end: close, lazy: true } : null;
+}
+
+// The entries of the destructuring pattern in tokens first..last, as
+// { local, member, at } or, for `...rest`, { rest: true, local, at }, where
+// `at` is the index of the local name. A nested pattern is skipped.
+function _destructuredEntries(sig, first, last) {
+  var P = shapeMatch.TOK_PUNCT;
+  var IDENT = shapeMatch.TOK_IDENT;
+  var out = [];
+  var start = first;
+  for (var k = first; k <= last + 1; k += 1) {
+    if (k <= last) {
+      if (sig[k].type === P && CLOSER_OF[sig[k].value]) {
+        var c = _closingIndex(sig, k);
+        if (c !== -1 && c <= last) k = c;
+        continue;
+      }
+      if (!_tokIs(sig, k, P, ",")) continue;
+    }
+    var a = start;
+    var b = k - 1;
+    start = k + 1;
+    if (a > b) continue;
+    if (_tokIs(sig, a, P, "...") && a + 1 === b && _tokIs(sig, b, IDENT)) {
+      out.push({ rest: true, local: sig[b].value, at: b });
+      continue;
+    }
+    var key = null;
+    if (_tokIs(sig, a, IDENT)) key = sig[a].value;
+    else if (_tokIs(sig, a, shapeMatch.TOK_STRING)) {
+      var lit = /^(["'])([A-Za-z_$][\w$]*)\1$/.exec(sig[a].value);
+      key = lit ? lit[2] : null;
+    }
+    if (key === null) continue;
+    var j = a + 1;
+    var local = sig[a].type === IDENT ? key : null;
+    var at = a;
+    if (_tokIs(sig, j, P, ":")) {
+      if (!_tokIs(sig, j + 1, IDENT)) continue;
+      local = sig[j + 1].value;
+      at = j + 1;
+      j += 2;
+    }
+    if (local === null || (j <= b && !_tokIs(sig, j, P, "="))) continue;
+    out.push({ local: local, member: key, at: at });
+  }
+  return out;
+}
+
+// The names `sig` binds to node:tls, node:https or node:http2. `modules` maps
+// a local name to its module, from `x = <module expression>` or a `...rest`
+// of a destructured require. `members` maps a local name to { mod, member },
+// from `x = require(...).member` or a destructuring `{ member, member: local }
+// = require(...)`. A member called there (`x = require(...).member(...)`)
+// binds the result and is not recorded. `sites` holds the token index of each
+// local name a member binding declares.
+function _tlsModuleBindings(sig) {
+  var P = shapeMatch.TOK_PUNCT;
+  var out = { modules: Object.create(null), members: Object.create(null), sites: Object.create(null) };
+  for (var k = 0; k + 2 < sig.length; k += 1) {
+    if (_tokIs(sig, k, shapeMatch.TOK_IDENT) && _tokIs(sig, k + 1, P, "=") && !_afterDot(sig, k)) {
+      var expr = _moduleExprAt(sig, k + 2);
+      if (expr === null) continue;
+      var acc = _memberAccessAt(sig, expr.end + 1);
+      if (acc === null) out.modules[sig[k].value] = expr.mod;
+      else if (!expr.lazy && _callOpenAt(sig, acc.next) === -1) {
+        out.members[sig[k].value] = { mod: expr.mod, member: acc.name };
+        out.sites[k] = true;
+      }
+      continue;
+    }
+    if (!_tokIs(sig, k, P, "{")) continue;
+    var close = _closingIndex(sig, k);
+    if (close === -1 || !_tokIs(sig, close + 1, P, "=")) continue;
+    var dexpr = _moduleExprAt(sig, close + 2);
+    if (dexpr === null || dexpr.lazy) continue;
+    _destructuredEntries(sig, k + 1, close - 1).forEach(function (e) {
+      if (e.rest) out.modules[e.local] = dexpr.mod;
+      else out.members[e.local] = { mod: dexpr.mod, member: e.member };
+      out.sites[e.at] = true;
+    });
+  }
+  return out;
+}
+
+// The module the receiver ending at token index `e` is: a module binding,
+// a call of one with no arguments (a lazyRequire), or a require of one.
+function _receiverModule(sig, e, modules) {
+  if (e < 0) return null;
+  var IDENT = shapeMatch.TOK_IDENT;
+  if (sig[e].type === IDENT) return _afterDot(sig, e) ? null : (modules[sig[e].value] || null);
+  if (!_tokIs(sig, e, shapeMatch.TOK_PUNCT, ")")) return null;
+  var o = _openingIndex(sig, e);
+  if (o <= 0) return null;
+  if (o + 1 === e && _tokIs(sig, o - 1, IDENT) && !_afterDot(sig, o - 1)) return modules[sig[o - 1].value] || null;
+  var req = _requireModuleAt(sig, o - 1);
+  return req !== null && req.end === e ? req.mod : null;
+}
+
+// The member a `class ... extends <heritage> {` at token index `k` extends,
+// as { name, body } where `body` is the index of the class body's `{`, when
+// the heritage is a listed member of one of the three modules; else null.
+// `super(...)` in that body constructs it.
+function _extendedListenerClass(sig, k, bindings) {
+  var P = shapeMatch.TOK_PUNCT;
+  var IDENT = shapeMatch.TOK_IDENT;
+  var j = k + 1;
+  if (_tokIs(sig, j, IDENT)) j += 1;
+  if (!_tokIs(sig, j, shapeMatch.TOK_KEYWORD, "extends")) return null;
+  var body = j + 1;
+  while (body < sig.length && !_tokIs(sig, body, P, "{")) {
+    if (sig[body].type === P && CLOSER_OF[sig[body].value]) {
+      var c = _closingIndex(sig, body);
+      if (c === -1) return null;
+      body = c;
+    }
+    body += 1;
+  }
+  if (body >= sig.length) return null;
+  var last = body - 1;
+  if (!_tokIs(sig, last, IDENT)) return null;
+  var name = null;
+  var mod = null;
+  if (last === j + 1) {
+    var member = bindings.members[sig[last].value];
+    if (member) { name = member.member; mod = member.mod; }
+  } else if (_memberAccessAt(sig, last - 1) !== null) {
+    name = sig[last].value;
+    mod = _receiverModule(sig, last - 2, bindings.modules);
+  }
+  if (name === null || mod === null || TLS_LISTENER_MEMBERS[mod].indexOf(name) === -1) return null;
+  return { name: name, body: body };
+}
+
+// Every call in `sig` that builds a TLS listener or a context a listener can
+// serve from, as { index, open, name } in source order: `index` and `open` are
+// the offsets of the member's first token and of the call's `(`, and `name`
+// the member it calls. A call is a member read from a module binding or a
+// require of one, any receiver's member in TLS_LISTENER_ANY_RECEIVER, a bare
+// call of a member binding that no enclosing function shadows, a bare
+// `new TLSSocket(`, or super(...) in a class extending a listener class.
+// Parens the tokenizer marks as a parameter list (a declaration or a method
+// with a member's name) are not a call.
+function _tlsListenerCalls(sig, spans) {
+  var IDENT = shapeMatch.TOK_IDENT;
+  var bindings = _tlsModuleBindings(sig);
+  var hits = [];
+  function _hit(at, open, name) {
+    hits.push({ index: sig[at].start, open: sig[open].start, name: name });
+  }
+  for (var k = 0; k < sig.length; k += 1) {
+    var open = -1;
+    var acc = _memberAccessAt(sig, k);
+    if (acc !== null) {
+      open = _callOpenAt(sig, acc.next);
+      if (open === -1) continue;
+      var mod = _receiverModule(sig, k - 1, bindings.modules);
+      if (TLS_LISTENER_ANY_RECEIVER[acc.name] === 1 ||
+          (mod !== null && TLS_LISTENER_MEMBERS[mod].indexOf(acc.name) !== -1)) _hit(k, open, acc.name);
+      continue;
+    }
+    if (_tokIs(sig, k, shapeMatch.TOK_KEYWORD, "class")) {
+      var ext = _extendedListenerClass(sig, k, bindings);
+      var bodyEnd = ext === null ? -1 : _closingIndex(sig, ext.body);
+      for (var s = ext === null ? 0 : ext.body + 1; s < bodyEnd; s += 1) {
+        if (_tokIs(sig, s, shapeMatch.TOK_KEYWORD, "super") && _tokIs(sig, s + 1, shapeMatch.TOK_PUNCT, "(")) {
+          _hit(s, s + 1, ext.name);
+        }
+      }
+      continue;
+    }
+    if (!_tokIs(sig, k, IDENT) || _afterDot(sig, k)) continue;
+    open = _callOpenAt(sig, k + 1);
+    if (open === -1 || _closesParams(sig, open)) continue;
+    var member = bindings.members[sig[k].value];
+    if (member && TLS_LISTENER_MEMBERS[member.mod].indexOf(member.member) !== -1 &&
+        _declaringSpan(sig, spans, sig[k].start, sig[k].value, bindings.sites) === null) {
+      _hit(k, open, member.member);
+    } else if (sig[k].value === "TLSSocket" && _tokIs(sig, k - 1, shapeMatch.TOK_KEYWORD, "new")) {
+      _hit(k, open, "TLSSocket");
+    }
+  }
+  return hits.sort(function (a, b) { return a.index - b.index; });
+}
+
+// `src` with every comment replaced by spaces, keeping each offset and line
+// break, so a position found in it is the same position in the file.
+function _maskComments(src) {
+  var ranges = shapeMatch.commentRanges(src);
+  var out = "";
+  var at = 0;
+  for (var i = 0; i < ranges.length; i += 1) {
+    out += src.slice(at, ranges[i].start) +
+      src.slice(ranges[i].start, ranges[i].end).replace(/[^\r\n]/g, " ");
+    at = ranges[i].end;
+  }
+  return out + src.slice(at);
+}
+
+// Every function body in `src` as { start, end, open, close }: the offsets of
+// its `{` and one past its `}`, and the token indices of the two. Read from
+// the shared tokenizer so a brace inside a string, template or pattern is not
+// counted. A body is the brace after a parameter list or after `=>`.
+function _functionBodySpans(sig) {
+  var spans = [];
+  var stack = [];
+  for (var k = 0; k < sig.length; k += 1) {
+    if (sig[k].type !== shapeMatch.TOK_PUNCT) continue;
+    if (sig[k].value === "{") {
+      var prev = k > 0 ? sig[k - 1] : null;
+      stack.push({ at: k, body: prev !== null && prev.type === shapeMatch.TOK_PUNCT &&
+        ((prev.value === ")" && prev.closedParams === true) || prev.value === "=>") });
+    } else if (sig[k].value === "}" && stack.length > 0) {
+      var open = stack.pop();
+      if (open.body) spans.push({ start: sig[open.at].start, end: sig[k].end, open: open.at, close: k });
+    }
+  }
+  return spans;
+}
+
+// The innermost span holding `pos`, or the whole source when none does.
+function _innermostSpan(spans, pos, srcLength) {
+  var best = null;
+  for (var i = 0; i < spans.length; i += 1) {
+    if (spans[i].start < pos && pos < spans[i].end && (best === null || spans[i].start > best.start)) {
+      best = spans[i];
+    }
+  }
+  return best || { start: 0, end: srcLength };
+}
+
+// The text of the call whose `(` is at `openPos`, through its matching `)`.
+function _callArgsAt(sig, openPos) {
+  for (var i = 0; i < sig.length; i += 1) {
+    if (sig[i].start !== openPos) continue;
+    var depth = 0;
+    for (var j = i; j < sig.length; j += 1) {
+      if (sig[j].type !== shapeMatch.TOK_PUNCT) continue;
+      if (sig[j].value === "(") depth += 1;
+      else if (sig[j].value === ")") { depth -= 1; if (depth === 0) return { start: openPos, end: sig[j].end }; }
+    }
+    return null;
+  }
+  return null;
+}
+
+// Findings for one file: { line, kind, content }, where kind is "write" for an
+// `ecdhCurve` written from the flat offer order (directly or through one
+// variable) and "listener" for a listener or server context built in a
+// function that never calls serverKeyAgreementGroups(), directly or through a
+// same-file function that does. A TLSSocket counts only with `isServer: true`,
+// and a call passing `secureContext` takes its groups from that context.
+function _listenerGroupFindings(content) {
+  var masked = _maskComments(content);
+  var out = [];
+  var sig = null;
+  var spans = null;
+  function _lineOf(pos) { return masked.slice(0, pos).split("\n").length; }
+  function _tokens() {
+    if (sig === null) {
+      sig = _tokensWithSubstitutions(masked);
+      spans = _functionBodySpans(sig);
+    }
+  }
+  function _enclosing(pos) {
+    _tokens();
+    var span = _innermostSpan(spans, pos, masked.length);
+    return masked.slice(span.start, span.end);
+  }
+  // Inside the text of a string or template, past its opening quote: prose
+  // such as an error message naming `opts.ecdhCurve='...'`. A quoted key
+  // starts AT the opening quote, and a template substitution is code.
+  function _insideString(pos) {
+    _tokens();
+    return _insideLiteral(sig, pos);
+  }
+
+  var re = new RegExp(ECDH_CURVE_WRITE_RE.source, "g");
+  var m;
+  while ((m = re.exec(masked)) !== null) {
+    if (_insideString(m.index)) { re.lastIndex = m.index + 1; continue; }
+    var value = m[1];
+    var flat = FLAT_GROUP_OFFER_RE.test(value);
+    var ident = /^\s*([A-Za-z_$][\w$]*)\s*$/.exec(value);
+    if (!flat && ident) {
+      var assignRe = new RegExp("(?:^|[^\\w$.])" + ident[1].replace(/\$/g, "\\$") +
+        "[ \\t]*=(?!=)\\s*([^;]{0,400})", "g");
+      var body = _enclosing(m.index);
+      var am;
+      while (!flat && (am = assignRe.exec(body)) !== null) flat = FLAT_GROUP_OFFER_RE.test(am[1]);
+    }
+    if (!flat) continue;
+    out.push({ line: _lineOf(m.index), kind: "write",
+      content: "ecdhCurve is written from the flat colon-joined offer order; a listener " +
+               "given it lets the client's key share pick a classical group. Use " +
+               "b.network.tls.serverKeyAgreementGroups() for a listener, or mark a " +
+               "client offer allow:listener-group-preference" });
+  }
+
+  var helpers = null;
+  var calls = [];
+  if (TLS_LISTENER_TRIGGER_RE.test(masked)) {
+    _tokens();
+    calls = _tlsListenerCalls(sig, spans);
+  }
+  for (var ci = 0; ci < calls.length; ci += 1) {
+    var hit = calls[ci];
+    var call = _callArgsAt(sig, hit.open);
+    var args = call ? masked.slice(call.start, call.end) : "";
+    if (hit.name === "TLSSocket" && !/\bisServer\s*:\s*true\b/.test(args)) continue;
+    if (/\bsecureContext\s*:/.test(args)) continue;
+    var region = _enclosing(hit.index);
+    if (SERVER_GROUPS_CALL_RE.test(region)) continue;
+    if (helpers === null) {
+      var bodies = _topLevelFunctionBodies("\n" + masked);
+      helpers = Object.keys(bodies).filter(function (name) {
+        return SERVER_GROUPS_CALL_RE.test(bodies[name].text);
+      });
+    }
+    var viaHelper = helpers.some(function (name) {
+      return new RegExp("(?:^|[^\\w$.])" + name.replace(/\$/g, "\\$") + "\\s*\\(").test(region);
+    });
+    if (viaHelper) continue;
+    out.push({ line: _lineOf(hit.index), kind: "listener",
+      content: "TLS listener or server context (" + hit.name + ") built without " +
+               "b.network.tls.serverKeyAgreementGroups(); it negotiates on a flat or default " +
+               "group list and can settle on a classical group with a client a default " +
+               "b.pqcGate passed" });
+  }
+  return out;
+}
+
+// The detector's shapes, each against a source it must or must not report.
+function testListenerGroupDetectorShapes() {
+  // class: listener-group-detector-shapes (no marker)
+  var TLS_REQ = "var nodeTls = require(\"node:tls\");\n";
+  var LISTEN_THEN_HELPER = TLS_REQ + "function listen() {\n  return nodeTls.createServer({ key: k, cert: c });\n}\n\n" +
+    "function describePosture() {\n  return networkTls().serverKeyAgreementGroups();\n}\n";
+  var cases = [
+    ["the flat join written to ecdhCurve", "write",
+      "function applyToContext(opts) {\n  base.ecdhCurve = STATE.tlsKeyShares.join(\":\");\n}\n"],
+    ["a flat join reaching ecdhCurve through one variable", "write",
+      "function applyToContext(base) {\n  var flat = STATE.tlsKeyShares.join(\":\");\n  base.ecdhCurve = flat;\n}\n"],
+    ["a flat quoted group list", "write",
+      "function opts() {\n  return { key: k, ecdhCurve: \"X25519MLKEM768:X25519\" };\n}\n"],
+    ["a flat list under a bracketed key", "write",
+      "function opts(o) {\n  o[\"ecdhCurve\"] = STATE.tlsKeyShares.join(\":\");\n}\n"],
+    ["a flat list under a quoted key", "write",
+      "function opts() {\n  return { \"ecdhCurve\": C.TLS_GROUP_PREFERENCE.join(\":\") };\n}\n"],
+    ["a listener whose neighbor function calls serverKeyAgreementGroups()", "listener", LISTEN_THEN_HELPER],
+    ["a listener far from any serverKeyAgreementGroups() call", "listener",
+      LISTEN_THEN_HELPER.replace("\n\n", "\n" + "var x = 1;\n".repeat(200))],
+    ["a server context with no groups", "listener",
+      "function build() {\n  return nodeTls.createSecureContext({ key: k, cert: c });\n}\n"],
+    ["a server context from require(\"node:tls\")", "listener",
+      "function build() {\n  return require(\"node:tls\").createSecureContext({ key: k, cert: c });\n}\n"],
+    ["a server TLSSocket with no context", "listener",
+      "function wrap(raw) {\n  return new nodeTls.TLSSocket(raw, { isServer: true, key: k, cert: c });\n}\n"],
+    ["an http2 secure server inside a callback", "listener",
+      "function listen() {\n  var groups = networkTls().serverKeyAgreementGroups();\n" +
+      "  return ready(function () {\n    return http2.createSecureServer({ key: k });\n  });\n}\n"],
+    ["an http2 secure server on an aliased binding", "listener",
+      "var h2 = require(\"node:http2\");\nfunction listen() {\n  return h2.createSecureServer({ key: k });\n}\n"],
+    ["an http2 secure server on a receiver the file never binds", "listener",
+      "function listen(mod) {\n  return mod.createSecureServer({ key: k });\n}\n"],
+    ["an https server on an aliased binding", "listener",
+      "var secure = require(\"node:https\");\nfunction listen() {\n  return secure.createServer({ key: k, cert: c });\n}\n"],
+    ["a bare createSecureServer from a destructured require", "listener",
+      "var { createSecureServer } = require(\"node:http2\");\nfunction listen() {\n  return createSecureServer({ key: k });\n}\n"],
+    ["a renamed member of a destructured require", "listener",
+      "var { createServer: makeListener } = require(\"node:tls\");\nfunction listen() {\n  return makeListener({ key: k });\n}\n"],
+    ["a member assigned straight from a require", "listener",
+      "var makeServer = require(\"https\").createServer;\nfunction listen() {\n  return makeServer({ key: k });\n}\n"],
+    ["new tls.Server", "listener",
+      TLS_REQ + "function listen() {\n  return new nodeTls.Server({ key: k });\n}\n"],
+    ["new https.Server", "listener",
+      "var https = require(\"node:https\");\nfunction listen() {\n  return new https.Server({ key: k });\n}\n"],
+    ["a destructured Server class", "listener",
+      "const { Server } = require(\"node:tls\");\nfunction listen() {\n  return new Server({ key: k });\n}\n"],
+    ["a running listener given a new context", "listener",
+      "function rotate(server) {\n  server.setSecureContext({ key: k, cert: c });\n}\n"],
+    ["a lazily required module", "listener",
+      "var nodeTls = lazyRequire(function () { return require(\"node:tls\"); });\n" +
+      "function listen() {\n  return nodeTls().createServer({ key: k });\n}\n"],
+    ["an https server straight off require", "listener",
+      "function listen() {\n  return require(\"node:https\").createServer({ key: k });\n}\n"],
+    ["an http server on an aliased binding", null,
+      "var secure = require(\"node:http\");\nfunction listen() {\n  return secure.createServer(fn);\n}\n"],
+    ["a cleartext http2 server", null,
+      "var http2 = require(\"node:http2\");\nfunction listen() {\n  return http2.createServer(fn);\n}\n"],
+    ["a destructured net createServer", null,
+      "var { createServer } = require(\"node:net\");\nfunction listen() {\n  return createServer(fn);\n}\n"],
+    ["a net Server", null,
+      "var net = require(\"node:net\");\nfunction listen() {\n  return new net.Server(fn);\n}\n"],
+    ["a running listener given a context with server groups", null,
+      "function rotate(server) {\n  server.setSecureContext({ key: k, ecdhCurve: networkTls().serverKeyAgreementGroups() });\n}\n"],
+    ["a local function named like a tls member", null,
+      TLS_REQ + "function createServer(opts) {\n  return opts;\n}\nfunction listen() {\n  return createServer({ key: k });\n}\n"],
+    ["a binding that exists only in a comment", null,
+      "// var secure = require(\"node:https\");\nfunction listen() {\n  return secure.createServer(fn);\n}\n"],
+    ["a listener taking serverKeyAgreementGroups() inline", null,
+      TLS_REQ + "function listen() {\n  return nodeTls.createServer({ key: k, ecdhCurve: networkTls().serverKeyAgreementGroups() });\n}\n"],
+    ["a server context whose options come from a helper that calls it", null,
+      "function _opts() {\n  return { key: k, ecdhCurve: networkTls().serverKeyAgreementGroups() };\n}\n" +
+      "function build() {\n  return nodeTls.createSecureContext(_opts());\n}\n"],
+    ["a tuple group list", null,
+      "function opts() {\n  return { ecdhCurve: \"X25519MLKEM768/X25519\" };\n}\n"],
+    ["a server TLSSocket over a built context", null,
+      "function wrap(raw, ctx) {\n  return new nodeTls.TLSSocket(raw, { isServer: true, secureContext: ctx });\n}\n"],
+    ["a client TLSSocket", null,
+      "function wrap(raw) {\n  return new nodeTls.TLSSocket(raw, { servername: h });\n}\n"],
+    ["ecdhCurve and a listener named inside an error message", null,
+      "var tls = require(\"node:tls\");\nfunction check(opts) {\n  throw new Error(\"opts.ecdhCurve='\" + opts.ecdhCurve + \"' is not X25519:X448; \" +\n" +
+      "    \"pass it to tls.createServer( yourself\");\n}\n"],
+    ["a flat write on the line after an error message naming ecdhCurve", "write",
+      "function check(opts, base) {\n  if (!ok) throw new Error(\"opts.ecdhCurve='\" + opts.ecdhCurve + \"'\");\n" +
+      "  base.ecdhCurve = STATE.tlsKeyShares.join(\":\");\n}\n"],
+    ["a listener named in a comment", null,
+      TLS_REQ + "function doc() {\n  // nodeTls.createServer({ ecdhCurve: STATE.tlsKeyShares.join(\":\") })\n  return 1;\n}\n"],
+    ["a plain net server", null,
+      "var net = require(\"node:net\");\nfunction listen() {\n  return net.createServer(function () {});\n}\n"],
+    ["a lazily required module through an arrow", "listener",
+      "var nodeTls = lazyRequire(() => require(\"node:tls\"));\n" +
+      "function listen() {\n  return nodeTls().createServer({ key: k });\n}\n"],
+    ["an optional call", "listener",
+      "var h2 = require(\"node:http2\");\nfunction listen() {\n  return h2.createSecureServer?.({ key: k });\n}\n"],
+    ["an optional member access", "listener",
+      TLS_REQ + "function listen() {\n  return nodeTls?.createServer({ key: k });\n}\n"],
+    ["a bracketed member call", "listener",
+      TLS_REQ + "function listen() {\n  return nodeTls[\"createServer\"]({ key: k });\n}\n"],
+    ["a call split across two lines", "listener",
+      TLS_REQ + "function listen() {\n  return nodeTls\n    .createServer({ key: k });\n}\n"],
+    ["a destructured member with a default", "listener",
+      "var { createServer = null } = require(\"node:https\");\nfunction listen() {\n  return createServer({ key: k });\n}\n"],
+    ["the rest of a destructured require", "listener",
+      "var { connect, ...rest } = require(\"node:tls\");\nfunction listen() {\n  return rest.createServer({ key: k });\n}\n"],
+    ["a second declarator bound to node:tls", "listener",
+      "var net = require(\"node:net\"), tlsMod = require(\"node:tls\");\n" +
+      "function listen() {\n  return tlsMod.createServer({ key: k });\n}\n"],
+    ["super() in a subclass of a destructured tls.Server", "listener",
+      "var { Server } = require(\"node:tls\");\nclass X extends Server {\n  constructor(o) {\n    super(o);\n  }\n}\n"],
+    ["super() in a subclass of https.Server", "listener",
+      "var https = require(\"node:https\");\nclass X extends https.Server {\n  constructor(o) {\n    super(o);\n  }\n}\n"],
+    ["a call inside a template substitution", "listener",
+      TLS_REQ + "function listen() {\n  return `${nodeTls.createServer({ key: k })}`;\n}\n"],
+    ["a member bound and called inside one function", "listener",
+      "function listen() {\n  var make = require(\"node:tls\").createServer;\n  return make({ key: k });\n}\n"],
+    ["a bare TLSSocket constructed as a server", "listener",
+      "function wrap(raw) {\n  return new TLSSocket(raw, { isServer: true, key: k });\n}\n"],
+    ["a destructured member whose name a nested function declares", "listener",
+      "var { createServer } = require(\"node:tls\");\nfunction listen() {\n" +
+      "  function inner() { var createServer = 1; return createServer; }\n  return createServer({ key: k });\n}\n"],
+    ["super() in a subclass of a destructured https createServer", "listener",
+      "var { createServer } = require(\"node:https\");\nclass X extends createServer {\n  constructor(o) {\n    super(o);\n  }\n}\n"],
+    ["a flat write inside a template substitution", "write",
+      "function opts(base) {\n  return `${base.ecdhCurve = STATE.tlsKeyShares.join(\":\")}`;\n}\n"],
+    ["super() in a subclass of https.Agent", null,
+      "var https = require(\"node:https\");\nclass A extends https.Agent {\n  constructor(o) {\n    super(o);\n  }\n}\n"],
+    ["a computed method named like a listener member", null,
+      "var api = {\n  [\"createSecureContext\"](o) {\n    return o;\n  },\n};\n"],
+    ["a property named like a module binding", null,
+      "var tlsMod = require(\"node:tls\");\nfunction f(o) {\n  return o.tlsMod.createServer(fn);\n}\n"],
+    ["a method named like a destructured member", null,
+      "var { createServer } = require(\"node:tls\");\nvar api = {\n  createServer(o) {\n    return o;\n  },\n};\n"],
+    ["a class method named like a destructured member", null,
+      "var { createServer } = require(\"node:tls\");\nclass A {\n  createServer(o) {\n    return o;\n  }\n}\n"],
+    ["a parameter shadowing a destructured member", null,
+      "var { createServer } = require(\"node:tls\");\nfunction f(createServer) {\n  return createServer(1);\n}\n"],
+    ["a local variable shadowing a destructured member", null,
+      "var { createServer } = require(\"node:tls\");\nfunction f() {\n  var createServer = makeFake();\n  return createServer(1);\n}\n"],
+    ["a generator declaration named like a destructured member", null,
+      "var { createServer } = require(\"node:tls\");\nfunction* createServer(o) {\n  yield o;\n}\n"],
+    ["an async declaration named like a destructured member", null,
+      "var { createServer } = require(\"node:tls\");\nasync function createServer(o) {\n  return o;\n}\n"],
+    ["a declaration named like a destructured member", null,
+      "var { createServer } = require(\"node:tls\");\nfunction createServer(opts) {\n  return opts;\n}\n"],
+    ["a member the table does not list", null,
+      "var { connect } = require(\"node:tls\");\nfunction dial() {\n  return connect({ host: h });\n}\n"],
+    ["a name bound to what a listener call returned", null,
+      "var made = require(\"node:tls\").createServer({ key: k, ecdhCurve: networkTls().serverKeyAgreementGroups() });\n" +
+      "function use() {\n  return made(fn);\n}\n"],
+    ["a binding written inside a string", null,
+      "var s = \"y = require('node:tls')\";\nfunction listen() {\n  return y.createServer(fn);\n}\n"],
+    ["an object key named like a destructured member", null,
+      "var { createServer } = require(\"node:tls\");\nvar o = { createServer: createServer };\n"],
+    ["a subclass with no constructor call", null,
+      "var { Server } = require(\"node:tls\");\nclass X extends Server {}\n"],
+    ["super() in a subclass of net.Server", null,
+      "var net = require(\"node:net\");\nclass X extends net.Server {\n  constructor(o) {\n    super(o);\n  }\n}\n"],
+    ["a template whose literal text names a listener", null,
+      TLS_REQ + "function doc() {\n  return `nodeTls.createServer({ key: k })`;\n}\n"],
+  ];
+  var bad = [];
+  cases.forEach(function (c) {
+    var kinds = _listenerGroupFindings(c[2]).map(function (f) { return f.kind; });
+    var ok = c[1] === null ? kinds.length === 0 : kinds.indexOf(c[1]) !== -1;
+    if (!ok) {
+      bad.push({ file: "test/layer-0-primitives/codebase-patterns.test.js", line: 0,
+        content: c[0] + ": expected " + (c[1] || "no finding") + ", got [" + kinds.join(", ") + "]" });
+    }
+  });
+  _report("the listener-group detector reports each shape it guards and nothing else", bad);
+}
+
+function testListenerGroupsUseServerPreference() {
+  // class: listener-group-preference
+  //
+  // OpenSSL reads a listener's group string as tuples ("/" between them,
+  // ":" within one). Inside one tuple the listener takes the group the client
+  // sent a key share for, so a flat "X25519MLKEM768:...:X25519" lets a client
+  // that lists X25519 first negotiate X25519, and a b.pqcGate in front of it
+  // passes that client because it also offered a hybrid. A listener with no
+  // `ecdhCurve` uses OpenSSL's default list, which takes X25519 from a client
+  // offering SecP256r1MLKEM768 or SecP384r1MLKEM1024 next to it. Measured on
+  // Node 24.21 and 26.9 (OpenSSL 3.5.8). b.network.tls.applyToContext wrote
+  // the flat list for every listener built from it.
+  //
+  // Two shapes are reported (see _listenerGroupFindings). An `ecdhCurve`
+  // written from the flat offer order is a client offer and carries the
+  // marker saying so; anything else that writes it for a listener goes
+  // through b.network.tls.serverKeyAgreementGroups(). And a TLS listener,
+  // server context or server TLSSocket built in a function that never calls
+  // serverKeyAgreementGroups() leaves the listener on the flat or default
+  // list. A context that only validates key material, or one an SNI callback
+  // returns (the listener's initial context sets the groups), carries the
+  // marker.
+  var files = _libFiles();
+  var bad = [];
+  for (var fi = 0; fi < files.length; fi++) {
+    var rel = _relPath(files[fi]);
+    var content;
+    try { content = fs.readFileSync(files[fi], "utf8"); }
+    catch (_e) { continue; }
+    _listenerGroupFindings(content).forEach(function (f) {
+      bad.push({ file: rel, line: f.line, content: f.content });
+    });
+  }
+  bad = _filterMarkers(bad, "listener-group-preference");
+  _report("TLS listeners take their groups from b.network.tls.serverKeyAgreementGroups()", bad);
 }
 
 // ---- Pattern 48a: README's vendored table states the shipped versions ----
@@ -13075,6 +14911,45 @@ function testStateStampScanningDeferred() {
 //      patterns split across lines still match.
 var KNOWN_ANTIPATTERNS = [
   {
+    id: "a-defaulted-options-parameter-is-read",
+    primitive: "validateOpts (read the keys the parameter accepts) or remove the parameter",
+    scanScope: "lib",
+    skipCommentLines: true,
+    // A function header whose parameter list names `x`, a body that defaults
+    // it with `x = x || {}` and then never names `x` again before the
+    // function's closing brace. The parameter list may span lines and may
+    // hold one level of parentheses (a default value that is a call). The
+    // closing brace is the first line that returns to the header's own
+    // indentation, which the backreference \1 pins, so the tempered tokens
+    // cannot leave the function. The `{0,N}` bounds only keep the scan
+    // linear; every real parameter list and body is far shorter.
+    regex: /^([ \t]*)(?!(?:\}|if|for|while|switch|catch|with|return)\b)[^\n]*?\((?:(?:[^()]|\([^()]*\)){0,2000}?,\s*)?([A-Za-z_$][\w$]*)\s*(?:,(?:[^()]|\([^()]*\)){0,2000})?\)\s*(?:=>\s*)?\{[ \t]*\r?\n(?:(?!\n\1\}|\b\2\b)[\s\S]){0,40000}?\b\2\s*=\s*\2\s*\|\|\s*\{\s*\}[ \t]*;?(?:(?!\n\1\}|\b\2\b)[\s\S]){0,40000}\n\1\}/m,
+    allowlist: [],
+    fixtures: {
+      fires: [
+        "async function history(historyOpts) {\n  historyOpts = historyOpts || {};\n  return await run(opts);\n}",
+        "  send(data, opts) {\n    if (!this.open) throw new Error(\"x\");\n    opts = opts || {};\n    return this._frame(data);\n  }",
+        "function run(gate, opts, ctx) {\n  opts = opts || {};\n  return gate(ctx);\n}",
+        "var f = async (req, opts) => {\n  opts = opts || {};\n  return req.url;\n};",
+        "  thing.on(\"x\", function (evt, opts) {\n    opts = opts || {};\n    handle(evt);\n  });",
+        "function run(\n  gate,\n  opts\n) {\n  opts = opts || {};\n  return gate();\n}",
+        "function run(gate = pick(DEFAULTS), opts) {\n  opts = opts || {};\n  return gate();\n}",
+        "function run(gate, opts) {\n  opts = opts || {}\n  return gate();\n}",
+        "function run(gate, opts) {\n" + "  var a = gate + 1;\n".repeat(400) + "  opts = opts || {};\n  return gate;\n}",
+      ],
+      quiet: [
+        "function create(opts) {\n  opts = opts || {};\n  return opts.name;\n}",
+        "function run(\n  gate,\n  opts\n) {\n  opts = opts || {};\n  return gate(opts);\n}",
+        "function run(gate = pick(DEFAULTS), opts) {\n  opts = opts || {}\n  return opts.x;\n}",
+        "function create(opts) {\n  opts = opts || {};\n  return function () { return opts.limit; };\n}",
+        "function create(opts) {\n  opts = opts || {};\n  validateOpts(opts, [\"a\"], \"x\");\n}",
+        "function outer(opts) {\n  function inner() {\n    var y = 1;\n  }\n  opts = opts || {};\n  return inner(opts);\n}",
+        "  if (opts) {\n    opts = opts || {};\n  }",
+      ],
+    },
+    reason: "An options parameter that is defaulted and then never read accepts anything and does nothing with it. `b.wsClient` documented `send(data, opts?)` and `client.send(\"abc\", { binary: true })` sent a text frame with no error, because `send` set `opts = opts || {}` and never looked at it again. The opts-contract gates cannot see this shape: one compares a `validateOpts` key list with the keys a primitive reads, the other compares a `@primitive` block's `@opts` with that list, and a parameter that is defaulted and dropped has neither. The fix is to read it (validate its keys and act on them) or to remove it; a documented reserved parameter keeps its name in the signature without the dead default.",
+  },
+  {
     id: "an-actor-identity-is-not-hand-rolled",
     primitive: "b.requestHelpers.actorIdentityKey",
     scanScope: "lib",
@@ -13109,7 +14984,7 @@ var KNOWN_ANTIPATTERNS = [
     // A suppression scope whose body reaches its own closing `})` without a
     // storage call in it. The tempered token cannot cross that boundary, so a
     // match stays inside one wrapper.
-    regex: /runAsAuditChainWrite\(function \(\) \{(?:(?!clusterStorage\.|_chainWriter\.append|_externalStore\.record|db\(\)\.purgeAuditChain|\}\))[\s\S]){0,400}\}\)/,
+    regex: /runAsAuditChainWrite\(function \(\) \{(?:(?!clusterStorage\.|_chainWriter\.append|_externalStore\.record|db\(\)\.purgeAuditChain|externalDb\.query|\}\))[\s\S]){0,400}\}\)/,
     allowlist: [],
     fixtures: {
       fires: [
@@ -13122,6 +14997,11 @@ var KNOWN_ANTIPATTERNS = [
         "var appended = await dbRoleContext.runAsAuditChainWrite(function () {\n        return _chainWriter.append(logical);\n      })",
         "return dbRoleContext.runAsAuditChainWrite(function () {\n    return safeAsync.withTimeout(\n      clusterStorage.execute(built.sql, built.params),\n      MS, { name: \"x\" });\n  })",
         "del = await dbRoleContext.runAsAuditChainWrite(function () {\n      return db().purgeAuditChain({ lastPurgedCounter: deleteThrough });\n    })",
+        // The cluster lease provider's one query helper. Every lease read and
+        // write goes through it, and each emitted a system.externaldb.query
+        // row into the chain that lives in the same backend, so an idle
+        // leader grew the chain on its own heartbeat.
+        "return dbRoleContext.runAsAuditChainWrite(function () {\n      return externalDb.query(sql, params || [], { backend: backendName });\n    })",
       ],
     },
     reason: "The scope that stops the audit chain recording its own writes suppresses EVERY audit emission made inside it, so it has to cover audit's own storage I/O and nothing else. Wrapping whole operations instead swallowed security events that have nothing to do with the chain: `b.audit.query` ends by calling `cryptoField.unsealRow` on the rows it returns, so a row whose sealed cell would not open recorded no `system.crypto.unseal_failed`, and the `denied`-outcome `system.crypto.unseal_rate_exceeded` fired twice inside one query and landed zero rows where the same denial outside landed three. A read that cannot unseal what it returns is exactly what an auditor is looking for, and the suppression hid it. Measured on this branch, before the narrowing. The wrappers now sit on the `clusterStorage` call and on `_chainWriter.append`, which are the calls that raise the `system.externaldb.query` events the cascade fed on; everything else an operation does, including unsealing, signing and the external-store mirror, runs outside and keeps its own audit.",
@@ -13159,9 +15039,23 @@ var KNOWN_ANTIPATTERNS = [
     skipCommentLines: true,
     // Anchored on the call that can raise the refusal and the catch that
     // directly follows its try, so a catch further down the same function is
-    // out of scope. The tempered token stops at `isGateRefusal`, which is how
+    // out of scope. The tempered token stops at either predicate, which is how
     // a handled site reads, and at a function-closing brace at column 0.
-    regex: /(?:(?:vaultWrap|argon2(?:Builtin)?)(?:\(\))?\.(?:wrap|unwrap|hash|verify|deriveWrappingKey)|(?:backupCrypto|bCrypto)(?:\(\))?\.(?:deriveKey|encryptWithPassphrase|decryptWithPassphrase|encryptWithFreshSalt))\s*\((?:(?!\n\})[\s\S]){0,240}?\)\s*;?\s*\}?\s*catch\s*\(\s*(?!_)[A-Za-z$][\w$]*\s*\)\s*\{(?:(?!isGateRefusal)(?!vault-wrap\/passphrase-rejected)(?!backup-crypto\/decrypt-failed)(?!\n\})[\s\S]){0,240}?\bthrow\s+(?:new\s+[A-Za-z_$][\w$]*Error|_err\s*\()/,
+    //
+    // Only `isArgon2Error` counts as handled. It is the WIDER question and
+    // subsumes the capacity refusal: a wrong passphrase surfaces as an AEAD
+    // failure, never as an Argon2 error, so a site that rethrows every Argon2
+    // error has handled the capacity refusal and the permanent ones with it.
+    // `isGateRefusal` asks only whether the refusal is transient, so it let
+    // `argon2/cost-over-ceiling` reach a catch-all that reported a correct
+    // passphrase as rejected, in five sites at once once the ceiling began
+    // bounding the raw derivations.
+    //
+    // A catch that answers `false` instead of raising its own coded error is
+    // out of scope either way, because the pattern requires the translating
+    // `throw` to fire: that is the documented contract of `verify`, which
+    // `exceedsCostCeiling` is there to disambiguate.
+    regex: /(?:(?:vaultWrap|argon2(?:Builtin)?)(?:\(\))?\.(?:wrap|unwrap|hash|verify|deriveWrappingKey)|(?:backupCrypto|bCrypto)(?:\(\))?\.(?:deriveKey|encryptWithPassphrase|decryptWithPassphrase|encryptWithFreshSalt))\s*\((?:(?!\n\})[\s\S]){0,240}?\)\s*;?\s*\}?\s*catch\s*\(\s*(?!_)[A-Za-z$][\w$]*\s*\)\s*\{(?:(?!isArgon2Error)(?!vault-wrap\/passphrase-rejected)(?!backup-crypto\/decrypt-failed)(?!\n\})[\s\S]){0,240}?\bthrow\s+(?:new\s+[A-Za-z_$][\w$]*Error|_err\s*\()/,
     allowlist: [],
     fixtures: {
       fires: [
@@ -13171,10 +15065,15 @@ var KNOWN_ANTIPATTERNS = [
         // too, which the first version of this pattern did not name: it listed
         // the calls it had seen rather than every export that derives.
         "      vkBuf = await backupCrypto.decryptWithPassphrase(vaultKeyEnc, passphrase, salt);\n  } catch (e) {\n    throw new RestoreBundleError(\"restore-bundle/vault-key-recovery-failed\",\n      \"could not recover\");",
+        // Letting only the TRANSIENT refusal through and translating the rest
+        // is what reported a correct passphrase as rejected once the ceiling
+        // began bounding the raw derivations.
+        "    return await backupCrypto().decryptWithPassphrase(encrypted, opts.passphrase, saltHex);\n  } catch (e) {\n    if (argon2().isGateRefusal(e)) throw e;\n    throw new ArchiveWrapError(\"archive-wrap/decrypt-failed\",\n      \"wrong passphrase or tampered envelope\");",
+        "    sealed = await vaultWrap.wrap(plaintextJson, passphrase);\n  } catch (e) {\n    if (argon2.isGateRefusal(e)) throw e;\n    throw new VaultError(\"vault/wrap-failed\",\n      \"failed to wrap new vault key\");",
       ],
       quiet: [
-        "    plaintext = await vaultWrap.unwrap(sealed, pwBuf);\n  } catch (e) {\n    if (argon2.isGateRefusal(e)) throw e;\n    throw new KeychainError(\"keychain/file-unseal-failed\",\n      \"rejected\");",
-        "    try { plaintextBuf = await vaultWrap.unwrap(sealedBytes, passphrase); }\n    catch (e) {\n      if (argon2.isGateRefusal(e)) throw e;\n      throw _err(\"audit-sign/passphrase-rejected\", \"rejected\");",
+        "    plaintext = await vaultWrap.unwrap(sealed, pwBuf);\n  } catch (e) {\n    if (argon2.isArgon2Error(e)) throw e;\n    throw new KeychainError(\"keychain/file-unseal-failed\",\n      \"rejected\");",
+        "    try { plaintextBuf = await vaultWrap.unwrap(sealedBytes, passphrase); }\n    catch (e) {\n      if (argon2.isArgon2Error(e)) throw e;\n      throw _err(\"audit-sign/passphrase-rejected\", \"rejected\");",
         // Translating one named code and re-raising everything else already
         // lets the refusal through, which is how the per-blob decrypt reads.
         "          plaintext = await backupCrypto.decryptWithPassphrase(blob, passphrase, entry.salt);\n      } catch (e) {\n        if (e && e.code === \"backup-crypto/decrypt-failed\") {\n          throw new RestoreBundleError(\"restore-bundle/decrypt-failed\", \"rejected\");\n        }\n        throw e;\n      }",
@@ -13193,6 +15092,43 @@ var KNOWN_ANTIPATTERNS = [
       ],
     },
     reason: "`b.auth.password.gate` bounds how many Argon2id derivations run at once, and it refuses with `argon2/busy` or `argon2/queue-timeout` when saturated. Those refusals are transient: `b.retry.isRetryable` returns true for them, because waiting is the right answer. Moving the gate into the one derivation entry point made every caller able to receive them, and a caller's catch-all then reported temporary saturation as something permanent: `b.archive.unwrapWithPassphrase` answered `archive-wrap/decrypt-failed` for a valid archive, `b.keychain` answered \"file passphrase rejected or file corrupted\" for an intact file, and `b.auditSign` and the vault passphrase operations said the passphrase was rejected. An operator reading that goes looking for a corrupted file or a wrong passphrase instead of retrying. Every such catch consults `argon2.isGateRefusal` first, which is one predicate rather than a code list each site repeats: two sites in `lib/auth/password.js` had spelled the two codes inline, and a third refusal code would have left them silently swallowing it. A catch around a symmetric open cannot see a capacity refusal and is out of scope, and so is one that returns a value rather than translating.",
+  },
+  {
+    id: "argon2-gate-admission-reads-one-list-of-a-two-list-thread-bound",
+    primitive: "b.auth.password.gate",
+    scanScope: "lib",
+    skipCommentLines: true,
+    // Both per-thread quantities, in either operand order. The running count
+    // lives in two counters and the queue in two arrays, so the pattern names
+    // all four against the two limits they are weighed against. `_inFlight()`
+    // and `_queued()` are the only correct left sides, so a future third
+    // counter folded into either helper stays quiet while a direct read of one
+    // list fires.
+    regex: /(?:(?:_active(?:Local|Shared)|_(?:shared)?[Ww]aiters\.length)\s*(?:<|>=|>|<=)\s*_(?:limit|maxQueued)|_(?:limit|maxQueued)\s*(?:<|>=|>|<=)\s*(?:_active(?:Local|Shared)|_(?:shared)?[Ww]aiters\.length))/,
+    allowlist: [],
+    fixtures: {
+      fires: [
+        "  if (_activeLocal < _limit) {\n    _activeLocal += 1;\n    return Promise.resolve(_releaseLocal);\n  }",
+        "  while (_waiters.length > 0 && _activeLocal < _limit) {",
+        "      if (_activeShared >= _limit) return;",
+        "  if (_limit > _activeLocal) {",
+        "  if (_waiters.length >= _maxQueued) {\n    return Promise.reject(new Argon2Error(\"argon2/busy\",",
+        "  if (_sharedWaiters.length >= _maxQueued) {",
+      ],
+      quiet: [
+        "  if (_inFlight() < _limit) {\n    _activeLocal += 1;\n    return Promise.resolve(_releaseLocal);\n  }",
+        "  while (_waiters.length > 0 && _inFlight() < _limit) {",
+        "      if (_inFlight() >= _limit) {",
+        "  if (_queued() >= _maxQueued) {",
+        // A list emptiness test is not an admission test, and neither is
+        // moving a counter around an admitted derivation.
+        "  while (_waiters.length > 0 && _inFlight() < _limit) {\n    var w = _waiters.shift();",
+        "    _activeShared -= 1;\n    _dropPermitOwner(view);",
+        "    running:       _inFlight(),",
+        "    waiting:       _queued(),",
+      ],
+    },
+    reason: "Two of the Argon2id gate's per-thread quantities are each held in two places. The derivations running on the thread are counted in `_activeLocal` for the ones holding a slot in its own gate and `_activeShared` for the ones holding a permit in a `SharedArrayBuffer` gate shared with other threads; the callers waiting are queued in `_waiters` and `_sharedWaiters` the same way. `argon2.gate(n, { shared })` switches which gate new work goes to and is documented as safe to call while derivations are running, so both halves of each pair can be non-empty at once, and `stats()` has always reported both as sums. Admission read one half of each. Reading one running counter admitted a second derivation the instant the switch landed, so with both gates set to one permit two derivations allocated their memory at the same time on one thread, which is the memory bound the gate exists to hold; reading one waiter list let a switch queue a third caller past a `maxQueued` of one, reporting `waiting: 2` against `maxQueued: 1` rather than refusing with `argon2/busy`. All three switch directions did both — shared to local, local to shared, and one shared handle to another. `_inFlight()` and `_queued()` are the single places that answer how much this thread is running and how much is waiting, so an admission test that names a counter or a list directly is reading a number that no longer bounds anything.",
   },
   {
     id: "a-framework-errors-code-is-reassigned-after-it-is-built",
@@ -13251,6 +15187,51 @@ var KNOWN_ANTIPATTERNS = [
       ],
     },
     reason: "`b.pick` refuses a prototype-moving key and consults `b.pick.registerPoisonedKeys`, a public registry that only ever grows and that an application sets for its own object layer. That makes it the right filter for untrusted input and the wrong one for forwarding a primitive's own options, whose keys are a fixed literal that has already passed `b.validateOpts`. `b.compliance.aiAct.gpai.declareAdherence` forwarded its options to `adherenceForm` through it, so an application that registered any name the form reads changed what got signed: registering `provider` made a declaration carrying `{ name: \"Acme\" }` sign `{ name: null, address: null, contact: null }`, dropping operator data between the validation that accepted it and the signature that attested to it, and registering `modelId` made a valid declaration fail. The forwarding question does not depend on that policy, so it copies the fixed key list directly. Filtering an operator-supplied body or a parsed document through `b.pick` is the intended use and is out of scope, as are the `assertSafeKey` and `isPoisonedKey` helpers.",
+  },
+  {
+    id: "a-logged-or-audited-record-field-is-built-from-the-raw-request-url",
+    primitive: "b.requestHelpers.resolveRoute",
+    scanScope: "lib",
+    skipCommentLines: true,
+    // A record field named for the request target and assigned from req.url.
+    // `_canonicalRequestTarget(req.url)` and `new URL(req.url, ...)` both lack
+    // the `field:` anchor, so only a field that carries the raw URL matches.
+    //
+    // `path` and `route` name the target as surely as `url` does, and twenty-two
+    // sites carried req.url under one of those two names while this rule listed
+    // only the four url spellings. `req.pathname || req.url` is the same record
+    // with the query sometimes stripped, and a capability in a path segment
+    // survives that, so the fallback form matches too.
+    regex: /\b(?:url|originalUrl|requestUrl|fullUrl|path|route)\s*:\s*(?:req(?:uest)?\s*\.\s*pathname\s*\|\|\s*)?\(?\s*(?:req(?:uest)?\s*&&\s*)?req(?:uest)?\s*\.\s*(?:url|originalUrl)\b/,
+    allowlist: [],
+    fixtures: {
+      fires: [
+        "        metadata: { reason: \"posture-refuse\", method: req.method, url: req.url },",
+        "      url:       req && req.url,",
+        "  var fields = { originalUrl: request.originalUrl, status: 500 };",
+        // The two names the rule used to miss, and the query-stripped form,
+        // which still carries a capability sitting in a path segment.
+        "          route:  req.url,",
+        "        _emitAudit(\"refused\", \"denied\", { method: method, path: req.url });",
+        "        metadata: { method: req.method, path: req.pathname || req.url },",
+        "      path:      req.pathname || (req.url || \"/\").split(\"?\")[0],",
+      ],
+      quiet: [
+        // The route-resolving helper, which is the fix.
+        "      route:     requestHelpers.resolveRoute(req),",
+        "        metadata: { method: req.method, route: requestHelpers.resolveRoute(req) },",
+        // A module holding the route table resolves the pattern from it, which
+        // is the only form that works before a route has been matched.
+        "        metadata: { method: req.method, route: this._routeLabel(req) },",
+        // Reading the URL to route, hash or parse it is not recording it.
+        "    hash.update(_canonicalRequestTarget(req.url) + \"\\n\");",
+        "    var parsed = new URL(req.url, \"https://\" + host);",
+        "    req.pathname = req.url.split(\"?\")[0];",
+        // A field carrying a URL that is not the request's own target.
+        "      url: cfg.webhookUrl,",
+      ],
+    },
+    reason: "A request target reaches a log line or an audit record as a field, and `req.url` carries whatever the client sent: a reset or invite capability sitting in a path segment, and every query parameter. Eight sites recorded the raw URL: `lib/router.js` built its `route refused:` and `route error:` lines from it, its middleware catch logged it directly, and its three TLS 0-RTT audit records carried it, while `lib/error-page.js` put it in both the log fields and the audit metadata on every error render. The audit path is the one that cannot be undone, because the chain is signed and append-only, so a capability written there stays written. Which replacement is correct depends on whether a route has been matched yet. After `b.router` dispatches, `b.requestHelpers.resolveRoute` answers it: `req.routePattern` is set (`/reset/:token`) and the query-stripped path is the fallback. Before dispatch there is no `req.routePattern`, and stripping the query leaves the capability in the path, so the five router sites resolve the pattern from the route table the router already holds. Both forms are quiet here; the pre-dispatch distinction is behavioral and is held by the tests in `router.test.js` and `router-tls0rtt.test.js` rather than by this pattern. Reading `req.url` to route, hash or parse a request is not recording it and does not match; neither does a field carrying a URL the operator configured.",
   },
   {
     id: "a-jmap-method-error-type-is-a-bare-name",
@@ -13626,6 +15607,22 @@ var KNOWN_ANTIPATTERNS = [
     regex: /\b(\w+)\.checkIssued\s*\(\s*(?!\1[\s,)])\w/,
     allowlist: ["lib/x509-chain.js"],
     reason: "basicConstraints cA:TRUE enforcement is owned by x509Chain.issuerValidlyIssued / x509Chain.isCaCert; tsa/mail-bimi/mail-crypto-smime route through it. Any lib file calling X.checkIssued(Y) (Y!=X) directly bypasses the cA check and must use x509Chain instead. lib/x509-chain.js is the home of the primitive.",
+  },
+  {
+    id: "x509-certificate-construction-routes-through-crypto",
+    primitive: "b.crypto._x509",
+    scanScope: "lib",
+    skipCommentLines: true,
+    // node's X509Certificate(buffer) reads an embedded
+    // "-----BEGIN CERTIFICATE-----" block ahead of the DER around it, while
+    // b.crypto.compromisedKey(buffer) judges the DER itself. A module that
+    // judges DER bytes and verifies with a certificate built from the same
+    // buffer can then check one certificate and trust another. bCrypto._x509
+    // reads a DER-shaped buffer as DER and hands everything else to node
+    // unchanged, so every construction in lib routes through it.
+    regex: /\bnew\s+[\w.]*\bX509Certificate\s*\(/,
+    allowlist: ["lib/crypto.js"],
+    reason: "Certificate construction is owned by bCrypto._x509 (and its DER half bCrypto._certificateFromDer) in lib/crypto.js, which read DER bytes as DER the way b.crypto.compromisedKey does. A bare new X509Certificate(...) in another lib file reads a DER buffer carrying PEM text as the embedded certificate.",
   },
   {
     id: "mail-report-header-builder-must-guard-crlf",
@@ -14091,20 +16088,23 @@ var KNOWN_ANTIPATTERNS = [
     reason: "the CIBA auth_req_id binding must fail closed on an empty/missing id (`typeof x !== 'string' || x.length === 0`), never skip behind a bare `if (expectedAuthReqId)` — a falsy auth_req_id otherwise bypasses the cross-user token-substitution defense (Codex PR#357).",
   },
   {
-    id: "trusted-proxy-cidr-must-canonicalize-peer",
-    primitive: "b.requestHelpers.trustedClientIp",
+    id: "address-cidr-compare-routes-through-ssrf-guard-list-match",
+    primitive: "b.ssrfGuard.cidrContains",
     scanScope: "lib",
     skipCommentLines: true,
-    // The peer-gating trustedProxies predicate matches the immediate peer
-    // address against operator CIDRs. cidrContains refuses a cross-family
-    // compare, so an IPv4-mapped IPv6 peer (::ffff:a.b.c.d from a dual-stack
-    // listener) silently fails an IPv4 CIDR and the proxy reads as untrusted —
-    // X-Forwarded-* is then ignored and the gate keys on the proxy. The peer
-    // MUST be folded through ssrfGuard.canonicalizeHost (var canon) first; a
-    // raw `cidrContains(trustedProxies[i], addr)` re-introduces the bypass.
-    regex: /cidrContains\(trustedProxies\[\w+\],\s*(?!canon\b)\w/,
-    allowlist: [],
-    reason: "Match the immediate peer against trustedProxies only after folding IPv4-mapped IPv6 via ssrfGuard.canonicalizeHost (the `canon` local) — cidrContains rejects a cross-family compare, so a raw peer addr lets a dual-stack proxy read as untrusted. request-helpers.js's _trustedProxyPredicate owns this.",
+    // cidrContains is family-strict and compares the spelling it is handed.
+    // Every lib/ site that matched a peer or host against operator CIDRs by
+    // calling it directly treated ::ffff:a.b.c.d, a hex-mapped spelling, or an
+    // IPv4-mapped CIDR entry as a different address: network-allowlist's deny
+    // list passed a dual-stack IPv4 client, its construction check accepted
+    // 10.0.0.0/33, and trustedProxies / relayAllowedFor / allowInternal /
+    // NO_PROXY each missed one spelling. Those sites now validate entries with
+    // ssrfGuard._listEntryProblem, canonicalize them with _canonicalListEntry
+    // and match with _listMatches (deny lists with everySpelling), so a direct
+    // call outside lib/ssrf-guard.js is a site that skipped the shared rules.
+    regex: /\bcidrContains\s*\(/,
+    allowlist: ["lib/ssrf-guard.js"],
+    reason: "Match an address against a CIDR list with ssrfGuard._listMatches over entries canonicalized by ssrfGuard._canonicalListEntry (validated with _listEntryProblem), passing everySpelling=true for a deny list. A direct cidrContains call compares one spelling, so a dual-stack peer (::ffff:a.b.c.d), a hex-mapped host, a NAT64/6to4 peer on a deny list, or an IPv4-mapped CIDR entry slips past or is refused.",
   },
   {
     id: "http-upload-content-length-must-guard-transform",
@@ -15228,6 +17228,21 @@ var KNOWN_ANTIPATTERNS = [
     skipCommentLines: true,
     allowlist: [],
     reason: "11 framework primitives (outbox, compliance-sanctions, compliance-sanctions-fetcher, tenant-quota ×2, auth/sd-jwt-vc-holder, auth/sd-jwt-vc-issuer, ai-capability, ai-dp, ai-quota, cert, mail-send-deliver) each hand-rolled the SAME gated drop-silent audit emitter — a factory closure `function <name>(action, outcome, metadata) { if (!<gateVar>) return; try { audit().safeEmit({ action: action, outcome: outcome, metadata: metadata || {} }); } catch {} }` — varying only in the gate var name (auditOn / auditEnabled) and the closure name (_emitAudit / _auditEmit). The 6-file STRONG-DUP cluster was a SAMPLE; the framework-wide sweep found the other 5 by the safeEmit-passthrough signature. They differ from the PREFIXED siblings (audit-namespaced-emit-hand-rolled) only in passing a verbatim, already-qualified action — so b.audit.namespaced gained a falsy-prefix mode (action passes through unprefixed) and each routes to `var <name> = audit().namespaced(null, { audit: <gateVar> })` (built at factory-init, byte-equivalent: verbatim action, metadata default, gate honored — functionally proven). The genuinely-different emitters were NOT folded in: operator-supplied-sink (ai-disclosure `opts.audit`, bot-challenge `safeEmit` param), per-call gate param (keychain), and no-gate / extra-logic (redact, worker-pool, webhook-dispatcher) — each a distinct contract. ZERO allowlist — a re-introduced gated verbatim emitter trips this; use b.audit.namespaced(null, …).",
+  },
+  {
+    id: "audit-action-namespace-not-lowercase",
+    primitive: "b.audit.namespaced(prefix) / safeEmit({ action }) (lib/audit.js) — an audit action must be `namespace.verb[.qualifier]` with every segment lowercase and the namespace registered in FRAMEWORK_NAMESPACES, or safeEmit refuses it and writes no row.",
+    // Anchors on an audit (not observability) namespace literal carrying an
+    // uppercase letter. `audit()` / `b.audit` qualifies the call, so the
+    // camelCase METRIC prefixes (observability().namespaced("auth.sdJwtVc.holder"),
+    // "middleware.tusUpload") are untouched: a metric name has no namespace
+    // grammar and no registry. The verb argument is not matched here because it
+    // is usually a conditional expression rather than a literal; the refusal
+    // register (b.audit.refusedActions) is what reports one of those.
+    regex: /(?:audit\(\)|b\.audit)\.namespaced\(\s*"[a-z0-9_.]*[A-Z]/,
+    skipCommentLines: true,
+    allowlist: [],
+    reason: "guard-sql emitted its gate decisions under `guardSql.gate`, and the action grammar safeEmit enforces is lowercase `namespace.verb[.qualifier]` with a registered namespace, so every served / audited / refused row a SQL gate produced was refused and no row was written. The register now spells it `guardsql.gate` and `guardsql` is registered, matching the `guardfilename` namespace the filename guard already used. A lexical sweep for camelCase namespaces over-reported: the other three hits are observability().namespaced metric prefixes, where camelCase is harmless because a metric name has no grammar and no registry, which is why this detector is anchored on the audit call. ZERO allowlist — a new camelCase audit namespace trips this; lowercase the namespace and register it.",
   },
   {
     id: "mail-server-listen-hand-rolled",
@@ -16712,7 +18727,7 @@ var KNOWN_ANTIPATTERNS = [
 
   { id: "attestation-pop-replay-store-must-await-thenable", primitive: "verifyClientAttestation's jti replay check (vopts.seenJti) MUST handle an async (Promise-returning) store — its result is awaited when it is a thenable so a Redis/DB store's resolved `false` (a replayed jti) refuses, instead of comparing a never-`false` Promise object with `=== false` and silently accepting the replay", scanScope: "lib", skipCommentLines: true, regex: /vopts\.seenJti\s*\(/, requires: /typeof\s+unseen\.then\s*===\s*["']function["']|unseen\s*=\s*await\s+unseen/, allowlist: [], reason: "v0.14.20 Codex P1 on PR #300 (replay-defense bypass, CWE-294) — verifyClientAttestation read `unseen = vopts.seenJti(jti, iat)` then `if (unseen === false) throw replay`. With an async (Redis/DB) atomic check-and-insert the callback returns a Promise; a Promise is never `=== false`, so a replayed jti was ACCEPTED and the draft-ietf-oauth-attestation-based-client-auth §12.1 replay defense was disabled for every multi-instance AS deployment. The verifier is now async and awaits a thenable result (`if (unseen && typeof unseen.then === \"function\") unseen = await unseen;`). The other oauth replay sinks (refreshAccessToken's ropts.checkAndInsert / ropts.seen, _normalizeTokens' vopts.seen) already await at the call site; only this path deviated. Anchored on the vopts.seenJti( token unique to this verifier; the requires-companion fails if a future edit drops the thenable-await, re-opening the silent-accept window. Empty allowlist — a seenJti result that is neither awaited nor thenable-checked is the bug." },
 
-  { id: "jose-jws-builder-fixed-classical-alg-default", primitive: "a JWS builder that signs with an operator-supplied key MUST NOT default `opts.algorithm` to a fixed classical JOSE alg (ES256/384/512, RS/PS*) via `|| \"<alg>\"` — that signs a key of a different type (RSA / Ed25519 / non-matching EC curve) under a header alg that disagrees with the key (un-signable, or a self-invalid JWS the verifier's alg/kty check rejects). Derive the alg from the key type (mirroring oauth _resolveAttestationAlg / sd-jwt-vc-holder _resolveHolderAlg), or use a PQC pass-through default that works with any key", scanScope: "lib", skipCommentLines: true, regex: /\.algorithm\s*\|\|\s*["'](?:ES256|ES384|ES512|RS256|RS384|RS512|PS256|PS384|PS512)["']/, allowlist: [], reason: "v0.14.20 — the OAuth client-attestation builders (Codex P2 on PR #300) AND the sd-jwt-vc holder (`var algorithm = opts.algorithm || \"ES256\"`, found by the post-fix adversarial review) both hardcoded a fixed ES256 default that overrode any key-type reconciliation. ES256 is only self-consistent for an EC P-256 key; an RSA / Ed25519 / EC-P384 key signed under an ES256 header is un-signable or yields a JWS whose header alg disagrees with the signature, which every alg/kty-checking verifier rejects (self-invalid token; broken authentication / presentation). Both are now key-derived (_resolveAttestationAlg / _resolveHolderAlg). This detector flags any lib JWS builder reintroducing a fixed CLASSICAL JOSE alg as the `opts.algorithm ||` default — it deliberately does NOT match a PQC pass-through default (`|| \"ML-DSA-87\"` / `|| DEFAULT_ALG` / `|| \"SLH-DSA-...\"`, which sign with a null digest and work for the matching key) nor non-JOSE alg selectors (hash `\"sha384\"`, DKIM `\"rsa-sha256\"`, `\"token-bucket\"`). Empty allowlist — a fixed classical-alg default on a sign path is the self-invalid-JWS bug; a genuine EC-P256-only builder should still derive/validate the key, not assume." },
+  { id: "jose-jws-builder-fixed-classical-alg-default", primitive: "a JWS builder that signs with an operator-supplied key MUST NOT default `.algorithm` to a fixed JOSE alg literal (ES256/384/512, RS/PS*, ML-DSA-44/65/87, SLH-DSA-*) via `|| \"<alg>\"` — node:crypto sign() runs whatever algorithm the key carries, so a key of another type (RSA / Ed25519 / another EC curve / another ML-DSA parameter set) is signed under a header alg that names a different algorithm. Derive the alg from the key type (oauth _resolveAttestationAlg, sd-jwt-vc-holder _resolveHolderAlg, sd-jwt-vc _defaultAlgForKey) and bind an explicit one with b.crypto.assertKeyType", scanScope: "lib", skipCommentLines: true, regex: /\.algorithm\s*\|\|\s*["'](?:ES256|ES384|ES512|RS256|RS384|RS512|PS256|PS384|PS512|ML-DSA-(?:44|65|87)|SLH-DSA-[A-Za-z0-9-]+)["']/i, allowlist: [], reason: "v0.14.20 — the OAuth client-attestation builders (Codex P2 on PR #300) AND the sd-jwt-vc holder (`var algorithm = opts.algorithm || \"ES256\"`) hardcoded a fixed ES256 default. ES256 is only self-consistent for an EC P-256 key; an RSA / Ed25519 / EC-P384 key signed under an ES256 header yields a JWS whose header alg disagrees with the signature. A PQC literal default has the same defect: sign(null, ...) with a P-256 or ML-DSA-65 key succeeds, so the sd-jwt-vc issuer wrapper's `key.algorithm || \"ML-DSA-87\"` issued ES256 and ML-DSA-65 signatures labeled ML-DSA-87 (the regex now covers ML-DSA / SLH-DSA literals for that reason). Non-JOSE selectors (hash `\"sha384\"`, DKIM `\"rsa-sha256\"`, `\"token-bucket\"`) do not match. Empty allowlist." },
 
   { id: "attestation-alg-must-derive-from-key", primitive: "the OAuth client-attestation / PoP JWS builders must resolve the signing alg from the key type via _resolveAttestationAlg (infer a key-compatible default; refuse an explicit alg incompatible with the key) — never a fixed `opts.algorithm || \"ES256\"` default, which signs a non-EC key (RSA / Ed25519) under an ES256 header that verifyClientAttestation's alg/kty cross-check then rejects (self-invalid attestation)", scanScope: "lib", skipCommentLines: true, regex: /oauth-client-attestation(?:-pop)?\+jwt/, requires: /_resolveAttestationAlg\s*\(/, allowlist: [], reason: "v0.14.20 Codex P2 on PR #300 — buildClientAttestation / buildClientAttestationPop defaulted `var alg = opts.algorithm || \"ES256\"`, so an RSA / Ed25519 attester or instance key produced a compact JWS whose header said ES256 but whose signature was made with the real key; verifyClientAttestation's alg⇄kty cross-check then rejected the builder's OWN output for any non-P-256 key. Both builders now resolve the alg through _resolveAttestationAlg(explicitAlg, key): it infers a key-matched default (ES256/384/512 by curve, RS256 for RSA, EdDSA for Ed25519/Ed448) and refuses an explicit alg incompatible with the key BEFORE signing (auth-oauth/attestation-alg-key-mismatch). Anchored on the attestation `+jwt` typ literals unique to these builders (does NOT touch the generic `.algorithm || \"<selector>\"` strings in rate-limit / crypto / dkim, nor the sd-jwt holder KB-JWT path); the requires-companion fails if a future edit reverts to a hardcoded alg default. Empty allowlist — a fixed alg default on the attestation signing path is the self-invalid-JWS bug." },
 
@@ -19617,6 +21632,205 @@ var KNOWN_ANTIPATTERNS = [
     reason: "A db-handle primitive that hand-rolls DML by concatenating a SQL string literal into db.prepare/runSql re-implements b.sql's identifier quoting + sealed-field rewrite and drifts from db.from() — the tenant-quota storage query accrued reserved-word, schema-qualified and sealed-column parity defects across six review rounds doing exactly this. Compose `sql.select/insert/update/delete(table, { dialect: 'sqlite', quoteName: true }).….toSql()` and `db.prepare(built.sql)` instead (skip the unseal loop when you need raw on-disk bytes). Matches an inline SELECT/INSERT/UPDATE/DELETE literal passed to db.prepare/runSql (optionally wrapped in one helper call such as safeSql.assertSingleStatement); a db.prepare(<variable>) built by b.sql does not match, and DDL/PRAGMA is out of scope. See lib/tenant-quota.js and lib/dsr.js for the composed shape.",
   },
 
+
+  {
+    id: "tls-servername-taken-from-a-raw-host",
+    primitive: "b.network.tls.identityFor (or b.network.tls.sniFor for a dial with no servername option)",
+    scanScope: "lib",
+    skipCommentLines: true,
+    // A TLS server name set to anything other than one sniFor(...) call, a
+    // string literal that is not an IP address, or null / undefined, as an
+    // object property (`servername:`, quoted or not) or an assignment
+    // (`x.servername = ...`, `servername = ...`). That covers a value taken
+    // from the dial's host (`opts.servername || opts.host`), an explicit
+    // servername passed straight through (`tlsOpts.servername =
+    // cfg.servername`), and a variable of any name (`servername: peer`). An
+    // address in SNI is not allowed by RFC 6066 section 3: Node 26 throws
+    // ERR_INVALID_ARG_VALUE from tls.connect before any ClientHello, and
+    // earlier releases send it with DEP0123. b.network.tls.sniFor returns the
+    // name for a hostname and nothing for an address. The lookaheads admit a
+    // value only when the WHOLE value is one of the quiet forms, ending at the
+    // property or statement boundary, so `sniFor(x) || opts.host` still
+    // fires. `==` / `===` and `=>` after the name are not assignments, and a
+    // value that opens with a quote followed by `+` is the tail of a string
+    // literal (`"... servername=" + name`), so none of those match. A line
+    // whose value is not handed to a TLS dial carries
+    // `allow:tls-servername-not-dialed` and names where the value goes: an
+    // operator option forwarded to a primitive that applies sniFor itself,
+    // or a name recorded in audit metadata. The name may also be written as a
+    // bracket key (`opts["servername"] = host`), and a shorthand property
+    // (`{ host, servername }`) inside an object literal is a raw variable
+    // passed straight through, so both fire too.
+    regex: /\bservername["']?\]?\s*(?::|=(?![=>]))\s*(?!\s)(?!(?:[\w$.]+\(\)\.|[\w$]+\.)?sniFor\([^()\r\n]*(?:\([^()\r\n]*\)[^()\r\n]*)*\)\s*(?:[,;}\r\n]|$))(?!(?:null|undefined)\s*(?:[,;}\r\n]|$))(?!["']\s*\+)(?!["'](?!\d{1,3}(?:\.\d{1,3}){3}["'])(?![0-9A-Fa-f]*:)(?!\[)[^"'\r\n]*["']\s*(?:[,;}\r\n]|$))\S|(?:\{|(?<=\{[^{}()\r\n;]{0,400}),)\s*servername\s*(?=[,}])/,
+    requires: /allow:tls-servername-not-dialed/,
+    allowlist: [],
+    fixtures: {
+      fires: [
+        "  opts[\"servername\"] = host;",
+        "  var o = { host: host, servername };",
+        "  var o = { servername, host: h };",
+        "        tlsOpts.servername = host;",
+        "    servername = (ipUtils.isIPv4Shape(host) || host.indexOf(\":\") !== -1)",
+        "      servername:     opts.servername || opts.host,",
+        "      servername: proxyUrl.hostname,",
+        "          servername: options.servername || options.host,",
+        "    STATE.dot = { host: \"1.1.1.1\", port: 853, servername: \"1.1.1.1\", ca: null };",
+        "    servername: \"::1\",",
+        "    servername: '1.1.1.1',",
+        "    servername: '::1',",
+        "    servername: \"[::1]\",",
+        "  var o = { servername: host };",
+        "  var o = { \"servername\": opts.host };",
+        "  connectOpts.servername = opts.host;",
+        "  tlsOpts.servername = cfg.servername || cfg.host;",
+        "    servername = isIp(host) ? undefined : host;",
+        "      servername: networkTls().sniFor(opts.servername) || opts.host,",
+        "      servername: sniFor(opts.servername) || opts.host,",
+        "      if (cfg.servername) tlsOpts.servername = cfg.servername;",
+        "  connectOpts.servername = opts.servername;",
+        "  if (cfg.servername) sessionOpts.servername = cfg.servername;",
+        "  out.servername = opts.sni;",
+        "  tlsOpts.servername = target;",
+        "    servername: peer,",
+        "    servername: endpoint.address,",
+        "    servername:      servername,",
+        "      if (sni) tlsOpts.servername = sni;",
+        "      servername:         \"mta-sts.\" + lcDomain,",
+        "    servername: typeof servername === \"string\" ? servername : null,",
+      ],
+      quiet: [
+        "  var servername = networkTls().sniFor(sniSource);",
+        "      servername:     networkTls().sniFor(opts.servername || opts.host),",
+        "      servername: sniFor(opts.servername || opts.host),",
+        "      servername: networkTlsMod.sniFor(proxyHost),",
+        "      servername: networkTls().sniFor(STATE.dot.servername || STATE.dot.host),",
+        "  connectOpts.servername = sniFor(opts.host);",
+        "      tlsOpts.servername = networkTls().sniFor(tlsOpts.servername || host);",
+        "          host: \"127.0.0.1\", port: port, servername: \"localhost\",",
+        "    STATE.dot = { host: \"1.1.1.1\", port: 853, servername: null, ca: null };",
+        "    servername: undefined,",
+        "  if (opts.servername === host) return;",
+        "  validateOpts(opts, [\"host\", \"port\", \"servername\", \"ca\"], \"dns.useDnsOverTls\");",
+        "            host: options.servername || options.host,",
+        "    log.error(\"SNICallback threw for servername=\" +",
+        "function identityFor(host, servername, opts) {",
+        "  validateOpts(opts, [\"host\", \"servername\"], \"x\");",
+        "  return sni === undefined ? {} : { servername: sniFor(name) };",
+      ],
+    },
+    reason: "A TLS dial that fills `servername` from its host sends an IP-literal host as SNI, and one that passes an explicit `servername` straight through sends an IP-literal servername. RFC 6066 section 3 forbids an address in SNI, Node 26 refuses it with a synchronous ERR_INVALID_ARG_VALUE from tls.connect, and Node 24 sends it with a DEP0123 warning. Every IP-literal NTS-KE endpoint failed this way, as did the BLAMEJS_DNS_TRANSPORT=dot default resolver (1.1.1.1), DNS-over-TLS to an address, connectWithEch to an address, an https proxy or proxied target given as an address, an IP-literal `servername` on the SMTP transport, the Redis client, the WebSocket client, the syslog sink and the OTLP gRPC sink, and an address in buildOptions `sni`; through the proxy agent the throw escaped https.request and reached the caller as an exception. A dial that takes a host and an optional servername merges b.network.tls.identityFor(host, servername), which gives `{ servername }` for a name, `{}` for an address, and refuses an IP-literal servername naming an address other than the host. A dial with no servername option sets `servername: b.network.tls.sniFor(host)`. With no servername, Node checks the certificate against the host. Matches a `servername` property or assignment whose value is anything but one sniFor call, a non-IP string literal, or null / undefined. A line whose value is not handed to a TLS dial (an operator option forwarded to a primitive that applies identityFor itself, or a name recorded in audit metadata) carries `// allow:tls-servername-not-dialed` naming where the value goes.",
+  },
+
+  {
+    id: "tls-identity-compared-inline",
+    primitive: "b.network.tls.identityFor",
+    scanScope: "lib",
+    skipCommentLines: true,
+    // A module that asks sniFor whether a servername is an address and then
+    // compares that address to the host itself. Four modules each wrote the
+    // comparison, as a lowercase string compare after removing brackets, so
+    // `0:0:0:0:0:0:0:1` and `::1` were different addresses to all four and a
+    // correct servername was refused. b.network.tls.identityFor compares by
+    // address and returns the options the dial merges. Matches a sniFor call
+    // compared with undefined or null in either operand order (its argument
+    // may hold one level of nested calls), a negated sniFor call, and an
+    // IP-literal test (`net.isIP`, `ipUtils.isIPv4Shape` and the like) applied
+    // to a servername. No file is exempt: identityFor itself is written
+    // without these shapes.
+    regex: /\bsniFor\([^()\r\n]*(?:\([^()\r\n]*\)[^()\r\n]*)*\)\s*[!=]==?\s*(?:undefined|null)\b|\b(?:undefined|null)\s*[!=]==?\s*(?:[\w$.]+\(\)\.|[\w$]+\.)?sniFor\(|!\s*(?:[\w$.]+\(\)\.|[\w$]+\.)?sniFor\(|\b(?:isIP|isIPv4|isIPv6|isIPv4Shape|looksLikeIPv6Hex)\(\s*[^()\r\n]*servername/,
+    allowlist: [],
+    fixtures: {
+      fires: [
+        "  if (networkTls().sniFor(sniSource) === undefined && sniSource !== host) {",
+        "  if (config.servername && networkTls().sniFor(config.servername) === undefined) {",
+        "  if (networkTls().sniFor(name) !== undefined) return;",
+        "  if (sniFor(opts.servername) == undefined) {",
+        "  if (sniFor(String(servername)) === undefined && servername !== host) {",
+        "  if (undefined === sniFor(servername)) {",
+        "  if (!sniFor(servername) && servername !== host) {",
+        "  if (!networkTls().sniFor(x)) return;",
+        "  if (net.isIP(servername) && servername.toLowerCase() !== host.toLowerCase()) {",
+        "  if (ipUtils.isIPv4Shape(opts.servername) || opts.servername.indexOf(\":\") !== -1) {",
+      ],
+      quiet: [
+        "  Object.assign(tlsOpts, networkTls().identityFor(host, opts.servername));",
+        "      servername: networkTls().sniFor(proxyHost),",
+        "  var id = sniFor(host);",
+        "  return sni === undefined ? {} : { servername: sniFor(name) };",
+        "  return net.isIP(bare) ? undefined : host;",
+      ],
+    },
+    reason: "Whether an IP-literal servername names the dial host is one question, and four modules (SMTP transport, Redis client, WebSocket client, syslog sink) each answered it with their own string compare after removing brackets. None compared by address, so the host's own IPv6 address written in another form (`0:0:0:0:0:0:0:1` for `::1`) was refused, and four other dials (connectWithEch, NTS-KE, DNS-over-TLS, the https proxy agent) did not ask at all and checked the certificate against the host. Merge b.network.tls.identityFor(host, servername, { label, errorClass, code }) into the dial options instead: it returns `{ servername }` for a name and `{}` for an address, compares an IP-literal servername to the host by address, and throws the caller's own error class and code for one naming another address. Matches sniFor compared with undefined or null in either order, a negated sniFor call, and an IP-literal test applied to a servername.",
+  },
+
+  {
+    id: "dial-host-taken-from-a-url-hostname",
+    primitive: "ipUtils.dialHost",
+    scanScope: "lib",
+    skipCommentLines: true,
+    // Anchored on the value: a `<x>.hostname` read that reaches a `host` or
+    // `hostname` option without going through ipUtils.dialHost. Two shapes:
+    //   - a `host:` / `hostname:` property, or a `.host =` / `.hostname =`
+    //     assignment, whose value starts with `<x>.hostname` (with or without
+    //     a `|| default` after it), whatever else the object holds;
+    //   - `var v = <x>.hostname;` (optionally `|| default`) followed, before
+    //     the enclosing function's closing brace at column 0, by a
+    //     `host: v` / `hostname: v` property or a `{ host }` shorthand.
+    // A URL keeps the square brackets of an IPv6 host in `.hostname`.
+    // https.request / tls.connect handed `[::1]` check the certificate against
+    // that text rather than the address, and on Linux the lookup of `[::1]`
+    // fails with ENOTFOUND for plain http and net dials too. A file that never
+    // parses a URL (`new URL(`, `safeUrl.parse(`, `URL.parse(`, `url.parse(`)
+    // has no URL hostname to read, so the match also needs one of those in the
+    // same file; that keeps a verification response's `hostname` field out of
+    // scope. An options bag's own `hostname` setting (`opts.hostname`,
+    // `options.hostname`, `config.hostname`, `cfg.hostname`) is not a URL
+    // read and is not matched, and neither is a property inside an object
+    // opened by `metadata: {`. Any other line whose value is not dialed (an
+    // error message, a list comparison) carries `allow:url-hostname-not-dialed`.
+    regex: (function () {
+      var base = "(?!(?:opts|options|config|cfg)\\.hostname\\b)[\\w$]+(?:\\([^()\\r\\n]*\\))?(?:\\.[\\w$]+(?:\\([^()\\r\\n]*\\))?)*";
+      var urlParse = "(?:\\bnew\\s+(?:[\\w$]+\\.)?URL\\(|\\bsafeUrl\\.parse\\(|\\bURL\\.parse\\(|\\burl\\.parse\\()";
+      var key = "(?:\\b(?:host|hostname)(?<!\\bmetadata[\"']?\\s*:\\s*\\{[^{}]{0,4000}\\b(?:host|hostname))[\"']?\\s*:" +
+        "|\\.(?:host|hostname)\\s*=(?![=>]))\\s*\\(?\\s*" + base + "\\.hostname\\b(?!\\s*\\()";
+      var alias = "\\bvar\\s+([\\w$]+)\\s*=\\s*\\(?\\s*" + base + "\\.hostname\\b(?![\\w$.(])\\s*(?:\\|\\|[^;\\r\\n]*)?\\)?\\s*;" +
+        "(?=(?:(?!\\n\\})[\\s\\S]){0,200000}?(?:\\b(?:host|hostname)[\"']?\\s*:\\s*\\1\\b(?![\\w$.(])" +
+        "|[{,]\\s*\\1(?<=[{,\\s](?:host|hostname))\\s*[,}]))";
+      var fileParsesUrl = "(?:(?<=" + urlParse + "[\\s\\S]{0,4000000})|(?=[\\s\\S]{0,4000000}" + urlParse + "))";
+      return new RegExp("(?:" + key + "|" + alias + ")" + fileParsesUrl);
+    })(),
+    requires: /allow:url-hostname-not-dialed/,
+    allowlist: [],
+    fixtures: {
+      fires: [
+        "  var u = new URL(s);\n    var reqOpts = { hostname: u.hostname, port: u.port || 443, path: u.pathname };",
+        "  var parsed = new URL(s);\n    var o = { host: parsed.hostname, port: Number(parsed.port) || 443 };",
+        "  var u = new URL(s);\n    var o = { port: u.port || 443, hostname: u.hostname };",
+        "  this._url = new URL(s);\n    var o = { \"hostname\": this._url.hostname, port: this._url.port };",
+        "  var proxyUrl = safeUrl.parse(s);\n    var o = { host: proxyUrl.hostname, port: Number(proxyPort) };",
+        "  var u = new URL(s);\n    var o = { host: u.hostname }; var p = { port: u.port };",
+        "  var u = new nodeUrl.URL(s);\n  return { host: u.hostname || \"127.0.0.1\", port: 6379 };",
+        "  var u = new URL(s);\n    var o = { hostname: u.hostname, headers: { accept: \"x\" }, port: u.port || 443 };",
+        "  var u = new URL(s);\n  Object.assign({ hostname: u.hostname }, { port: u.port });",
+        "  var u = new URL(s);\n  tlsOpts.host = u.hostname;",
+        "  var parsed = new URL(s);\n  var host = parsed.hostname;\n  var o = { host: host, port: port };\n}\n",
+        "  var parsed = new URL(s);\n  var h = parsed.hostname || \"localhost\";\n  connect({ host: h, port: 1 });\n}\n",
+        "  var parsed = new URL(s);\n  var host = parsed.hostname;\n  tls.connect({ host, port: 443 });\n}\n",
+        "    var o = { host: u.hostname };\n  var u = new URL(s);",
+      ],
+      quiet: [
+        "  var u = new URL(s);\n    var reqOpts = { hostname: ipUtils.dialHost(u.hostname), port: u.port || 443 };",
+        "  var u = new URL(s);\n    var o = { hostname: opts.hostname, port: port };",
+        "    var o = { hostname: parsed.hostname, prefix: tokenPrefix };",
+        "  var u = new URL(s);\n  var host = ipUtils.dialHost(u.hostname);\n  var o = { host: host, port: port };\n}\n",
+        "  var parsed = new URL(s);\n  var host = parsed.hostname.toLowerCase();\n  if (allowed.indexOf(host) === -1) throw e;\n}\n",
+        "  var parsed = new URL(s);\n  var host = parsed.hostname;\n}\nfunction other() { return { host: host }; }",
+        "  var parsed = new URL(s);\n  audit.safeEmit({ action: \"x\", metadata: { host: parsed.hostname, label: l } });",
+        "  var u = new URL(s);\n  if (host === u.hostname) return;",
+      ],
+    },
+    reason: "A URL keeps the square brackets of an IPv6 host in `.hostname` (`https://[::1]/` has hostname `[::1]`). https.request and tls.connect handed `[::1]` as the host check the certificate against that text, which is not an IP literal, so a certificate whose subjectAltName carries `IP:::1` fails with ERR_TLS_CERT_ALTNAME_INVALID, and on Linux the lookup of `[::1]` fails with ENOTFOUND for plain http and net dials too. b.httpClient (HTTP/1.1 path), DNS-over-HTTPS lookups, resolveSecure, queryHttps, the wire resolver, the WebSocket client, the syslog sink, the Redis client URL and the https proxy hop all dialed the bracketed text. Hand the dial ipUtils.dialHost(url.hostname), which removes the brackets of an IPv6 literal and leaves every other host unchanged; Node writes the brackets back into the Host header, and ipUtils.hostPort(host, port) / ipUtils.authorityHost(host) write an authority (a CONNECT target, a hand-built Host header, an ICAP request line). Matches a `host` / `hostname` property or assignment whose value starts with `<x>.hostname`, and a `var v = <x>.hostname;` later used as `host: v`, in a file that parses a URL. An audit `metadata: {` object is not matched; any other value that is not dialed carries `// allow:url-hostname-not-dialed`.",
+  },
 
   {
     id: "tls-group-preference-under-an-inert-key",
@@ -23513,9 +25727,9 @@ function testMtlsCaCommitJournalsPriorKeyBeforeRename() {
   }
   // _sameCert must compare parsed DER identity (tolerating harmless PEM differences), falling
   // back to bytes only for an unparseable opaque custom cert.
-  if (!/function\s+_sameCert[\s\S]{0,160}X509Certificate\([^)]*\)\.raw\.equals\(\s*new\s+nodeCrypto\.X509Certificate/.test(noComments)) {
+  if (!/function\s+_sameCert[\s\S]{0,160}bCrypto\(\)\._x509\([^)]*\)\.raw\.equals\(\s*bCrypto\(\)\._x509\(/.test(noComments)) {
     bad.push({ file: "lib/mtls-ca.js", line: 1,
-      content: "_sameCert() must compare parsed X.509 DER identity (X509Certificate(...).raw.equals(...)) with a raw-byte " +
+      content: "_sameCert() must compare parsed X.509 DER identity (bCrypto()._x509(...).raw.equals(...)) with a raw-byte " +
                "fallback only for an unparseable opaque custom cert — a byte-only compare misreads harmless PEM reformatting" });
   }
   // A CERT-ONLY store (ca.crt present, no key at the destination) must be REFUSED before mutation:
@@ -23541,10 +25755,10 @@ function testMtlsCaCommitJournalsPriorKeyBeforeRename() {
   // — _caPairConsistent returns "consistent" for unparseable input (the opaque-custom fallback), so
   // without this a garbage string publishes and bricks the CA. The parse requirement is
   // default-engine-only (a custom engine may commit opaque material).
-  if (!/if\s*\(\s*usesDefaultEngine\s*\)\s*\{[\s\S]{0,400}new\s+nodeCrypto\.X509Certificate\(\s*opts2\.caCertPem\s*\)[\s\S]{0,200}createPrivateKey\(\s*opts2\.caKeyPem\s*\)[\s\S]{0,200}mtls-ca\/bad-commit/.test(noComments)) {
+  if (!/if\s*\(\s*usesDefaultEngine\s*\)\s*\{[\s\S]{0,400}bCrypto\(\)\._x509\(\s*opts2\.caCertPem\s*\)[\s\S]{0,200}createPrivateKey\(\s*opts2\.caKeyPem\s*\)[\s\S]{0,200}mtls-ca\/bad-commit/.test(noComments)) {
     bad.push({ file: "lib/mtls-ca.js", line: 1,
       content: "the public commit() must reject UNPARSEABLE material for the bundled engine (if (usesDefaultEngine) " +
-               "parse opts2.caCertPem via nodeCrypto.X509Certificate + opts2.caKeyPem via createPrivateKey, throwing " +
+               "parse opts2.caCertPem via bCrypto()._x509 + opts2.caKeyPem via createPrivateKey, throwing " +
                "mtls-ca/bad-commit on failure) — _caPairConsistent's opaque fallback would otherwise publish garbage" });
   }
   // A parseable, MATCHING pair can still be an algorithm the bundled engine does not support (a
@@ -25606,19 +27820,62 @@ function testLibCommentBlocksAreWholeSentences() {
           "an edit that removed part of it)", bad);
 }
 
+var NARRATIVE = [
+  { re: /\b(?:SUBSTRATE|BUG|MAIL)-\d+\b/,        what: "internal slice/bug ID" },
+  { re: /\b(?:D-[MLH]\d+|AUTH-\d+|CRYPTO-\d+|SUPPLY-\d+)\b/, what: "internal domain/slice ID" },
+  { re: /\bCodex\s+P\d/,                          what: "code-review-process reference (Codex P#)" },
+  { re: /\bF-[A-Z]{2,}-\d+\b/,                    what: "internal feature/plan item ID" },
+  { re: /\bPR\s+#\d+\b/,                          what: "pull-request number (process residue)" },
+  { re: /\b[Aa]udit\s+\d{4}-\d{2}-\d{2}/,         what: "dated audit/decision residue" },
+  { re: /\bReported\s+\d{4}-\d{2}-\d{2}/,         what: "dated report residue" },
+  { re: /\bCore Rule\s+§\d/,                 what: "internal rule-number citation" },
+  { re: /----\s*v\d+\.\d+\.\d+/,             what: "version stamp in a section-divider comment" },
+];
+
+// The same vocabulary, in the documents an operator actually reads. The
+// comment scan below covers `lib/`, which left the shipped docs out of scope:
+// README carried a rule-number citation an operator cannot resolve, and three
+// historical CHANGELOG entries carried review-process labels. CHANGELOG is
+// generated, so a finding there is fixed in the release-notes source it is
+// rebuilt from.
+var OPERATOR_DOCS = [
+  "README.md", "SECURITY.md", "CHANGELOG.md", "MIGRATING.md", "LTS-CALENDAR.md",
+  "NOTICE", "ARCHITECTURE.md", "CONTRIBUTING.md", "GOVERNANCE.md", "ROADMAP.md",
+  "CODE_OF_CONDUCT.md",
+];
+
+function testNoInternalNarrativeInOperatorDocs() {
+  var bad = [];
+  OPERATOR_DOCS.forEach(function (rel) {
+    var abs = path.resolve(__dirname, "..", "..", rel);
+    if (!fs.existsSync(abs)) return;
+    var lines = fs.readFileSync(abs, "utf8").split("\n");
+    for (var li = 0; li < lines.length; li++) {
+      for (var p = 0; p < NARRATIVE.length; p++) {
+        var m = lines[li].replace(/\r$/, "").match(NARRATIVE[p].re);
+        if (m) {
+          bad.push({
+            file:    rel,
+            line:    li + 1,
+            content: NARRATIVE[p].what + ": `" + m[0] + "` in a document operators read — " +
+                     "describe the change, not the internal process (a generated file is " +
+                     "fixed in its release-notes source)",
+          });
+          break;
+        }
+      }
+    }
+  });
+  // No allow marker: none of these patterns matches anything a sentence
+  // written for an operator needs, so a hit is a sentence to rewrite rather
+  // than a site to exempt. A document cannot carry a line comment anyway.
+  _report("operator-facing documents must not carry internal-process narrative " +
+          "(slice / bug / plan IDs, review-process or PR references, rule-number citations)",
+    bad);
+}
+
 function testNoInternalNarrativeComments() {
   // class: internal-narrative-comment
-  var NARRATIVE = [
-    { re: /\b(?:SUBSTRATE|BUG|MAIL)-\d+\b/,        what: "internal slice/bug ID" },
-    { re: /\b(?:D-[MLH]\d+|AUTH-\d+|CRYPTO-\d+|SUPPLY-\d+)\b/, what: "internal domain/slice ID" },
-    { re: /\bCodex\s+P\d/,                          what: "code-review-process reference (Codex P#)" },
-    { re: /\bF-[A-Z]{2,}-\d+\b/,                    what: "internal feature/plan item ID" },
-    { re: /\bPR\s+#\d+\b/,                          what: "pull-request number (process residue)" },
-    { re: /\b[Aa]udit\s+\d{4}-\d{2}-\d{2}/,         what: "dated audit/decision residue" },
-    { re: /\bReported\s+\d{4}-\d{2}-\d{2}/,         what: "dated report residue" },
-    { re: /\bCore Rule\s+§\d/,                 what: "internal CLAUDE.md rule-number citation" },
-    { re: /----\s*v\d+\.\d+\.\d+/,             what: "version stamp in a section-divider comment" },
-  ];
   var files = _libFiles();
   var bad = [];
   var jsdocLineRe = /^\s*\*/;
@@ -25855,6 +28112,260 @@ function testCaptureStatusChecked() {
           "output (an unreadable result is not an empty one)", bad);
 }
 
+// test/layer-0-primitives/registry-codepoints.test.js compares lib/ tables of
+// protocol codepoints against hand-transcribed registry snapshots. A test that
+// reads a table's own constant on both sides passes while the constant is
+// wrong, so the snapshot test is the only check of the value itself. A lib/
+// table annotated `// registry: <url>` on the line above its `var` must be
+// listed as an anchor `"<lib path>#<name>"` of a snapshot with that URL, and
+// every listed anchor must still name an annotated table.
+var REGISTRY_ANNOTATION_RE = /^[ \t]*\/\/ registry: (\S+)[ \t]*\r?\n[ \t]*var ([A-Za-z_$][\w$]*)\s*=/gm;
+
+function _registryAnnotations(rel, src) {
+  var out = [];
+  REGISTRY_ANNOTATION_RE.lastIndex = 0;
+  var m;
+  while ((m = REGISTRY_ANNOTATION_RE.exec(src)) !== null) {
+    out.push({ anchor: rel + "#" + m[2], url: m[1], line: src.slice(0, m.index).split("\n").length });
+  }
+  return out;
+}
+
+// files: [{ rel, src }]; registries: the REGISTRIES export of the snapshot
+// test. Returns the violation list.
+function _registryAnchorViolations(files, registries, testRel) {
+  var bad = [];
+  var listed = {};
+  Object.keys(registries).forEach(function (key) {
+    var entry = registries[key];
+    (entry.anchors || []).forEach(function (anchor) { listed[anchor] = { key: key, url: entry.url }; });
+  });
+  var annotated = {};
+  files.forEach(function (f) {
+    _registryAnnotations(f.rel, f.src).forEach(function (a) {
+      annotated[a.anchor] = a;
+      var hit = listed[a.anchor];
+      if (!hit) {
+        bad.push({ file: f.rel, line: a.line, content: a.anchor + " is annotated `// registry: " +
+          a.url + "` but no snapshot in " + testRel + " lists it, so nothing compares it to the registry" });
+      } else if (hit.url !== a.url) {
+        bad.push({ file: f.rel, line: a.line, content: a.anchor + " cites " + a.url +
+          " but the snapshot that lists it (" + hit.key + ") was transcribed from " + hit.url });
+      }
+    });
+  });
+  Object.keys(listed).forEach(function (anchor) {
+    if (!annotated[anchor]) {
+      bad.push({ file: testRel, line: 1, content: "snapshot " + listed[anchor].key + " lists " + anchor +
+        ", which is not a `var` carrying a `// registry: <url>` annotation in lib/" });
+    }
+  });
+  return bad;
+}
+
+// node:crypto encapsulate() / decapsulate() run whatever KEM the key carries
+// (RSA, X25519, any ML-KEM parameter set), while the caller writes its own KEM
+// id into the envelope. The key passed as the call's first argument therefore
+// has to be bound to its type before the call, inside the same top-level
+// statement: assigned from an assert...KeyType() call (b.crypto.assertKeyType
+// or a wrapper named that way), passed to one, compared through
+// `<key>.asymmetricKeyType ===/!==`, or the first argument is itself the
+// assert...KeyType() call. A check on any other key does not count.
+//
+// A call is a node:crypto KEM call when its receiver is a name the file binds
+// to require("node:crypto") / require("crypto"), when it is made on that
+// require() directly, or when it is a bare call to a name destructured from it.
+// noble receivers (pqc.ml_kem_1024 and the like) enforce the key length of
+// their own parameter set and are not node:crypto calls.
+//
+// The span runs from the last line that starts at column 0 with anything but a
+// closing bracket (a function header, `var f = function`, `exports.x =`) up to
+// the call itself.
+var KEM_CRYPTO_REQUIRE_SRC = "require\\(\\s*[\"'](?:node:)?crypto[\"']\\s*\\)";
+var KEM_ASSERT_CALL_SRC = "(?:[\\w$]+\\.)*_?assert\\w*KeyType\\(";
+
+function _kemEscapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+function _kemCryptoBindings(src) {
+  var receivers = {};
+  var bare = {};
+  var named = new RegExp("\\b(?:var|let|const)\\s+([\\w$]+)\\s*=\\s*" + KEM_CRYPTO_REQUIRE_SRC, "g");
+  var m;
+  while ((m = named.exec(src)) !== null) receivers[m[1]] = true;
+  var destructured = new RegExp("\\b(?:var|let|const)\\s*\\{([^}]*)\\}\\s*=\\s*" + KEM_CRYPTO_REQUIRE_SRC, "g");
+  while ((m = destructured.exec(src)) !== null) {
+    m[1].split(",").forEach(function (part) {
+      var pieces = part.split(":").map(function (s) { return s.trim(); });
+      if (pieces[0] !== "encapsulate" && pieces[0] !== "decapsulate") return;
+      var local = pieces.length > 1 ? pieces[1].split("=")[0].trim() : pieces[0].split("=")[0].trim();
+      if (/^[\w$]+$/.test(local)) bare[local] = true;
+    });
+  }
+  return { receivers: receivers, bare: bare };
+}
+
+function _kemFirstArg(src, openParenEnd) {
+  var depth = 0;
+  for (var i = openParenEnd; i < src.length; i += 1) {
+    var c = src[i];
+    if (c === "(" || c === "[" || c === "{") depth += 1;
+    else if (c === ")" || c === "]" || c === "}") {
+      if (depth === 0) return src.slice(openParenEnd, i).trim();
+      depth -= 1;
+    } else if (c === "," && depth === 0) return src.slice(openParenEnd, i).trim();
+  }
+  return src.slice(openParenEnd).trim();
+}
+
+function _kemArgIsBound(arg, span) {
+  if (new RegExp("^" + KEM_ASSERT_CALL_SRC).test(arg)) return true;
+  if (!/^[\w$]+(?:\.[\w$]+)*$/.test(arg)) return false;
+  var a = _kemEscapeRe(arg);
+  var lead = "(?:^|[^\\w$.])";
+  return new RegExp(lead + a + "\\s*=(?!=)\\s*" + KEM_ASSERT_CALL_SRC).test(span) ||
+         new RegExp(lead + a + "\\.asymmetricKeyType\\s*(?:!==|===)").test(span) ||
+         new RegExp("(?:!==|===)\\s*" + a + "\\.asymmetricKeyType\\b").test(span) ||
+         new RegExp(KEM_ASSERT_CALL_SRC + "\\s*" + a + "\\s*[,)]").test(span);
+}
+
+function _kemCallSites(src) {
+  var bind = _kemCryptoBindings(src);
+  var sites = [];
+  var memberRe = new RegExp("(?:" + KEM_CRYPTO_REQUIRE_SRC + "|\\b([\\w$]+))\\s*\\.\\s*(?:en|de)capsulate\\s*\\(", "g");
+  var m;
+  while ((m = memberRe.exec(src)) !== null) {
+    if (m[1] === undefined || bind.receivers[m[1]] === true) {
+      sites.push({ start: m.index, argStart: m.index + m[0].length });
+    }
+  }
+  Object.keys(bind.bare).forEach(function (name) {
+    var bareRe = new RegExp("(^|[^\\w$.])" + _kemEscapeRe(name) + "\\s*\\(", "g");
+    var b;
+    while ((b = bareRe.exec(src)) !== null) {
+      var at = b.index + b[1].length;
+      if (/\bfunction\s*$/.test(src.slice(0, at))) continue;
+      sites.push({ start: at, argStart: b.index + b[0].length });
+    }
+  });
+  return sites;
+}
+
+function _kemKeyTypeViolations(files) {
+  var bad = [];
+  files.forEach(function (f) {
+    var src = f.src.replace(/\r\n/g, "\n");
+    _kemCallSites(src).forEach(function (site) {
+      var before = src.slice(0, site.start);
+      var headerRe = /\n(?![\s}\])])/g;
+      var start = 0;
+      var h;
+      while ((h = headerRe.exec(before)) !== null) start = h.index;
+      var span = before.slice(start);
+      var arg = _kemFirstArg(src, site.argStart);
+      if (!_kemArgIsBound(arg, span)) {
+        var line = before.split("\n").length;
+        bad.push({ file: f.rel, line: line,
+          content: src.split("\n")[line - 1].trim() + "  (the key `" + arg + "` is not bound to its asymmetricKeyType before this call)" });
+      }
+    });
+  });
+  return bad;
+}
+
+function testKemCallsBindTheKeyType() {
+  var unchecked = "function seal(pem) {\n  var pub = nodeCrypto.createPublicKey(pem);\n" +
+                  "  return nodeCrypto.encapsulate(pub);\n}\n";
+  var checked = "function seal(pem) {\n  var pub = nodeCrypto.createPublicKey(pem);\n" +
+                "  if (pub.asymmetricKeyType !== \"ml-kem-1024\") throw new Error(\"x\");\n" +
+                "  return nodeCrypto.encapsulate(pub);\n}\n";
+  var helper = "function open(pem, ct) {\n  var k = assertKeyType(nodeCrypto.createPrivateKey(pem), \"ml-kem-1024\");\n" +
+               "  return nodeCrypto.decapsulate(k, ct);\n}\n";
+  var otherFn = "function check(k) {\n  return k.asymmetricKeyType === \"ml-kem-1024\";\n}\n\n" + unchecked;
+  var NODE = "var nodeCrypto = require(\"node:crypto\");\n";
+  var fixtures = [
+    ["an unchecked encapsulate fires", NODE + unchecked, 1],
+    ["a comparison on the key before the call is silent", NODE + checked, 0],
+    ["an assertKeyType assignment before decapsulate is silent", NODE + helper, 0],
+    ["a comparison in a different function does not count", NODE + otherFn, 1],
+    ["CRLF source is read the same way", (NODE + unchecked).replace(/\n/g, "\r\n"), 1],
+    ["a check on a different key before an unchecked call fires", NODE +
+      "function seal(pem, ecPem) {\n  var ec = bCrypto.assertKeyType(nodeCrypto.createPublicKey(ecPem), \"ec\");\n" +
+      "  if (ec.asymmetricKeyType !== \"ec\") throw new Error(\"x\");\n" +
+      "  var pub = nodeCrypto.createPublicKey(pem);\n  return nodeCrypto.encapsulate(pub);\n}\n", 1],
+    ["a call on a `crypto` alias fires", "var crypto = require(\"crypto\");\n" +
+      "function seal(pem) {\n  var pub = crypto.createPublicKey(pem);\n  return crypto.encapsulate(pub);\n}\n", 1],
+    ["a call on require(\"node:crypto\") itself fires",
+      "function seal(pub) {\n  return require(\"node:crypto\").encapsulate(pub);\n}\n", 1],
+    ["a destructured encapsulate fires", "var { encapsulate, createPublicKey } = require(\"node:crypto\");\n" +
+      "function seal(pem) {\n  var pub = createPublicKey(pem);\n  return encapsulate(pub);\n}\n", 1],
+    ["a renamed destructured decapsulate fires", "const { decapsulate: open } = require(\"crypto\");\n" +
+      "function unseal(priv, ct) {\n  return open(priv, ct);\n}\n", 1],
+    ["a `var f = function` after a checked function fires", NODE + checked +
+      "var seal2 = function (pem) {\n  var pub = nodeCrypto.createPublicKey(pem);\n" +
+      "  return nodeCrypto.encapsulate(pub);\n};\n", 1],
+    ["an assertKeyType call as the first argument is silent", NODE +
+      "function seal(pem) {\n  return nodeCrypto.encapsulate(bCrypto.assertKeyType(nodeCrypto.createPublicKey(pem), \"ml-kem-1024\"));\n}\n", 0],
+    ["an assertKeyType statement on the key is silent", NODE +
+      "function seal(pub) {\n  assertKeyType(pub, \"ml-kem-1024\");\n  return nodeCrypto.encapsulate(pub);\n}\n", 0],
+    ["an unchecked member-expression key fires", NODE +
+      "function seal(opts) {\n  return nodeCrypto.encapsulate(opts.key);\n}\n", 1],
+    ["a noble receiver is not a node:crypto call", NODE +
+      "function seal(pk) {\n  return pqc.ml_kem_1024.encapsulate(pk);\n}\n", 0],
+    ["a module's own function named encapsulate is not a node:crypto call", NODE +
+      "function encapsulate(pk) {\n  return mlkem.encapsulate(pk);\n}\nfunction x(pk) { return encapsulate(pk); }\n", 0],
+  ];
+  fixtures.forEach(function (row) {
+    var got = _kemKeyTypeViolations([{ rel: "lib/x.js", src: row[1] }]).length;
+    check("KEM key-type detector: " + row[0], got === row[2], "expected " + row[2] + " got " + got);
+  });
+  var files = _libFiles().map(function (full) {
+    return { rel: _relPath(full), src: fs.readFileSync(full, "utf8") };
+  });
+  _report("the key passed to every node:crypto encapsulate()/decapsulate() call in lib/ is bound to its " +
+          "asymmetricKeyType before the call (b.crypto.assertKeyType)", _kemKeyTypeViolations(files));
+}
+
+function testRegistryTablesAreSnapshotted() {
+  var fixtureSrc = "// registry: https://example.test/r\nvar T = { a: 1 };\n";
+  var fixtureReg = { r: { url: "https://example.test/r", anchors: ["lib/x.js#T"] } };
+  check("registry detector: an annotated table listed under its URL is silent",
+        _registryAnchorViolations([{ rel: "lib/x.js", src: fixtureSrc }], fixtureReg, "t").length === 0);
+  check("registry detector: an annotated table no snapshot lists fires",
+        _registryAnchorViolations([{ rel: "lib/x.js", src: fixtureSrc }], {}, "t").length === 1);
+  check("registry detector: a CRLF annotation is still read",
+        _registryAnchorViolations([{ rel: "lib/x.js", src: fixtureSrc.replace(/\n/g, "\r\n") }], {}, "t").length === 1);
+  check("registry detector: a snapshot URL that differs from the annotation fires",
+        _registryAnchorViolations([{ rel: "lib/x.js", src: fixtureSrc }],
+          { r: { url: "https://example.test/other", anchors: ["lib/x.js#T"] } }, "t").length === 1);
+  check("registry detector: an anchor whose annotation is gone fires",
+        _registryAnchorViolations([{ rel: "lib/x.js", src: "var T = { a: 1 };\n" }], fixtureReg, "t").length === 1);
+
+  // The comment gate shares scripts/strip-lib-comments.js isKept, and this
+  // detector reads the annotation, so that classifier has to keep it. Only the
+  // exact one-line form is kept: anything after the URL is narrative.
+  var stripper = require("../../scripts/strip-lib-comments.js");
+  var keepBad = [];
+  [["// registry: https://www.iana.org/assignments/x/x.xhtml#x-1", true],
+   ["// registry: https://www.iana.org/x and some history about it", false],
+   ["// registry: the IANA one", false]].forEach(function (row) {
+    if (!!stripper.isKept(row[0]) !== row[1]) {
+      keepBad.push({ file: "scripts/strip-lib-comments.js", line: 1,
+        content: "isKept(" + JSON.stringify(row[0]) + ") must be " + (row[1] ? "kept" : "not kept") });
+    }
+  });
+  _report("scripts/strip-lib-comments.js isKept keeps exactly the one-line `// registry: <https url>` " +
+          "annotation the registry detector reads", keepBad);
+
+  var testRel = "test/layer-0-primitives/registry-codepoints.test.js";
+  var registries = require("./registry-codepoints.test.js").REGISTRIES;
+  var files = _libFiles().map(function (full) {
+    return { rel: _relPath(full), src: fs.readFileSync(full, "utf8") };
+  });
+  var bad = _registryAnchorViolations(files, registries, testRel);
+  _report("a lib/ table annotated with its registry URL is compared to a snapshot of that " +
+          "registry in " + testRel, bad);
+}
+
 // RFC 9651 §2.4 is explicit that it does NOT update specifications referencing
 // RFC 8941: "a field whose definition references RFC 8941 cannot use the Date
 // type because some recipients might still be using a parser based on RFC 8941
@@ -25916,6 +28427,7 @@ async function run() {
   testCaptureStatusChecked();
   testSfvCitationMatchesReferencingProtocol();
   testNoInternalNarrativeComments();
+  testNoInternalNarrativeInOperatorDocs();
   testLibCommentBlocksAreWholeSentences();
   testEveryObjectStoreBackendMapsNotFound();
   testNoOrphanAllowClass();
@@ -25959,8 +28471,8 @@ async function run() {
   testNoBareCanonicalizeWalks();
   testFormatValidatorLengthCap();
   testProbeSubjectsReachTheQuantifiedBody();
-  testProbeSubjectsMakeACatastrophicPatternCost();
-  testOwnRegexesRunLinear();
+  await testProbeSubjectsMakeACatastrophicPatternCost();
+  await testOwnRegexesRunLinear();
   testLibCarriesNoNarrativeComments();
   testFuzzHarnessesRequireTheirTargetDirectly();
   testNoProcessExitInLib();
@@ -26029,6 +28541,11 @@ async function run() {
   testWorkflowNodeVersionMatchesEngines();
   testNodeFloorDeclarationsAgree();
   testOutboundTlsMergesSharedPosture();
+  testOutboundTlsChainCheckDetectorShapes();
+  testOutboundTlsRunsCompromisedChainCheck();
+  testListenerGroupDetectorShapes();
+  testListenerGroupsUseServerPreference();
+  testCertCompressionDetectorShapes();
   testSecureContextsAdvertiseCertificateCompression();
   testDocumentedScriptFlagsExist();
   // v0.8.91 bug-class detectors — derived from the
@@ -26157,6 +28674,8 @@ async function run() {
   testOptsBlocksHaveAnOptsParameter();
   testDocProseIsAmericanEnglish();
   testShapeFactoriesValidateOnlyViaShape();
+  testRegistryTablesAreSnapshotted();
+  testKemCallsBindTheKeyType();
   testKnownAntipatterns();
 
   // Final cumulative assertion — every detector is a hard gate.
@@ -26164,7 +28683,7 @@ async function run() {
         _allViolations.length === 0);
 }
 
-module.exports = { run: run };
+module.exports = { run: run, _outboundTlsChainCheckFindings: _outboundTlsChainCheckFindings };
 
 if (require.main === module) {
   // Persistent output to .test-output/codebase-patterns.log so agents

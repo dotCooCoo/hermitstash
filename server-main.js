@@ -140,14 +140,18 @@ app.use(b.middleware.composePipeline([
       contentSafety: null,
       contentSafetyDisabledReason: "operator-curated public build output (css/js/fonts/brand-svg); no untrusted uploads served from this mount",
     }), position: 45 },
-  // Without this the pipeline fails OPEN: composePipeline re-emits an inner
-  // throw as next(err), the outer router's next ignores the error argument, and
-  // the request reaches its route handler with ipCheck, securityHeaders,
-  // botGuard and cors all skipped. Ending the response here halts the chain.
+  // A failure in ipCheck, securityHeaders, botGuard, cors or the static mount
+  // ends the request here, so it never reaches a route handler. The shared
+  // error handler answers it with the error's own status; if that handler
+  // throws, the reply is a plain 500.
   { name: "errorHandler", position: 90, mw: function (err, req, res, _next) {
-    try { logger.error("security pipeline error — failing closed", { error: err && err.message, path: logger.requestPath(req) }); } catch (_e) { /* logging must never break the fail-closed response */ }
-    if (!res.writableEnded) {
-      b.problemDetails.send(res, { type: "https://hermitstash.com/problems/internal", title: "Internal Server Error", status: 500 });
+    try {
+      errorHandler(err, req, res);
+    } catch (handlerErr) {
+      try { logger.error("security pipeline error handler failed", { error: handlerErr && handlerErr.message, path: logger.requestPath(req) }); } catch (_e) { /* logging must never break the fail-closed response */ }
+      if (!res.writableEnded) {
+        b.problemDetails.send(res, { type: "https://hermitstash.com/problems/internal", title: "Internal Server Error", status: 500 });
+      }
     }
   } },
 ]));
@@ -692,7 +696,7 @@ scheduler.register("cert_expiry_check", C.TIME.days(1), function () {
   return certExpiryJob.run().catch(function (e) { logger.error("cert_expiry_check failed", { error: e.message }); });
 });
 scheduler.register("incremental_vacuum", C.TIME.days(1), function () {
-  try { db.rawExec("PRAGMA incremental_vacuum(100)"); } catch (_e) { /* reclaim ~100 pages — best-effort */ }
+  try { db.incrementalVacuum(100); } catch (_e) { /* best-effort; the next run retries */ }
 });
 scheduler.register("shm_usage_monitor", C.TIME.minutes(5), function () {
   if (process.platform === "win32") return; // statfsSync not available on Windows
@@ -767,7 +771,12 @@ var PQC_ENFORCE = process.env.PQC_ENFORCE !== "false"; // default: true
 var INTERNAL_TLS_PORT = parseInt(process.env.INTERNAL_TLS_PORT, 10) || 3001;
 
 /**
- * The listener's key-exchange groups, colon-separated for `ecdhCurve`.
+ * The listener's key-exchange groups for `ecdhCurve`, one group per
+ * `/`-separated tuple. OpenSSL picks from the earliest tuple the client
+ * supports, and sends a HelloRetryRequest when the client's key share is for a
+ * later one, so the server's order decides the group rather than the
+ * client's. In a single colon-separated tuple the client's key share decides,
+ * and a client listing X25519 first negotiates it despite offering a hybrid.
  *
  * The option MUST be `ecdhCurve`. Node has no `groups` TLS option, so a
  * `groups:` key is accepted and silently discarded and the listener falls back
@@ -783,7 +792,7 @@ var INTERNAL_TLS_PORT = parseInt(process.env.INTERNAL_TLS_PORT, 10) || 3001;
 function listenerGroupList() {
   var groups = C.TLS_GROUP_PREFERENCE;
   if (PQC_ENFORCE) groups = groups.filter(function (g) { return /MLKEM/i.test(g); });
-  return groups.join(":");
+  return groups.join("/");
 }
 
 // The trust bundle is assembled in lib/tls-context.js so the renewal path and
@@ -829,7 +838,7 @@ if (fs.existsSync(TLS_CERT) && tlsKeyAvailable()) {
     // Report the list the listener was given. A banner naming a group it will
     // not negotiate is how the earlier classical fallback went unnoticed.
     logger.info("[TLS] PQC TLS enabled", {
-      groups: listenerGroupList().split(":").join(" + "),
+      groups: listenerGroupList().split("/").join(" > "),
       keySealed: fs.existsSync(TLS_KEY_SEALED),
     });
   } catch (e) {
@@ -864,11 +873,11 @@ if (tlsEnabled && PQC_ENFORCE) {
     logger.info("[PQC] Internal HTTPS server listening on 127.0.0.1:" + INTERNAL_TLS_PORT);
   }, tlsOptions, "127.0.0.1");
 
-  gateServer = b.pqcGate.create({ internalPort: INTERNAL_TLS_PORT, log: logger });
+  gateServer = b.pqcGate.create({ internalPort: INTERNAL_TLS_PORT, groups: listenerGroupList(), log: logger });
   gateServer.listen(config.port, function () {
     logger.info("HermitStash is running", {
       url: protocol + "://localhost:" + config.port,
-      tls: "PQC enforced (" + listenerGroupList().split(":")[0] + ")",
+      tls: "PQC enforced (" + listenerGroupList().split("/")[0] + ")",
       pqcGate: "active on port " + config.port + " → 127.0.0.1:" + INTERNAL_TLS_PORT,
       storage: config.storage.backend + " -> " + storage.uploadDir,
       email: config.email.host || "disabled",

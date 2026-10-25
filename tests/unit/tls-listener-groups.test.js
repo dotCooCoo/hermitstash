@@ -72,7 +72,7 @@ describe("TLS listener key-exchange groups", function () {
       "the TLS log line must not print the full preference list — it can differ from what is configured");
   });
 
-  it("the group list is a colon-joined string, since the constant is an array", function () {
+  it("the group list is a string with one group per /-separated tuple, since the constant is an array", function () {
     var pref = b.constants.TLS_GROUP_PREFERENCE;
     assert.ok(Array.isArray(pref), "TLS_GROUP_PREFERENCE is an array");
     // Passing the array straight through would throw at boot.
@@ -81,8 +81,39 @@ describe("TLS listener key-exchange groups", function () {
       /must be of type string|ecdhCurve/i,
       "the array form must not be passed to ecdhCurve");
     assert.doesNotThrow(
-      function () { nodeTls.createSecureContext({ ecdhCurve: pref.join(":") }); },
-      "the colon-joined form is what OpenSSL accepts");
+      function () { nodeTls.createSecureContext({ ecdhCurve: pref.join("/") }); },
+      "the /-separated tuple form is what OpenSSL accepts");
+    assert.match(src, /return groups\.join\("\/"\);/,
+      "listenerGroupList() must join with \"/\" so the server's order decides the group");
+  });
+
+  it("with one group per tuple the server's order decides the group, not the client's key share", async function () {
+    var ca = await b.mtlsEngine.generateCa({ algorithm: "ECDSA-P384-SHA384" });
+    var leaf = await b.mtlsEngine.signClientCert({ cn: "localhost", usage: "server", sans: ["localhost"],
+      caCertPem: ca.caCertPem, caKeyPem: ca.caKeyPem, algorithm: "ECDSA-P384-SHA384" });
+    async function negotiate(serverGroups, clientGroups) {
+      var server = nodeTls.createServer({ cert: leaf.cert, key: leaf.key, ecdhCurve: serverGroups, minVersion: "TLSv1.3" },
+        function (s) { s.end(); });
+      await new Promise(function (r) { server.listen(0, "127.0.0.1", r); });
+      try {
+        return await new Promise(function (resolve, reject) {
+          var sock = nodeTls.connect({ host: "127.0.0.1", port: server.address().port, servername: "localhost",
+            ca: ca.caCertPem, ecdhCurve: clientGroups }, function () {
+            var info = sock.getEphemeralKeyInfo();
+            sock.end();
+            resolve(info && info.name);
+          });
+          sock.on("error", reject);
+        });
+      } finally { server.close(); }
+    }
+    var hybrids = "SecP384r1MLKEM1024/X25519MLKEM768/SecP256r1MLKEM768";
+    assert.equal(await negotiate(hybrids, "X25519MLKEM768:SecP384r1MLKEM1024"), "SecP384r1MLKEM1024",
+      "the strongest hybrid both sides support wins");
+    assert.equal(await negotiate(hybrids + "/X25519", "X25519:X25519MLKEM768"), "X25519MLKEM768",
+      "with the classical fallback last, a client listing X25519 first still gets a hybrid");
+    assert.equal(await negotiate(hybrids.split("/").join(":") + ":X25519", "X25519:X25519MLKEM768"), "X25519",
+      "control: in one colon-separated tuple the client's X25519 key share decides");
   });
 
   it("under enforcement the list is post-quantum only — no classical fallback", function () {

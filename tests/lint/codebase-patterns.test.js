@@ -1722,6 +1722,22 @@ function testPasswordHashingThroughGate() {
   _report("b.auth.password is called only from lib/password-gate.js", matches);
 }
 
+// ---- A log, audit or SIEM field is not assigned from the raw request target ----
+// The check flags a field named url, originalUrl, requestUrl, fullUrl, path,
+// route or target that is assigned directly from req.url, req.originalUrl,
+// req.pathname or req.path, in lib/ and the app tree. A log line, an audit
+// detail or a SIEM event names the request with logger.requestPath(req). The
+// check follows the blamejs detector of the same class id, with path, route
+// and target added to the field names and req.pathname and req.path added to
+// the sources.
+function testNoRawRequestTargetField() {
+  // class: a-logged-or-audited-record-field-is-built-from-the-raw-request-url
+  var re = /\b(?:url|originalUrl|requestUrl|fullUrl|path|route|target)\s*:\s*(?:req(?:uest)?\s*&&\s*)?req(?:uest)?\s*\.\s*(?:url|originalUrl|pathname|path)\b/;
+  var matches = _scan(re, { skipComments: true, appScope: true });
+  matches = _filterMarkers(matches, "a-logged-or-audited-record-field-is-built-from-the-raw-request-url");
+  _report("a log, audit or SIEM field names the request with logger.requestPath(req), not req.url, req.originalUrl, req.pathname or req.path", matches);
+}
+
 // ---- Release-named test files refused ----
 // Tests must live in per-domain files (e.g. honeytoken.test.js,
 // resource-access-lock.test.js) not release-bucket files like
@@ -6238,6 +6254,7 @@ async function run() {
   testTransactionCommitInsideTry();
   testErrorCodeNotReassignedAfterBuild();
   testPasswordHashingThroughGate();
+  testNoRawRequestTargetField();
   testKnownAntipatterns();
 
   // Final cumulative assertion — every detector is a hard gate.

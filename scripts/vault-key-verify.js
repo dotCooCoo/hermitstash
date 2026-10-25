@@ -106,7 +106,12 @@ async function loadKeys(mode) {
   try {
     plainBuf = await b.vaultWrap.unwrap(sealedBytes, pw);
   } catch (e) {
-    console.error("ERROR: passphrase rejected — " + safeLog.scrub(e.message));
+    if (e && e.code === "vault-wrap/passphrase-rejected") {
+      console.error("ERROR: passphrase rejected: " + safeLog.scrub(e.message));
+    } else {
+      console.error("ERROR: vault.key.sealed could not be unwrapped: " + safeLog.scrub(e.message));
+      console.error("  The passphrase was not checked.");
+    }
     process.exit(1);
   }
   try { return b.safeJson.parse(plainBuf.toString("utf8"), { maxBytes: b.constants.BYTES.mib(1) }); }

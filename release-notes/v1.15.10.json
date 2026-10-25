@@ -1,0 +1,121 @@
+{
+  "version": "1.15.10",
+  "date": "2026-10-24",
+  "headline": "Keep a file's local copy when S3 storage reports a short upload, and move to blamejs 0.21.4",
+  "summary": "A Local → S3 storage migration on v1.15.9 could replace a file with an empty object after a transient error from the storage service and then delete the local copy. If you ran one, read the Migration section. This release also stops S3 uploads and downloads from holding their data in memory for two minutes after they finish, reports a damaged vault.key.sealed as a damaged file rather than a rejected passphrase, converts the database so that the daily vacuum frees pages, makes the TLS listener choose the strongest post-quantum key exchange a client supports, and moves the vendored framework to blamejs 0.21.4, which checks outbound TLS certificate chains up to a trust anchor.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Keep a file's local copy when S3 storage reports a short upload",
+          "body": "Local → S3 storage migration deletes each local file after its upload. In v1.15.9 the S3 client retried a failed upload from a stream it had already read, stored an empty object and reported success, and the migration then deleted the local copy. One transient error from the storage service during a file's upload was enough. A failed stream upload is no longer retried, and the migration deletes a local copy only after the storage service reports that it stored the file's full size. A file that fails keeps its local copy and its record and is listed in the migration result, and running the migration again retries it."
+        },
+        {
+          "title": "Release S3 request and response data when the request finishes",
+          "body": "The S3 client kept the body of every upload and every download in memory until the request's 120-second timeout passed, after the request had already finished. A burst of large uploads or downloads, or a backup of files stored on S3, held everything it moved in the previous two minutes. The data is now released as soon as each request finishes."
+        },
+        {
+          "title": "Report a damaged vault.key.sealed as unreadable rather than as a rejected passphrase",
+          "body": "The server at boot, `scripts/vault-key-rotate.js` and `scripts/vault-key-verify.js` reported every failure to unwrap `vault.key.sealed` as a rejected passphrase. They now report a rejected passphrase only when the passphrase fails to decrypt the key. For a truncated file, a file that is not a sealed vault key, or a header naming an Argon2id cost above the ceiling, they print the reason and state that the passphrase was not checked. At boot that line begins `FATAL: vault.key.sealed could not be unwrapped, and the passphrase was not checked`."
+        },
+        {
+          "title": "Reclaim free pages in the daily database vacuum",
+          "body": "A new main database was created in `auto_vacuum=NONE` because `lib/db.js` switched it to WAL before it set `auto_vacuum=INCREMENTAL`, and the daily `incremental_vacuum` job ran its statement for one step, which frees one page. A new database is now created in incremental mode, and the job frees up to 100 pages a day. A database created by an earlier release is rebuilt in incremental mode with one `VACUUM` the first time this release opens it, and the server logs `DB: converted to auto_vacuum=INCREMENTAL` with the time it took."
+        },
+        {
+          "title": "Check the costs in BACKUP_PASSPHRASE_HASH with the framework's decoder",
+          "body": "The server reads the memory, time and parallelism costs of `BACKUP_PASSPHRASE_HASH` through `b.auth.password.exceedsCostCeiling`, which uses the decoder that `b.auth.password.verify` uses. A hash that lists its costs in another order is now reported as unusable when a cost is above the ceiling. Such a hash was previously checked as a passphrase and rejected every time."
+        },
+        {
+          "title": "Accept vault uploads when the file size limit is off",
+          "body": "With the maximum file size set to 0 (no limit), every vault upload and vault file update failed with HTTP 500, because the body limit was computed as twice the file size limit. Those requests now use the 2 GiB ceiling that other uploads use when the limit is off."
+        },
+        {
+          "title": "Restore the wording of two sync rename errors",
+          "body": "`POST /sync/rename` answers `Invalid new path.` and `File not found at old path.` again. Since v1.10.7 it answered `Invalid new nodePath.` and `File not found at old nodePath.`."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "The TLS listener prefers the strongest post-quantum key exchange",
+          "body": "The listener gives each key-exchange group its own preference tuple, so it negotiates the first group in its list that the client supports: `SecP384r1MLKEM1024`, then `X25519MLKEM768`, then `SecP256r1MLKEM768`. Before, the client's key share decided, so a client that offered both negotiated `X25519MLKEM768` over `SecP384r1MLKEM1024`, and with `PQC_ENFORCE=false` a client that listed `X25519` first negotiated classical `X25519` even when it also offered a hybrid. A client whose first key share is for a later group gets one extra round trip. The TLS start-up log line lists the groups separated by `>`."
+        },
+        {
+          "title": "Backup and restore count against the password-check limit",
+          "body": "The Argon2id derivations of a backup or a restore, which run in a worker thread, now take slots from the same limit as sign-ins and password checks, `C.PASSWORD_HASH.MAX_CONCURRENT`. They previously ran outside it, so a backup during a burst of sign-ins could run more Argon2id derivations at once than the limit allows."
+        },
+        {
+          "title": "A failure in the security middleware is answered with its own status",
+          "body": "When the IP check, bot guard, CORS check, security headers or static file handler raised an error, the server answered HTTP 500 for every one of them. The shared error handler now answers it, so an error that carries a status, such as a 403 or a 429, is sent with that status and in the same RFC 9457 shape as other errors. The request still stops there and never reaches its route."
+        },
+        {
+          "title": "Show why an admin unseal of the vault key failed",
+          "body": "When `vault.key.sealed` cannot be unwrapped for a reason other than a rejected passphrase, `POST /admin/security/unseal/vault-passphrase` answers 500 with the reason in the problem detail, for example a truncated file or one that is not a sealed vault key. The response previously carried a generic error, and the reason appeared only in the server log."
+        },
+        {
+          "title": "Name the matched route when a request fails before its route runs",
+          "body": "When a request fails in middleware that runs before its route, the `path` field of the `Unhandled server error` and `Request refused` log lines now holds the route pattern the request matches, such as `/b/:shareId/folder`, where it held `/b/:token/folder`. The same applies to the `path` field of SIEM events and to the path in the `details` of audit entries for refused requests and for requests the admin network fence refuses. A request that matches no route is still shown with each path segment of 32 or more letters, digits, `-` or `_` replaced by `:token`. Update a dashboard or alert that matches the `:token` form of a path that a route serves."
+        },
+        {
+          "title": "Refuse a request target longer than 8,170 characters with 400",
+          "body": "A request whose path and query string together are longer than 8,170 characters is now refused with HTTP 400 and the plain-text body `400 Bad Request: malformed request target` before any middleware runs. The server writes no log line for it. Such a request was previously answered with HTTP 500 and logged at error level as `Unhandled server error`."
+        },
+        {
+          "title": "A stored-file path that is not a regular file reads as not found",
+          "body": "A download or vault read whose stored path held a directory or another non-regular file failed with HTTP 500. It is now refused the same way as a missing file, and a FIFO or a device at that path is refused without the read waiting on it."
+        },
+        {
+          "title": "Vendored blamejs moves to 0.21.4",
+          "body": "The changes that reach this server are described in the other items of this release. The bundled `@blamejs/pki` moves from 0.8.48 to 0.9.7. Passkey registration, passkey sign-in, the passkey vault unlock, and the certificates, revocation lists and PKCS#12 files the server issues give the same results as with 0.8.48. The PQC gate in front of the listener now also refuses a ClientHello that cannot negotiate TLS 1.3."
+        },
+        {
+          "title": "The runtime base image moves to the current Chainguard rebuild",
+          "body": "The image is built on the `cgr.dev/chainguard/wolfi-base` build of 2026-10-24."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Refuse a sealed key file that asks for an Argon2id cost above the ceiling",
+          "body": "Unsealing `vault.key.sealed` or the audit signing key read the Argon2id memory, time and parallelism costs from the file header and derived the key at those costs, up to 4 GiB of memory. The vendored framework now applies `b.auth.password.costCeiling()` (m=524288 KiB, t=24, p=16) to these derivations, so a header naming a higher cost is refused before the derivation starts and is reported as an unseal failure rather than a rejected passphrase. HermitStash writes these files at m=65536 KiB, t=3, p=4 and does not change the ceiling."
+        },
+        {
+          "title": "Outbound TLS checks the server's chain up to a trust anchor",
+          "body": "Connections the server opens to S3 storage, webhook receivers, the SIEM, the mail server and identity providers now check the peer's certificate chain up to a trusted root, and refuse a certificate whose private key is publicly known. A refusal fails with `tls/server-chain-unverifiable` or `tls/compromised-key`."
+        }
+      ]
+    },
+    {
+      "heading": "Migration",
+      "items": [
+        {
+          "title": "Check the storage bucket after a Local → S3 migration run on v1.15.9",
+          "body": "If you ran Local → S3 storage migration on v1.15.9, list the objects in the storage bucket and look for any of 0 bytes. The server stores every uploaded file encrypted, so a stored file is never 0 bytes, and each such object is a file whose local copy was deleted after an empty upload. Restore those files from a backup taken before the migration. A migration run on v1.15.7 or earlier read each file whole and is not affected."
+        },
+        {
+          "title": "Allow for the one-time database rebuild on the first start",
+          "body": "The first start of this release rebuilds a database created by an earlier release. The rebuild holds one more copy of the database in memory and needs free space in the database's working directory (usually `/dev/shm`) of about the database's size plus 16 MiB. With less free space the server logs that `auto_vacuum` stays NONE, starts without the rebuild, and tries again at the next start. A rebuild that fails leaves the database unchanged."
+        },
+        {
+          "title": "Check endpoints whose certificate chain does not lead to a trusted root",
+          "body": "An S3-compatible store, webhook receiver, SIEM collector or mail server whose certificate chain cannot be followed to a trusted root, for example one that sends an unrelated certificate ahead of its issuer, is now refused. A private CA is accepted when its certificate is listed in `NODE_EXTRA_CA_CERTS`. Webhook refusals appear in the delivery log."
+        },
+        {
+          "title": "Some IPv6 clients sign in again once",
+          "body": "A client that reaches the server through NAT64 (`64:ff9b::/96`) or 6to4 (`2002::/16`) is now identified by the IPv4 address its IPv6 address carries. Its existing session no longer matches and it signs in once more, and its rate-limit and upload-quota counters start again under the IPv4 address."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "blamejs 0.21.4", "url": "https://github.com/blamejs/blamejs/releases/tag/v0.21.4" },
+    { "label": "blamejs 0.21.1", "url": "https://github.com/blamejs/blamejs/releases/tag/v0.21.1" },
+    { "label": "blamejs#840: a retried stream upload stores an empty object", "url": "https://github.com/blamejs/blamejs/issues/840" }
+  ]
+}

@@ -78,18 +78,13 @@
   // every boot. That's a false alert to any operator monitoring on log
   // severity.
   //
-  // The events themselves are framework-internal observability (e.g. mtls
-  // algorithm selection — also visible via lib/mtls-ca.js's own info log),
-  // not data HS cares to chain. Routing them into HS's audit_log would need
-  // a shape adapter; b.audit doesn't currently expose a custom-handler
-  // primitive to do that cleanly. Patching emit/safeEmit to no-op here is
-  // a transparent silencer — same end state the catch-and-drop path would
-  // produce, minus the false error log. Framework code is unaffected (try-
-  // wrapped at every call site).
-  //
-  // Fundamental fix belongs upstream: b.audit needs `useStore({ record })`
-  // so operators with their own audit infrastructure can register a sink.
-  // Tracked locally; file upstream PR when bandwidth allows.
+  // The events are framework-internal observability, such as the mTLS
+  // algorithm selection, a classical outbound TLS group (tls.classical_downgrade)
+  // or a refused client certificate chain, and HS does not record them.
+  // Patching emit/safeEmit to no-ops here drops them without the false error
+  // log. Framework code is unaffected (try-wrapped at every call site).
+  // The framework's audit module can route them to another store through its
+  // useStore() hook; HS does not register one.
   var b = require("./lib/vendor/blamejs");
   b.audit.emit = function () {};
   b.audit.safeEmit = function () {};

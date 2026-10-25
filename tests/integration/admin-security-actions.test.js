@@ -196,6 +196,8 @@ describe("POST /admin/security/unseal/vault-passphrase", function () {
     try {
       var res = await client.post("/admin/security/unseal/vault-passphrase", { json: { passphrase: pw } });
       assert.strictEqual(res.status, 500);
+      assert.match(String(res.json && res.json.detail || ""), /^unseal failed: not a wrapped vault file/,
+        "the admin is told what is wrong with vault.key.sealed: " + JSON.stringify(res.json));
     } finally {
       fs.writeFileSync(C.PATHS.VAULT_KEY_SEALED, good);
     }

@@ -16,7 +16,7 @@
         "browser": "public/js/noble-ciphers.js"
       },
       "bundler": "copied from the vendored framework (no separate build)",
-      "bundledAt": "2026-10-05"
+      "bundledAt": "2026-10-24"
     },
     "@noble/hashes": {
       "version": "2.4.0",
@@ -32,7 +32,7 @@
         "browser": "public/js/noble-hashes.js"
       },
       "bundler": "copied from the vendored framework (no separate build)",
-      "bundledAt": "2026-10-05"
+      "bundledAt": "2026-10-24"
     },
     "@noble/post-quantum": {
       "version": "0.7.1",
@@ -50,11 +50,11 @@
         "browser": "public/js/noble-pq.js"
       },
       "bundler": "copied from the vendored framework (no separate build)",
-      "bundledAt": "2026-10-05"
+      "bundledAt": "2026-10-24"
     },
     "blamejs": {
-      "version": "0.20.39",
-      "tag": "v0.20.39",
+      "version": "0.21.4",
+      "tag": "v0.21.4",
       "license": "Apache-2.0",
       "author": "blamejs contributors",
       "source": "https://github.com/blamejs/blamejs",
@@ -63,7 +63,7 @@
         "server": "lib/vendor/blamejs/"
       },
       "bundler": "shallow git clone of release tag from github.com/blamejs/blamejs",
-      "bundledAt": "2026-10-05",
+      "bundledAt": "2026-10-24",
       "components": {
         "@noble/ciphers": {
           "version": "2.4.0",
@@ -174,11 +174,11 @@
           "file": "lib/vendor/blamejs/lib/vendor/public-suffix-list.dat"
         },
         "@blamejs/pki": {
-          "version": "0.8.48",
+          "version": "0.9.7",
           "license": "Apache-2.0",
           "author": "blamejs",
           "source": "https://github.com/blamejs/pki",
-          "cpe": "cpe:2.3:a:blamejs:pki:0.8.48:*:*:*:*:node.js:*:*",
+          "cpe": "cpe:2.3:a:blamejs:pki:0.9.7:*:*:*:*:node.js:*:*",
           "exports": [
             "x509",
             "crl",
@@ -194,7 +194,7 @@
           "file": "lib/vendor/blamejs/lib/vendor/blamejs-pki.cjs"
         }
       },
-      "integrity": "sha512-vTPCoQwl/djsge9bpaqnjSTXdHAHrX2wpcRGE5lRTktQXqO9fSbploIOOhTiif3fVpzp7DsPMEwLbcKBrPCEGw=="
+      "integrity": "sha512-u0j5CQhC1ehFTq3X6gSeqXbT7riuwx8a2j2OLHG/kxpf83VQQs3bXRPgYG1F5eZt7QPG9/cdmNiH1cE7I53lGg=="
     }
   }
 }
