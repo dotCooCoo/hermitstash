@@ -53,20 +53,20 @@ HERMITSTASH_AUTO_UPDATE="${HERMITSTASH_AUTO_UPDATE:-no}"
 log "Installing HermitStash to ${INSTALL_DIR}"
 echo ""
 
-# ---- Step 1: Node.js 24.21.0+ ----
+# ---- Step 1: Node.js 24.22.1+ ----
 #
 # HermitStash needs OpenSSL 3.5 PQC bindings (ML-KEM-1024,
 # SLH-DSA-SHAKE-256f, ML-DSA-87) plus the cumulative 24.x security
 # patches that have shipped since 24.8 (24.17.0 was a security
 # release; 24.19.0 bundles SQLite 3.53.3; 24.21.0 fixes the TLS 1.3
 # no-cert resumption that reported an unauthenticated client as
-# authorized). The 24.21.0 floor pins the latest active 24.x patch
-# series. NodeSource setup_24.x ships current 24.x (well past
-# 24.21.0).
+# authorized; 24.22.1 fixes CVE-2026-111497 in the Brotli decoder).
+# The 24.22.1 floor pins the latest active 24.x patch series.
+# NodeSource setup_24.x ships current 24.x.
 
 NODE_MIN_MAJOR=24
-NODE_MIN_MINOR=21
-NODE_MIN_PATCH=0
+NODE_MIN_MINOR=22
+NODE_MIN_PATCH=1
 
 needs_install=false
 if command -v node &>/dev/null; then

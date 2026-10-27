@@ -27,9 +27,9 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           # Match the runtime floor enforced by server.js + package.json.
-          # 24.21.0 pins the latest active 24.x patch series — covers OpenSSL
+          # 24.22.1 pins the latest active 24.x patch series — covers OpenSSL
           # 3.5 PQC bindings + cumulative security patches.
-          node-version: 24.21.0
+          node-version: 24.22.1
 
       - name: Install ESLint
         run: npm install --no-save eslint@^10 eslint-plugin-security@^4
@@ -358,7 +358,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24.21.0
+          node-version: 24.22.1
 
       - name: Run the ${{ matrix.suite }} suite
         run: node --test --test-reporter=spec "tests/${{ matrix.suite }}/*.test.js"

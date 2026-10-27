@@ -23,7 +23,7 @@
 # digest in the same change, and building the image locally to confirm it starts.
 # The release preflight reports a moved base as advisory, which is not enough on
 # its own when the Node floor moves with it.
-ARG RUNTIME_BASE=cgr.dev/chainguard/wolfi-base@sha256:360896efb0753a5701c48f860e17130c205eae5a264797aa3e7ea126ee2923a7  # wolfi-base 2026-10-24
+ARG RUNTIME_BASE=cgr.dev/chainguard/wolfi-base@sha256:0b179206ab162b12a43bacea1b525a4023e0272005c92d08555c61b1beaedc40  # wolfi-base 2026-10-26
 FROM ${RUNTIME_BASE}
 # Chainguard wolfi-base — glibc-dynamic (not musl), continuously rebuilt when
 # upstream CVE fixes land. CVE count at any given digest is typically near-zero;
@@ -43,11 +43,12 @@ FROM ${RUNTIME_BASE}
 # release into production: those lines stop receiving security updates months after
 # release. The major is pinned; the patch level is deliberately not, so a wolfi
 # rebuild carrying a 24.x security fix is picked up without a Dockerfile edit. An
-# exact `=24.21.0-r0` pin is NOT used because wolfi's apk repository prunes
+# exact `=24.22.1-r2` pin is NOT used because wolfi's apk repository prunes
 # superseded versions, which would break rebuilds once that revision ages out.
 #
-# Node 24.21.0+ is required for PQC: ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87
-# (OpenSSL 3.5) plus cumulative 24.x security patches.
+# Node 24.22.1+ is required for PQC: ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87
+# (OpenSSL 3.5) plus cumulative 24.x security patches, including the
+# CVE-2026-111497 Brotli decoder fix in 24.22.1.
 #
 # wolfi-base also ships no npm, which the prebuilt Node image did — removing npm
 # removes its bundled-dependency CVE stream from this image entirely.
@@ -98,8 +99,10 @@ LABEL org.opencontainers.image.title="HermitStash" \
 # pin turns into a broken build rather than a reproducible one. `nodejs-24` pins the
 # major, which is the part that has to agree with package.json engines.node; the
 # release Trivy gate is what catches a package that has aged into a known CVE.
+# `>=24.22.1` is a floor, not an exact pin: the build fails if the repository
+# offers only a Node older than the one package.json engines.node requires.
 # hadolint ignore=DL3018
-RUN apk add --no-cache nodejs-24 shadow su-exec
+RUN apk add --no-cache "nodejs-24>=24.22.1" shadow su-exec
 
 # Security: non-root user for runtime. PUID/PGID env vars remap UID/GID at
 # runtime via groupmod/usermod (installed above); setpriv then drops privs.
