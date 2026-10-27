@@ -2,7 +2,7 @@
   "version": "1.15.11",
   "date": "2026-10-27",
   "headline": "Move to Node.js 24.22.1 for the CVE-2026-111497 Brotli decoder fix",
-  "summary": "Node.js 24.22.1 fixes CVE-2026-111497, an out-of-bounds write in the Brotli decoder bundled with Node.js that malformed compressed data can trigger, and nine other vulnerabilities in DNS, TLS, HTTP, crypto and the Permission Model. The container image now refuses to build with an older Node, and the server refuses to start on one.",
+  "summary": "Node.js 24.22.1 fixes CVE-2026-111497, an out-of-bounds write in the Brotli decoder bundled with Node.js that malformed compressed data can trigger, and seven other vulnerabilities in DNS, TLS, HTTP, crypto and the Permission Model. The container image now refuses to build with an older Node, and the server refuses to start on one.",
   "sections": [
     {
       "heading": "Security",
