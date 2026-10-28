@@ -326,6 +326,10 @@ function toGuardEntry(e) {
     isDirectory:    type === "directory" || e.typeflag === "5",
     isEncrypted:    !!e.isEncrypted,
     attrs:          { externalAttrs: e.externalAttrs },
+    // The other names a ZIP entry is extracted under. The zip reader names an
+    // entry from its Unicode Path field when one matches, and lists the raw
+    // name field here, which Python's zipfile and Java extract it as.
+    altNames:       e.altNames,
   };
 }
 
@@ -390,11 +394,10 @@ async function validateArchive(filename, buffer) {
     return { valid: false, reason: "Archive could not be read for inspection.", detail: e.code || "unreadable" };
   }
 
-  // The tar reader reports a typeflag it does not interpret as entryType
-  // "unknown". That includes GNU long-name ('L') and long-link ('K') records:
-  // their body holds the name or link target an extractor gives the NEXT entry,
-  // and the reader leaves that entry with its own 100-byte header name. The guard
-  // would check a name no extractor uses, so these archives are refused.
+  // The tar reader lists a sparse file, a volume label (V), a Solaris ACL (A),
+  // a multi-volume (M) or old long-name (N) header, and any other typeflag it
+  // does not interpret, as entryType "unknown", and refuses to extract them.
+  // An archive that holds one is refused here.
   var uninterpreted = entries.find(function (e) {
     return typeof e.typeflag === "string" && e.entryType === "unknown";
   });
@@ -402,8 +405,7 @@ async function validateArchive(filename, buffer) {
     return {
       valid: false,
       reason: "Archive contents failed inspection.",
-      detail: uninterpreted.typeflag === "L" || uninterpreted.typeflag === "K"
-        ? "archive.tar-gnu-long-name" : "archive.tar-entry-type-unsupported",
+      detail: "archive.tar-entry-type-unsupported",
     };
   }
 

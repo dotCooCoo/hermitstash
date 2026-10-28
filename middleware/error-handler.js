@@ -17,11 +17,9 @@
  * - Log lines and audit details name the request with logger.requestPath(req):
  *   the route pattern the request matches, or, for a path no route matches,
  *   the path with its token segments replaced. Log lines carry req.requestId.
- * - guardRouterLogs(app) answers a failed request through this handler, and
- *   b.router writes no log line for it. Call it on a new Router before it
- *   handles a request.
+ * - routeErrorHandler is the form registered with app.onError() on a Router
+ *   created with logErrors: false: it also logs a failure of this handler.
  */
-var b = require("../lib/vendor/blamejs");
 var audit = require("../lib/audit");
 var logger = require("../app/shared/logger");
 var { emitError } = require("./respond-error");
@@ -130,33 +128,15 @@ function _logForRequest(req, fn) {
 }
 
 /**
- * Answers every failed request through the handler registered with
- * app.onError(), and b.router writes no log line for it. The router's own
- * failure line names the request by its route and redacts credentials, but
- * it still writes an ID in the path, such as a share ID, at error level.
- *
- * app.handle() is replaced. A middleware or route that throws, rejects or
- * calls next(err) ends the request, and the error goes to app.errorHandler.
- * When app.errorHandler itself throws, the failure is logged and the reply is
- * a plain 500. With no handler registered, the error is thrown back to the
- * router.
+ * The handler server-main.js registers with app.onError(). When errorHandler
+ * itself throws, the failure is logged with the request's route and request ID
+ * and rethrown, and b.router answers with a plain 500. The router is created
+ * with logErrors: false, so this handler writes the only log line for a failed
+ * request.
  */
-function guardRouterLogs(app) {
-  var routerHandle = app.handle.bind(app);
-  app.handle = function (req, res) {
-    return routerHandle(req, res).catch(function (err) {
-      _answerFailure(app, err, req, res);
-    });
-  };
-  return app;
-}
-
-// Sends err to app.errorHandler. Without a handler, it throws err back to the
-// router.
-function _answerFailure(app, err, req, res) {
-  if (typeof app.errorHandler !== "function") throw err;
+function routeErrorHandler(err, req, res) {
   try {
-    app.errorHandler(err, req, res);
+    errorHandler(err, req, res);
   } catch (handlerErr) {
     try {
       _logForRequest(req, function () {
@@ -165,19 +145,10 @@ function _answerFailure(app, err, req, res) {
           error: handlerErr && handlerErr.message ? String(handlerErr.message) : String(handlerErr),
         });
       });
-    } catch (_e) { /* the reply below is still sent */ }
-    _lastResortError(res);
+    } catch (_e) { /* the router still sends its 500 */ }
+    throw handlerErr;
   }
 }
 
-// The reply b.router sends when its error handler throws.
-function _lastResortError(res) {
-  try {
-    if (b.requestHelpers.failAfterHeaders(res)) return;
-    res.writeHead(500, { "Content-Type": "text/plain" });
-    res.end("Internal Server Error");
-  } catch (_e) { /* the connection is already gone */ }
-}
-
 module.exports = errorHandler;
-module.exports.guardRouterLogs = guardRouterLogs;
+module.exports.routeErrorHandler = routeErrorHandler;

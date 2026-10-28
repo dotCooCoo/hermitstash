@@ -1,0 +1,39 @@
+{
+  "version": "1.15.13",
+  "date": "2026-10-28",
+  "headline": "Check every name an archive entry can be extracted under, and pool connections to S3 storage again",
+  "summary": "Upload inspection now checks each name an extractor may give an archive entry, including a ZIP entry's raw name field when its Unicode Path field names it differently, and a tar entry's GNU long name. The vendored framework moves to blamejs 0.21.8, and connections to the configured S3 storage are pooled again, which removes the extra TLS handshake per request that v1.15.12 introduced.",
+  "sections": [
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Check every name a ZIP or tar entry can be extracted under",
+          "body": "unzip, 7-Zip and bsdtar name a ZIP entry from its Info-ZIP Unicode Path field when the field matches, while Python's zipfile and Java use the raw name field. Upload inspection now checks both, so a ZIP whose name field is `../../evil.txt` and whose Unicode Path field is `docs.txt` is refused as `archive.zip-slip`. A tar entry is checked under the name and link target its GNU long-name and long-link records give it. Inspection also compares each ZIP local header with its central directory entry and refuses a mismatch as `archive-read/lfh-cd-skew`."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Move to blamejs 0.21.8",
+          "body": "The vendored framework moves from blamejs 0.21.6 to 0.21.8, with `@blamejs/pki` 0.9.10. Changes that reach HermitStash:\n\n- Connections to the configured S3 storage and backup buckets are pooled again. v1.15.12 opened a new TLS connection for each S3 request to Amazon S3, Backblaze B2 and other HTTP/1.1 object stores. The server now lists the endpoint and the bucket host of each configured S3 client as a trusted keep-alive origin; every other outbound origin, such as a webhook receiver, still uses one connection per request (CVE-2026-105481). The list is set when the server starts, so an S3 endpoint or bucket you change in Admin > Settings is pooled after the next restart. An `http://` S3 endpoint is not pooled.\n- Resolved outbound host addresses are cached for each DNS record's TTL, up to 5 minutes, in place of the fixed 60 seconds v1.15.12 set. DNS-over-HTTPS queries share one HTTP/2 connection, and TLS sessions are resumed on hosts with both IPv4 and IPv6 addresses.\n- Outbound TLS connections no longer offer certificate compression. The server's listener already offered none.\n- A tar archive that GNU tar writes with names longer than 100 bytes, pax archives with non-ASCII names, and tar headers with base-256 numeric fields are now read and inspected. v1.15.12 refused tar archives with GNU long-name records."
+        }
+      ]
+    },
+    {
+      "heading": "Migration",
+      "items": [
+        {
+          "title": "Uploads that inspection now refuses",
+          "body": "These uploads are refused with `Archive contents failed inspection.` or `Archive could not be read for inspection.`, where earlier releases accepted them:\n\n- An archive with a Windows device name as any path segment, such as `lib/aux.c`, `drivers/con/x` or `ports/COM1.h` (`archive.filename.reserved-name`). Windows cannot extract such a file.\n- An archive with a directory or file name that ends in a dot or a space, or starts with a space, such as `Acme Inc./x.pdf` (`archive.filename.leading-trailing`).\n- An archive with two entries that name the same file in different spellings, such as `d/a.txt` next to `./d/a.txt`, `d//a.txt` or `d\\a.txt`.\n- A tar archive with a name or link target that is not valid UTF-8, and a V7-format tar, which carries no ustar marker (`archive-tar/bad-magic`).\n- A tar archive whose headers GNU tar and bsdtar read differently, such as a GNU long-name record with no entry after it (`archive-tar/dangling-extended-header`).\n\nThe refusal names the rule in the audit log's `UPLOAD_REJECTED` detail. Re-create the archive without the affected names, or in the zip or pax tar format."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "blamejs v0.21.8", "url": "https://github.com/blamejs/blamejs/releases/tag/v0.21.8" },
+    { "label": "Node.js October 2026 security releases", "url": "https://nodejs.org/en/blog/vulnerability/october-2026-security-releases" }
+  ]
+}

@@ -218,10 +218,10 @@ describe("uploaded archives are inspected for hostile entries", function () {
       "expected a symlink finding, got: " + res.detail);
   });
 
-  it("refuses GNU long-name and long-link records, plain and gzipped", async function () {
-    // An 'L' record's body is the name an extractor gives the next entry. The
-    // reader keeps the next header's own name, so the guard would see
-    // "innocent" while GNU tar writes ../../../etc/cron.d/x.
+  it("checks the names GNU long-name and long-link records give an entry, plain and gzipped", async function () {
+    // An 'L' record's body is the name an extractor gives the next entry, and a
+    // 'K' record's body its link target. The guard must check those, not the
+    // 100-byte name in the entry's own header.
     function header(name, typeflag, size, linkname) {
       var h = Buffer.alloc(512, 0);
       h.write(name, 0, "utf8");
@@ -251,13 +251,28 @@ describe("uploaded archives are inspected for hostile entries", function () {
 
     var r1 = await uploadValidator.validateArchive("long.tar", withL);
     assert.equal(r1.valid, false, JSON.stringify(r1));
-    assert.equal(r1.detail, "archive.tar-gnu-long-name");
+    assert.equal(r1.detail, "archive.zip-slip", "the traversal in the L record is what the guard checks");
     var r2 = await uploadValidator.validateArchive("longlink.tar", withK);
     assert.equal(r2.valid, false, JSON.stringify(r2));
-    assert.equal(r2.detail, "archive.tar-gnu-long-name");
+    assert.equal(r2.detail, "archive.symlink-traversal", "the K record's link target is what the guard checks");
     var r3 = await uploadValidator.validateArchive("long.tar.gz", require("node:zlib").gzipSync(withL));
     assert.equal(r3.valid, false, JSON.stringify(r3));
-    assert.equal(r3.detail, "archive.tar-gnu-long-name");
+    assert.equal(r3.detail, "archive.zip-slip");
+
+    // A benign long name, as GNU tar writes for any path over 100 bytes
+    var benignName = "docs/" + "a".repeat(120) + ".txt";
+    var benign = Buffer.concat([header("././@LongLink", "L", benignName.length + 1), body(benignName),
+      header("docs/aaaa", "0", 1), body("x"), Buffer.alloc(1024, 0)]);
+    assert.deepStrictEqual(await uploadValidator.validateArchive("benign.tar", benign), { valid: true });
+    assert.deepStrictEqual(await uploadValidator.validateArchive("benign.tar.gz", require("node:zlib").gzipSync(benign)),
+      { valid: true });
+
+    // An L record with no entry after it
+    var dangling = Buffer.concat([header("././@LongLink", "L", benignName.length + 1), body(benignName),
+      Buffer.alloc(1024, 0)]);
+    var r5 = await uploadValidator.validateArchive("dangling.tar", dangling);
+    assert.equal(r5.valid, false, JSON.stringify(r5));
+    assert.equal(r5.detail, "archive-tar/dangling-extended-header");
 
     // A typeflag the reader does not interpret at all, such as GNU sparse 'S'
     var sparse = Buffer.concat([header("data.bin", "S", 0), Buffer.alloc(1024, 0)]);
@@ -270,21 +285,32 @@ describe("uploaded archives are inspected for hostile entries", function () {
     var zlib = require("node:zlib");
     // A stored-entry ZIP built by hand, so the central directory and end record
     // can be made to disagree with the entries.
-    function localHeader(name, data) {
+    function localHeader(name, data, extra) {
       var n = Buffer.from(name, "utf8");
+      var x = extra || Buffer.alloc(0);
       var h = Buffer.alloc(30);
       h.writeUInt32LE(0x04034b50, 0); h.writeUInt16LE(20, 4); h.writeUInt16LE(0, 6); h.writeUInt16LE(0, 8);
       h.writeUInt32LE(zlib.crc32(data), 14); h.writeUInt32LE(data.length, 18); h.writeUInt32LE(data.length, 22);
-      h.writeUInt16LE(n.length, 26);
-      return Buffer.concat([h, n, data]);
+      h.writeUInt16LE(n.length, 26); h.writeUInt16LE(x.length, 28);
+      return Buffer.concat([h, n, x, data]);
     }
-    function cdRecord(name, data, offset) {
+    function cdRecord(name, data, offset, extra) {
       var n = Buffer.from(name, "utf8");
+      var x = extra || Buffer.alloc(0);
       var h = Buffer.alloc(46);
       h.writeUInt32LE(0x02014b50, 0); h.writeUInt16LE(20, 4); h.writeUInt16LE(20, 6);
       h.writeUInt32LE(zlib.crc32(data), 16); h.writeUInt32LE(data.length, 20); h.writeUInt32LE(data.length, 24);
-      h.writeUInt16LE(n.length, 28); h.writeUInt32LE(offset, 42);
-      return Buffer.concat([h, n]);
+      h.writeUInt16LE(n.length, 28); h.writeUInt16LE(x.length, 30); h.writeUInt32LE(offset, 42);
+      return Buffer.concat([h, n, x]);
+    }
+    // Info-ZIP Unicode Path extra field (0x7075), version 1, naming the entry
+    // unicodeName in place of the name field it carries the CRC-32 of.
+    function unicodePath(nameField, unicodeName) {
+      var u = Buffer.from(unicodeName, "utf8");
+      var f = Buffer.alloc(9);
+      f.writeUInt16LE(0x7075, 0); f.writeUInt16LE(5 + u.length, 2); f.writeUInt8(1, 4);
+      f.writeUInt32LE(zlib.crc32(Buffer.from(nameField, "utf8")), 5);
+      return Buffer.concat([f, u]);
     }
     function endRecord(countedEntries, cdSize, cdOffset) {
       var e = Buffer.alloc(22);
@@ -302,6 +328,33 @@ describe("uploaded archives are inspected for hostile entries", function () {
       var zip = Buffer.concat([a, bEntry, cd, endRecord(2, cd.length, a.length + bEntry.length)]);
       var res = await uploadValidator.validateArchive("ok.zip", zip);
       assert.equal(res.valid, true, JSON.stringify(res));
+    });
+
+    it("checks the raw name field of an entry whose Unicode Path field names it differently", async function () {
+      // unzip, 7-Zip and bsdtar extract under the Unicode Path ("docs.txt");
+      // Python's zipfile and Java extract under the name field ("../../evil.txt").
+      var x = unicodePath("../../evil.txt", "docs.txt");
+      var entry = localHeader("../../evil.txt", data, x);
+      var cd = cdRecord("../../evil.txt", data, 0, x);
+      var zip = Buffer.concat([entry, cd, endRecord(1, cd.length, entry.length)]);
+      var res = await uploadValidator.validateArchive("unicode-path.zip", zip);
+      assert.equal(res.valid, false, JSON.stringify(res));
+      assert.equal(res.detail, "archive.zip-slip");
+
+      var okX = unicodePath("docs/b.txt", "docs/b.txt");
+      var okEntry = localHeader("docs/b.txt", data, okX);
+      var okCd = cdRecord("docs/b.txt", data, 0, okX);
+      var okZip = Buffer.concat([okEntry, okCd, endRecord(1, okCd.length, okEntry.length)]);
+      assert.deepStrictEqual(await uploadValidator.validateArchive("unicode-ok.zip", okZip), { valid: true });
+    });
+
+    it("refuses an entry whose local header names a different file than the central directory", async function () {
+      var entry = localHeader("../../evil.txt", data);
+      var cd = cdRecord("aaaaaa/evil.txt", data, 0);
+      var zip = Buffer.concat([entry, cd, endRecord(1, cd.length, entry.length)]);
+      var res = await uploadValidator.validateArchive("skew.zip", zip);
+      assert.equal(res.valid, false, JSON.stringify(res));
+      assert.equal(res.detail, "archive-read/lfh-cd-skew");
     });
 
     it("refuses an entry the end record does not count, which hid a traversal name from inspection", async function () {

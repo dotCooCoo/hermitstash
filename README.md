@@ -216,7 +216,7 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | SSRF via webhooks | Blocks localhost, RFC 1918, RFC 6598 CGNAT, link-local, IPv6 private ranges |
 | Disguised file uploads | Magic byte validation rejects files whose content doesn't match extension |
 | Malicious filenames | Backend sanitization strips control chars, path traversal, dot attacks, HTML injection |
-| ZIP path traversal (Zip Slip) | Uploaded ZIP and tar archives are inspected without being extracted. An archive is refused if an entry escapes its directory, has an absolute path, is a link pointing outside the archive or a hardlink, or is a tar entry type the inspection does not read, including GNU long-name and long-link records |
+| ZIP path traversal (Zip Slip) | Uploaded ZIP and tar archives are inspected without being extracted. Every name an extractor may use for an entry is checked: a tar entry's GNU long-name or long-link record, and a ZIP entry's Unicode Path field and raw name field. An archive is refused if any of those names escapes its directory, is absolute, collides with another entry's, or is a Windows device name such as `CON` or `aux.c`, if an entry is a link pointing outside the archive or a hardlink, if its local and central ZIP headers disagree, or if it is a tar entry type the inspection does not read, such as a sparse file |
 | Decompression before TLS authentication | The TLS listener offers no certificate compression (RFC 8879), so a client's certificate is not decompressed before it is verified. The container image requires Brotli 1.2.1 or newer (CVE-2026-111497) |
 | Anonymous storage abuse | Per-IP upload quota with 24-hour rolling window |
 | Stored XSS via uploads | User-controlled names auto-escaped in templates; raw output reserved for admin-set values only |
@@ -1519,7 +1519,7 @@ Managed via `scripts/vendor-update.sh`:
 
 | Vendored | Version | Author | Purpose |
 |----------|---------|--------|---------|
-| [`blamejs`](https://github.com/blamejs/blamejs) | 0.21.6 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, and envelope-bound field crypto. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
+| [`blamejs`](https://github.com/blamejs/blamejs) | 0.21.8 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, and envelope-bound field crypto. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
 | [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) (browser only) | 2.4.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | XChaCha20-Poly1305 in the browser vault + outbox flows |
 | [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (browser only) | 2.4.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | SHAKE256 KDF in the browser |
 | [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) (browser only) | 0.7.1 | [Paul Miller](https://github.com/paulmillr) (MIT) | ML-KEM-1024 in the browser vault flow |

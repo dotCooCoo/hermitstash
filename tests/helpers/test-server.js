@@ -138,9 +138,8 @@ function _continueStart(opts) {
     var apiEncryptKeypair = require(path.join(projectRoot, "lib", "api-encrypt-keypair"));
     var legacyApiEncrypt = require(path.join(projectRoot, "middleware", "api-encrypt"));
 
-    var app = new Router();
-    // Same call as server-main.js, before the first app.use().
-    require(path.join(projectRoot, "middleware", "error-handler")).guardRouterLogs(app);
+    // Same router options as server-main.js.
+    var app = new Router({ logErrors: false });
     app.use(require(path.join(projectRoot, "middleware", "security-headers")));
     app.use(serveStatic(path.join(projectRoot, "public")));
     app.use(require(path.join(projectRoot, "middleware", "ip-check")));
@@ -215,7 +214,7 @@ function _continueStart(opts) {
     // subclasses become RFC 9457 problem-details instead of the router's
     // bare 500 fallback. Without this, any route that throws to the boundary
     // reaches the test client as text/plain "Internal Server Error".
-    app.onError(require(path.join(projectRoot, "middleware", "error-handler")));
+    app.onError(require(path.join(projectRoot, "middleware", "error-handler")).routeErrorHandler);
 
     // Initialize the transaction helper — needed by service modules that
     // wrap multi-step DB operations (teams.deleteTeam, etc.). Mirrors

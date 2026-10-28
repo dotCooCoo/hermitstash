@@ -21,7 +21,7 @@
         "server": "sha256:acdcf1ba4bde8177cbfcfef22b543022284a1529afb68bc8329303837c8c021e",
         "browser": "sha256:fc422d85a65c5dc1208066b0156e100c4790be3c8791f644b80524c25d4bc3ee"
       },
-      "refreshedAt": "2026-10-27T19:23:43.184Z"
+      "refreshedAt": "2026-10-28T21:23:32.153Z"
     },
     "@noble/hashes": {
       "version": "2.4.0",
@@ -48,7 +48,7 @@
       "hashes": {
         "browser": "sha256:0e135cbb496a1b7d15bf36b8c611a8feaad49ced60a03bf916bada78b589aa66"
       },
-      "refreshedAt": "2026-10-27T19:23:43.184Z"
+      "refreshedAt": "2026-10-28T21:23:32.153Z"
     },
     "@noble/curves": {
       "version": "2.4.0",
@@ -70,7 +70,7 @@
       "hashes": {
         "server": "sha256:477359f445eed241ad4ededb84921483c3c97618a160ef78b74bb1a421c17da7"
       },
-      "refreshedAt": "2026-10-27T19:23:43.184Z",
+      "refreshedAt": "2026-10-28T21:23:32.153Z",
       "components": {
         "@noble/hashes": {
           "url": "https://github.com/paulmillr/noble-hashes",
@@ -114,7 +114,7 @@
         "server": "sha256:04eaaa4838b43162912c851dd2cab52ab82f56decad8542934171247017a6893",
         "browser": "sha256:30ceef750bc57ae5f59c5aa7454eafb7aad55d30c261a1b5c538a66c569fc031"
       },
-      "refreshedAt": "2026-10-27T19:23:43.184Z",
+      "refreshedAt": "2026-10-28T21:23:32.153Z",
       "components": {
         "@noble/hashes": {
           "url": "https://github.com/paulmillr/noble-hashes",
@@ -148,7 +148,7 @@
       },
       "runtime_artifact": "lib/vendor/common-passwords-top-10000.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-10-27T19:23:43.184Z"
+      "refreshedAt": "2026-10-28T21:23:32.153Z"
     },
     "bimi-trust-anchors": {
       "version": "operator-managed",
@@ -173,7 +173,7 @@
       },
       "runtime_artifact": "lib/vendor/bimi-trust-anchors.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-10-27T19:23:43.184Z"
+      "refreshedAt": "2026-10-28T21:23:32.153Z"
     },
     "publicsuffix-list": {
       "version": "master",
@@ -186,17 +186,17 @@
         "data_js": "lib/vendor/public-suffix-list.data.js"
       },
       "bundler": "curl https://publicsuffix.org/list/public_suffix_list.dat",
-      "bundledAt": "2026-10-23T00:00:00Z",
+      "bundledAt": "2026-10-28T00:00:00Z",
       "hashes": {
-        "server": "sha256:1026fc1bed62e606331f822dc9f5653cd90bff103de3d69d3c7b1331aaabee20",
-        "data_js": "sha256:4143a3d169fae6067bc1e05386796e220e0f090e2c46483f0781eab0463e9161"
+        "server": "sha256:bd1b109392c2e9bd93fb1cc33df98f7b3e8b3d047524676538cc78778656a3c5",
+        "data_js": "sha256:5d61beeaa94ab1ab9313950608409eac13e9d01f83efd6e18ab910d54e9647ef"
       },
       "runtime_artifact": "lib/vendor/public-suffix-list.data.js",
       "integrity_layers": "sha256 + sha3-512 + SLH-DSA-SHAKE-256f signature + in-payload canary (where applicable)",
-      "refreshedAt": "2026-10-27T19:23:43.184Z"
+      "refreshedAt": "2026-10-28T21:23:32.153Z"
     },
     "@blamejs/pki": {
-      "version": "0.9.9",
+      "version": "0.9.10",
       "license": "Apache-2.0",
       "author": "blamejs",
       "source": "https://github.com/blamejs/pki",
@@ -216,12 +216,12 @@
         "server": "lib/vendor/blamejs-pki.cjs"
       },
       "bundler": "esbuild --format=cjs --platform=node --external:crypto --external:node:crypto",
-      "bundledAt": "2026-10-27T00:00:00Z",
-      "cpe": "cpe:2.3:a:blamejs:pki:0.9.9:*:*:*:*:node.js:*:*",
+      "bundledAt": "2026-10-28T00:00:00Z",
+      "cpe": "cpe:2.3:a:blamejs:pki:0.9.10:*:*:*:*:node.js:*:*",
       "hashes": {
-        "server": "sha256:2d4d81c4e503f0bb2f2ce10ac9b183c2fa41fd57bf3f01ba735e093aff78c934"
+        "server": "sha256:242f281e65713f8f010c0623eef8f6536065f266e40b9d79b091e9f248296d7d"
       },
-      "refreshedAt": "2026-10-27T19:23:43.184Z"
+      "refreshedAt": "2026-10-28T21:23:32.153Z"
     }
   }
 }

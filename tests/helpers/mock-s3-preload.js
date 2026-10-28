@@ -70,6 +70,10 @@ MockS3Client.prototype.list = function (prefix) {
   return Promise.resolve(keys.filter(function (k) { return k.indexOf(prefix || "") === 0; }));
 };
 MockS3Client.prototype.testConnection = function () { return Promise.resolve(true); };
+// The module-level functions of lib/s3-client.js. The mock opens no
+// connections, so there is no pool to configure.
+MockS3Client.s3Origins = function () { return []; };
+MockS3Client.trustS3Configs = function () { return []; };
 
 // Intercept require("./s3-client") (and any absolute resolution of it) so the
 // worker's `var S3Client = require("./s3-client")` returns the mock.

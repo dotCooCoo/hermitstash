@@ -213,9 +213,7 @@ describe("share IDs in log output when a request fails", function () {
   });
 
   it("ends the request when a middleware calls next() and then fails", async function () {
-    var errorHandler = require(path.join(testServer.projectRoot, "middleware", "error-handler"));
-    var app = new b.router.Router();
-    errorHandler.guardRouterLogs(app);
+    var app = new b.router.Router({ logErrors: false });
     var routeRan = false;
     app.use(async function nextThenFail(req, res, next) {
       next();
@@ -251,9 +249,7 @@ describe("share IDs in log output when a request fails", function () {
   });
 
   it("ends the request when a middleware passes an error to next", async function () {
-    var errorHandler = require(path.join(testServer.projectRoot, "middleware", "error-handler"));
-    var app = new b.router.Router();
-    errorHandler.guardRouterLogs(app);
+    var app = new b.router.Router({ logErrors: false });
     var routeRan = false;
     app.use(function passesError(req, res, next) {
       next(new Error("passed to next"));
@@ -306,10 +302,18 @@ describe("share IDs in log output when a request fails", function () {
 
   it("logs a failing error handler and answers a plain 500", async function () {
     var errorHandler = require(path.join(testServer.projectRoot, "middleware", "error-handler"));
-    var app = new b.router.Router();
-    errorHandler.guardRouterLogs(app);
+    var app = new b.router.Router({ logErrors: false });
     app.get("/x/:id", function () { throw new Error("route failed"); });
-    app.onError(function () { throw new Error("handler failed"); });
+    // routeErrorHandler, as server-main.js registers it, given a response whose
+    // writes throw, so errorHandler itself fails. The router then answers on
+    // the real response.
+    app.onError(function (err, req, res) {
+      var broken = Object.create(res);
+      ["writeHead", "setHeader", "end", "write"].forEach(function (m) {
+        broken[m] = function () { throw new Error("handler failed"); };
+      });
+      return errorHandler.routeErrorHandler(err, req, broken);
+    });
     var server = await new Promise(function (resolve) {
       var s = app.listen(0, function () { resolve(s); });
     });

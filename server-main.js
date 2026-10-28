@@ -15,6 +15,7 @@ var { sessionMiddleware } = require("./lib/session");
 var db = require("./lib/db");
 var { users } = db;
 var storage = require("./lib/storage");
+var s3Client = require("./lib/s3-client");
 var audit = require("./lib/audit");
 var clientIp = require("./lib/client-ip");
 var logger = require("./app/shared/logger");
@@ -64,18 +65,16 @@ var sessionPurgeJob = require("./app/jobs/session-purge.job");
 
 // Every res.redirect() target must be listed here. Wildcards are not accepted
 // and an http:// origin is refused at construction.
+// logErrors: false leaves the log line for a failed request to the handler
+// registered with app.onError() below (errorHandler.routeErrorHandler).
 var app = new Router({
   allowedRedirectOrigins: ["https://accounts.google.com"],
+  logErrors: false,
 });
-// Wraps every middleware added after it, so it runs before the first app.use().
-errorHandler.guardRouterLogs(app);
 
-// b.httpClient and the SSRF check resolve every outbound host through
-// b.network.dns (DNS over HTTPS by default), and the framework opens a new
-// HTTPS connection for each request. Resolved addresses are kept for 60
-// seconds and failed lookups for 10 seconds; a request still dials the
-// address its own SSRF check validated.
-b.network.dns.setCacheTtlMs(C.TIME.seconds(60), C.TIME.seconds(10));
+// Pool connections to the configured S3 storage and backup buckets, before any
+// request is in flight (lib/s3-client.js trustS3Configs).
+s3Client.trustS3Configs([config.storage && config.storage.s3, config.backup && config.backup.s3]);
 
 var dataDir = C.DATA_DIR;
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
@@ -635,7 +634,7 @@ app.onNotFound(function (req, res) {
   });
 });
 
-app.onError(errorHandler);
+app.onError(errorHandler.routeErrorHandler);
 
 scheduler.register("file_expiry_cleanup", C.TIME.hours(1), function () {
   return expiryCleanupJob.cleanupExpiredFiles().catch(function (e) { logger.error("file_expiry_cleanup failed", { error: e.message }); });
@@ -837,7 +836,6 @@ if (fs.existsSync(TLS_CERT) && tlsKeyAvailable()) {
       // socket.authorized either way.
       rejectUnauthorized: hardMtls,
       ca: haveMtlsCa ? caList : undefined,
-      certificateCompression: tlsContext.LISTENER_CERT_COMPRESSION,
     };
     tlsEnabled = true;
     // The admin security panel reads this rather than re-deriving the posture

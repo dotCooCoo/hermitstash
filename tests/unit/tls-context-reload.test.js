@@ -20,6 +20,7 @@
 var { describe, it, before } = require("node:test");
 var assert = require("node:assert");
 var tls = require("node:tls");
+var net = require("node:net");
 var b = require("../../lib/vendor/blamejs");
 var tlsContext = require("../../lib/tls-context");
 
@@ -141,40 +142,38 @@ describe("TLS certificate reload preserves the mTLS trust bundle", function () {
 });
 
 describe("the listener does not accept compressed client certificates", function () {
-  // Bytes the server reads during a handshake with a client that offers every
-  // compression algorithm the runtime has. A client certificate with many
-  // repetitive SANs is a few KiB smaller when it is sent compressed.
-  async function handshakeBytes(serverCompression, cert, key, caPem, client) {
-    var read = 0;
-    var raw = null;
-    var server = tls.createServer({
-      cert: serverCert.cert, key: serverCert.key, ca: [caPem], requestCert: true,
-      rejectUnauthorized: true, minVersion: "TLSv1.3", certificateCompression: serverCompression,
-    }, function (s) {
-      // the handshake, including the client certificate, is complete here
-      read = raw.bytesRead;
-      s.end("ok");
-    });
-    server.on("connection", function (sock) { raw = sock; });
-    await new Promise(function (r) { server.listen(0, "127.0.0.1", r); });
-    try {
-      var reply = await new Promise(function (resolve) {
-        var socket = tls.connect({ host: "127.0.0.1", port: server.address().port, cert: client.cert, key: client.key,
-          ca: [caPem], servername: "localhost", minVersion: "TLSv1.3",
-          certificateCompression: tls.getCertificateCompressionAlgorithms() }, function () {
-          socket.on("data", function () {});
-          socket.on("end", function () { resolve("ok"); socket.destroy(); });
-        });
-        socket.on("error", function (e) { resolve("error:" + (e.code || e.message)); });
+  // Bytes a client that offers every compression algorithm the runtime has
+  // writes during the handshake, its certificate included. A client
+  // certificate with many repetitive SANs is a few KiB smaller when the server
+  // accepts it compressed.
+  function handshakeBytes(port, caPem, client) {
+    return new Promise(function (resolve, reject) {
+      var raw = net.connect(port, "127.0.0.1");
+      var socket = tls.connect({ socket: raw, cert: client.cert, key: client.key,
+        ca: [caPem], servername: "localhost", minVersion: "TLSv1.3", ALPNProtocols: ["http/1.1"],
+        certificateCompression: tls.getCertificateCompressionAlgorithms() }, function () {
+        socket.write("GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
       });
-      assert.equal(reply, "ok");
-    } finally {
-      await new Promise(function (r) { server.close(r); });
-    }
-    return read;
+      // A reply means the server finished the handshake, so the client
+      // certificate has been written. The request itself is a fixed size.
+      socket.once("data", function () {
+        var written = raw.bytesWritten;
+        socket.destroy();
+        resolve(written);
+      });
+      socket.on("error", reject);
+    });
   }
 
-  it("reloadContext and the boot options offer no certificate compression, so the client certificate arrives uncompressed", async function (t) {
+  // Stop accepting and let the process exit; an HTTP/2 server keeps its
+  // sessions open past close(), so close() is not awaited.
+  function close(server) {
+    if (typeof server.closeAllConnections === "function") server.closeAllConnections();
+    server.close();
+    server.unref();
+  }
+
+  it("the router listener with the boot options, and the context a reload installs, receive the client certificate uncompressed", async function (t) {
     var algs = typeof tls.getCertificateCompressionAlgorithms === "function" ? tls.getCertificateCompressionAlgorithms() : [];
     if (algs.length === 0) { t.skip("this runtime offers no certificate compression"); return; }
     var sans = ["localhost"];
@@ -182,14 +181,36 @@ describe("the listener does not accept compressed client certificates", function
     var bigClient = await b.mtlsEngine.signClientCert({
       caCertPem: ca.caCertPem, caKeyPem: ca.caKeyPem, cn: "compression-probe-client", sans: sans,
     });
-    var ctx = await tlsContext.reloadContext({ cert: serverCert.cert, key: serverCert.key, ca: [ca.caCertPem] });
-    assert.deepStrictEqual(ctx.certificateCompression, []);
-    assert.deepStrictEqual(tlsContext.LISTENER_CERT_COMPRESSION, []);
+    var bootOptions = { cert: serverCert.cert, key: serverCert.key, minVersion: "TLSv1.3",
+      requestCert: true, rejectUnauthorized: true, ca: [ca.caCertPem] };
 
-    var offered = await handshakeBytes(algs, serverCert.cert, serverCert.key, ca.caCertPem, bigClient);
-    var listener = await handshakeBytes(ctx.certificateCompression, serverCert.cert, serverCert.key, ca.caCertPem, bigClient);
-    assert.ok(listener > offered + 1024,
-      "with compression offered the server reads " + offered + " bytes; with the listener's setting it reads " +
-      listener + ", so the certificate arrived uncompressed");
+    // Baseline: a plain node:tls server that offers compression
+    var offering = tls.createServer(Object.assign({ certificateCompression: algs }, bootOptions),
+      function (s) { s.on("error", function () {}); s.end("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"); });
+    await new Promise(function (r) { offering.listen(0, "127.0.0.1", r); });
+    var offered = await handshakeBytes(offering.address().port, ca.caCertPem, bigClient);
+    close(offering);
+
+    // The listener server-main.js starts: b.router listen() with tlsOptions
+    // that do not name certificateCompression
+    var app = new b.router.Router({ logErrors: false });
+    var server = await new Promise(function (r) {
+      var s = app.listen(0, function () { r(s); }, bootOptions, "127.0.0.1");
+    });
+    try {
+      var atBoot = await handshakeBytes(server.address().port, ca.caCertPem, bigClient);
+      server.setSecureContext(await tlsContext.reloadContext({
+        cert: serverCert.cert, key: serverCert.key, ca: [ca.caCertPem],
+      }));
+      var afterReload = await handshakeBytes(server.address().port, ca.caCertPem, bigClient);
+      assert.ok(atBoot > offered + 1024,
+        "the client writes " + offered + " bytes to a server that offers compression, and " + atBoot +
+        " to the router listener, so its certificate went to the listener compressed");
+      assert.ok(afterReload > offered + 1024,
+        "the client writes " + offered + " bytes to a server that offers compression, and " + afterReload +
+        " after a reload, so its certificate went compressed");
+    } finally {
+      close(server);
+    }
   });
 });

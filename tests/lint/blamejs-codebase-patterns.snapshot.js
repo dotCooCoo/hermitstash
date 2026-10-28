@@ -13262,8 +13262,8 @@ function _certCompressionFindings(content) {
     if (close !== -1 && _valueCarries(open + 1, close - 1, i, 0)) continue;
     out.push({ line: masked.slice(0, sig[i].start).split("\n").length,
       content: "createSecureContext does not set certificateCompression; a " +
-               "context built here replaces the server's, so handshakes using " +
-               "it send the full uncompressed certificate chain" });
+               "context built here replaces the server's, so an operator's " +
+               "certificateCompression list does not reach handshakes using it" });
   }
   return out;
 }
@@ -13437,8 +13437,14 @@ function testSecureContextsAdvertiseCertificateCompression() {
   // certificates uncompressed while the default vhost compressed. Both send
   // the same ML-DSA-87 chain, which is the largest thing in the handshake.
   //
-  // So: a createSecureContext call that builds a context for SERVING must name
-  // the algorithms, or carry a marker saying why it does not.
+  // Certificate compression is off unless the operator lists algorithms, so
+  // the value written is the operator's list (or nothing when there is none),
+  // never C.TLS_CERT_COMPRESSION() (see the cert-compression-literal-list and
+  // cert-compression-runtime-list-read entries in KNOWN_ANTIPATTERNS).
+  //
+  // So: a createSecureContext call that builds a context for SERVING must
+  // carry the operator's certificateCompression, or a marker saying why it
+  // does not.
   var files = _libFiles();
   var bad = [];
   for (var fi = 0; fi < files.length; fi++) {
@@ -13451,14 +13457,14 @@ function testSecureContextsAdvertiseCertificateCompression() {
     });
   }
   bad = _filterMarkers(bad, "secure-context-cert-compression");
-  _report("secure contexts advertise RFC 8879 certificate compression", bad);
+  _report("secure contexts carry the operator's RFC 8879 certificate compression", bad);
 }
 
 function testOutboundTlsMergesSharedPosture() {
   // class: outbound-tls-posture
   //
-  // The framework's outbound TLS posture — TLS-1.3 floor, hybrid group order,
-  // certificate compression — lives in b.network.tls.outboundPosture(), and
+  // The framework's outbound TLS posture (TLS-1.3 floor, hybrid group order)
+  // lives in b.network.tls.outboundPosture(), and
   // the whole point of having one object is that raising the posture is one
   // edit rather than N. That only holds if every client actually merges it,
   // and repeatedly it did not: the Redis client and the syslog sink shipped
@@ -21317,11 +21323,11 @@ var KNOWN_ANTIPATTERNS = [
     reason: "CVE-2026-111497: Node's bundled Brotli decoder before 22.23.4 / 24.22.1 / 26.12.1 writes out of bounds on an invalid block switch, and a TLS 1.3 peer reaches it before chain verification by answering a brotli certificate-compression offer. C.TLS_CERT_COMPRESSION() is the one reader of tls.getCertificateCompressionAlgorithms() and drops \"brotli\" on such a runtime. A second reader in lib/ would offer the raw runtime list and bring brotli back on every listener or dial built from it. The match is the bare identifier, not the call, so a bracket lookup, an alias bound from the member and a destructured binding all count. Read C.TLS_CERT_COMPRESSION() (or b.network.tls.certificateCompressionAlgorithms(), which copies it) instead.",
   },
   {
-    id: "cert-compression-literal-names-brotli",
-    primitive: "C.TLS_CERT_COMPRESSION() (lib/constants.js), which leaves \"brotli\" out on a Node release whose Brotli decoder predates the CVE-2026-111497 fix",
+    id: "cert-compression-literal-list",
+    primitive: "the caller's certificateCompression list, checked by _certCompressionOptIn in lib/network-tls.js, or [] for none",
     scanScope: "lib",
     skipCommentLines: true,
-    regex: /\bcertificateCompression["']?\s*[:=]\s*(?:Object\.freeze\(\s*)?\[[^\]]{0,4096}?["'`]brotli["'`]/,
+    regex: /\bcertificateCompression["'`]?\s*(?:[:=]|\?\?=|\|\|=|&&=)\s*(?:Object\.freeze\(\s*)?\[[^\]]{0,4096}?["'`](?:brotli|zlib|zstd)["'`]/,
     allowlist: [],
     fixtures: {
       fires: [
@@ -21329,15 +21335,71 @@ var KNOWN_ANTIPATTERNS = [
         "opts.certificateCompression = [\"brotli\"];\n",
         "var o = {\n  certificateCompression: Object.freeze([\n    \"zlib\",\n    'brotli',\n  ]),\n};\n",
         "var o = { \"certificateCompression\": [\"brotli\"] };\n",
+        "var o = { certificateCompression: [\"zlib\", \"zstd\"] };\n",
+        "var certificateCompression = [\"zlib\"];\n",
+        "o.certificateCompression ??= [\"zstd\"];\n",
+        "o.certificateCompression ||= ['zlib'];\n",
+        "function f({ certificateCompression = [\"zlib\", \"zstd\"] }) { return certificateCompression; }\n",
+        "var o = { certificateCompression: [`zstd`] };\n",
       ],
       quiet: [
         "var o = { certificateCompression: C.TLS_CERT_COMPRESSION() };\n",
-        "var o = { certificateCompression: [\"zlib\", \"zstd\"] };\n",
+        "var o = { certificateCompression: [] };\n",
+        "var o = { certificateCompression: opts.certificateCompression };\n",
+        "base.certificateCompression = certCompression.slice();\n",
         "var o = { certificateCompression: [], algorithm: \"brotli\" };\n",
-        "var z = { brotliQuality: 4, encodings: [\"br\", \"brotli\"] };\n",
+        "var o = { certificateCompression: [], encodings: [\"gzip\", \"zstd\"] };\n",
+        "var z = { brotliQuality: 4, encodings: [\"br\", \"brotli\", \"zstd\"] };\n",
       ],
     },
-    reason: "CVE-2026-111497: a TLS peer reaches Node's Brotli decoder during the handshake when the local side offers brotli certificate compression, and on a release older than 24.22.1 / 26.12.1 that decoder writes out of bounds. A certificateCompression list written as a literal naming \"brotli\" offers it on every runtime, which bypasses the version filter in C.TLS_CERT_COMPRESSION(). Build the list from C.TLS_CERT_COMPRESSION() (or b.network.tls.certificateCompressionAlgorithms()) instead. JSDoc examples are comment lines and are not matched. Empty allowlist: no lib/ site needs a fixed brotli offer.",
+    reason: "Certificate compression is off unless the caller lists algorithms, and that list goes through _certCompressionOptIn in lib/network-tls.js, which refuses an algorithm the runtime does not offer and refuses \"brotli\" on a release whose Brotli decoder writes out of bounds on a crafted stream (CVE-2026-111497, fixed in 22.23.4 / 24.22.1 / 26.12.1). A certificateCompression property, variable or destructuring default written as an array literal naming \"brotli\", \"zlib\" or \"zstd\" turns compression on without the caller asking, and a literal naming brotli offers it on every runtime. A framework default is [] or the caller's list. JSDoc examples are comment lines and are not matched. Empty allowlist: no lib/ site needs a fixed algorithm list.",
+  },
+  {
+    id: "cert-compression-runtime-list-read",
+    primitive: "the caller's certificateCompression list, checked by _certCompressionOptIn in lib/network-tls.js; b.network.tls.certificateCompressionAlgorithms() for a copy of the runtime list",
+    scanScope: "lib",
+    skipCommentLines: true,
+    regex: /\bTLS_CERT_COMPRESSION\b(?<!^function (?:_certCompressionOptIn|certificateCompressionAlgorithms)\((?:(?!\n\})[\s\S]){0,65536})/m,
+    allowlist: ["lib/constants.js"],
+    fixtures: {
+      fires: [
+        "var o = { certificateCompression: C.TLS_CERT_COMPRESSION() };\n",
+        "function build(opts) {\n  var list = C.TLS_CERT_COMPRESSION();\n  return { certificateCompression: list };\n}\n",
+        "var algs = C[\"TLS_CERT_COMPRESSION\"]();\n",
+        "var { TLS_CERT_COMPRESSION: all } = C;\n",
+        "function _certCompressionOptIn(list) {\n  return list;\n}\nfunction f() {\n  return { certificateCompression: C.TLS_CERT_COMPRESSION() };\n}\n",
+        "var h = {\n  build: function () {\n    function _certCompressionOptIn(l) {\n      return C.TLS_CERT_COMPRESSION();\n    }\n  },\n};\n",
+        "function _certCompressionOptInLoose(l) {\n  return C.TLS_CERT_COMPRESSION();\n}\n",
+      ],
+      quiet: [
+        "function _certCompressionOptIn(list, ErrorClass, label) {\n  if (list === undefined) return undefined;\n" +
+          "  var supported = C.TLS_CERT_COMPRESSION();\n  return list.slice();\n}\n",
+        "function certificateCompressionAlgorithms() {\n  return C.TLS_CERT_COMPRESSION().slice();\n}\n",
+        "var list = networkTls.certificateCompressionAlgorithms();\n",
+        "var TLS_CERT_COMPRESSION_LABEL = \"rfc8879\";\n",
+      ],
+    },
+    reason: "C.TLS_CERT_COMPRESSION() is every algorithm the runtime offers, and a certificateCompression built from it turns compression on for every handshake without the caller asking. Compression is off unless the caller lists algorithms. Two lib/network-tls.js functions read it: _certCompressionOptIn, which checks a caller's list against it, and certificateCompressionAlgorithms(), the public copy a caller passes back explicitly. A reference is allowed only inside the body of one of those two column-0 function declarations (up to the first column-0 closing brace); cert-compression-runtime-list-reader-name keeps those names in lib/network-tls.js. lib/constants.js defines it.",
+  },
+  {
+    id: "cert-compression-runtime-list-reader-name",
+    primitive: "_certCompressionOptIn and certificateCompressionAlgorithms in lib/network-tls.js",
+    scanScope: "lib",
+    skipCommentLines: true,
+    regex: /^function (?:_certCompressionOptIn|certificateCompressionAlgorithms)\(/m,
+    allowlist: ["lib/network-tls.js"],
+    fixtures: {
+      fires: [
+        "function _certCompressionOptIn(list) {\n  return C.TLS_CERT_COMPRESSION();\n}\n",
+        "var x = 1;\nfunction certificateCompressionAlgorithms() {\n  return C.TLS_CERT_COMPRESSION();\n}\n",
+      ],
+      quiet: [
+        "var l = networkTls()._certCompressionOptIn(opts.certificateCompression, E, \"x\");\n",
+        "  function _certCompressionOptInLoose(l) { return l; }\n",
+        "certificateCompressionAlgorithms: certificateCompressionAlgorithms,\n",
+      ],
+    },
+    reason: "cert-compression-runtime-list-read allows a TLS_CERT_COMPRESSION reference inside a column-0 function declared as _certCompressionOptIn or certificateCompressionAlgorithms. Declaring a function of either name in another lib/ file would carry that exemption to it, so both names are declared only in lib/network-tls.js.",
   },
 
   {
