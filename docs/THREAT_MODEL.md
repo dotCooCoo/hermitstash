@@ -657,7 +657,7 @@ By default, `data/vault.key` is a JSON file protected only by filesystem permiss
 ### L3 — No forward secrecy for stored data
 Vault key compromise retroactively decrypts every blob ever stored. See N3.
 
-**Reactive mitigation (v1.9.3+):** `scripts/vault-key-rotate.js` performs a full vault key rotation that re-encrypts every sealed value in the data directory (DB rows, the SQLite file's wrapping key, every per-file XChaCha20 key index). After rotation, the OLD vault key cannot read live data — closing the door on a compromised key that hasn't yet been used to exfiltrate everything. This does NOT provide forward secrecy in the cryptographic sense (data already exfiltrated under the old key remains compromised), but it does bound the window of usefulness for a stolen vault key. See README "Full vault key rotation" section.
+**Reactive mitigation (v1.9.3+):** `scripts/vault-key-rotate.js` performs a full vault key rotation that re-encrypts every sealed value in the data directory (DB rows, the SQLite file's wrapping key, every per-file XChaCha20 key index). After rotation, the OLD vault key cannot read live data — closing the door on a compromised key that hasn't yet been used to exfiltrate everything. This does NOT provide forward secrecy in the cryptographic sense (data already exfiltrated under the old key remains compromised), but it does bound the window of usefulness for a stolen vault key. The tool keeps the previous vault key and database in `data/.rotation-old-<ISO timestamp>/` until the operator deletes that directory, and a disk snapshot or volume copy taken before then includes the old key. See README "Full vault key rotation" section.
 
 ### L4 — AAD on storage envelope header (RESOLVED on the active 0xE2 envelope)
 The active 0xE2 envelope binds the 4-byte header (magic | KEM | cipher | KDF) as AEAD AAD (`lib/vendor/blamejs/lib/crypto.js`, `headerAad` in `encrypt()`, re-derived in `decryptEnvelope()` on decrypt; reached via `b.crypto.encrypt`/`decrypt` from `lib/vault.js:380`/`:397`), so an algorithm-substitution flip of any header byte surfaces as a Poly1305 tag failure. The legacy 0xE1 path did not bind the header and is decrypt-only during the boot-time migration window.
@@ -710,7 +710,7 @@ This is unavoidable for any at-rest encryption scheme on a service that boots wi
 
 These are properties HermitStash assumes but does not verify:
 
-- **Node.js 24.22.1+ OpenSSL 3.5+** correctly implements ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87, ECDH P-384, SHAKE256, and HKDF-SHA3-512. Tested through the Node / OpenSSL test suites; HermitStash adds no independent validation
+- **Node.js 24.22.1+ (24 line) or 26.12.1+ (26 line), with OpenSSL 3.5.9+, 3.6.5+ or 4.0.3+** correctly implements ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87, ECDH P-384, SHAKE256, and HKDF-SHA3-512. Tested through the Node / OpenSSL test suites; HermitStash adds no independent validation
 - **@noble libraries** correctly implement XChaCha20-Poly1305 (server + browser), SHAKE256 (browser), and ML-KEM-1024 (browser). noble-post-quantum was audited by Cure53 in 2024; noble-ciphers and noble-hashes are heavily used across the ecosystem
 - **Node 24+ built-in `crypto.argon2`** correctly implements Argon2id per RFC 9106 with our chosen parameters (64 MiB memory, 3 time, 4 parallelism)
 - **Host filesystem permissions are enforced**. `data/vault.key` is created with mode 0o600 and relies on the OS to honor it

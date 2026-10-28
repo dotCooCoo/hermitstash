@@ -18,9 +18,18 @@
  * "not running"; any other outcome (connection established, reset after
  * connect, timeout, or any non-ECONNREFUSED error) is treated as "a listener
  * may exist" so the guard fails safe.
+ *
+ * The port probe only reaches a server in the caller's own network namespace,
+ * listening on the ports named in the caller's environment. The guard first
+ * reads the data-directory lease (lib/server-lease.js), which a tool sees from
+ * any container or host that mounts the same directory, and refuses while any
+ * server or other tool holds it fresh. claimDataDir then takes the lease for
+ * the calling tool.
  */
 
 var net = require("net");
+var C = require("../../lib/constants");
+var serverLease = require("../../lib/server-lease");
 
 // Mirror server-main.js's port resolution exactly:
 //   gate port  = config.port = n("PORT", 3000)
@@ -85,21 +94,64 @@ async function isServerRunning() {
  */
 async function assertServerNotRunning(opts, extraLines) {
   if (opts && opts.forceWithServerRunning) return;
+  var lease = serverLease.read();
+  if (lease && lease.fresh) {
+    if (lease.unreadable) {
+      console.error("ERROR: " + C.PATHS.SERVER_LEASE + " exists and cannot be read, so a HermitStash server");
+      console.error("  or another vault tool may be using the data directory.");
+      console.error("  Stop it. If nothing is using the data directory, delete that file and re-run.");
+    } else {
+      console.error("ERROR: " + serverLease.describe(lease) + " holds " + C.PATHS.SERVER_LEASE + ".");
+      console.error("  Stop " + (lease.kind === "server" ? "the server" : "that tool") + " first. A process that " +
+        "stopped without removing the lease leaves one that expires in " + serverLease.secondsUntilStale(lease) + "s.");
+    }
+    _printExtra(extraLines);
+    process.exit(1);
+  }
   var running = await isServerRunning();
   if (!running) return;
   var ports = [gatePort(), internalTlsPort()];
   console.error("ERROR: a HermitStash server appears to be running (port " +
     ports[0] + " or " + ports[1] + ").");
   console.error("  Stop it first, or pass --force-with-server-running.");
+  _printExtra(extraLines);
+  process.exit(1);
+}
+
+/**
+ * assertServerNotRunning, then take the data-directory lease as a tool so a
+ * server that starts, or another tool, waits until this one exits. With
+ * --force-with-server-running neither the check nor the lease is taken.
+ *
+ * @param {object} opts         parsed CLI opts
+ * @param {string} toolName     the script name, shown to other processes
+ * @param {string[]} [extraLines]
+ */
+async function claimDataDir(opts, toolName, extraLines) {
+  await assertServerNotRunning(opts, extraLines);
+  if (opts && opts.forceWithServerRunning) return;
+  // acquire() checks the lease again under its lock, so a server or tool that
+  // took it during the port probe is refused here.
+  try { serverLease.acquire({ kind: "tool", name: toolName }); }
+  catch (e) {
+    if (!e || e.code !== "server-lease/held") throw e;
+    console.error("ERROR: " + serverLease.describe(e.lease) + " took " + C.PATHS.SERVER_LEASE + " while this tool was starting.");
+    console.error("  Stop it first, then re-run.");
+    _printExtra(extraLines);
+    process.exit(1);
+  }
+}
+
+function _printExtra(extraLines) {
   if (Array.isArray(extraLines)) {
     for (var i = 0; i < extraLines.length; i++) console.error(extraLines[i]);
   }
-  process.exit(1);
 }
 
 module.exports = {
   isServerRunning: isServerRunning,
   assertServerNotRunning: assertServerNotRunning,
+  claimDataDir: claimDataDir,
   probePort: probePort,
   gatePort: gatePort,
   internalTlsPort: internalTlsPort,

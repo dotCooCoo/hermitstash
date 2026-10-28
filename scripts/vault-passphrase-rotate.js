@@ -119,7 +119,7 @@ function preflight(opts) {
     process.exit(1);
   }
 
-  return serverLiveness.assertServerNotRunning(opts);
+  return serverLiveness.claimDataDir(opts, "vault-passphrase-rotate.js");
 }
 
 // Pick up two passphrases: OLD and NEW. Support both env-pair and interactive flows.

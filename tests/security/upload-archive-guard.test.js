@@ -218,6 +218,112 @@ describe("uploaded archives are inspected for hostile entries", function () {
       "expected a symlink finding, got: " + res.detail);
   });
 
+  it("refuses GNU long-name and long-link records, plain and gzipped", async function () {
+    // An 'L' record's body is the name an extractor gives the next entry. The
+    // reader keeps the next header's own name, so the guard would see
+    // "innocent" while GNU tar writes ../../../etc/cron.d/x.
+    function header(name, typeflag, size, linkname) {
+      var h = Buffer.alloc(512, 0);
+      h.write(name, 0, "utf8");
+      h.write("0000644\0", 100, "utf8");
+      h.write("0000000\0", 108, "utf8");
+      h.write("0000000\0", 116, "utf8");
+      h.write(size.toString(8).padStart(11, "0") + "\0", 124, "utf8");
+      h.write("00000000000\0", 136, "utf8");
+      h.write("        ", 148, "utf8");
+      h.write(typeflag, 156, "utf8");
+      if (linkname) h.write(linkname, 157, "utf8");
+      h.write("ustar  \0", 257, "utf8");
+      var sum = 0;
+      for (var i = 0; i < 512; i++) sum += h[i];
+      h.write(sum.toString(8).padStart(6, "0") + "\0 ", 148, "utf8");
+      return h;
+    }
+    function body(text) {
+      var bytes = Buffer.from(text + "\0", "utf8");
+      return Buffer.concat([bytes, Buffer.alloc(512 - (bytes.length % 512), 0)]);
+    }
+    var longName = "../../../etc/cron.d/x";
+    var withL = Buffer.concat([header("././@LongLink", "L", longName.length + 1), body(longName),
+      header("innocent", "0", 1), body("x"), Buffer.alloc(1024, 0)]);
+    var withK = Buffer.concat([header("././@LongLink", "K", longName.length + 1), body(longName),
+      header("link", "2", 0, "inside"), Buffer.alloc(1024, 0)]);
+
+    var r1 = await uploadValidator.validateArchive("long.tar", withL);
+    assert.equal(r1.valid, false, JSON.stringify(r1));
+    assert.equal(r1.detail, "archive.tar-gnu-long-name");
+    var r2 = await uploadValidator.validateArchive("longlink.tar", withK);
+    assert.equal(r2.valid, false, JSON.stringify(r2));
+    assert.equal(r2.detail, "archive.tar-gnu-long-name");
+    var r3 = await uploadValidator.validateArchive("long.tar.gz", require("node:zlib").gzipSync(withL));
+    assert.equal(r3.valid, false, JSON.stringify(r3));
+    assert.equal(r3.detail, "archive.tar-gnu-long-name");
+
+    // A typeflag the reader does not interpret at all, such as GNU sparse 'S'
+    var sparse = Buffer.concat([header("data.bin", "S", 0), Buffer.alloc(1024, 0)]);
+    var r4 = await uploadValidator.validateArchive("sparse.tar", sparse);
+    assert.equal(r4.valid, false, JSON.stringify(r4));
+    assert.equal(r4.detail, "archive.tar-entry-type-unsupported");
+  });
+
+  describe("ZIP layouts that extractors read differently", function () {
+    var zlib = require("node:zlib");
+    // A stored-entry ZIP built by hand, so the central directory and end record
+    // can be made to disagree with the entries.
+    function localHeader(name, data) {
+      var n = Buffer.from(name, "utf8");
+      var h = Buffer.alloc(30);
+      h.writeUInt32LE(0x04034b50, 0); h.writeUInt16LE(20, 4); h.writeUInt16LE(0, 6); h.writeUInt16LE(0, 8);
+      h.writeUInt32LE(zlib.crc32(data), 14); h.writeUInt32LE(data.length, 18); h.writeUInt32LE(data.length, 22);
+      h.writeUInt16LE(n.length, 26);
+      return Buffer.concat([h, n, data]);
+    }
+    function cdRecord(name, data, offset) {
+      var n = Buffer.from(name, "utf8");
+      var h = Buffer.alloc(46);
+      h.writeUInt32LE(0x02014b50, 0); h.writeUInt16LE(20, 4); h.writeUInt16LE(20, 6);
+      h.writeUInt32LE(zlib.crc32(data), 16); h.writeUInt32LE(data.length, 20); h.writeUInt32LE(data.length, 24);
+      h.writeUInt16LE(n.length, 28); h.writeUInt32LE(offset, 42);
+      return Buffer.concat([h, n]);
+    }
+    function endRecord(countedEntries, cdSize, cdOffset) {
+      var e = Buffer.alloc(22);
+      e.writeUInt32LE(0x06054b50, 0);
+      e.writeUInt16LE(countedEntries, 8); e.writeUInt16LE(countedEntries, 10);
+      e.writeUInt32LE(cdSize, 12); e.writeUInt32LE(cdOffset, 16);
+      return e;
+    }
+    var data = Buffer.from("x");
+
+    it("the hand-built layout is a readable ZIP when it is consistent", async function () {
+      var a = localHeader("docs/a.txt", data);
+      var bEntry = localHeader("docs/b.txt", data);
+      var cd = Buffer.concat([cdRecord("docs/a.txt", data, 0), cdRecord("docs/b.txt", data, a.length)]);
+      var zip = Buffer.concat([a, bEntry, cd, endRecord(2, cd.length, a.length + bEntry.length)]);
+      var res = await uploadValidator.validateArchive("ok.zip", zip);
+      assert.equal(res.valid, true, JSON.stringify(res));
+    });
+
+    it("refuses an entry the end record does not count, which hid a traversal name from inspection", async function () {
+      var a = localHeader("docs/a.txt", data);
+      var evil = localHeader("../../evil.sh", data);
+      var cd = Buffer.concat([cdRecord("docs/a.txt", data, 0), cdRecord("../../evil.sh", data, a.length)]);
+      var zip = Buffer.concat([a, evil, cd, endRecord(1, cd.length, a.length + evil.length)]);
+      var res = await uploadValidator.validateArchive("hidden.zip", zip);
+      assert.equal(res.valid, false, JSON.stringify(res));
+      assert.equal(res.detail, "archive-read/cd-size-mismatch");
+    });
+
+    it("refuses two entries that share one local header (the overlapping-entry bomb)", async function () {
+      var a = localHeader("docs/a.txt", data);
+      var cd = Buffer.concat([cdRecord("docs/a.txt", data, 0), cdRecord("docs/b.txt", data, 0)]);
+      var zip = Buffer.concat([a, cd, endRecord(2, cd.length, a.length)]);
+      var res = await uploadValidator.validateArchive("overlap.zip", zip);
+      assert.equal(res.valid, false, JSON.stringify(res));
+      assert.equal(res.detail, "archive-read/entry-overlap");
+    });
+  });
+
   it("accepts a plain .gz holding a single file, not a tar", async function () {
     // .gz is an accepted extension and gzipping one document is ordinary. There
     // is no entry list to inspect, so there is nothing to refuse — treating it

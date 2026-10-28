@@ -2,6 +2,8 @@
  * Admin request validators — input normalization for admin routes.
  * Validates settings updates, user management actions, and export parameters.
  */
+var net = require("node:net");
+var b = require("../../../lib/vendor/blamejs");
 var { validateEmail } = require("../../shared/validate");
 var C = require("../../../lib/constants");
 var settingsSchema = require("../../../lib/settings-schema");
@@ -161,17 +163,18 @@ function validateBlocklistInput(body) {
   var raw = String(body.ip || "").trim();
   if (!raw || raw.length > 45) return { error: "Valid IP required." };
 
-  // Basic format check — IPv4 or IPv6 (simple patterns, no nested quantifiers)
-  var isIpv4 = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(raw);
-  var isIpv6 = /^[0-9a-fA-F:]+$/.test(raw) && raw.includes(":");
-  if (!isIpv4 && !isIpv6) return { error: "Invalid IP format." };
-
   // Canonicalize to the EXACT RFC 5952 form lib/client-ip produces on the read
   // side (not just lowercased): the block digest is keyed off this string, and an
   // IPv6 written in an expanded or alternate zero-compression form would otherwise
   // be stored under a hash the runtime peer-lookup never reproduces — a ban that
   // silently never takes effect.
   var ip = clientIp.canonicalize(raw);
+  // The canonical form must be an address net.isIP accepts. That refuses an
+  // IPv4 with a zero-padded octet such as 192.168.001.010, an out-of-range
+  // octet, and any other spelling no client address is ever reported in.
+  if (net.isIP(ip) === 0) {
+    return { error: "Invalid IP format. Enter an IPv4 address without leading zeros, or an IPv6 address." };
+  }
 
   var reason = String(body.reason || "").slice(0, 500);
   return { ip: ip, reason: reason };
@@ -187,7 +190,41 @@ function validatePurgeConfirmation(body) {
   return { confirmed: true };
 }
 
+// Restrict an admin-supplied logo URL to a same-origin path or an explicit
+// https:// origin. Returns the stored form, or "" when the value is refused.
+// CSP img-src is the outer gate; this is the storage-boundary check.
+var LOGO_BASE = "https://logo-path.invalid";
+function safeLogoUrl(u) {
+  u = String(u || "").trim().slice(0, 500);
+  if (!u) return "";
+  // A browser drops TAB, LF and CR from a URL and reads "\" as "/", so
+  // "/\host" and "/<TAB>/host" load from another origin. Refuse them and every
+  // other control character.
+  if (/[\\\u0000-\u001f\u007f]/.test(u)) return "";
+  if (u.startsWith("/")) {
+    // A local logo path must resolve to this origin, which refuses "//host".
+    var local;
+    try { local = new URL(u, LOGO_BASE); } catch (_e) { return ""; }
+    if (local.origin !== LOGO_BASE) return "";
+    // Normalizing dot segments can leave "//host" at the front, as with
+    // "/a/..//host/x.png"; the stored value must resolve to this origin too.
+    var stored = local.pathname + local.search;
+    if (stored.startsWith("//") || new URL(stored, LOGO_BASE).origin !== LOGO_BASE) return "";
+    return stored;
+  }
+  // An absolute URL is validated through b.safeUrl.parse, https only.
+  if (u.startsWith("https://")) {
+    try {
+      return b.safeUrl.parse(u, { allowedProtocols: ["https:"] }).href;
+    } catch (_e) {
+      return "";
+    }
+  }
+  return "";
+}
+
 module.exports = {
+  safeLogoUrl: safeLogoUrl,
   validateSettingsInput: validateSettingsInput,
   validateInviteInput: validateInviteInput,
   validateRoleChangeInput: validateRoleChangeInput,

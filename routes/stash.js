@@ -32,27 +32,7 @@ var { sanitizeSvg } = require("../lib/sanitize-svg");
 var apiKeysRepo = require("../app/data/repositories/apiKeys.repo");
 var db = require("../lib/db");
 
-// Restrict an admin-supplied logo URL to a same-origin path or an explicit
-// https:// origin. Rejects javascript:/data: schemes AND protocol-relative
-// "//host" (which slips past a bare leading-slash check and loads external
-// content). CSP img-src is the outer gate; this is the storage-boundary belt.
-function _safeLogoUrl(u) {
-  u = String(u || "").trim().slice(0, 500);
-  if (!u || u.startsWith("//")) return "";
-  if (u.startsWith("/")) return u; // local logo path under the app origin
-  // An absolute URL is structurally validated through b.safeUrl.parse (https
-  // only) instead of a bare startsWith check — the parser rejects a malformed
-  // "https://…" carrying embedded control chars / newlines that would otherwise
-  // reach the page markup (CSP img-src remains the second belt).
-  if (u.startsWith("https://")) {
-    try {
-      return b.safeUrl.parse(u, { allowedProtocols: ["https:"] }).href;
-    } catch (_e) {
-      return "";
-    }
-  }
-  return "";
-}
+var { safeLogoUrl: _safeLogoUrl } = require("../app/http/validators/admin.validator");
 var mtlsCa = require("../lib/mtls-ca");
 var { generateEnrollmentCode, certFingerprintSha3 } = require("../lib/cert-utils");
 

@@ -1,0 +1,84 @@
+{
+  "version": "1.15.12",
+  "date": "2026-10-27",
+  "headline": "Make vault key rotation work on a Docker volume, and stop decompressing TLS client certificates before authentication",
+  "summary": "`scripts/vault-key-rotate.js` stopped with `FATAL: invalid tag` on every database a running server had written, and `scripts/vault-key-verify.js` reported a healthy database as `db.key.enc is corrupted`. Neither tool changed any data, but the messages read as a damaged database. Both tools now read the database the way the server does. The rotation also no longer renames the data directory, so it runs when `/app/data` is a Docker volume, and the offline vault tools now detect a running server from the data directory instead of only from local ports. The TLS listener no longer accepts compressed client certificates, the image and the server require a Brotli library fixed for CVE-2026-111497, and upload inspection refuses tar archives that use GNU long-name records.",
+  "sections": [
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Move to blamejs 0.21.6",
+          "body": "The vendored framework moves from blamejs 0.21.4 to 0.21.6, with `@blamejs/pki` 0.9.9. Changes that reach HermitStash:\n\n- Outbound HTTPS over HTTP/1.1 uses a new TLS connection for each request (CVE-2026-105481). This includes S3 storage on Amazon S3 and Backblaze B2, which do not offer HTTP/2: each upload, download, delete and list call now makes its own TLS handshake, which adds latency to uploads, downloads, backups, storage migration and retention runs. Webhooks, Google sign-in, GitHub badges and the Resend mail API are affected the same way. HTTP/2 endpoints keep one shared connection.\n- The server keeps resolved outbound host addresses for 60 seconds and failed lookups for 10 seconds. Without the cache, each outbound request made two extra TLS connections to the DNS-over-HTTPS resolver. A request still connects to the address its own SSRF check validated.\n- Upload inspection refuses ZIP archives whose central directory or end record can be read differently by different extractors: an entry the end record does not count, entries that overlap, another archive hidden before the first entry or in the end-record comment, and ZIP64 end records that disagree with the classic record. The audit detail for an archive with unadjusted data before it changes from `archive-read/bad-cd-signature` to `archive-read/cd-position-mismatch`.\n- Outbound TLS connections refuse a host that is an IPv4 address in a non-canonical spelling, such as `127.1` or `0x7f.0.0.1`, or a host with an empty label. Write the address in dotted decimal or use a DNS name."
+        }
+      ]
+    },
+    {
+      "heading": "Security",
+      "items": [
+        {
+          "title": "Stop decompressing client certificates before authentication",
+          "body": "When an mTLS CA exists, the TLS listener asks every client for a certificate. It also offered TLS certificate compression (RFC 8879), so OpenSSL decompressed a client's certificate during the handshake, before verifying it, with or without `ENFORCE_MTLS_STRICT`. On images up to v1.15.9, which shipped Brotli 1.2.0, an unauthenticated client could use this to reach CVE-2026-111497, an out-of-bounds write in the Brotli decoder. The listener now offers no certificate compression, at boot and after a certificate reload. If you run an image older than v1.15.10 with an mTLS CA, upgrade."
+        },
+        {
+          "title": "Require a Brotli library fixed for CVE-2026-111497",
+          "body": "The container image's Node links the system Brotli library rather than the copy bundled with Node.js, so the CVE-2026-111497 fix in the image comes from `libbrotlidec1` 1.2.1, not from Node.js 24.22.1 as the v1.15.11 notes said. The image now installs `libbrotlidec1>=1.2.1`, and a server whose Node is built against a system Brotli older than 1.2.1 exits at startup with `FATAL: this Node.js uses the system Brotli library`."
+        },
+        {
+          "title": "Refuse to start on a Node.js or OpenSSL release that lacks the October 2026 fixes",
+          "body": "The server accepted any Node.js from 24.22.1 on, which includes Node 25 and Node 26.0.0 to 26.12.0, whose bundled Brotli decoder is affected by CVE-2026-111497. It now starts on 24.22.1 or later on the 24 line, 26.12.1 or later on the 26 line, or 27 and later, and refuses odd-numbered lines. It also requires OpenSSL 3.5.9, 3.6.5 or 4.0.3 or later on those lines, or 4.1 and later: older releases are affected by CVE-2026-35189, in which a crafted peer certificate makes OpenSSL allocate hundreds of MiB during the handshake. An unsupported runtime exits with a `FATAL: HermitStash requires` message naming the version found. `deploy/install.sh` applies the same Node.js floors. The container image runs Node 24.22.1 with OpenSSL 4.0.3 and is not affected."
+        },
+        {
+          "title": "Refuse tar archives with GNU long-name records",
+          "body": "Upload inspection read a GNU long-name (`L`) or long-link (`K`) record as an entry of its own and checked the next entry under the 100-byte name in its header. GNU tar and other extractors give that entry the name or link target stored in the record, so a `.tar` or `.tar.gz` could carry a path outside the extraction directory, or a link pointing outside the archive, past the check. Archives with these records, or any other tar entry type the inspection does not read, are now refused with `archive.tar-gnu-long-name` or `archive.tar-entry-type-unsupported`. A tar written in the pax or ustar format, which bsdtar and macOS use by default, is not affected. Create one with GNU tar using `tar --format=posix`."
+        },
+        {
+          "title": "Refuse stash logo URLs that load from another origin",
+          "body": "The stash logo setting accepted a path such as `/\\evil.example/logo.png`, or one containing a tab or line break, which a browser reads as a URL on another origin. A logo path now has to resolve to the server's own origin, and values containing a backslash or a control character are refused."
+        }
+      ]
+    },
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Rotate and verify a database written by the server",
+          "body": "The server binds `hermitstash.db.enc` to its data directory path. The schema check in `vault-key-rotate.js` and the database read in `vault-key-verify.js` decrypted it without that binding, so the rotation stopped with `FATAL: invalid tag` before it wrote anything, and the verify tool exited with `invalid tag`. The verify tool also unsealed `db.key.enc` with a reader for the older envelope format, which the server stopped writing in v1.9.16, so it printed `db.key.enc cannot be unsealed ... Either the vault key is wrong, or db.key.enc is corrupted.` on every current install. Both tools now unseal `db.key.enc` and decrypt `hermitstash.db.enc` through the same code as the server. These messages appeared whether or not the database was damaged, so on their own they do not show that a database needed restoring."
+        },
+        {
+          "title": "Rotate the vault key when the data directory is a mount point",
+          "body": "The rotation renamed the data directory to `data.old.<timestamp>` and a sibling `data.rotating` into its place. A Docker volume at `/app/data` cannot be renamed, and the tool refused with `is on a different filesystem from its parent`. The tool now builds the rotated copy in `data/.rotation-staging/`, writes `data/.rotation-swap.json`, moves each top-level entry of `data/` into `data/.rotation-old-<timestamp>/` and each rotated entry into `data/`, and then decrypts the swapped-in database the way the server will. If a move or that check fails, the tool moves the original entries back. If the tool stops partway, the server finishes the swap, or the move back, at its next start. The previous vault key and database stay in `data/.rotation-old-<timestamp>/` until you delete that directory."
+        },
+        {
+          "title": "Keep the original data directory when a swap fails",
+          "body": "When the second rename of the old swap failed after the first had succeeded, the tool deleted the rotated copy and the server then reported that the data directory had been lost, with the original data in `data.old.<timestamp>`. A failed swap now moves every original entry back into `data/`."
+        },
+        {
+          "title": "Detect a running server from any container or host",
+          "body": "The offline vault tools (`vault-key-rotate.js`, `vault-passphrase-setup.js`, `vault-passphrase-rotate.js`, `vault-passphrase-remove.js`) checked for a running server only by connecting to `PORT` and `INTERNAL_TLS_PORT` on 127.0.0.1 with the values in their own environment. They missed a server in another container, on the host, or listening on a port set in Admin > Settings. The server now writes `data/.server-lease` at the start of boot, refreshes it every 30 seconds and deletes it when it exits. Each tool refuses to run while that lease was refreshed in the last 90 seconds, and then holds the lease itself until it exits. While a tool holds it, the server refuses to start and prints the tool's name, pid and host. `vault-key-rotate.js` checks again immediately before the swap that the lease is still its own. A process that was killed leaves a lease that expires 90 seconds after its last refresh."
+        },
+        {
+          "title": "Block an IPv4 address entered with leading zeros",
+          "body": "The IP blocklist stored an address such as `203.0.113.010` as typed. Client addresses are never reported in that form, so the ban never matched. The blocklist now refuses an address that is not valid in its canonical form, with `Invalid IP format.`, and removing a ban matches the canonical form of the address you enter."
+        },
+        {
+          "title": "Write the verify tool's temporary database owner-only",
+          "body": "`vault-key-verify.js` wrote the decrypted database next to the data directory under a predictable name with the default file mode. It now writes it to `HERMITSTASH_TMPDIR`, `/dev/shm` or the OS temp directory with mode 0600 and a random name, and deletes it when it finishes or exits. The schema check in `vault-key-rotate.js` writes its copy the same way."
+        }
+      ]
+    },
+    {
+      "heading": "Migration",
+      "items": [
+        {
+          "title": "Run the offline vault tools in a one-off container",
+          "body": "The tools refuse to run while the server is running, and `docker exec` needs a running container. Stop the server and run them from the same image: `docker compose stop hermitstash`, then `docker compose run --rm --no-deps --entrypoint node --user 99:100 hermitstash scripts/vault-key-rotate.js`, then `docker compose up -d hermitstash`, which also applies a passphrase you changed in the compose file. Use the `PUID:PGID` your stack runs as for `--user`. Pass passphrases with `-e`, for example `-e VAULT_PASSPHRASE_OLD='current' -e VAULT_PASSPHRASE_NEW='new'`. Run the rotation with the same `HERMITSTASH_DATA_DIR` as the server; `docker compose run` uses the service's environment, so it matches by default. A `data.rotating` or `data.rotation-pending` left next to the data directory by the previous tool is still resolved by the server at startup, and the new tool refuses to run until it has been."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "Node.js October 2026 security releases", "url": "https://nodejs.org/en/blog/vulnerability/october-2026-security-releases" },
+    { "label": "RFC 8879 (TLS Certificate Compression)", "url": "https://www.rfc-editor.org/rfc/rfc8879" }
+  ]
+}

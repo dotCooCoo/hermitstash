@@ -138,3 +138,111 @@ describe("vault-rotate boot recovery dispatch (spec §6.1)", function () {
     assert.ok(fs.existsSync(rotating), "tampered rotating/ left intact for manual inspection");
   });
 });
+
+describe("vault-rotate boot recovery: in-place swap inside the data directory", function () {
+  var rotationSwap = require(path.join(repoRoot, "lib", "rotation-swap"));
+
+  // A data directory whose rotated copy is built, with the swap marker written.
+  function swapFixture(name) {
+    var dataDir = path.join(testRoot, name);
+    fs.mkdirSync(path.join(dataDir, "tls"), { recursive: true });
+    fs.writeFileSync(path.join(dataDir, "db.key.enc"), "old");
+    fs.writeFileSync(path.join(dataDir, "tls", "privkey.pem"), "old tls");
+    fs.writeFileSync(path.join(dataDir, "revocations.json"), "[]");
+    var staging = rotationSwap.stagingPath(dataDir);
+    fs.mkdirSync(path.join(staging, "tls"), { recursive: true });
+    fs.writeFileSync(path.join(staging, "db.key.enc"), "new");
+    fs.writeFileSync(path.join(staging, "tls", "privkey.pem"), "new tls");
+    fs.writeFileSync(path.join(staging, "revocations.json"), "[]");
+    var marker = rotationSwap.planSwap(dataDir, "2026-10-27T10:00:00.000Z");
+    rotationSwap.writeMarker(dataDir, marker);
+    return { dataDir: dataDir, staging: staging, marker: marker, oldDir: path.join(dataDir, marker.oldDir) };
+  }
+
+  it("a forward marker after a partial swap: boot finishes the swap and clears the marker", function () {
+    var f = swapFixture("inplace-forward");
+    // the tool stopped after moving db.key.enc aside and the staged one in
+    fs.mkdirSync(f.oldDir);
+    fs.renameSync(path.join(f.dataDir, "db.key.enc"), path.join(f.oldDir, "db.key.enc"));
+    fs.renameSync(path.join(f.staging, "db.key.enc"), path.join(f.dataDir, "db.key.enc"));
+
+    var r = runInit(f.dataDir);
+    assert.match(r.stdout, /Rotation-recovery: finishing an interrupted rotation swap/);
+    assert.strictEqual(fs.readFileSync(path.join(f.dataDir, "db.key.enc"), "utf8"), "new");
+    assert.strictEqual(fs.readFileSync(path.join(f.dataDir, "tls", "privkey.pem"), "utf8"), "new tls");
+    assert.strictEqual(fs.readFileSync(path.join(f.oldDir, "db.key.enc"), "utf8"), "old");
+    assert.strictEqual(fs.readFileSync(path.join(f.oldDir, "tls", "privkey.pem"), "utf8"), "old tls");
+    assert.ok(!fs.existsSync(f.staging), "staging is gone");
+    assert.ok(!rotationSwap.hasMarker(f.dataDir), "marker is gone");
+  });
+
+  it("a backward marker: boot moves the original entries back and discards the rotated copy", function () {
+    var f = swapFixture("inplace-backward");
+    rotationSwap.rollForward(f.dataDir, f.marker);
+    // the tool failed its post-swap check and stopped after recording the move back
+    f.marker.direction = "backward";
+    rotationSwap.writeMarker(f.dataDir, f.marker);
+    fs.mkdirSync(f.staging);
+    fs.renameSync(path.join(f.dataDir, "tls"), path.join(f.staging, "tls"));
+
+    var r = runInit(f.dataDir);
+    assert.match(r.stdout, /Rotation-recovery: moving the pre-rotation entries back/);
+    assert.strictEqual(fs.readFileSync(path.join(f.dataDir, "db.key.enc"), "utf8"), "old");
+    assert.strictEqual(fs.readFileSync(path.join(f.dataDir, "tls", "privkey.pem"), "utf8"), "old tls");
+    assert.ok(!fs.existsSync(f.oldDir), "old directory is gone");
+    assert.ok(!fs.existsSync(f.staging), "staging is gone");
+    assert.ok(!rotationSwap.hasMarker(f.dataDir), "marker is gone");
+  });
+
+  it("a staging directory without a marker: boot deletes it and leaves the data directory alone", function () {
+    var dataDir = path.join(testRoot, "inplace-nomarker");
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.writeFileSync(path.join(dataDir, "db.key.enc"), "old");
+    var staging = rotationSwap.stagingPath(dataDir);
+    fs.mkdirSync(staging);
+    fs.writeFileSync(path.join(staging, "db.key.enc"), "half-built");
+
+    var r = runInit(dataDir);
+    assert.match(r.stdout, /deleting .*\.rotation-staging, an incomplete rotated copy/);
+    assert.ok(!fs.existsSync(staging));
+    assert.strictEqual(fs.readFileSync(path.join(dataDir, "db.key.enc"), "utf8"), "old");
+  });
+
+  it("a rotation that still holds a fresh tool lease: boot refuses and leaves the staging directory", function () {
+    var f = swapFixture("inplace-tool-lease");
+    rotationSwap.clearMarker(f.dataDir);
+    fs.writeFileSync(path.join(f.dataDir, ".server-lease"), JSON.stringify({ kind: "tool", name: "vault-key-rotate.js",
+      pid: 4242, hostname: "rotator", token: "t", startedAt: "x", heartbeatAt: new Date().toISOString() }));
+
+    var r = runInit(f.dataDir);
+    assert.strictEqual(r.code, 1, "stdout: " + r.stdout + "\nstderr: " + r.stderr);
+    assert.match(r.stderr, /vault-key-rotate\.js \(pid 4242 on rotator, .*\) is using /);
+    assert.ok(fs.existsSync(path.join(f.staging, "db.key.enc")), "the rotated copy being built is left alone");
+  });
+
+  it("an unusable marker: boot refuses to start and changes nothing", function () {
+    var f = swapFixture("inplace-badmarker");
+    var bad = Object.assign({}, f.marker, { staged: ["../outside"] });
+    fs.writeFileSync(rotationSwap.markerPath(f.dataDir), JSON.stringify(bad));
+
+    var r = runInit(f.dataDir);
+    assert.strictEqual(r.code, 1, "stdout: " + r.stdout + "\nstderr: " + r.stderr);
+    assert.match(r.stderr, /rotation swap marker at .* cannot be used: .*invalid entry name/);
+    assert.strictEqual(fs.readFileSync(path.join(f.dataDir, "db.key.enc"), "utf8"), "old");
+    assert.ok(fs.existsSync(f.staging), "the rotated copy is left for inspection");
+  });
+
+  it("a swap the tool could not finish moving: boot refuses and names both directories", function () {
+    var f = swapFixture("inplace-conflict");
+    fs.mkdirSync(f.oldDir);
+    fs.renameSync(path.join(f.dataDir, "db.key.enc"), path.join(f.oldDir, "db.key.enc"));
+    // something recreated db.key.enc after the original was moved aside
+    fs.writeFileSync(path.join(f.dataDir, "db.key.enc"), "foreign");
+
+    var r = runInit(f.dataDir);
+    assert.strictEqual(r.code, 1, "stdout: " + r.stdout + "\nstderr: " + r.stderr);
+    assert.match(r.stderr, /could not finish the interrupted rotation swap/);
+    assert.match(r.stderr, /pre-rotation entries are in .*\.rotation-old-/);
+    assert.ok(rotationSwap.hasMarker(f.dataDir), "the marker is kept for the next attempt");
+  });
+});

@@ -4,8 +4,9 @@
  *
  * Samples sealed columns across every FIELD_SCHEMA table and confirms they
  * decrypt with the currently-configured vault key. Does not mutate anything;
- * safe to run against a running server (it opens its own read-only handle on
- * a temp copy of the decrypted DB).
+ * safe to run against a running server (it opens its own handle on an
+ * owner-only temp copy of the decrypted DB, written to HERMITSTASH_TMPDIR,
+ * /dev/shm or the OS temp directory).
  *
  * Primary use cases:
  *   - After running scripts/vault-key-rotate.js, gain confidence that the
@@ -21,15 +22,14 @@
 "use strict";
 
 var fs = require("fs");
-var path = require("path");
 var { DatabaseSync } = require("node:sqlite");
 
 var C = require("../lib/constants");
 var b = require("../lib/vendor/blamejs");
 var safeLog = require("../lib/safe-log");
-var cryptoLib = require("../lib/crypto");
 var passphraseSource = require("../lib/passphrase-source");
 var fieldCrypto = require("../lib/field-crypto");
+var liveDb = require("./lib/live-db");
 
 // Populate b.cryptoField with HS's FIELD_SCHEMA before any
 // b.vaultRotate call — its schema walker reads from b.cryptoField.
@@ -38,9 +38,6 @@ fieldCrypto.registerWithBlamejs();
 var DATA_DIR = C.DATA_DIR;
 var PLAINTEXT_PATH = C.PATHS.VAULT_KEY;
 var SEALED_PATH = C.PATHS.VAULT_KEY_SEALED;
-var DB_ENC_PATH = C.PATHS.DB_ENC;
-var DB_KEY_ENC_PATH = C.PATHS.DB_KEY_ENC;
-var VAULT_PREFIX = C.VAULT_PREFIX;
 
 function parseArgs(argv) {
   var opts = { help: false };
@@ -72,9 +69,12 @@ function printHelp() {
     "  1   one or more sampled rows failed to decrypt",
     "  2   CLI / environment error",
     "",
-    "Safe to run against a running server. The tool opens its own read-only",
-    "handle on a temp copy of the decrypted DB; the live hermitstash.db.enc",
-    "is never modified.",
+    "Safe to run against a running server. The tool opens its own handle on",
+    "a temporary owner-only copy of the decrypted DB in HERMITSTASH_TMPDIR,",
+    "/dev/shm or the OS temp directory, and deletes it afterwards; the live",
+    "hermitstash.db.enc is never modified.",
+    "Run it with the same HERMITSTASH_DATA_DIR the server uses: the database",
+    "file is bound to that path.",
     "",
   ].join("\n"));
 }
@@ -119,44 +119,29 @@ async function loadKeys(mode) {
 }
 
 function decryptDbToTemp(keys) {
-  if (!fs.existsSync(DB_ENC_PATH) || !fs.existsSync(DB_KEY_ENC_PATH)) {
+  if (!liveDb.present(DATA_DIR)) {
     console.log("[verify] no encrypted DB present — nothing to sample");
     process.exit(0);
   }
-  var sealedDbKey = fs.readFileSync(DB_KEY_ENC_PATH, "utf8").trim();
-  if (sealedDbKey.indexOf(VAULT_PREFIX) !== 0) {
-    console.error("ERROR: db.key.enc is not vault-sealed");
-    process.exit(1);
-  }
   var dbKey;
   try {
-    dbKey = Buffer.from(
-      cryptoLib.decrypt(sealedDbKey.substring(VAULT_PREFIX.length), keys),
-      "base64"
-    );
+    dbKey = liveDb.unsealDbKey(DATA_DIR, keys);
   } catch (e) {
-    console.error("ERROR: db.key.enc cannot be unsealed with the current vault — " + safeLog.scrub(e.message));
-    console.error("  The DB file encryption key is not readable by this vault keypair.");
-    console.error("  Either the vault key is wrong, or db.key.enc is corrupted.");
+    console.error("ERROR: " + safeLog.scrub(e.message));
+    if (e && e.code === "live-db/db-key-unsealable") {
+      console.error("  The vault key does not match this db.key.enc, or db.key.enc is damaged.");
+    }
     process.exit(1);
   }
-  var packed = fs.readFileSync(DB_ENC_PATH);
   var plainBytes;
   try {
-    plainBytes = b.crypto.decryptPacked(packed, dbKey);
+    plainBytes = liveDb.decrypt(DATA_DIR, dbKey);
   } catch (e) {
-    console.error("ERROR: hermitstash.db.enc cannot be decrypted with the unsealed dbKey — " + safeLog.scrub(e.message));
+    console.error("ERROR: " + safeLog.scrub(e.message));
+    console.error("  Run this tool with the same HERMITSTASH_DATA_DIR the server uses.");
     process.exit(1);
   }
-  var tmpPath = path.join(path.dirname(DATA_DIR), ".verify-" + Date.now() + ".db");
-  fs.writeFileSync(tmpPath, plainBytes);
-  return tmpPath;
-}
-
-function cleanupTemp(tmpPath) {
-  try { fs.unlinkSync(tmpPath); } catch { /* best-effort */ }
-  try { fs.unlinkSync(tmpPath + "-wal"); } catch { /* best-effort */ }
-  try { fs.unlinkSync(tmpPath + "-shm"); } catch { /* best-effort */ }
+  return liveDb.writeTempDb(plainBytes, "verify");
 }
 
 (async function main() {
@@ -175,7 +160,7 @@ function cleanupTemp(tmpPath) {
     result = b.vaultRotate.verify({ keys: keys, db: db });
   } finally {
     db.close();
-    cleanupTemp(tmpPath);
+    liveDb.removeTempDb(tmpPath);
   }
 
   // Print per-table verification summary

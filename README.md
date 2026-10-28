@@ -216,7 +216,8 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | SSRF via webhooks | Blocks localhost, RFC 1918, RFC 6598 CGNAT, link-local, IPv6 private ranges |
 | Disguised file uploads | Magic byte validation rejects files whose content doesn't match extension |
 | Malicious filenames | Backend sanitization strips control chars, path traversal, dot attacks, HTML injection |
-| ZIP path traversal (Zip Slip) | Entry names sanitized to remove `..` segments; paths normalized on both upload and archive |
+| ZIP path traversal (Zip Slip) | Uploaded ZIP and tar archives are inspected without being extracted. An archive is refused if an entry escapes its directory, has an absolute path, is a link pointing outside the archive or a hardlink, or is a tar entry type the inspection does not read, including GNU long-name and long-link records |
+| Decompression before TLS authentication | The TLS listener offers no certificate compression (RFC 8879), so a client's certificate is not decompressed before it is verified. The container image requires Brotli 1.2.1 or newer (CVE-2026-111497) |
 | Anonymous storage abuse | Per-IP upload quota with 24-hour rolling window |
 | Stored XSS via uploads | User-controlled names auto-escaped in templates; raw output reserved for admin-set values only |
 | HTML injection into outgoing email | Uploader names, file paths, skip reasons and access codes HTML-escaped before templating; link URLs escaped for attribute context so a quote cannot end the `href` |
@@ -273,7 +274,7 @@ Built on Node.js 24.22.1+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - PRF mode for true zero-knowledge (no seed touches the server)
 - Stealth mode hides vault operations from audit logs
 - Self-access links for direct vault file download with passkey auth
-- Vault key rotation with atomic re-encryption of all files
+- Vault key rotation that re-encrypts every vault-sealed value offline, keeps the previous key and database, and finishes or undoes an interrupted swap at the next start
 - Batch upload and batch delete with client-generated batch IDs
 - Folder structure preserved in vault uploads and batch ZIP downloads
 - Inline rename for vault batches and individual vault files
@@ -578,7 +579,7 @@ Uses `cgr.dev/chainguard/wolfi-base` with Node installed from the `nodejs-24` pa
 | | |
 |---|---|
 | **Base image** | `cgr.dev/chainguard/wolfi-base` (glibc — continuously rebuilt for CVE fixes), digest-pinned; no `npm` in the image |
-| **Node.js** | 24.22.1+ from the `nodejs-24` package — major pinned to the Active LTS line (required for ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87 via OpenSSL 3.5 + cumulative 24.x security patches) |
+| **Node.js** | 24.22.1+ from the `nodejs-24` package — major pinned to the Active LTS line (required for ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87 via OpenSSL 3.5 + cumulative 24.x security patches). Outside the image, the server starts on 24.22.1 or later on the 24 line, 26.12.1 or later on the 26 line, or 27 and later, with OpenSSL 3.5.9, 3.6.5 or 4.0.3 or later on those lines, or 4.1 and later. On a Node built against the system Brotli library it also requires Brotli 1.2.1 or later |
 | **User** | Runs as `hermit` (non-root) via `su-exec` (installed at build time) — PUID/PGID env vars remap UID/GID at runtime (default 99:100, standard Linux 1000:1000) |
 | **Tmpfs** | `HERMITSTASH_TMPDIR=/dev/shm` — plaintext DB held in memory, never on disk. Set `shm_size: 256m` in compose. Also consider `CHUNK_SCRATCH_DIR=/dev/shm/hermitstash-chunks` for RAM-backed chunked-upload staging. |
 | **Volumes** | `/app/data` (encrypted DB, vault keys, TLS certs), `/app/uploads` (files if using local storage) |
@@ -710,16 +711,31 @@ v1.9+ adds an **opt-in** layer that wraps the vault key with an Argon2id-derived
 
 **Default behavior is unchanged** — if you don't enable this feature, your existing plaintext `vault.key` keeps working identically.
 
+#### Running the offline vault tools in Docker
+
+`vault-passphrase-setup.js`, `vault-passphrase-rotate.js`, `vault-passphrase-remove.js` and `vault-key-rotate.js` refuse to run while the server is running. They read `data/.server-lease`, which the server writes at the start of boot, refreshes every 30 seconds and deletes when it exits, and they also probe `PORT` and `INTERNAL_TLS_PORT`. Each tool then holds the lease until it exits, and the server refuses to start while a tool holds it. `docker exec` needs a running container, so run these tools in a one-off container from the same image after stopping the server:
+
+```bash
+docker compose stop hermitstash
+docker compose run --rm --no-deps --entrypoint node --user 99:100 \
+  hermitstash scripts/vault-passphrase-rotate.js
+docker compose up -d hermitstash
+```
+
+`--entrypoint node` is required because the image's entrypoint always starts the server. `--user` takes the `PUID:PGID` your stack runs as (`99:100` by default, `1000:1000` on most Linux hosts), so files the tool writes keep the owner the server expects. `docker compose run` gives the container the service's volumes and environment, including `HERMITSTASH_DATA_DIR`. Pass a passphrase for a scripted run with `-e`, for example `-e VAULT_PASSPHRASE_OLD='current' -e VAULT_PASSPHRASE_NEW='new'`. An environment variable set on the host in front of `docker compose` does not reach the container.
+
+A server or tool that was killed without exiting cleanly leaves a lease that expires 90 seconds after its last refresh. A server that found another server's lease in the 90 seconds before it stops, for example after a restart that followed a crash, also leaves its lease in place when it stops. Until the lease expires, the other side prints the holder's pid and host and the number of seconds left.
+
 #### Enabling
 
 1. **Store the passphrase somewhere safe first.** Loss of the passphrase = loss of all encrypted data. HermitStash has no recovery mechanism. Use a password manager.
 
 2. Stop the server.
 
-3. Run the migration tool:
+3. Run the migration tool (in Docker, use the one-off container described above):
    ```bash
    # Interactive prompt (simplest for manual setup):
-   docker exec -it hermitstash node scripts/vault-passphrase-setup.js
+   node scripts/vault-passphrase-setup.js
 
    # Or with an env-var passphrase:
    VAULT_PASSPHRASE='your-strong-passphrase' \
@@ -743,18 +759,20 @@ v1.9+ adds an **opt-in** layer that wraps the vault key with an Argon2id-derived
 
 #### Rotating the passphrase
 
-Once protection is enabled, rotate the passphrase periodically or whenever exposure is suspected:
+Once protection is enabled, rotate the passphrase periodically or whenever exposure is suspected. Stop the server first; in Docker, use the one-off container described in [Running the offline vault tools in Docker](#running-the-offline-vault-tools-in-docker):
 
 ```bash
 # Interactive (recommended for local ops):
-docker exec -it hermitstash node scripts/vault-passphrase-rotate.js
+docker compose run --rm --no-deps --entrypoint node --user 99:100 \
+  hermitstash scripts/vault-passphrase-rotate.js
 
 # Scripted (secrets-manager / CI friendly):
-VAULT_PASSPHRASE_OLD='current' VAULT_PASSPHRASE_NEW='new-value' \
-  docker exec hermitstash node scripts/vault-passphrase-rotate.js
+docker compose run --rm --no-deps --entrypoint node --user 99:100 \
+  -e VAULT_PASSPHRASE_OLD='current' -e VAULT_PASSPHRASE_NEW='new-value' \
+  hermitstash scripts/vault-passphrase-rotate.js
 ```
 
-Rotation reads the current sealed file, unwraps with the OLD passphrase, re-wraps with the NEW one using a fresh Argon2id salt and XChaCha20 nonce, verifies round-trip in-process, and atomically replaces the sealed file. After success, update the server's `VAULT_PASSPHRASE` (or `_FILE`) to the new value and restart.
+Rotation reads the current sealed file, unwraps with the OLD passphrase, re-wraps with the NEW one using a fresh Argon2id salt and XChaCha20 nonce, verifies round-trip in-process, and atomically replaces the sealed file. After success, update the server's `VAULT_PASSPHRASE` (or `_FILE`) to the new value and start the server. In Docker, run `docker compose up -d hermitstash` after editing the compose file; `docker compose start` reuses the container with the environment it was created with.
 
 **Important caveat — what passphrase rotation does and does NOT protect:**
 
@@ -762,27 +780,39 @@ Passphrase rotation protects the **future**, not the past. If an attacker alread
 
 ### Full vault key rotation (v1.9.3+)
 
-When you suspect the vault keypair itself has been compromised — not just the passphrase — run the offline full rotation tool. It generates a brand new ML-KEM-1024 + P-384 hybrid keypair and re-encrypts every vault-sealed value in the data directory: every sealed DB column, every per-file XChaCha20 key index, the SQLite file's wrapping key, and the vault key itself. File blobs in the upload directory are NOT re-encrypted — their per-file keys are, so rotation completes in seconds even for multi-terabyte upload directories.
+When you suspect the vault keypair itself has been compromised, and not only the passphrase, run the offline full rotation tool. It generates a new ML-KEM-1024 + P-384 hybrid keypair and re-encrypts every vault-sealed value in the data directory: every sealed DB column, every per-file XChaCha20 key index, the SQLite file's wrapping key, and the vault key itself. File blobs in the upload directory are not re-encrypted. Their per-file keys are re-sealed in the database, so the size of the upload directory does not affect how long the rotation takes.
+
+Stop the server, then run the tool. In Docker, use the one-off container described in [Running the offline vault tools in Docker](#running-the-offline-vault-tools-in-docker):
 
 ```bash
-# stop the server first, then:
-docker exec -it hermitstash node scripts/vault-key-rotate.js
+docker compose stop hermitstash
+
+docker compose run --rm --no-deps --entrypoint node --user 99:100 \
+  hermitstash scripts/vault-key-rotate.js
 
 # scripted (wrapped mode):
-VAULT_PASSPHRASE_OLD='current' VAULT_PASSPHRASE_NEW='new' \
-  docker exec hermitstash node scripts/vault-key-rotate.js
+docker compose run --rm --no-deps --entrypoint node --user 99:100 \
+  -e VAULT_PASSPHRASE_OLD='current' -e VAULT_PASSPHRASE_NEW='new' \
+  hermitstash scripts/vault-key-rotate.js
 
-# dry-run — exercise everything except the final swap:
-docker exec hermitstash node scripts/vault-key-rotate.js --dry-run
+# dry-run: every step except the swap
+docker compose run --rm --no-deps --entrypoint node --user 99:100 \
+  hermitstash scripts/vault-key-rotate.js --dry-run
 ```
 
-The tool builds a complete rotated copy of `data/` at `data.rotating/`, verifies it round-trips, then atomically swaps `data/` → `data.old.<ISO timestamp>/` and `data.rotating/` → `data/`. A crash at any point leaves `data/` either fully pre-rotation or fully post-rotation, never partial — server boot recovery handles every interruption point.
+Run the tool with the same `HERMITSTASH_DATA_DIR` as the server. `hermitstash.db.enc` is bound to that path, and the server cannot open a database that was rotated at a different path. `docker compose run` uses the service's environment, so the path matches by default.
+
+The tool builds a rotated copy in `data/.rotation-staging/` and checks that it decrypts with the new keypair. It then checks the server lease again, writes `data/.rotation-swap.json`, moves each top-level entry of `data/` into `data/.rotation-old-<ISO timestamp>/`, moves each entry of the rotated copy into `data/`, and decrypts the swapped-in database the way the server will. The `data/` directory itself is not renamed, so it can be a volume mount point. The tool refuses to start if a subdirectory of `data/` is a separate mount.
+
+If a move or that final decrypt fails, the tool moves the original entries back and exits with `The rotation did not take effect.` If the tool stops partway through the swap, the server reads `data/.rotation-swap.json` at its next start and finishes the swap, or finishes moving the original entries back if the tool had started to. A `data/.rotation-staging/` directory without the marker is an unfinished rotated copy, and the server deletes it at startup.
 
 After success:
-1. `data.old.<ISO timestamp>/` is retained — once you've verified the rotated state, remove that directory by name rather than by a shell glob
-2. If the passphrase changed, update `VAULT_PASSPHRASE` / `VAULT_PASSPHRASE_FILE` to the new value
-3. Restart the server
-4. Verify access: `docker exec hermitstash node scripts/vault-key-verify.js`
+1. If the passphrase changed, update `VAULT_PASSPHRASE` / `VAULT_PASSPHRASE_FILE` to the new value
+2. Start the server: `docker compose start hermitstash`. If you changed the passphrase in the compose file, run `docker compose up -d hermitstash` instead: `start` reuses the container with the environment it was created with
+3. Verify access: `docker compose exec --user 99:100 hermitstash node scripts/vault-key-verify.js` (this tool runs against a running server)
+4. `data/.rotation-old-<ISO timestamp>/` holds the previous vault key and database. Once you've verified the rotated state, remove that directory by name rather than by a shell glob
+
+To go back to the pre-rotation state, stop the server and move the entries of `data/.rotation-old-<ISO timestamp>/` back into `data/` in place of the rotated ones.
 
 Sessions are invalidated by the required server restart (sessions live in tmpfs by design).
 
@@ -793,7 +823,7 @@ Sessions are invalidated by the required server restart (sessions live in tmpfs 
 - Annual key rotation per compliance policy
 - Investigating? Run `--dry-run` first; it does everything except the final swap
 
-For just changing the passphrase (the old passphrase leaked but the sealed file did NOT, say), keep using `vault-passphrase-rotate.js` — it's a faster operation that only re-wraps the same vault key.
+For just changing the passphrase (the old passphrase leaked but the sealed file did NOT, say), keep using `vault-passphrase-rotate.js`. It only re-wraps the same vault key, which is faster.
 
 ### PEM at-rest sealing for CA + TLS keys (v1.9.4+, opt-in)
 
@@ -1489,7 +1519,7 @@ Managed via `scripts/vendor-update.sh`:
 
 | Vendored | Version | Author | Purpose |
 |----------|---------|--------|---------|
-| [`blamejs`](https://github.com/blamejs/blamejs) | 0.21.4 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, and envelope-bound field crypto. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
+| [`blamejs`](https://github.com/blamejs/blamejs) | 0.21.6 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, and envelope-bound field crypto. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
 | [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) (browser only) | 2.4.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | XChaCha20-Poly1305 in the browser vault + outbox flows |
 | [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (browser only) | 2.4.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | SHAKE256 KDF in the browser |
 | [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) (browser only) | 0.7.1 | [Paul Miller](https://github.com/paulmillr) (MIT) | ML-KEM-1024 in the browser vault flow |

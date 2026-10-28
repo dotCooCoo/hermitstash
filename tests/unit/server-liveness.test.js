@@ -15,6 +15,17 @@
 var { describe, it, before, after, afterEach } = require("node:test");
 var assert = require("node:assert");
 var net = require("net");
+var fs = require("fs");
+var os = require("os");
+var path = require("path");
+
+// assertServerNotRunning reads the data-directory lease first. An empty data
+// directory keeps a developer server's lease in the repo's data/ out of these
+// port-probe tests. Set before the module loads, since constants resolves
+// DATA_DIR once.
+var isolatedDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "server-liveness-"));
+process.env.HERMITSTASH_DATA_DIR = isolatedDataDir;
+process.on("exit", function () { fs.rmSync(isolatedDataDir, { recursive: true, force: true }); });
 
 var liveness = require("../../scripts/lib/server-liveness");
 

@@ -70,6 +70,13 @@ var app = new Router({
 // Wraps every middleware added after it, so it runs before the first app.use().
 errorHandler.guardRouterLogs(app);
 
+// b.httpClient and the SSRF check resolve every outbound host through
+// b.network.dns (DNS over HTTPS by default), and the framework opens a new
+// HTTPS connection for each request. Resolved addresses are kept for 60
+// seconds and failed lookups for 10 seconds; a request still dials the
+// address its own SSRF check validated.
+b.network.dns.setCacheTtlMs(C.TIME.seconds(60), C.TIME.seconds(10));
+
 var dataDir = C.DATA_DIR;
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 if (config.storage.backend === "local") {
@@ -830,6 +837,7 @@ if (fs.existsSync(TLS_CERT) && tlsKeyAvailable()) {
       // socket.authorized either way.
       rejectUnauthorized: hardMtls,
       ca: haveMtlsCa ? caList : undefined,
+      certificateCompression: tlsContext.LISTENER_CERT_COMPRESSION,
     };
     tlsEnabled = true;
     // The admin security panel reads this rather than re-deriving the posture

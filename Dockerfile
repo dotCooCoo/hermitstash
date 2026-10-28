@@ -47,8 +47,10 @@ FROM ${RUNTIME_BASE}
 # superseded versions, which would break rebuilds once that revision ages out.
 #
 # Node 24.22.1+ is required for PQC: ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87
-# (OpenSSL 3.5) plus cumulative 24.x security patches, including the
-# CVE-2026-111497 Brotli decoder fix in 24.22.1.
+# (OpenSSL 3.5) plus cumulative 24.x security patches. wolfi's nodejs-24 links
+# the system Brotli library rather than Node's bundled copy, so the
+# CVE-2026-111497 fix in this image comes from libbrotlidec1 1.2.1, which the
+# apk line below sets as a floor.
 #
 # wolfi-base also ships no npm, which the prebuilt Node image did — removing npm
 # removes its bundled-dependency CVE stream from this image entirely.
@@ -99,10 +101,11 @@ LABEL org.opencontainers.image.title="HermitStash" \
 # pin turns into a broken build rather than a reproducible one. `nodejs-24` pins the
 # major, which is the part that has to agree with package.json engines.node; the
 # release Trivy gate is what catches a package that has aged into a known CVE.
-# `>=24.22.1` is a floor, not an exact pin: the build fails if the repository
-# offers only a Node older than the one package.json engines.node requires.
+# `>=24.22.1` and `>=1.2.1` are floors, not exact pins: the build fails if the
+# repository offers only a Node older than the one package.json engines.node
+# requires, or a Brotli library affected by CVE-2026-111497.
 # hadolint ignore=DL3018
-RUN apk add --no-cache "nodejs-24>=24.22.1" shadow su-exec
+RUN apk add --no-cache "nodejs-24>=24.22.1" "libbrotlidec1>=1.2.1" shadow su-exec
 
 # Security: non-root user for runtime. PUID/PGID env vars remap UID/GID at
 # runtime via groupmod/usermod (installed above); setpriv then drops privs.

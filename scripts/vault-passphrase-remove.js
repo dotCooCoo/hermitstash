@@ -99,7 +99,7 @@ function preflight(opts) {
     process.exit(1);
   }
 
-  return serverLiveness.assertServerNotRunning(opts);
+  return serverLiveness.claimDataDir(opts, "vault-passphrase-remove.js");
 }
 
 async function acquirePassphrase() {

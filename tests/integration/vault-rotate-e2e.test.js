@@ -7,10 +7,13 @@
  *   - Wrapped-mode rotation with a new passphrase
  *
  * Each test builds a fixture data directory with a realistic encrypted DB,
- * invokes scripts/vault-key-rotate.js via child_process, then confirms:
+ * written bound to the data directory as a running server writes it, invokes
+ * scripts/vault-key-rotate.js via child_process, then confirms:
  *   - Rotated data decrypts with the new vault
  *   - Rotated data FAILS to decrypt with the old vault (true rotation)
- *   - data.old.<ts>/ is retained and decrypts with the old vault (valid backup)
+ *   - .rotation-old-<ts>/ is retained inside the data directory and decrypts
+ *     with the old vault (valid backup)
+ *   - scripts/vault-key-verify.js passes on the rotated directory
  *
  * Backup/restore interop is covered by the top-level tests/run-all.js suite
  * run from the sync repo — this file exercises the rotation tool itself.
@@ -28,7 +31,11 @@ var REPO_ROOT = path.resolve(__dirname, "..", "..");
 var cryptoLib = require(path.join(REPO_ROOT, "lib", "crypto"));
 var b = require(path.join(REPO_ROOT, "lib", "vendor", "blamejs"));
 var fieldCrypto = require(path.join(REPO_ROOT, "lib", "field-crypto"));
-var { VAULT_PREFIX } = require(path.join(REPO_ROOT, "lib", "constants"));
+var { VAULT_PREFIX, DATA_DIR_INTERNAL, TIME } = require(path.join(REPO_ROOT, "lib", "constants"));
+// The PRODUCTION db.enc codec (the module lib/db.js's boot path uses), so the
+// fixture writes db.enc the way a running server does and the reads below
+// decrypt it the way the server will.
+var dbEncCodec = require(path.join(REPO_ROOT, "lib", "db-enc-codec"));
 
 // Register HS's field-crypto schemas (users → aad:true, rowIdField:"_id",
 // schemaVersion:"1") so this parent test process can build a REAL AAD-bound
@@ -118,8 +125,9 @@ function buildFixture(dataDir, oldKeys, opts) {
   }
   db.close();
 
+  // Bound to the data directory, as lib/db.js writes it on a running server.
   fs.writeFileSync(path.join(dataDir, "hermitstash.db.enc"),
-    b.crypto.encryptPacked(fs.readFileSync(tmpDb), dbKey));
+    dbEncCodec.encryptDbEnc(fs.readFileSync(tmpDb), dbKey, dataDir));
   fs.unlinkSync(tmpDb);
 
   return { dataDir: dataDir, oldKeys: oldKeys, dbKey: dbKey };
@@ -157,19 +165,13 @@ async function unwrapVaultKey(dataDir, passphrase) {
   return JSON.parse(plain.toString("utf8"));
 }
 
-// Decrypt hermitstash.db.enc → plaintext SQLite bytes. The live (rotated) DB
-// is XChaCha20-Poly1305 AEAD-bound to its dataDir (db.js _dbEncAad); the
-// untouched data.old/ backup was written by the fixture without that AAD.
-// Mirror db.js's own read path: try the dataDir AAD first, fall back to no AAD.
-// Exercise the PRODUCTION db.enc read codec (lib/db-enc-codec, the exact module
-// lib/db.js's boot path uses) rather than a private copy of the AAD-first-then-
-// fallback logic — so a regression in production's decrypt fails this test instead
-// of passing against a stale local helper. The codec is side-effect-free, so
-// importing it here doesn't trigger lib/db.js's heavy module init.
-var dbEncCodec = require(path.join(REPO_ROOT, "lib", "db-enc-codec"));
-function decryptDbBytes(dataDir, dbKey) {
-  var packed = fs.readFileSync(path.join(dataDir, "hermitstash.db.enc"));
-  return dbEncCodec.decryptDbEnc(packed, dbKey, dataDir);
+// Decrypt hermitstash.db.enc → plaintext SQLite bytes through the production
+// codec. Both the live DB and the retained .rotation-old-<ts> copy are bound to
+// the data directory path, so a copy read from the old directory passes that
+// path as boundDir.
+function decryptDbBytes(dir, dbKey, boundDir) {
+  var packed = fs.readFileSync(path.join(dir, "hermitstash.db.enc"));
+  return dbEncCodec.decryptDbEnc(packed, dbKey, boundDir || dir);
 }
 
 function readDbKey(dataDir, keys) {
@@ -180,9 +182,9 @@ function readDbKey(dataDir, keys) {
   );
 }
 
-function decryptLiveDb(dataDir, keys) {
+function decryptLiveDb(dataDir, keys, boundDir) {
   var dbKey = readDbKey(dataDir, keys);
-  var plain = decryptDbBytes(dataDir, dbKey);
+  var plain = decryptDbBytes(dataDir, dbKey, boundDir);
   var tmpPath = path.join(dataDir, ".probe-" + Date.now() + ".db");
   fs.writeFileSync(tmpPath, plain);
   var db = new DatabaseSync(tmpPath);
@@ -195,9 +197,9 @@ function decryptLiveDb(dataDir, keys) {
 // Read one specific cell's RAW stored value (the sealed string as-is, no
 // unseal) from the live encrypted DB. Used to capture an AAD cell's ciphertext
 // before vs. after rotation so the test can prove the bytes actually changed.
-function readRawCell(dataDir, keys, table, rowId, column) {
+function readRawCell(dataDir, keys, table, rowId, column, boundDir) {
   var dbKey = readDbKey(dataDir, keys);
-  var plain = decryptDbBytes(dataDir, dbKey);
+  var plain = decryptDbBytes(dataDir, dbKey, boundDir);
   var tmpPath = path.join(dataDir, ".rawcell-" + Date.now() + "-" + b.crypto.generateToken(3) + ".db");
   fs.writeFileSync(tmpPath, plain);
   var db = new DatabaseSync(tmpPath);
@@ -207,12 +209,27 @@ function readRawCell(dataDir, keys, table, rowId, column) {
   return row ? row.v : null;
 }
 
-function findDataOldDir(parent, dataBasename) {
-  var entries = fs.readdirSync(parent);
+// The directory a completed rotation leaves the pre-rotation entries in.
+function findOldDir(dataDir) {
+  var entries = fs.readdirSync(dataDir);
   for (var i = 0; i < entries.length; i++) {
-    if (entries[i].indexOf(dataBasename + ".old.") === 0) return path.join(parent, entries[i]);
+    if (entries[i].indexOf(DATA_DIR_INTERNAL.ROTATION_OLD_PREFIX) === 0) return path.join(dataDir, entries[i]);
   }
   return null;
+}
+
+function stagingDir(dataDir) {
+  return path.join(dataDir, DATA_DIR_INTERNAL.ROTATION_STAGING);
+}
+
+// Nothing outside the data directory is created: no sibling staging, marker
+// or old directory.
+function assertNoSiblings(dataDir) {
+  var base = path.basename(dataDir);
+  var siblings = fs.readdirSync(path.dirname(dataDir)).filter(function (n) {
+    return n !== base && n.indexOf(base) === 0;
+  });
+  assert.deepStrictEqual(siblings, [], "no entries are created next to the data directory");
 }
 
 describe("vault-rotate E2E: plaintext mode", function () {
@@ -241,15 +258,16 @@ describe("vault-rotate E2E: plaintext mode", function () {
 
     // After rotation:
     //   data/ has new vault.key and re-encrypted DB
-    //   data.old.<ts>/ has the original vault.key and original DB
+    //   data/.rotation-old-<ts>/ has the original vault.key and original DB
     var newKeys = readVaultKey(dataDir);
     assert.ok(newKeys);
     assert.notStrictEqual(newKeys.privateKey, oldKeys.privateKey, "new keys must be distinct");
 
-    var parent = path.dirname(dataDir);
-    var dataBase = path.basename(dataDir);
-    var oldDir = findDataOldDir(parent, dataBase);
-    assert.ok(oldDir, "data.old.<ts>/ should exist");
+    var oldDir = findOldDir(dataDir);
+    assert.ok(oldDir, ".rotation-old-<ts>/ should exist inside the data directory");
+    assertNoSiblings(dataDir);
+    assert.ok(!fs.existsSync(stagingDir(dataDir)), "the staging directory is gone after the swap");
+    assert.ok(!fs.existsSync(path.join(dataDir, DATA_DIR_INTERNAL.ROTATION_MARKER)), "the swap marker is gone");
 
     // Rotated data decrypts with new keys
     var probe = decryptLiveDb(dataDir, newKeys);
@@ -257,11 +275,16 @@ describe("vault-rotate E2E: plaintext mode", function () {
     var firstEmail = b.crypto.decrypt(probe.rows[0].email.substring(VAULT_PREFIX.length), newKeys);
     assert.match(firstEmail, /@example\.com$/);
 
-    // Old backup still decrypts with old keys
+    // The retained copy decrypts with old keys, bound to the data directory path
     var oldBackupKeys = readVaultKey(oldDir);
     assert.ok(oldBackupKeys);
-    var oldProbe = decryptLiveDb(oldDir, oldBackupKeys);
+    var oldProbe = decryptLiveDb(oldDir, oldBackupKeys, dataDir);
     assert.ok(oldProbe.rows.length > 0);
+
+    // The documented post-rotation check passes on the rotated directory
+    var v = runVerify(dataDir, {});
+    assert.strictEqual(v.status, 0, "verify exit: " + v.status + "\nstdout: " + v.stdout + "\nstderr: " + v.stderr);
+    assert.match(v.stdout, /All sampled sealed columns decrypt cleanly/);
 
     // Rotated values FAIL with old keys (true rotation check)
     var sealedInNew = probe.rows[0].email;
@@ -325,17 +348,16 @@ describe("vault-rotate E2E: plaintext mode", function () {
       b.vault.aad.unsealRoot(after, aadParts, oldRootJson);
     }, /aead-mismatch|authentication failed/, "OLD root must not open the rotated AAD cell");
 
-    // The data.old.<ts>/ backup still holds the pre-rotation cell under the old root.
-    var parent = path.dirname(dataDir);
-    var oldDir = findDataOldDir(parent, path.basename(dataDir));
-    assert.ok(oldDir, "data.old.<ts>/ should exist");
+    // The .rotation-old-<ts>/ copy still holds the pre-rotation cell under the old root.
+    var oldDir = findOldDir(dataDir);
+    assert.ok(oldDir, ".rotation-old-<ts>/ should exist");
     var oldBackupKeys = readVaultKey(oldDir);
-    var backupCell = readRawCell(oldDir, oldBackupKeys, "users", aadRowId, "email");
+    var backupCell = readRawCell(oldDir, oldBackupKeys, "users", aadRowId, "email", dataDir);
     assert.strictEqual(backupCell, before, "backup must retain the original AAD ciphertext");
     assert.strictEqual(b.vault.aad.unsealRoot(backupCell, aadParts, JSON.stringify(oldBackupKeys, null, 2)), aadPlain);
   });
 
-  it("--dry-run leaves data/ untouched and doesn't create data.old.*", function () {
+  it("--dry-run leaves data/ untouched and doesn't create .rotation-old-*", function () {
     var dataDir = path.join(testRoot, "dry-" + b.crypto.generateToken(3));
     var oldKeys = cryptoLib.generateEncryptionKeyPair();
     buildFixture(dataDir, oldKeys);
@@ -350,21 +372,107 @@ describe("vault-rotate E2E: plaintext mode", function () {
       "vault.key must be byte-exact after dry run");
     assert.strictEqual(Buffer.compare(fs.readFileSync(path.join(dataDir, "hermitstash.db.enc")), originalDbEnc), 0);
 
-    var parent = path.dirname(dataDir);
-    var oldDir = findDataOldDir(parent, path.basename(dataDir));
-    assert.strictEqual(oldDir, null, "no data.old.* should be created on dry run");
-    assert.ok(!fs.existsSync(dataDir + ".rotating"), "staging dir cleaned up");
+    assert.strictEqual(findOldDir(dataDir), null, "no .rotation-old-* should be created on dry run");
+    assert.ok(!fs.existsSync(stagingDir(dataDir)), "staging dir cleaned up");
+    assertNoSiblings(dataDir);
   });
 
-  it("pre-flight refuses when stale data.rotating/ exists", function () {
+  it("pre-flight refuses when a stale staging directory exists", function () {
     var dataDir = path.join(testRoot, "stale-" + b.crypto.generateToken(3));
     var oldKeys = cryptoLib.generateEncryptionKeyPair();
     buildFixture(dataDir, oldKeys);
-    fs.mkdirSync(dataDir + ".rotating");
+    fs.mkdirSync(stagingDir(dataDir));
 
     var r = runRotate(dataDir, {}, []);
     assert.notStrictEqual(r.status, 0);
-    assert.match(r.stderr + r.stdout, /stale.*\.rotating exists/);
+    assert.match(r.stderr + r.stdout, /stale .*\.rotation-staging exists/);
+  });
+
+  it("pre-flight refuses when a swap marker exists", function () {
+    var dataDir = path.join(testRoot, "marker-" + b.crypto.generateToken(3));
+    var oldKeys = cryptoLib.generateEncryptionKeyPair();
+    buildFixture(dataDir, oldKeys);
+    fs.writeFileSync(path.join(dataDir, DATA_DIR_INTERNAL.ROTATION_MARKER), "{}");
+
+    var r = runRotate(dataDir, {}, []);
+    assert.notStrictEqual(r.status, 0);
+    assert.match(r.stderr, /a previous rotation stopped during its swap/);
+  });
+
+  it("refuses while a fresh server lease is in the data directory, and runs once it is stale", function () {
+    var dataDir = path.join(testRoot, "lease-" + b.crypto.generateToken(3));
+    var oldKeys = cryptoLib.generateEncryptionKeyPair();
+    buildFixture(dataDir, oldKeys);
+    var leasePath = path.join(dataDir, DATA_DIR_INTERNAL.SERVER_LEASE);
+    var lease = { kind: "server", pid: 4242, hostname: "other-container", token: "t",
+      startedAt: new Date().toISOString(), heartbeatAt: new Date().toISOString() };
+    fs.writeFileSync(leasePath, JSON.stringify(lease));
+    var originalDbEnc = fs.readFileSync(path.join(dataDir, "hermitstash.db.enc"));
+
+    var r = runRotate(dataDir, {}, []);
+    assert.strictEqual(r.status, 1, "stdout: " + r.stdout + "\nstderr: " + r.stderr);
+    assert.match(r.stderr, /a HermitStash server \(pid 4242 on other-container, last refreshed \d+s ago\) holds .*\.server-lease/);
+    assert.strictEqual(Buffer.compare(fs.readFileSync(path.join(dataDir, "hermitstash.db.enc")), originalDbEnc), 0);
+    assert.strictEqual(JSON.parse(fs.readFileSync(leasePath, "utf8")).token, "t", "the refused tool leaves the lease alone");
+
+    lease.heartbeatAt = new Date(Date.now() - TIME.minutes(5)).toISOString();
+    fs.writeFileSync(leasePath, JSON.stringify(lease));
+    var r2 = runRotate(dataDir, {}, []);
+    assert.strictEqual(r2.status, 0, "stdout: " + r2.stdout + "\nstderr: " + r2.stderr);
+    assert.ok(!fs.existsSync(leasePath), "the tool took the stale lease over and deleted it when it exited");
+    assert.ok(!fs.existsSync(path.join(findOldDir(dataDir), DATA_DIR_INTERNAL.SERVER_LEASE)),
+      "the lease is not moved into the retained copy");
+  });
+
+  it("a second rotation does not carry the first rotation's retained copy", function () {
+    var dataDir = path.join(testRoot, "twice-" + b.crypto.generateToken(3));
+    var oldKeys = cryptoLib.generateEncryptionKeyPair();
+    buildFixture(dataDir, oldKeys);
+
+    var r1 = runRotate(dataDir, {}, []);
+    assert.strictEqual(r1.status, 0, "first rotate: " + r1.stderr);
+    var firstOld = path.basename(findOldDir(dataDir));
+    var keysAfterFirst = readVaultKey(dataDir);
+
+    var r2 = runRotate(dataDir, {}, []);
+    assert.strictEqual(r2.status, 0, "second rotate: " + r2.stderr);
+    var oldDirs = fs.readdirSync(dataDir).filter(function (n) {
+      return n.indexOf(DATA_DIR_INTERNAL.ROTATION_OLD_PREFIX) === 0;
+    }).sort();
+    assert.strictEqual(oldDirs.length, 2, "each rotation keeps its own retained copy: " + oldDirs.join(", "));
+    var secondOld = oldDirs.filter(function (n) { return n !== firstOld; })[0];
+    assert.ok(!fs.existsSync(path.join(dataDir, secondOld, firstOld)),
+      "the first retained copy stays at the top of the data directory");
+    assert.strictEqual(readVaultKey(path.join(dataDir, secondOld)).privateKey, keysAfterFirst.privateKey);
+    assert.strictEqual(runVerify(dataDir, {}).status, 0);
+  });
+});
+
+describe("vault-key-verify: server-written data directory", function () {
+
+  it("passes on a data directory that has not been rotated", function () {
+    var dataDir = path.join(testRoot, "verify-fresh-" + b.crypto.generateToken(3));
+    buildFixture(dataDir, cryptoLib.generateEncryptionKeyPair());
+
+    var r = runVerify(dataDir, {});
+    assert.strictEqual(r.status, 0, "verify exit: " + r.status + "\nstdout: " + r.stdout + "\nstderr: " + r.stderr);
+    assert.doesNotMatch(r.stderr, /corrupt/);
+    var leftovers = fs.readdirSync(dataDir).filter(function (n) { return /^\.verify-.*\.db/.test(n); });
+    assert.deepStrictEqual(leftovers, [], "the temporary plaintext copy is removed");
+    assertNoSiblings(dataDir);
+  });
+
+  it("reports a database bound to a different data directory path", function () {
+    var dataDir = path.join(testRoot, "verify-moved-" + b.crypto.generateToken(3));
+    var fixture = buildFixture(dataDir, cryptoLib.generateEncryptionKeyPair());
+    var plain = dbEncCodec.decryptDbEnc(fs.readFileSync(path.join(dataDir, "hermitstash.db.enc")), fixture.dbKey, dataDir);
+    fs.writeFileSync(path.join(dataDir, "hermitstash.db.enc"),
+      dbEncCodec.encryptDbEnc(plain, fixture.dbKey, "/app/data"));
+
+    var r = runVerify(dataDir, {});
+    assert.strictEqual(r.status, 1);
+    assert.match(r.stderr, /hermitstash\.db\.enc cannot be decrypted/);
+    assert.match(r.stderr, /same HERMITSTASH_DATA_DIR the server uses/);
   });
 });
 
@@ -396,9 +504,8 @@ describe("vault-rotate E2E: wrapped mode", function () {
     var firstEmail = b.crypto.decrypt(probe.rows[0].email.substring(VAULT_PREFIX.length), newKeys);
     assert.match(firstEmail, /@example\.com$/);
 
-    // Old data.old.<ts>/ should still be unwrappable with the SAME passphrase and contain oldKeys
-    var parent = path.dirname(dataDir);
-    var oldDir = findDataOldDir(parent, path.basename(dataDir));
+    // The .rotation-old-<ts>/ copy should still unwrap with the SAME passphrase and contain oldKeys
+    var oldDir = findOldDir(dataDir);
     assert.ok(oldDir);
     var retrievedOldKeys = await unwrapVaultKey(oldDir, pw);
     assert.strictEqual(retrievedOldKeys.privateKey, oldKeys.privateKey);
@@ -425,10 +532,13 @@ describe("vault-rotate E2E: wrapped mode", function () {
     await assert.rejects(unwrapVaultKey(dataDir, oldPw));
 
     // Old backup still unwraps with ORIGINAL passphrase
-    var parent = path.dirname(dataDir);
-    var oldDir = findDataOldDir(parent, path.basename(dataDir));
+    var oldDir = findOldDir(dataDir);
     var originalKeysFromBackup = await unwrapVaultKey(oldDir, oldPw);
     assert.strictEqual(originalKeysFromBackup.privateKey, oldKeys.privateKey);
+
+    // The verify tool reads the rotated directory with the NEW passphrase
+    var v = runVerify(dataDir, { VAULT_PASSPHRASE: newPw });
+    assert.strictEqual(v.status, 0, "verify exit: " + v.status + "\nstdout: " + v.stdout + "\nstderr: " + v.stderr);
   });
 
   it("rejects wrong OLD passphrase without touching data/", async function () {
@@ -447,9 +557,8 @@ describe("vault-rotate E2E: wrapped mode", function () {
     assert.match(r.stderr, /current passphrase rejected: /);
     // data/ must be untouched
     assert.strictEqual(Buffer.compare(fs.readFileSync(path.join(dataDir, "vault.key.sealed")), originalSealed), 0);
-    var parent = path.dirname(dataDir);
-    assert.strictEqual(findDataOldDir(parent, path.basename(dataDir)), null, "no data.old.* on failure");
-    assert.ok(!fs.existsSync(dataDir + ".rotating"), "staging cleaned up on failure");
+    assert.strictEqual(findOldDir(dataDir), null, "no .rotation-old-* on failure");
+    assert.ok(!fs.existsSync(stagingDir(dataDir)), "staging cleaned up on failure");
   });
 
   it("reports a truncated vault.key.sealed as unreadable, not as a rejected passphrase", async function () {
@@ -469,8 +578,8 @@ describe("vault-rotate E2E: wrapped mode", function () {
     assert.match(r.stderr, /The passphrase was not checked\./);
     assert.doesNotMatch(r.stderr, /passphrase rejected/);
     assert.strictEqual(Buffer.compare(fs.readFileSync(sealedPath), truncated), 0, "vault.key.sealed is unchanged");
-    assert.strictEqual(findDataOldDir(path.dirname(dataDir), path.basename(dataDir)), null, "no data.old.* on failure");
-    assert.ok(!fs.existsSync(dataDir + ".rotating"), "no staging directory is left");
+    assert.strictEqual(findOldDir(dataDir), null, "no .rotation-old-* on failure");
+    assert.ok(!fs.existsSync(stagingDir(dataDir)), "no staging directory is left");
   });
 });
 

@@ -14,15 +14,25 @@
  * per-file keys are already ephemeral and isolated; re-sealing the
  * column entries is sufficient.
  *
- * Run OFFLINE (stop the server first). The tool refuses to run while a
- * server is responding on the configured port. Operates on a side-by-
- * side staging copy of the data directory and atomically swaps it in
- * only after verification, so any failure leaves the original data
- * directory byte-exact.
+ * Run OFFLINE (stop the server first). The tool refuses to run while the
+ * server's lease in the data directory is fresh or a server answers on the
+ * configured ports. It builds the rotated copy in DATA_DIR/.rotation-staging,
+ * verifies it, and then moves the entries of DATA_DIR into
+ * DATA_DIR/.rotation-old-<timestamp> and the staged entries into DATA_DIR
+ * (lib/rotation-swap.js). DATA_DIR itself is not renamed, so it may be a
+ * mount point. A failure before the swap leaves DATA_DIR byte-exact; a
+ * failure during the swap moves every entry back.
+ *
+ * The encrypted database is bound to the DATA_DIR path, so run the tool with
+ * the same HERMITSTASH_DATA_DIR as the server.
  *
  * Usage:
- *   # interactive (recommended)
- *   docker exec -it hermitstash node scripts/vault-key-rotate.js
+ *   # Docker: stop the server, then run the tool in a one-off container as
+ *   # the stack's PUID:PGID (99:100 by default)
+ *   docker compose stop hermitstash
+ *   docker compose run --rm --no-deps --entrypoint node --user 99:100 \
+ *     hermitstash scripts/vault-key-rotate.js
+ *   docker compose up -d hermitstash
  *
  *   # scripted (wrapped mode)
  *   VAULT_PASSPHRASE_OLD='<current>' VAULT_PASSPHRASE_NEW='<new>' \
@@ -32,9 +42,9 @@
  *   node scripts/vault-key-rotate.js --dry-run
  *
  * After success:
- *   1. data.old.<ISO timestamp>/ is retained (delete at your discretion
- *      after verifying the rotation via vault-key-verify.js + normal
- *      traffic; recommended retention: 7 days)
+ *   1. DATA_DIR/.rotation-old-<ISO timestamp>/ holds the pre-rotation files
+ *      (delete it after verifying the rotation via vault-key-verify.js and
+ *      normal traffic; recommended retention: 7 days)
  *   2. If the passphrase changed, update VAULT_PASSPHRASE /
  *      VAULT_PASSPHRASE_FILE in the server environment to the new value
  *   3. Restart the server. Expected log line:
@@ -54,7 +64,10 @@ var cryptoLib = require("../lib/crypto");
 var passphraseSource = require("../lib/passphrase-source");
 var fieldCrypto = require("../lib/field-crypto");
 var rotationInventory = require("../lib/rotation-inventory");
+var rotationSwap = require("../lib/rotation-swap");
+var serverLease = require("../lib/server-lease");
 var serverLiveness = require("./lib/server-liveness");
+var liveDb = require("./lib/live-db");
 
 // Populate b.cryptoField with HS's FIELD_SCHEMA before any
 // b.vaultRotate call — its schema walker reads from b.cryptoField.
@@ -63,15 +76,14 @@ fieldCrypto.registerWithBlamejs();
 var DATA_DIR = C.DATA_DIR;
 var PLAINTEXT_PATH = C.PATHS.VAULT_KEY;
 var SEALED_PATH = C.PATHS.VAULT_KEY_SEALED;
-var ROTATING_DIR = C.PATHS.DATA_ROTATING_DIR;
-var ROTATION_PENDING = C.PATHS.DATA_ROTATION_PENDING;
-var DATA_OLD_PREFIX = C.PATHS.DATA_OLD_PREFIX;
-var VAULT_PREFIX = C.VAULT_PREFIX;
+var STAGING_DIR = C.PATHS.ROTATION_STAGING_DIR;
+var SWAP_MARKER = C.PATHS.ROTATION_MARKER;
+var LEGACY_ROTATING_DIR = C.PATHS.DATA_ROTATING_DIR;
+var LEGACY_ROTATION_PENDING = C.PATHS.DATA_ROTATION_PENDING;
 
 function parseArgs(argv) {
   var opts = {
     dryRun: false,
-    keepOldKey: true, // decisions locked: retain data.old by default
     forceWithServerRunning: false,
     allowRoot: false,
     help: false,
@@ -96,8 +108,8 @@ function printHelp() {
     "",
     "Options:",
     "  --dry-run                     Run all steps except the final swap.",
-    "                                  data.rotating/ is cleaned up at end;",
-    "                                  data/ is never touched.",
+    "                                  The staged copy is deleted at the end;",
+    "                                  nothing else in the data directory changes.",
     "  --force-with-server-running   Skip the live-server check (data-corruption",
     "                                  prone — diagnostic use only).",
     "  --allow-root                  Permit running as UID 0.",
@@ -115,9 +127,12 @@ function printHelp() {
     "This tool refuses plaintext↔wrapped mode transitions. Run the appropriate",
     "setup/remove tool separately if you need to change modes.",
     "",
+    "Run the tool with the same HERMITSTASH_DATA_DIR as the server. The",
+    "encrypted database is bound to that path.",
+    "",
     "After success:",
-    "  data.old.<ISO timestamp>/ is retained by default. Delete it with `rm -rf`",
-    "  once you've verified the rotated state via:",
+    "  <data dir>/.rotation-old-<ISO timestamp>/ holds the pre-rotation files.",
+    "  Delete it with `rm -rf` once you've verified the rotated state via:",
     "    node scripts/vault-key-verify.js",
     "",
     "Performance expectations (single CPU core):",
@@ -151,58 +166,59 @@ function preflightSync(opts) {
     console.error("  This is an invariant violation. Resolve manually before rotating.");
     process.exit(1);
   }
-  if (fs.existsSync(ROTATING_DIR)) {
-    console.error("ERROR: stale " + ROTATING_DIR + " exists.");
-    console.error("  A previous rotation attempt didn't complete. Start the server briefly");
-    console.error("  so its boot-time recovery cleans it up, then re-run rotation.");
+  if (fs.existsSync(SWAP_MARKER)) {
+    console.error("ERROR: " + SWAP_MARKER + " exists: a previous rotation stopped during its swap.");
+    console.error("  Start the server once so boot recovery finishes or undoes that swap, then re-run rotation.");
     process.exit(1);
   }
-  if (fs.existsSync(ROTATION_PENDING)) {
-    console.error("ERROR: stale rotation-pending marker exists at " + ROTATION_PENDING + ".");
-    console.error("  Start the server briefly to run boot recovery, then re-run rotation.");
+  if (fs.existsSync(STAGING_DIR)) {
+    console.error("ERROR: stale " + STAGING_DIR + " exists: a previous rotation did not finish building its copy.");
+    console.error("  Start the server once so boot recovery deletes it, then re-run rotation.");
     process.exit(1);
   }
-
-  // Cross-filesystem check: DATA_DIR and its sibling rotating dir must be on
-  // the same filesystem for atomic rename to work.
-  var dataParent = path.dirname(DATA_DIR);
-  try {
-    var parentStat = fs.statSync(dataParent);
-    var dataStat = fs.statSync(DATA_DIR);
-    if (parentStat.dev !== dataStat.dev) {
-      console.error("ERROR: " + DATA_DIR + " is on a different filesystem from its parent (" + dataParent + ").");
-      console.error("  Cross-filesystem rename is not atomic; rotation's core invariant cannot be met.");
-      console.error("  Move the data directory to a simple path on a single filesystem, or remove the bind mount.");
-      process.exit(1);
-    }
-  } catch (e) {
-    console.error("ERROR: could not stat " + DATA_DIR + " or its parent: " + e.message);
+  if (fs.existsSync(LEGACY_ROTATING_DIR) || fs.existsSync(LEGACY_ROTATION_PENDING)) {
+    console.error("ERROR: " + LEGACY_ROTATING_DIR + " or " + LEGACY_ROTATION_PENDING + " exists,");
+    console.error("  left by an earlier version of this tool. Start the server once so boot recovery");
+    console.error("  resolves it, then re-run rotation.");
     process.exit(1);
   }
 
-  // Inform about any existing data.old.* dirs (decisions: warn but permit)
-  var parentEntries;
-  try { parentEntries = fs.readdirSync(dataParent); } catch { parentEntries = []; }
-  var oldPrefixBase = path.basename(DATA_OLD_PREFIX);
-  var oldDirs = parentEntries.filter(function (e) { return e.indexOf(oldPrefixBase) === 0; });
+  // Every top-level entry moves with a rename inside DATA_DIR, which fails for
+  // an entry on another filesystem (a separately mounted subdirectory).
+  var dataDev;
+  try { dataDev = fs.statSync(DATA_DIR).dev; }
+  catch (e) {
+    console.error("ERROR: could not stat " + DATA_DIR + ": " + e.message);
+    process.exit(1);
+  }
+  var otherFs = rotationSwap.listLive(DATA_DIR).filter(function (name) {
+    return fs.lstatSync(path.join(DATA_DIR, name)).dev !== dataDev;
+  });
+  if (otherFs.length > 0) {
+    console.error("ERROR: these entries of " + DATA_DIR + " are on a different filesystem from it: " + otherFs.join(", "));
+    console.error("  The swap moves each entry with a rename, which cannot cross filesystems.");
+    console.error("  Mount the data directory as one volume, without separately mounted subdirectories.");
+    process.exit(1);
+  }
+
+  // Inform about the copies earlier rotations retained (warn but permit)
+  var oldDirs = rotationSwap.listOldDirs(DATA_DIR);
   if (oldDirs.length > 0) {
-    console.log("[rotate] Note: " + oldDirs.length + " existing data.old.* director" +
-      (oldDirs.length === 1 ? "y" : "ies") + " present:");
+    console.log("[rotate] Note: " + oldDirs.length + " pre-rotation director" +
+      (oldDirs.length === 1 ? "y" : "ies") + " from earlier rotations present in " + DATA_DIR + ":");
     for (var i = 0; i < oldDirs.length; i++) {
-      var fullDir = path.join(dataParent, oldDirs[i]);
       var ageDays = 0;
       try {
-        var stat = fs.statSync(fullDir);
-        ageDays = Math.floor((Date.now() - stat.mtimeMs) / C.TIME.days(1));
+        ageDays = Math.floor((Date.now() - fs.statSync(path.join(DATA_DIR, oldDirs[i])).mtimeMs) / C.TIME.days(1));
       } catch { /* stat failure doesn't block rotation */ }
       console.log("         " + oldDirs[i] + " (mtime age: " + ageDays + " days)");
     }
-    console.log("         These are backups from previous rotations; delete at your discretion.");
+    console.log("         They hold the vault keys those rotations replaced; delete them once you no longer need them.");
   }
 }
 
 function preflightHealthCheck(opts) {
-  return serverLiveness.assertServerNotRunning(opts, [
+  return serverLiveness.claimDataDir(opts, "vault-key-rotate.js", [
     "  CAUTION: rotating with a running server corrupts the DB in unpredictable ways.",
   ]);
 }
@@ -334,36 +350,14 @@ async function loadOldKeys(mode, oldPw) {
 // ---- Schema drift pre-flight ----
 
 function runSchemaDriftCheck(oldKeys) {
-  // Open the live DB read-only to run validateSchemaMatch. We need to
-  // decrypt hermitstash.db.enc first — mirror lib/db.js's approach. Use the
-  // canonical PATHS handles (not a local DATA_DIR join) so a future relocation
-  // can't silently desync this guard and skip the pre-rotation drift probe.
-  var dbKeyEnc = C.PATHS.DB_KEY_ENC;
-  var dbEnc = C.PATHS.DB_ENC;
-  if (!fs.existsSync(dbKeyEnc) || !fs.existsSync(dbEnc)) {
+  // Decrypt the live DB the way lib/db.js does at boot (scripts/lib/live-db.js)
+  // and run validateSchemaMatch on an owner-only temporary copy outside DATA_DIR.
+  if (!liveDb.present(DATA_DIR)) {
     console.log("[rotate] No encrypted DB present — skipping schema-drift check.");
-    return;
+    return null;
   }
-  var sealedDbKey = fs.readFileSync(dbKeyEnc, "utf8").trim();
-  // The envelope written by lib/db.js since v1.9.16 is 0xE2 (FixedInfo
-  // KDF binding). lib/crypto.js's HS-side decrypt only handles the
-  // legacy 0xE1 magic; b.crypto.decrypt handles current 0xE2 envelopes
-  // and the boot-time legacy-envelope-migrate converts any 0xE1 backlog
-  // before the rotator runs against a live deployment.
-  var dbKey = Buffer.from(
-    b.crypto.decrypt(sealedDbKey.substring(VAULT_PREFIX.length), oldKeys),
-    "base64"
-  );
-  var packed = fs.readFileSync(dbEnc);
-  var plain = b.crypto.decryptPacked(packed, dbKey);
-  // The schema-drift probe needs the FULLY DECRYPTED database on disk briefly.
-  // Write it owner-only and symlink-refusing (b.atomicFile.writeSync → O_EXCL |
-  // O_NOFOLLOW, 0o600) under DATA_DIR (HermitStash-controlled) with an
-  // unpredictable name. Each of those matters on its own: a predictable name in
-  // the world-traversable parent of DATA_DIR, written at the umask default,
-  // exposes the entire plaintext database for as long as the probe runs.
-  var tmpPath = path.join(DATA_DIR, ".schema-check-" + b.crypto.generateToken(16) + ".db");
-  b.atomicFile.writeSync(tmpPath, plain, { fileMode: 0o600 });
+  var dbKey = liveDb.unsealDbKey(DATA_DIR, oldKeys);
+  var tmpPath = liveDb.writeTempDb(liveDb.decrypt(DATA_DIR, dbKey), "schema-check");
   var db = new DatabaseSync(tmpPath);
   var result;
   try {
@@ -373,9 +367,7 @@ function runSchemaDriftCheck(oldKeys) {
     });
   } finally {
     db.close();
-    try { fs.unlinkSync(tmpPath); } catch { /* best-effort */ }
-    try { fs.unlinkSync(tmpPath + "-wal"); } catch { /* best-effort */ }
-    try { fs.unlinkSync(tmpPath + "-shm"); } catch { /* best-effort */ }
+    liveDb.removeTempDb(tmpPath);
   }
   if (result.errors.length > 0 || result.warnings.length > 0) {
     console.log(b.vaultRotate.formatValidationResult(result));
@@ -390,59 +382,97 @@ function runSchemaDriftCheck(oldKeys) {
   // b.vaultRotate (blamejs >= 0.14.12), which also verifies that each cell
   // opens under the new root and no longer opens under the old — so there is
   // no AAD scan or gate here.
+  return dbKey;
 }
 
-// ---- Atomic swap ----
+// ---- Swap ----
 
-function computeStagingHash() {
-  var names = fs.readdirSync(ROTATING_DIR).slice().sort();
-  return cryptoLib.sha3Hash(names.join("\n"));
-}
-
-function writeRotationMarker() {
-  var marker = {
-    format: 1,
-    startedAt: new Date().toISOString(),
-    stagingHash: computeStagingHash(),
-    hashAlg: "sha3-512",
-  };
-  var tmp = ROTATION_PENDING + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify(marker, null, 2), { mode: 0o600 });
-  try {
-    var fd = fs.openSync(tmp, "r+");
-    try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-  } catch { /* best-effort */ }
-  fs.renameSync(tmp, ROTATION_PENDING);
-  fsyncParentOfDataDir();
-}
-
-function fsyncParentOfDataDir() {
-  try {
-    var parent = path.dirname(DATA_DIR);
-    var fd = fs.openSync(parent, "r");
-    try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-  } catch { /* best-effort */ }
-}
-
-function performSwap() {
-  var isoTs = new Date().toISOString().replace(/[:.]/g, "-");
-  var dataOldDir = DATA_OLD_PREFIX + isoTs;
-  console.log("[rotate] Swapping: " + DATA_DIR + " → " + dataOldDir);
-  fs.renameSync(DATA_DIR, dataOldDir);
-  fsyncParentOfDataDir();
-  console.log("[rotate] Swapping: " + ROTATING_DIR + " → " + DATA_DIR);
-  fs.renameSync(ROTATING_DIR, DATA_DIR);
-  fsyncParentOfDataDir();
-  return dataOldDir;
-}
-
-function clearMarker() {
-  try {
-    fs.unlinkSync(ROTATION_PENDING);
-    fsyncParentOfDataDir();
-  } catch (e) {
-    console.error("[rotate] WARNING: could not delete rotation marker (boot will auto-clear): " + e.message);
+// This tool has held the lease since the preflight. Another process may still
+// have written over it, or a server may be listening locally.
+async function assertStillOffline(opts) {
+  if (opts.forceWithServerRunning) return;
+  var lease = serverLease.read();
+  var reason = null;
+  if (!lease || !serverLease.isMine(lease)) {
+    reason = lease ? serverLease.describe(lease) + " replaced this tool's lease on the data directory"
+      : "this tool's lease on the data directory was deleted";
+  } else if (await serverLiveness.isServerRunning()) {
+    reason = "a HermitStash server answers on port " + serverLiveness.gatePort() + " or " + serverLiveness.internalTlsPort();
   }
+  if (!reason) return;
+  fs.rmSync(STAGING_DIR, { recursive: true, force: true });
+  console.error("ERROR: " + reason + " while the rotated copy was being built.");
+  console.error("  The rotated copy has been deleted and " + DATA_DIR + " is unchanged. Stop the other process and re-run.");
+  process.exit(1);
+}
+
+// The staged copy holds every top-level entry the rotation was asked to write
+// or carry. A staging directory that was emptied and recreated while
+// b.vaultRotate.rotate ran is missing the entries it copied first.
+function assertStagedComplete(rotatePaths, carried) {
+  var expected = Object.create(null);
+  function top(rel) { return String(rel).split(/[\\/]/)[0]; }
+  carried.verbatimFiles.concat(carried.verbatimDirs).concat(carried.symlinks).forEach(function (e) {
+    expected[top(e.relativePath)] = true;
+  });
+  [rotatePaths.encryptedDb, rotatePaths.dbKeySealed, rotatePaths.vaultKeyPlain, rotatePaths.vaultKeySealed]
+    .concat(rotatePaths.additionalSealed.map(function (e) { return e.relativePath; }))
+    .forEach(function (rel) { if (fs.existsSync(path.join(DATA_DIR, rel))) expected[top(rel)] = true; });
+  // lstat, so a carried symbolic link counts whether or not its target resolves
+  var missing = Object.keys(expected).filter(function (n) {
+    try { fs.lstatSync(path.join(STAGING_DIR, n)); return false; } catch (_e) { return true; }
+  });
+  if (missing.length === 0) return;
+  fs.rmSync(STAGING_DIR, { recursive: true, force: true });
+  console.error("ERROR: the rotated copy is missing " + missing.join(", ") + ".");
+  console.error("  The rotated copy has been deleted and " + DATA_DIR + " is unchanged. Re-run the rotation.");
+  process.exit(1);
+}
+
+// Read the swapped-in database the way the server will at its next boot.
+function verifySwapped(newKeys, dbKey) {
+  if (!dbKey) return;
+  var swappedKey = liveDb.unsealDbKey(DATA_DIR, newKeys);
+  if (Buffer.compare(swappedKey, dbKey) !== 0) {
+    throw new Error("db.key.enc in " + DATA_DIR + " does not hold the database key");
+  }
+  liveDb.decrypt(DATA_DIR, swappedKey);
+}
+
+function performSwap(newKeys, dbKey) {
+  var marker = rotationSwap.planSwap(DATA_DIR, new Date().toISOString());
+  var oldDir = path.join(DATA_DIR, marker.oldDir);
+  console.log("[rotate] Writing swap marker " + SWAP_MARKER);
+  rotationSwap.writeMarker(DATA_DIR, marker);
+  try {
+    console.log("[rotate] Moving " + marker.live.length + " entries into " + oldDir +
+      " and " + marker.staged.length + " rotated entries into " + DATA_DIR);
+    rotationSwap.rollForward(DATA_DIR, marker);
+    verifySwapped(newKeys, dbKey);
+  } catch (e) {
+    console.error("[rotate] Swap failed: " + safeLog.scrub(e && e.message || String(e)));
+    marker.direction = "backward";
+    try { rotationSwap.writeMarker(DATA_DIR, marker); }
+    catch (eMark) {
+      console.error("FATAL: could not record the move back in " + SWAP_MARKER + ": " + safeLog.scrub(eMark.message));
+      console.error("  The marker still records the forward swap. Starting the server finishes it, and the");
+      console.error("  pre-rotation entries stay in " + oldDir + ".");
+      process.exit(1);
+    }
+    try {
+      console.error("[rotate] Moving the original entries back from " + oldDir);
+      rotationSwap.rollBack(DATA_DIR, marker);
+      rotationSwap.clearMarker(DATA_DIR);
+    } catch (eBack) {
+      console.error("FATAL: could not move the original entries back: " + safeLog.scrub(eBack.message));
+      console.error("  " + SWAP_MARKER + " records the move back. Starting the server finishes it from " + oldDir + ".");
+      process.exit(1);
+    }
+    console.error("[rotate] " + DATA_DIR + " is back in its pre-rotation state. The rotation did not take effect.");
+    process.exit(1);
+  }
+  rotationSwap.clearMarker(DATA_DIR);
+  return oldDir;
 }
 
 // ---- Main ----
@@ -480,7 +510,7 @@ function printSuccess(dataOldDir, result) {
     console.log("    warnings:        " + result.warnings.length + " (see above)");
   }
   console.log("");
-  console.log("    backup retained at: " + dataOldDir);
+  console.log("    pre-rotation files retained at: " + dataOldDir);
   console.log("");
   console.log("  To activate the new vault keypair:");
   console.log("    1. If the passphrase changed, update VAULT_PASSPHRASE /");
@@ -511,7 +541,7 @@ function printSuccess(dataOldDir, result) {
 
     if (mode === "plaintext") await confirmPlaintextRotation();
 
-    runSchemaDriftCheck(oldKeys);
+    var dbKey = runSchemaDriftCheck(oldKeys);
 
     console.log("[rotate] Generating new vault keypair...");
     var newKeys = cryptoLib.generateEncryptionKeyPair();
@@ -532,12 +562,12 @@ function printSuccess(dataOldDir, result) {
       carried.verbatimDirs.length + " director(ies) and " + carried.symlinks.length +
       " symbolic link(s) into the rotated copy unchanged");
 
-    console.log("[rotate] Building rotated copy at " + ROTATING_DIR);
+    console.log("[rotate] Building rotated copy at " + STAGING_DIR);
     var result = await b.vaultRotate.rotate({
       oldKeys: oldKeys,
       newKeys: newKeys,
       dataDir: DATA_DIR,
-      stagingDir: ROTATING_DIR,
+      stagingDir: STAGING_DIR,
       mode: mode,
       newPassphrase: pws && pws.newPw,
       progressCallback: progressLine,
@@ -550,7 +580,7 @@ function printSuccess(dataOldDir, result) {
       externalAadResealed: true,
       paths: rotatePaths,
     });
-    rotationInventory.recreateSymlinks(ROTATING_DIR, carried.symlinks);
+    rotationInventory.recreateSymlinks(STAGING_DIR, carried.symlinks);
 
     if (result.warnings.length > 0) {
       console.log("[rotate] warnings (" + result.warnings.length + "):");
@@ -560,17 +590,15 @@ function printSuccess(dataOldDir, result) {
     }
 
     if (opts.dryRun) {
-      console.log("[rotate] --dry-run: not performing swap. Cleaning up " + ROTATING_DIR);
-      fs.rmSync(ROTATING_DIR, { recursive: true, force: true });
+      console.log("[rotate] --dry-run: not performing swap. Cleaning up " + STAGING_DIR);
+      fs.rmSync(STAGING_DIR, { recursive: true, force: true });
       console.log("[rotate] Dry run complete. Original " + DATA_DIR + " untouched.");
       return;
     }
 
-    console.log("[rotate] Writing rotation-pending marker");
-    writeRotationMarker();
-
-    var dataOldDir = performSwap();
-    clearMarker();
+    assertStagedComplete(rotatePaths, carried);
+    await assertStillOffline(opts);
+    var dataOldDir = performSwap(newKeys, dbKey);
     printSuccess(dataOldDir, result);
   } catch (e) {
     // Do NOT log e.stack here: the old/new vault keypairs and the decrypted DB key
@@ -579,10 +607,10 @@ function printSuccess(dataOldDir, result) {
     // sanitized; surface only it plus the error code/name for diagnosis.
     console.error("FATAL: " + safeLog.scrub(e && e.message || String(e)));
     if (e && (e.code || e.name)) console.error("  (" + (e.code || e.name) + ")");
-    // Attempt cleanup if staging exists
-    if (fs.existsSync(ROTATING_DIR)) {
-      console.error("[rotate] Cleaning up partial " + ROTATING_DIR);
-      try { fs.rmSync(ROTATING_DIR, { recursive: true, force: true }); } catch { /* best-effort */ }
+    // Before the swap marker exists, the staged copy is the only thing written.
+    if (!fs.existsSync(SWAP_MARKER) && fs.existsSync(STAGING_DIR)) {
+      console.error("[rotate] Cleaning up partial " + STAGING_DIR);
+      try { fs.rmSync(STAGING_DIR, { recursive: true, force: true }); } catch { /* best-effort */ }
     }
     process.exit(1);
   }

@@ -17,30 +17,14 @@
  */
 "use strict";
 
-// Node version guard. Fails fast with a clear message on <24.22.1.
-// HermitStash needs Node 24.22.1+ for OpenSSL 3.5 post-quantum bindings
-// (ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87) plus the cumulative
-// security patches that have shipped on the 24.x line since 24.8
-// (24.17.0 was a security release; 24.19.0 bundles SQLite 3.53.3;
-// 24.21.0 fixes the TLS 1.3 no-cert resumption that reported a
-// client as authorized when it had presented no certificate;
-// 24.22.1 fixes CVE-2026-111497, an out-of-bounds write in the
-// Brotli decoder).
-// Operators bypassing deploy/install.sh + Dockerfile (e.g. running
-// directly under a system Node) get this error instead of cryptic
-// blamejs / OpenSSL failures deep in the require chain.
-(function checkNodeVersion() {
-  var parts = process.versions.node.split(".").map(Number);
-  var major = parts[0], minor = parts[1], patch = parts[2];
-  var tooOld = major < 24 ||
-    (major === 24 && (minor < 22 || (minor === 22 && patch < 1)));
-  if (tooOld) {
-    console.error(
-      "FATAL: HermitStash requires Node.js 24.22.1 or newer (found v" + process.versions.node + ").\n" +
-      "  HermitStash uses OpenSSL 3.5 post-quantum bindings (ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87)\n" +
-      "  plus crypto.argon2; the 24.22.1 floor pins the latest active 24.x patches. Upgrade Node and re-run.\n" +
-      "  Install: https://nodejs.org/  |  Linux/systemd: deploy/install.sh"
-    );
+// Runtime guard: Node.js, Brotli and OpenSSL floors (lib/runtime-floor.js).
+// It fails fast with a clear message instead of cryptic blamejs / OpenSSL
+// failures deep in the require chain, for operators who bypass
+// deploy/install.sh and the Dockerfile, e.g. running under a system Node.
+(function checkRuntime() {
+  var fatal = require("./lib/runtime-floor").check(process);
+  if (fatal) {
+    console.error(fatal.join("\n"));
     process.exit(1);
   }
 })();
@@ -55,6 +39,23 @@
     if (e && e.stack) console.error(e.stack);
     process.exit(1);
   }
+
+  // Take the data-directory lease before vault.init() runs rotation recovery
+  // and anything writes to DATA_DIR, so the offline vault tools see a starting
+  // server. A missing DATA_DIR is not created here: the rotation recovery for
+  // the tool through v1.15.11 reads a missing DATA_DIR as an unfinished swap.
+  var serverLease = require("./lib/server-lease");
+  function takeLease() {
+    try { serverLease.acquire(); }
+    catch (e) {
+      if (!e || e.code !== "server-lease/held") throw e;
+      console.error("FATAL: " + serverLease.describe(e.lease) + " is using the data directory.");
+      console.error("  Wait for it to finish. A tool that was killed leaves a lease that expires in " +
+        serverLease.secondsUntilStale(e.lease) + "s.");
+      process.exit(1);
+    }
+  }
+  if (require("node:fs").existsSync(require("./lib/constants").DATA_DIR)) takeLease();
   try {
     await vault.init();
   } catch (e) {
@@ -69,6 +70,10 @@
   // Vault is now either loaded (plaintext) or unsealed (wrapped). The module
   // cache for lib/vault holds the plaintext keys, so every downstream
   // vault.seal/unseal from here on is synchronous and safe.
+
+  // vault.init() creates DATA_DIR on a first run; acquire() is a no-op when the
+  // lease was taken above.
+  takeLease();
 
   // Framework-internal audit emits — silence before any framework code loads.
   //

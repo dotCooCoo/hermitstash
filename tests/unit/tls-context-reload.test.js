@@ -139,3 +139,57 @@ describe("TLS certificate reload preserves the mTLS trust bundle", function () {
     }
   });
 });
+
+describe("the listener does not accept compressed client certificates", function () {
+  // Bytes the server reads during a handshake with a client that offers every
+  // compression algorithm the runtime has. A client certificate with many
+  // repetitive SANs is a few KiB smaller when it is sent compressed.
+  async function handshakeBytes(serverCompression, cert, key, caPem, client) {
+    var read = 0;
+    var raw = null;
+    var server = tls.createServer({
+      cert: serverCert.cert, key: serverCert.key, ca: [caPem], requestCert: true,
+      rejectUnauthorized: true, minVersion: "TLSv1.3", certificateCompression: serverCompression,
+    }, function (s) {
+      // the handshake, including the client certificate, is complete here
+      read = raw.bytesRead;
+      s.end("ok");
+    });
+    server.on("connection", function (sock) { raw = sock; });
+    await new Promise(function (r) { server.listen(0, "127.0.0.1", r); });
+    try {
+      var reply = await new Promise(function (resolve) {
+        var socket = tls.connect({ host: "127.0.0.1", port: server.address().port, cert: client.cert, key: client.key,
+          ca: [caPem], servername: "localhost", minVersion: "TLSv1.3",
+          certificateCompression: tls.getCertificateCompressionAlgorithms() }, function () {
+          socket.on("data", function () {});
+          socket.on("end", function () { resolve("ok"); socket.destroy(); });
+        });
+        socket.on("error", function (e) { resolve("error:" + (e.code || e.message)); });
+      });
+      assert.equal(reply, "ok");
+    } finally {
+      await new Promise(function (r) { server.close(r); });
+    }
+    return read;
+  }
+
+  it("reloadContext and the boot options offer no certificate compression, so the client certificate arrives uncompressed", async function (t) {
+    var algs = typeof tls.getCertificateCompressionAlgorithms === "function" ? tls.getCertificateCompressionAlgorithms() : [];
+    if (algs.length === 0) { t.skip("this runtime offers no certificate compression"); return; }
+    var sans = ["localhost"];
+    for (var i = 0; i < 150; i++) sans.push("client-" + i + ".compressible.example.internal");
+    var bigClient = await b.mtlsEngine.signClientCert({
+      caCertPem: ca.caCertPem, caKeyPem: ca.caKeyPem, cn: "compression-probe-client", sans: sans,
+    });
+    var ctx = await tlsContext.reloadContext({ cert: serverCert.cert, key: serverCert.key, ca: [ca.caCertPem] });
+    assert.deepStrictEqual(ctx.certificateCompression, []);
+    assert.deepStrictEqual(tlsContext.LISTENER_CERT_COMPRESSION, []);
+
+    var offered = await handshakeBytes(algs, serverCert.cert, serverCert.key, ca.caCertPem, bigClient);
+    var listener = await handshakeBytes(ctx.certificateCompression, serverCert.cert, serverCert.key, ca.caCertPem, bigClient);
+    assert.ok(listener > offered + 1024,
+      "with compression offered the server reads " + offered + " bytes; with the listener's setting it reads " +
+      listener + ", so the certificate arrived uncompressed");
+  });
+});

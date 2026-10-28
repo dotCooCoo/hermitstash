@@ -143,8 +143,9 @@ function preflight(opts) {
     process.exit(1);
   }
 
-  // Refuse if a server is running (protocol-agnostic TCP liveness probe)
-  return serverLiveness.assertServerNotRunning(opts);
+  // Refuse if a server or another vault tool is using the data directory, then
+  // hold the data-directory lease until exit
+  return serverLiveness.claimDataDir(opts, "vault-passphrase-setup.js");
 }
 
 // ---- Passphrase acquisition + confirmation ----

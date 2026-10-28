@@ -33,6 +33,7 @@ var nodePath = require("node:path");
 var nodeCrypto = require("node:crypto");
 var { certFingerprintSha3 } = require("../lib/cert-utils");
 var audit = require("../lib/audit");
+var clientIp = require("../lib/client-ip");
 var runtimeState = require("../lib/runtime-state");
 var C = require("../lib/constants");
 var { PATHS } = C;
@@ -883,7 +884,9 @@ module.exports = function (app) {
   app.post("/admin/blocklist/remove", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     var body = (await b.parsers.json(req)) || {};
-    blockedIpsRepo.remove({ ip: body.ip });
+    // The same canonical form the add route stores, so an IPv6 entered in a
+    // different spelling removes the stored ban.
+    blockedIpsRepo.remove({ ip: clientIp.canonicalize(String(body.ip || "").trim()) });
     audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { details: "IP unblocked", req: req });
     res.json({ success: true });
   });

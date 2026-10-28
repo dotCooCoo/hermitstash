@@ -1256,6 +1256,150 @@ function testHttp2TeardownPaired() {
     matches);
 }
 
+// An HTTP/1.1 agent the framework builds, or a raw node:http(s) request it
+// sends, decides whether a pooled socket carries the next request. Every
+// `new <http|https>.Agent(` in lib/ must reach `_guardPooledSocketReuse`,
+// either wrapped directly or by passing the variable it is assigned to within
+// the same top-level function. Every `<http|https>.request(` / `.get(` in
+// lib/ must pass options carrying an `agent` key: in the literal, in a later
+// `<opts>.agent =`, or in an object literal returned by a same-file helper
+// called while the options are built. Without one the request uses Node's
+// global agent, which pools sockets without the guard.
+function _balancedArgs(src, openIdx) {
+  var depth = 0;
+  var quote = null;
+  for (var i = openIdx; i < src.length; i++) {
+    var ch = src[i];
+    if (quote) {
+      if (ch === "\\") { i++; continue; }
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === "\"" || ch === "'" || ch === "`") { quote = ch; continue; }
+    if (ch === "(" || ch === "{" || ch === "[") depth++;
+    else if (ch === ")" || ch === "}" || ch === "]") {
+      depth--;
+      if (depth === 0) return src.slice(openIdx + 1, i);
+    }
+  }
+  return src.slice(openIdx + 1);
+}
+
+function _escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+function _helperReturnsAgent(src, text) {
+  var calls = text.match(/\b[A-Za-z_$][\w$]*(?=\s*\()/g) || [];
+  return calls.some(function (name) {
+    var def = new RegExp("\\nfunction\\s+" + _escapeRe(name) + "\\s*\\(").exec(src);
+    if (!def) return false;
+    var end = src.indexOf("\n}", def.index + 1);
+    var body = src.slice(def.index, end === -1 ? src.length : end);
+    return /\bagent\s*:/.test(body);
+  });
+}
+
+function _http1AgentViolations(rel, src) {
+  var out = [];
+  var bindings = [];
+  var bindRe = /\bvar\s+([A-Za-z_$][\w$]*)\s*=\s*require\("node:https?"\)/g;
+  var bm;
+  while ((bm = bindRe.exec(src)) !== null) bindings.push(bm[1]);
+  if (bindings.length === 0) return out;
+  var alt = bindings.map(_escapeRe).join("|");
+  function lineOf(idx) { return src.slice(0, idx).split("\n").length; }
+  function fnStart(idx) { var s = src.lastIndexOf("\n}", idx); return s === -1 ? 0 : s; }
+  function fnEnd(idx) { var e = src.indexOf("\n}", idx); return e === -1 ? src.length : e; }
+
+  var agentRe = new RegExp("\\bnew\\s+(?:" + alt + ")\\.Agent\\s*\\(", "g");
+  var am;
+  while ((am = agentRe.exec(src)) !== null) {
+    var before = src.slice(fnStart(am.index), am.index);
+    if (/_guardPooledSocketReuse\(\s*$/.test(before)) continue;
+    var target = /([A-Za-z_$][\w$.]*)\s*=\s*$/.exec(before);
+    var after = src.slice(am.index, fnEnd(am.index));
+    if (target && new RegExp("_guardPooledSocketReuse\\(\\s*" + _escapeRe(target[1]) + "\\s*\\)").test(after)) continue;
+    out.push({ file: rel, line: lineOf(am.index),
+      content: "new Agent not passed to _guardPooledSocketReuse: " + src.slice(am.index, am.index + 60).split("\n")[0] });
+  }
+
+  var reqRe = new RegExp("\\b(?:" + alt + ")\\.(?:request|get)\\s*\\(", "g");
+  var rm;
+  while ((rm = reqRe.exec(src)) !== null) {
+    var args = _balancedArgs(src, rm.index + rm[0].length - 1);
+    var region = args;
+    var ident = /^\s*([A-Za-z_$][\w$]*)\s*(?:,|$)/.exec(args);
+    if (ident) {
+      var scope = src.slice(fnStart(rm.index), rm.index);
+      var assignRe = new RegExp("\\b" + _escapeRe(ident[1]) + "\\s*=(?!=)", "g");
+      var last = -1;
+      var a;
+      while ((a = assignRe.exec(scope)) !== null) last = a.index;
+      region = last === -1 ? "" : scope.slice(last);
+    }
+    if (/\bagent\s*:/.test(region) || (ident && new RegExp("\\b" + _escapeRe(ident[1]) + "\\.agent\\s*=(?!=)").test(region))) continue;
+    if (_helperReturnsAgent(src, region)) continue;
+    out.push({ file: rel, line: lineOf(rm.index),
+      content: "request options carry no agent: " + src.slice(rm.index, rm.index + 60).split("\n")[0] });
+  }
+  return out;
+}
+
+function testHttp1AgentsAndRequestsAreGuarded() {
+  var matches = [];
+  _libFiles().forEach(function (full) {
+    var rel = _relPath(full);
+    if (/^lib\/vendor\//.test(rel)) return;
+    var src;
+    try { src = _stripComments(fs.readFileSync(full, "utf8").replace(/\r\n/g, "\n")); }
+    catch (_e) { return; }
+    matches = matches.concat(_http1AgentViolations(rel, src));
+  });
+  _report("every node:http(s) Agent in lib/ goes through _guardPooledSocketReuse, and every raw " +
+    "node:http(s) request passes an agent", matches);
+
+  var bad = _http1AgentViolations("fixture.js", [
+    "var https = require(\"node:https\");",
+    "var http = require(\"node:http\");",
+    "function a() {",
+    "  var agent = new https.Agent({ keepAlive: true });",
+    "  return agent;",
+    "}",
+    "function b() {",
+    "  return http.request({ host: \"x\", path: \"/\" });",
+    "}",
+    "function c() {",
+    "  var o = { host: \"x\" };",
+    "  return https.get(o, function () {});",
+    "}",
+    "",
+  ].join("\n"));
+  check("http1 agent gate fires on an unguarded Agent and on requests without an agent",
+        bad.length === 3 && bad[0].line === 4 && bad[1].line === 8 && bad[2].line === 12, JSON.stringify(bad));
+  var good = _http1AgentViolations("fixture.js", [
+    "var https = require(\"node:https\");",
+    "var http = require(\"node:http\");",
+    "function a() {",
+    "  var agent = new https.Agent({ keepAlive: true });",
+    "  pqc._guardPooledSocketReuse(agent);",
+    "  return _guardPooledSocketReuse(new http.Agent({}));",
+    "}",
+    "function _trust() {",
+    "  return { agent: a() };",
+    "}",
+    "function b() {",
+    "  var o = Object.assign({ host: \"x\" }, _trust());",
+    "  http.request(o, function () {});",
+    "  var p = { host: \"x\" };",
+    "  p.agent = false;",
+    "  https.get(p);",
+    "  return http.request({ host: \"x\", agent: false });",
+    "}",
+    "",
+  ].join("\n"));
+  check("http1 agent gate stays silent on guarded Agents and on requests that pass an agent",
+        good.length === 0, JSON.stringify(good));
+}
+
 function testNoStrayConsoleCalls() {
   // class: console-direct
   var matches = _scan(/\bconsole\.(log|error|warn|info|debug)\(/);
@@ -21149,6 +21293,52 @@ var KNOWN_ANTIPATTERNS = [
     ],
     reason: "v0.11.5 — `b.safeDecompress` is the framework's bomb-resistant decompression primitive. Direct `zlib.*` decompress in new lib/ code bypasses the algorithm allowlist + ratio cap + audit-on-bomb-refusal. The 6 pre-existing lib/ sites are migration targets for PR 4; new code MUST compose the primitive.",
   },
+  {
+    id: "cert-compression-list-not-via-constants",
+    primitive: "C.TLS_CERT_COMPRESSION() (lib/constants.js), the runtime's RFC 8879 list with \"brotli\" removed on a Node release whose Brotli decoder predates the CVE-2026-111497 fix",
+    scanScope: "lib",
+    skipCommentLines: true,
+    regex: /\bgetCertificateCompressionAlgorithms\b/,
+    allowlist: ["lib/constants.js"],
+    fixtures: {
+      fires: [
+        "var list = tls.getCertificateCompressionAlgorithms();\n",
+        "var list = tls[\"getCertificateCompressionAlgorithms\"]();\n",
+        "var g = nodeTls.getCertificateCompressionAlgorithms;\nvar list = g();\n",
+        "var { getCertificateCompressionAlgorithms: g } = require(\"node:tls\");\n",
+        "var list = nodeTls['getCertificateCompressionAlgorithms']();\n",
+      ],
+      quiet: [
+        "var list = C.TLS_CERT_COMPRESSION();\n",
+        "var list = networkTls.certificateCompressionAlgorithms();\n",
+        "function certificateCompressionAlgorithms() { return C.TLS_CERT_COMPRESSION().slice(); }\n",
+      ],
+    },
+    reason: "CVE-2026-111497: Node's bundled Brotli decoder before 22.23.4 / 24.22.1 / 26.12.1 writes out of bounds on an invalid block switch, and a TLS 1.3 peer reaches it before chain verification by answering a brotli certificate-compression offer. C.TLS_CERT_COMPRESSION() is the one reader of tls.getCertificateCompressionAlgorithms() and drops \"brotli\" on such a runtime. A second reader in lib/ would offer the raw runtime list and bring brotli back on every listener or dial built from it. The match is the bare identifier, not the call, so a bracket lookup, an alias bound from the member and a destructured binding all count. Read C.TLS_CERT_COMPRESSION() (or b.network.tls.certificateCompressionAlgorithms(), which copies it) instead.",
+  },
+  {
+    id: "cert-compression-literal-names-brotli",
+    primitive: "C.TLS_CERT_COMPRESSION() (lib/constants.js), which leaves \"brotli\" out on a Node release whose Brotli decoder predates the CVE-2026-111497 fix",
+    scanScope: "lib",
+    skipCommentLines: true,
+    regex: /\bcertificateCompression["']?\s*[:=]\s*(?:Object\.freeze\(\s*)?\[[^\]]{0,4096}?["'`]brotli["'`]/,
+    allowlist: [],
+    fixtures: {
+      fires: [
+        "var ctx = tls.createSecureContext({ certificateCompression: [\"zlib\", \"brotli\", \"zstd\"] });\n",
+        "opts.certificateCompression = [\"brotli\"];\n",
+        "var o = {\n  certificateCompression: Object.freeze([\n    \"zlib\",\n    'brotli',\n  ]),\n};\n",
+        "var o = { \"certificateCompression\": [\"brotli\"] };\n",
+      ],
+      quiet: [
+        "var o = { certificateCompression: C.TLS_CERT_COMPRESSION() };\n",
+        "var o = { certificateCompression: [\"zlib\", \"zstd\"] };\n",
+        "var o = { certificateCompression: [], algorithm: \"brotli\" };\n",
+        "var z = { brotliQuality: 4, encodings: [\"br\", \"brotli\"] };\n",
+      ],
+    },
+    reason: "CVE-2026-111497: a TLS peer reaches Node's Brotli decoder during the handshake when the local side offers brotli certificate compression, and on a release older than 24.22.1 / 26.12.1 that decoder writes out of bounds. A certificateCompression list written as a literal naming \"brotli\" offers it on every runtime, which bypasses the version filter in C.TLS_CERT_COMPRESSION(). Build the list from C.TLS_CERT_COMPRESSION() (or b.network.tls.certificateCompressionAlgorithms()) instead. JSDoc examples are comment lines and are not matched. Empty allowlist: no lib/ site needs a fixed brotli offer.",
+  },
 
   {
     // v0.11.7 — `slsa-framework/*` reusable-workflow callouts MUST
@@ -21761,6 +21951,38 @@ var KNOWN_ANTIPATTERNS = [
       ],
     },
     reason: "Whether an IP-literal servername names the dial host is one question, and four modules (SMTP transport, Redis client, WebSocket client, syslog sink) each answered it with their own string compare after removing brackets. None compared by address, so the host's own IPv6 address written in another form (`0:0:0:0:0:0:0:1` for `::1`) was refused, and four other dials (connectWithEch, NTS-KE, DNS-over-TLS, the https proxy agent) did not ask at all and checked the certificate against the host. Merge b.network.tls.identityFor(host, servername, { label, errorClass, code }) into the dial options instead: it returns `{ servername }` for a name and `{}` for an address, compares an IP-literal servername to the host by address, and throws the caller's own error class and code for one naming another address. Matches sniFor compared with undefined or null in either order, a negated sniFor call, and an IP-literal test applied to a servername.",
+  },
+
+  {
+    id: "dial-host-refusal-outside-dial-host-error",
+    primitive: "network-tls _dialHostError",
+    scanScope: "lib",
+    skipCommentLines: true,
+    // A dial host is refused for two forms: a malformed host (tls/bad-host)
+    // and an IPv4 address in a non-canonical spelling
+    // (tls/non-canonical-ip-host). _dialHostError returns the error for
+    // both. connectWithEch refused only the malformed form before its DNS
+    // lookups, so a host such as 127.1 was looked up (HTTPS record, then
+    // A/AAAA) before the certificate check refused it. Matches any
+    // _badHostError call except its definition and the one line inside
+    // _dialHostError that returns it.
+    regex: /^(?![ \t]*function _badHostError\()(?![ \t]*if \(hostShape === "malformed"\) return _badHostError\(host\);[ \t]*$).*\b_badHostError\(/m,
+    allowlist: [],
+    fixtures: {
+      fires: [
+        "    if (_dialHostForm(dialHost) === \"malformed\") { reject(_badHostError(dialHost)); return; }",
+        "    if (form === \"malformed\") throw _badHostError(host);",
+        "  if (hostShape === \"malformed\") return _badHostError(host); else x();",
+        "      cb(_badHostError(opts.host));",
+      ],
+      quiet: [
+        "function _badHostError(host) {",
+        "  if (hostShape === \"malformed\") return _badHostError(host);",
+        "    var hostError = _dialHostError(dialHost);",
+        "    if (hostError) { reject(hostError); return; }",
+      ],
+    },
+    reason: "A dial host is refused for two forms, a malformed host (tls/bad-host) and an IPv4 address in a non-canonical spelling such as 127.1 (tls/non-canonical-ip-host), and _dialHostError in lib/network-tls.js returns the error for both. connectWithEch refused only the malformed form before its HTTPS-record query, so a non-canonical IPv4 host was sent to the resolver for an HTTPS record and an A/AAAA lookup before the certificate check refused it. A check that runs before a lookup calls _dialHostError and refuses whatever it returns. Matches any _badHostError call except its definition and the one return inside _dialHostError.",
   },
 
   {
@@ -28420,10 +28642,624 @@ function testSfvCitationMatchesReferencingProtocol() {
           "not the newest one", bad);
 }
 
+// node:dns resolve*() and reverse() hand the name to c-ares as a NUL-terminated
+// C string. Before Node 24.22.1 (CVE-2026-105482) `attacker.example\0.trusted
+// .example` was queried, and answered, as `attacker.example`. Every such call
+// in lib/ passes an identifier that, in the same function, was last assigned
+// from a name validator (`_validateHostShape`, `_mailDomainQname`,
+// `_composedQname`) or was checked with `!net.isIP(x)` / `net.isIP(x) === 0`
+// followed by a throw or return. A string literal argument is allowed.
+// Anything else is reported: a composed expression, a different identifier,
+// a parameter read raw. The validator call must be the whole right-hand side.
+// A bare call counts only in the file that defines the validator
+// (CARES_VALIDATOR_OWNERS), so a local function of the same name elsewhere
+// does not count. A call on a `name()` accessor counts only when `name` was
+// assigned `lazyRequire(function () { return require("./<owner>"); })` (or
+// the arrow form) for the validator's owning file. The assignment or check must
+// be a statement at the call's own block level, or in a `try` block whose
+// `catch` throws or returns; one inside an `if` branch or a nested function
+// does not count. Any later write to the name between the validation and the
+// call (a compound assignment such as `+=`, `||=` or `??=`, `++` / `--`, a
+// destructuring assignment, or a `for ... of` / `for ... in` target) means
+// the name is not validated.
+//
+// The node:dns forms followed are `require("dns")`, `require("node:dns")`,
+// `require("node:dns/promises")` and `.promises`, the same `require` reached
+// through a member such as `module.require`, a deferred require
+// (`d = lazyRequire(function () { return require("node:dns"); })` or the
+// arrow form, read as `d()`), an alias of any of those
+// anywhere in the file, destructuring of a resolve function, `promises` or
+// `Resolver`, a class that extends a Resolver, `Resolver.prototype` and an
+// alias of it, a `new Resolver()` instance (including a `this.x` member), a
+// method read into a variable or wrapped by a call such as `promisify`, a
+// call made directly on the require, a method read by bracket access, and
+// `.call` / `.apply` on any of those. `?.` is read wherever `.` is, and a
+// parenthesized receiver or callee, including a comma expression, is read
+// through to its last operand. A resolve method or an alias of one that is
+// read without being called (passed to `Reflect.apply`, to any other
+// function, or into an object) is reported, unless it is the operand of
+// `typeof`, the target of an assignment, or the whole right-hand side of an
+// assignment to a variable whose calls are checked.
+var CARES_METHOD_RE = /^(?:resolve\w*|reverse)$/;
+var CARES_MODULE_STRING_RE = /^["'](?:node:)?dns(?:\/promises)?["']$/;
+var CARES_NAME_VALIDATORS = { _validateHostShape: true, _mailDomainQname: true, _composedQname: true };
+var CARES_VALIDATOR_OWNERS = {
+  _validateHostShape: "lib/network-dns.js",
+  _mailDomainQname:   "lib/network-smtp-policy.js",
+  _composedQname:     "lib/network-smtp-policy.js",
+};
+var CARES_WRITE_OPS = {
+  "=": true, "+=": true, "-=": true, "*=": true, "/=": true, "%=": true, "**=": true,
+  "<<=": true, ">>=": true, ">>>=": true, "&=": true, "|=": true, "^=": true,
+  "&&=": true, "||=": true, "??=": true,
+};
+
+function _caresUnvalidatedCalls(src, rel) {
+  var sig = shapeMatch.significantTokens(shapeMatch.tokenize(src));
+  var T = shapeMatch;
+  function P(k, v) { return k >= 0 && k < sig.length && sig[k].type === T.TOK_PUNCT && sig[k].value === v; }
+  function W(k, v) {
+    return k >= 0 && k < sig.length && (sig[k].type === T.TOK_IDENT || sig[k].type === T.TOK_KEYWORD) &&
+      sig[k].value === v;
+  }
+  function I(k) { return k >= 0 && k < sig.length && sig[k].type === T.TOK_IDENT; }
+  function D(k) { return P(k, ".") || P(k, "?."); }
+  function callOpenAt(k) {
+    if (P(k, "(")) return k;
+    if (P(k, "?.") && P(k + 1, "(")) return k + 1;
+    return -1;
+  }
+  function groupNotCall(open) {
+    return !(I(open - 1) || P(open - 1, ")") || P(open - 1, "]") || P(open - 1, "?.") ||
+      W(open - 1, "if") || W(open - 1, "while") || W(open - 1, "for") || W(open - 1, "switch") ||
+      W(open - 1, "catch") || W(open - 1, "function"));
+  }
+  function closeOf(open) {
+    var depth = 0;
+    for (var q = open; q < sig.length; q += 1) {
+      if (P(q, "(") || P(q, "[") || P(q, "{")) depth += 1;
+      else if (P(q, ")") || P(q, "]") || P(q, "}")) { depth -= 1; if (depth === 0) return q; }
+    }
+    return -1;
+  }
+  function openOf(close) {
+    var depth = 0;
+    for (var q = close; q >= 0; q -= 1) {
+      if (P(q, ")") || P(q, "]") || P(q, "}")) depth += 1;
+      else if (P(q, "(") || P(q, "[") || P(q, "{")) { depth -= 1; if (depth === 0) return q; }
+    }
+    return -1;
+  }
+  var mods = Object.create(null);
+  var ctors = Object.create(null);
+  var fns = Object.create(null);
+  var insts = Object.create(null);
+  var thunks = Object.create(null);
+
+  function requireCall(k) {
+    var at = k;
+    while (I(at) && sig[at].value !== "require" && D(at + 1)) at += 2;
+    if (W(at, "require") && P(at + 1, "(") && sig[at + 2] && sig[at + 2].type === T.TOK_STRING &&
+        P(at + 3, ")")) return at + 2;
+    return -1;
+  }
+  function requireEnd(k) {
+    var s = requireCall(k);
+    return s !== -1 && CARES_MODULE_STRING_RE.test(sig[s].value) ? s + 2 : -1;
+  }
+  function dnsThunk(k) {
+    return I(k) && thunks[sig[k].value] !== undefined && CARES_MODULE_STRING_RE.test(thunks[sig[k].value]) &&
+      !D(k - 1) && P(k + 1, "(") && P(k + 2, ")");
+  }
+  function thunkTarget(rhs) {
+    var at = rhs;
+    while (I(at) && D(at + 1)) at += 2;
+    if (!I(at) || !P(at + 1, "(")) return null;
+    var open = at + 1;
+    var close = closeOf(open);
+    if (close === -1 || !(P(close + 1, ";") || P(close + 1, ",") || P(close + 1, "}"))) return null;
+    var q = open + 1;
+    if (W(q, "function")) {
+      q += 1;
+      if (I(q)) q += 1;
+      if (!(P(q, "(") && P(q + 1, ")") && P(q + 2, "{") && W(q + 3, "return"))) return null;
+      q += 4;
+    } else if (P(q, "(") && P(q + 1, ")") && P(q + 2, "=>")) {
+      q += 3;
+      if (P(q, "{")) {
+        if (!W(q + 1, "return")) return null;
+        q += 2;
+      }
+    } else {
+      return null;
+    }
+    var s = requireCall(q);
+    if (s === -1) return null;
+    for (var t = s + 2; t < close; t += 1) {
+      if (!(P(t, ";") || P(t, "}"))) return null;
+    }
+    return sig[s].value;
+  }
+  function moduleEnd(k) {
+    var r = requireEnd(k);
+    if (r === -1 && I(k) && mods[sig[k].value] && !D(k - 1)) r = k + 1;
+    if (r === -1 && dnsThunk(k)) r = k + 3;
+    if (r === -1) return -1;
+    if (D(r) && W(r + 1, "promises")) r += 2;
+    return r;
+  }
+  function moduleRefEndsAt(e) {
+    if (P(e, ")")) {
+      var o = openOf(e);
+      if (o < 1) return false;
+      return requireEnd(o - 1) === e + 1 || (o === e - 1 && dnsThunk(o - 1));
+    }
+    if (W(e, "promises") && D(e - 1)) return moduleRefEndsAt(e - 2);
+    return I(e) && mods[sig[e].value] === true && !D(e - 1);
+  }
+  function resolverCtorEndsAt(e) {
+    if (I(e) && ctors[sig[e].value] === true && !D(e - 1)) return true;
+    return W(e, "Resolver") && D(e - 1) && moduleRefEndsAt(e - 2);
+  }
+  function resolverNewEnd(k) {
+    if (!W(k, "new")) return -1;
+    var at = k + 1;
+    var me = moduleEnd(at);
+    if (me !== -1 && D(me) && W(me + 1, "Resolver")) at = me + 2;
+    else if (I(at) && ctors[sig[at].value]) at += 1;
+    else return -1;
+    if (!P(at, "(")) return -1;
+    var c = closeOf(at);
+    return c === -1 ? -1 : c + 1;
+  }
+  function chainBefore(end) {
+    var parts = [];
+    var j = end;
+    while (j >= 0 && (I(j) || W(j, "this"))) {
+      parts.unshift(sig[j].value);
+      if (D(j - 1)) { j -= 2; continue; }
+      break;
+    }
+    return parts.length ? { text: parts.join("."), start: j } : null;
+  }
+  function addDestructured(open, close) {
+    var changed = false;
+    for (var q = open + 1; q < close; q += 1) {
+      if (!I(q) && !W(q, "promises")) continue;
+      if (!(P(q - 1, "{") || P(q - 1, ","))) continue;
+      var key = sig[q].value;
+      var local = key;
+      if (P(q + 1, ":") && I(q + 2)) local = sig[q + 2].value;
+      if (key === "promises" && !mods[local]) { mods[local] = true; changed = true; }
+      else if (key === "Resolver" && !ctors[local]) { ctors[local] = true; changed = true; }
+      else if (CARES_METHOD_RE.test(key) && !fns[local]) { fns[local] = true; changed = true; }
+    }
+    return changed;
+  }
+
+  function exprEnd(at) {
+    while (at < sig.length && (I(at) || D(at))) at += 1;
+    return (P(at, ";") || P(at, ",") || P(at, "}")) ? at - 1 : -1;
+  }
+  for (var pass = 0; pass < 8; pass += 1) {
+    var changed = false;
+    for (var k = 1; k < sig.length; k += 1) {
+      if (W(k, "class") && I(k + 1) && W(k + 2, "extends")) {
+        var brace = k + 3;
+        while (brace < sig.length && !P(brace, "{")) brace += 1;
+        if (brace < sig.length && resolverCtorEndsAt(brace - 1) && !ctors[sig[k + 1].value]) {
+          ctors[sig[k + 1].value] = true; changed = true;
+        }
+        continue;
+      }
+      if (!P(k, "=")) continue;
+      var rhs = k + 1;
+      var me = moduleEnd(rhs);
+      var ne = resolverNewEnd(rhs);
+      if (P(k - 1, "}")) {
+        var dOpen = openOf(k - 1);
+        if (dOpen !== -1 && me !== -1 && !D(me) && addDestructured(dOpen, k - 1)) changed = true;
+        continue;
+      }
+      var lhs = chainBefore(k - 1);
+      if (lhs === null) continue;
+      var tt = thunkTarget(rhs);
+      if (tt === null && I(rhs) && thunks[sig[rhs].value] !== undefined && !D(rhs + 1) &&
+          (P(rhs + 1, ";") || P(rhs + 1, ",") || P(rhs + 1, "}"))) tt = thunks[sig[rhs].value];
+      if (tt !== null) {
+        var prior = thunks[lhs.text];
+        var merged = tt;
+        if (prior !== undefined && prior !== tt) {
+          merged = CARES_MODULE_STRING_RE.test(prior) ? prior : (CARES_MODULE_STRING_RE.test(tt) ? tt : "\"\"");
+        }
+        if (prior !== merged) { thunks[lhs.text] = merged; changed = true; }
+        continue;
+      }
+      var xe = exprEnd(rhs);
+      if (xe > rhs && W(xe, "prototype") && D(xe - 1) && resolverCtorEndsAt(xe - 2)) {
+        if (!insts[lhs.text]) { insts[lhs.text] = true; changed = true; }
+        continue;
+      }
+      if (ne !== -1) {
+        if (!insts[lhs.text]) { insts[lhs.text] = true; changed = true; }
+        continue;
+      }
+      if (me === -1) {
+        if (wrapsCaresMethod(rhs) && !fns[lhs.text]) { fns[lhs.text] = true; changed = true; }
+        continue;
+      }
+      if (D(me) && W(me + 1, "Resolver") && callOpenAt(me + 2) === -1) {
+        if (!ctors[lhs.text]) { ctors[lhs.text] = true; changed = true; }
+      } else if (D(me) && I(me + 1) && CARES_METHOD_RE.test(sig[me + 1].value) && callOpenAt(me + 2) === -1) {
+        if (!fns[lhs.text]) { fns[lhs.text] = true; changed = true; }
+      } else if (!D(me) && callOpenAt(me) === -1 && !mods[lhs.text]) {
+        mods[lhs.text] = true; changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+
+  function methodRefEnd(end) {
+    if (I(end) && CARES_METHOD_RE.test(sig[end].value) && D(end - 1)) return caresReceiver(end - 2);
+    if (P(end, "]")) {
+      var bo = openOf(end);
+      if (bo < 1) return false;
+      if (end === bo + 2 && sig[bo + 1].type === T.TOK_STRING &&
+          !CARES_METHOD_RE.test(sig[bo + 1].value.slice(1, -1))) return false;
+      return caresReceiver(P(bo - 1, "?.") ? bo - 2 : bo - 1);
+    }
+    return false;
+  }
+  function calleeIsCares(end) {
+    if (I(end) && fns[sig[end].value] && !D(end - 1)) return true;
+    if (methodRefEnd(end)) return true;
+    if (P(end, ")")) {
+      var po = openOf(end);
+      return po > 0 && groupNotCall(po) && calleeIsCares(end - 1);
+    }
+    return false;
+  }
+  function caresArgIndex(k) {
+    var e = P(k - 1, "?.") ? k - 2 : k - 1;
+    if (calleeIsCares(e)) return 0;
+    if ((W(e, "call") || W(e, "apply")) && D(e - 1) && calleeIsCares(e - 2)) {
+      return W(e, "call") ? 1 : -1;
+    }
+    return null;
+  }
+  function wrapsCaresMethod(rhs) {
+    var at = rhs;
+    while (at < sig.length && (I(at) || W(at, "this") || D(at))) at += 1;
+    if (at === rhs || !P(at, "(")) return false;
+    var wc = closeOf(at);
+    for (var y = at + 1; y < wc; y += 1) {
+      if (I(y) && CARES_METHOD_RE.test(sig[y].value) && D(y - 1) && callOpenAt(y + 1) === -1 &&
+          caresReceiver(y - 2)) return true;
+    }
+    return false;
+  }
+  function caresReceiver(recvEnd) {
+    if (moduleRefEndsAt(recvEnd)) return true;
+    if (W(recvEnd, "prototype") && D(recvEnd - 1) && resolverCtorEndsAt(recvEnd - 2)) return true;
+    if (P(recvEnd, ")")) {
+      var o = openOf(recvEnd);
+      if (o > 0 && (requireEnd(o - 1) === recvEnd + 1 || resolverNewEnd(o - 2) === recvEnd + 1 ||
+          resolverNewEnd(o - 4) === recvEnd + 1 || resolverNewEnd(o - 6) === recvEnd + 1)) return true;
+      return o > 0 && groupNotCall(o) && caresReceiver(recvEnd - 1);
+    }
+    if (W(recvEnd, "promises") && D(recvEnd - 1) && P(recvEnd - 2, ")")) {
+      var o2 = openOf(recvEnd - 2);
+      return o2 > 0 && requireEnd(o2 - 1) === recvEnd - 1;
+    }
+    var recv = chainBefore(recvEnd);
+    if (recv === null) return false;
+    if (insts[recv.text]) return true;
+    var base = recv.text.replace(/\.promises$/, "");
+    return base.indexOf(".") === -1 && mods[base] === true;
+  }
+
+  var spans = _functionBodySpans(sig);
+  function scopeStart(at) {
+    var best = -1;
+    for (var s = 0; s < spans.length; s += 1) {
+      if (spans[s].open < at && at < spans[s].close && spans[s].open > best) best = spans[s].open;
+    }
+    return best;
+  }
+  function guardsIp(ifAt, name) {
+    if (!P(ifAt + 1, "(")) return false;
+    var c = closeOf(ifAt + 1);
+    if (c === -1) return false;
+    var refuses = W(c + 1, "throw") || W(c + 1, "return") ||
+      (P(c + 1, "{") && (W(c + 2, "throw") || W(c + 2, "return")));
+    if (!refuses) return false;
+    for (var q = ifAt + 2; q < c; q += 1) {
+      if (!(W(q, "net") && P(q + 1, ".") && W(q + 2, "isIP") && P(q + 3, "(") && W(q + 4, name) && P(q + 5, ")"))) continue;
+      if (P(q - 1, "!")) return true;
+      if ((P(q + 6, "===") || P(q + 6, "==")) && sig[q + 7] && sig[q + 7].value === "0") return true;
+    }
+    return false;
+  }
+  function validatorTrusted(name, accessor) {
+    var owner = CARES_VALIDATOR_OWNERS[name];
+    if (accessor === null) return rel === null || rel === undefined || rel === owner;
+    var spec = thunks[accessor];
+    if (spec === undefined) return false;
+    var body = spec.slice(1, -1).replace(/\.js$/, "");
+    return body.indexOf("./") === 0 && body.indexOf("/", 2) === -1 && "lib/" + body.slice(2) + ".js" === owner;
+  }
+  function validatedAssignment(eqAt) {
+    var q = eqAt + 1;
+    var accessor = null;
+    if (I(q) && P(q + 1, "(") && P(q + 2, ")") && D(q + 3)) { accessor = sig[q].value; q += 4; }
+    if (!(I(q) && CARES_NAME_VALIDATORS[sig[q].value] && P(q + 1, "("))) return false;
+    if (!validatorTrusted(sig[q].value, accessor)) return false;
+    var vc = closeOf(q + 1);
+    return vc !== -1 && (P(vc + 1, ";") || P(vc + 1, ",") || P(vc + 1, "}"));
+  }
+  function atStatementStart(q) {
+    var pre = q - 1;
+    if (W(pre, "var") || W(pre, "let") || W(pre, "const")) pre -= 1;
+    return pre < 0 || P(pre, ";") || P(pre, "{") || P(pre, "}");
+  }
+  function inRefusingTry(q, floor) {
+    var d = 0;
+    var o = q - 1;
+    for (; o > floor; o -= 1) {
+      if (P(o, "}")) d += 1;
+      else if (P(o, "{")) { if (d === 0) break; d -= 1; }
+    }
+    if (o <= floor || !W(o - 1, "try")) return false;
+    var tc = closeOf(o);
+    if (tc === -1 || !W(tc + 1, "catch")) return false;
+    var cb = tc + 2;
+    if (P(cb, "(")) cb = closeOf(cb) + 1;
+    return P(cb, "{") && (W(cb + 1, "throw") || W(cb + 1, "return"));
+  }
+  function patternTarget(q, floor) {
+    var d = 0;
+    for (var o = q - 1; o > floor; o -= 1) {
+      if (P(o, ")") || P(o, "]") || P(o, "}")) { d += 1; continue; }
+      if (P(o, "(") || P(o, "[") || P(o, "{")) {
+        if (d > 0) { d -= 1; continue; }
+        if (P(o, "(")) return false;
+        var pc = closeOf(o);
+        if (pc !== -1 && P(pc + 1, "=")) return true;
+        continue;
+      }
+      if (d === 0 && P(o, ";")) return false;
+    }
+    return false;
+  }
+  function forTarget(q) {
+    if (!(W(q + 1, "of") || W(q + 1, "in"))) return false;
+    var p = q - 1;
+    if (W(p, "var") || W(p, "let") || W(p, "const")) p -= 1;
+    return P(p, "(") && (W(p - 1, "for") || W(p - 1, "await"));
+  }
+  function otherWrite(q, floor) {
+    var nx = sig[q + 1];
+    if (nx && nx.type === T.TOK_PUNCT && nx.value !== "=" && CARES_WRITE_OPS[nx.value]) return true;
+    if (P(q + 1, ">>>") && P(q + 2, "=") && sig[q + 1].end === sig[q + 2].start) return true;
+    if (P(q + 1, "++") || P(q + 1, "--") || P(q - 1, "++") || P(q - 1, "--")) return true;
+    return forTarget(q) || patternTarget(q, floor);
+  }
+  function argValidated(callAt, name) {
+    var floor = scopeStart(callAt);
+    var depth = 0;
+    for (var q = callAt - 1; q > floor; q -= 1) {
+      if (P(q, "}")) { depth += 1; continue; }
+      if (P(q, "{")) { if (depth > 0) depth -= 1; continue; }
+      if (depth === 0 && W(q, "if") && guardsIp(q, name)) return true;
+      if (W(q, name) && !D(q - 1) && !P(q + 1, "=") && otherWrite(q, floor)) return false;
+      if (W(q, name) && P(q + 1, "=") && !D(q - 1)) {
+        if (!atStatementStart(q)) return false;
+        if (depth === 0 || (depth === 1 && inRefusingTry(q, floor))) return validatedAssignment(q + 1);
+        return false;
+      }
+    }
+    return false;
+  }
+  function argSpans(open, close) {
+    var out = [];
+    var start = open + 1;
+    var depth = 0;
+    for (var a = open + 1; a < close; a += 1) {
+      if (P(a, "(") || P(a, "[") || P(a, "{")) depth += 1;
+      else if (P(a, ")") || P(a, "]") || P(a, "}")) depth -= 1;
+      else if (depth === 0 && P(a, ",")) { out.push({ s: start, e: a }); start = a + 1; }
+    }
+    if (start < close) out.push({ s: start, e: close });
+    return out;
+  }
+
+  var hits = [];
+  for (var c = 1; c < sig.length; c += 1) {
+    if (!P(c, "(")) continue;
+    var idx = caresArgIndex(c);
+    if (idx === null) continue;
+    var close = closeOf(c);
+    if (close === -1) continue;
+    var arg = idx >= 0 ? argSpans(c, close)[idx] : undefined;
+    var ok = false;
+    if (arg && arg.e === arg.s + 1 && sig[arg.s].type === T.TOK_STRING) ok = true;
+    else if (arg && arg.e === arg.s + 1 && I(arg.s)) ok = argValidated(c, sig[arg.s].value);
+    if (!ok) {
+      hits.push({
+        line: shapeMatch.positionToLineCol(src, sig[c].start).line,
+        text: src.slice(sig[c - 1].start, sig[close].end),
+      });
+    }
+  }
+
+  function refStart(y) {
+    var at = y;
+    if (P(y, "]")) {
+      var bo = openOf(y);
+      at = P(bo - 1, "?.") ? bo - 2 : bo - 1;
+    }
+    var cb = chainBefore(at);
+    var s = cb ? cb.start : at;
+    if (P(s, ")")) s = openOf(s);
+    return s;
+  }
+  for (var y = 1; y < sig.length; y += 1) {
+    var isRef = (I(y) && CARES_METHOD_RE.test(sig[y].value) && D(y - 1) && caresReceiver(y - 2)) ||
+      (P(y, "]") && methodRefEnd(y));
+    var isAlias = !isRef && I(y) && fns[sig[y].value] === true && !D(y - 1);
+    if (!isRef && !isAlias) continue;
+    var e = y;
+    while (P(e + 1, ")") && groupNotCall(openOf(e + 1))) e += 1;
+    if (callOpenAt(e + 1) !== -1) continue;
+    if (D(e + 1) && (W(e + 2, "call") || W(e + 2, "apply")) && callOpenAt(e + 3) !== -1) continue;
+    var nxt = sig[y + 1];
+    if (nxt && nxt.type === T.TOK_PUNCT && CARES_WRITE_OPS[nxt.value]) continue;
+    var rs = refStart(y);
+    if (W(rs - 1, "typeof")) continue;
+    if (isAlias && patternTarget(y, -1)) continue;
+    if (P(rs - 1, "=") && (P(y + 1, ";") || P(y + 1, ",") || P(y + 1, "}"))) {
+      var lhsRef = chainBefore(rs - 2);
+      if (lhsRef && fns[lhsRef.text] === true) continue;
+    }
+    hits.push({
+      line: shapeMatch.positionToLineCol(src, sig[y].start).line,
+      text: src.slice(sig[rs].start, sig[y].end) + " (read without being called)",
+    });
+  }
+  return hits;
+}
+
+var CARES_FIRES = [
+  "var dns = require(\"dns\");\nfunction f(h) { return dns.resolveMx(h); }\n",
+  "var dns = require(\"node:dns/promises\");\nasync function f(h) { return dns.resolveTxt(h); }\n",
+  "var dns = require(\"node:dns\");\nvar r = new dns.promises.Resolver();\nasync function f(h) { return r.resolveMx(h); }\n",
+  "var { resolveMx } = require(\"node:dns\").promises;\nasync function f(h) { return resolveMx(h); }\n",
+  "var dns = require(\"node:dns\");\nvar other = require(\"./x\");\nvar dnsP = dns.promises;\nfunction f(h) { return dnsP.resolve4(h); }\n",
+  "var dns = require(\"node:dns\").promises;\nfunction f(h, raw) {\n  h = _validateHostShape(h, \"x\");\n  return dns.resolveMx(raw);\n}\n",
+  "var dns = require(\"node:dns\").promises;\nfunction f(d) {\n  if (net.isIP(d)) return [];\n  return dns.resolveMx(d);\n}\n",
+  "var dns = require(\"node:dns\").promises;\nvar api = {\n  mx(d) { return dns.resolveMx(d); },\n};\n",
+  "var dns = require(\"node:dns\").promises;\nvar mx = async (d) => dns.resolveMx(d);\n",
+  "var dns = require(\"node:dns\");\nvar dnsPromises = dns.promises;\nasync function t(domain, p) {\n  var host = _validateHostShape(domain, \"x\");\n  return dnsPromises.resolveTlsa(\"_\" + p + \"._tcp.\" + host);\n}\n",
+  "var dns = require(\"node:dns\").promises;\nfunction f(h) {\n  h = _validateHostShape(h, \"x\");\n  h = h + suffix;\n  return dns.resolveMx(h);\n}\n",
+  "function f(h) { return require(\"node:dns\").promises.resolveMx(h); }\n",
+  "var { Resolver } = require(\"node:dns\");\nvar r = new Resolver();\nfunction f(h) { return r.reverse(h); }\n",
+  "var dns = require(\"node:dns\");\nfunction C() { this._r = new dns.Resolver(); }\nC.prototype.q = function (h, cb) { return this._r.resolveSrv(h, cb); };\n",
+  "var dns = require(\"node:dns\");\nvar rmx = dns.promises.resolveMx;\nfunction f(h) { return rmx(h); }\n",
+  "var d1 = require(\"node:dns\");\nvar d2 = d1;\nfunction f(h) { return d2.resolve(h, \"MX\"); }\n",
+  "var dns = require(\"node:dns\");\nfunction f(h) { return new dns.Resolver().resolveNs(h); }\n",
+  "var nodeDns = require(\"node:dns\").promises;\n\nasync function _resolveMx(domain, resolver, timeoutMs) {\n  var lookup = resolver\n    ? resolver.queryMx(domain)\n    : nodeDns.resolveMx(domain);\n}\n",
+  "var dns = require(\"node:dns\");\nvar dnsPromises = dns.promises;\n\nasync function daneTlsa(domain, port, opts) {\n  var qname = \"_\" + port + \"._tcp.\" + domain;\n  records = await dnsPromises.resolveTlsa(qname);\n}\n",
+  "var dns = require(\"node:dns\");\n\nfunction ptr(ip) {\n  return dns.promises.reverse(ip);\n}\n",
+  "var dns = require(\"node:dns\");\nvar dnsPromises = dns.promises;\n\nfunction ok(h) {\n  h = _validateHostShape(h, \"x\");\n  return dnsPromises.resolve4(h);\n}\n\nfunction bad(h) {\n  return dnsPromises.resolve6(h);\n}\n",
+  "var dns = require(\"node:dns\");\nasync function f(h, strict) { if (strict) { h = _validateHostShape(h); } return dns.promises.resolveMx(h); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h, strict) {\n  if (strict) h = _validateHostShape(h);\n  return dns.promises.resolveMx(h);\n}\n",
+  "var dns = require(\"node:dns\");\nasync function f(h, s) { var q = _validateHostShape(h) + s; return dns.promises.resolveTxt(q); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) { var q = decodeURIComponent(_validateHostShape(h)); return dns.promises.resolveTxt(q); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) { return dns.promises.resolveMx.call(dns.promises, h); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) { return dns.promises.resolveMx.apply(dns.promises, [h]); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) { return dns.promises[\"resolveMx\"](h); }\n",
+  "var dns = require(\"node:dns\");\nvar util = require(\"node:util\");\nvar rmx = util.promisify(dns.resolveMx);\nasync function f(h) { return rmx(h); }\n",
+  "var dns = require(\"node:dns\");\nvar fake = { _validateHostShape: function (x) { return x; } };\nasync function f(h) { var q = fake._validateHostShape(h); return dns.promises.resolveMx(q); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) {\n  var q;\n  function g() { q = _validateHostShape(h); }\n  return dns.promises.resolveMx(q);\n}\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) { var q = _validateHostShape(h); q += \".evil\"; return dns.promises.resolveMx(q); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) { var q = _validateHostShape(h); q ||= h; return dns.promises.resolveMx(q); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) { var q = _validateHostShape(h); q ??= h; return dns.promises.resolveMx(q); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) { var q = _validateHostShape(h); q >>>= 0; return dns.promises.resolveMx(q); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) { var q = _validateHostShape(h); [q] = [h]; return dns.promises.resolveMx(q); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h, o) { var q = _validateHostShape(h); ({ q } = o); return dns.promises.resolveMx(q); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h, a) { var q = _validateHostShape(h); for (q of a) break; return dns.promises.resolveMx(q); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) { return dns.promises?.resolveMx(h); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) { return dns.promises.resolveMx?.(h); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) { return dns?.promises?.resolveMx?.(h); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) { return dns.promises.resolveMx?.call(dns.promises, h); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) { return dns.promises[\"resolveMx\"]?.(h); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) { return Reflect.apply(dns.promises.resolveMx, dns.promises, [h]); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) { return (0, dns.promises.resolveMx)(h); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) { return (dns.promises.resolveMx)(h); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) { return (dns.promises).resolveMx(h); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) { return (0, dns.promises)[\"resolveMx\"](h); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) { return run(dns.promises.resolveTxt, h); }\n",
+  "var dns = require(\"node:dns\");\nvar rmx = dns.promises.resolveMx;\nasync function f(h) { return Reflect.apply(rmx, null, [h]); }\n",
+  "var d = lazyRequire(function () { return require(\"node:dns\"); });\nasync function f(h) { return d().promises.resolveMx(h); }\n",
+  "var d = lazyRequire(() => require(\"dns\"));\nfunction f(h, cb) { return d().resolveTxt(h, cb); }\n",
+  "var d = lazyRequire(function () { return require(\"node:dns\"); });\nvar p = d().promises;\nasync function f(h) { return p.resolveMx(h); }\n",
+  "var d = lazyRequire(function () { return require(\"node:dns\"); });\nvar d2 = d;\nasync function f(h) { return d2().promises[\"resolveMx\"](h); }\n",
+  "var d = module.require(\"node:dns\");\nasync function f(h) { return d.promises.resolveMx(h); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(r, h) { return dns.promises.Resolver.prototype.resolveMx.call(r, h); }\n",
+  "var { Resolver } = require(\"node:dns\").promises;\nvar proto = Resolver.prototype;\nasync function f(r, h) { return proto.resolveMx.call(r, h); }\n",
+  "var dns = require(\"node:dns\");\nclass R extends dns.promises.Resolver {}\nvar r = new R();\nasync function f(h) { return r.resolveMx(h); }\n",
+  "var { Resolver } = require(\"node:dns\");\nclass R extends Resolver { q(h) { return this.resolveMx(h); } }\nvar r = new R();\nfunction f(h) { return r.resolveNs(h); }\n",
+  { rel: "lib/other.js", src: "var dns = require(\"node:dns\");\nfunction _validateHostShape(x) { return x; }\nasync function f(h) { var q = _validateHostShape(h); return dns.promises.resolveMx(q); }\n" },
+  { rel: "lib/other.js", src: "var dns = require(\"node:dns\");\nasync function f(h) { var q = _mailDomainQname(h); return dns.promises.resolveMx(q); }\n" },
+  "var dns = require(\"node:dns\");\nfunction networkDns() { return { _validateHostShape: function (x) { return x; } }; }\nasync function f(h) { var q = networkDns()._validateHostShape(h); return dns.promises.resolveMx(q); }\n",
+  "var dns = require(\"node:dns\");\nvar nd = lazyRequire(function () { return require(\"./not-network-dns\"); });\nasync function f(h) { var q = nd()._validateHostShape(h); return dns.promises.resolveMx(q); }\n",
+  "var dns = require(\"node:dns\");\nvar sp = lazyRequire(function () { return require(\"./network-dns\"); });\nasync function f(h) { var q = sp()._mailDomainQname(h); return dns.promises.resolveMx(q); }\n",
+];
+var CARES_QUIET = [
+  "var nodeDns = require(\"node:dns\").promises;\nvar networkDns = lazyRequire(function () { return require(\"./network-dns\"); });\nasync function f(domain) {\n  var qname = networkDns()._validateHostShape(domain, \"deliver\");\n  return nodeDns.resolveMx(qname);\n}\n",
+  "var nodeDns = require(\"node:dns\").promises;\nvar smtpPolicy   = lazyRequire(function () { return require(\"./network-smtp-policy\"); });\nasync function f(domain) {\n  var qname = smtpPolicy()._mailDomainQname(domain, \"deliver\");\n  if (qname === null) throw new Error(\"x\");\n  return nodeDns.resolveMx(qname);\n}\n",
+  "var d = lazyRequire(function () { return require(\"node:dns\"); });\nvar networkDns = lazyRequire(() => require(\"./network-dns.js\"));\nasync function f(h) { var q = networkDns()._validateHostShape(h, \"x\"); return d().promises.resolveMx(q); }\n",
+  { rel: "lib/network-dns.js", src: "var dns = require(\"node:dns\");\nfunction _validateHostShape(x) { return check(x); }\nasync function f(h) { h = _validateHostShape(h, \"x\"); return dns.promises.resolveMx(h); }\n" },
+  { rel: "lib/network-smtp-policy.js", src: "var dns = require(\"node:dns\");\nfunction _composedQname(p, x) { return check(p + x); }\nasync function f(h) { var q = _composedQname(\"_25._tcp.\", h); if (q === null) return []; return dns.promises.resolveTlsa(q); }\n" },
+  "var res = lazyRequire(function () { return require(\"./network-dns-resolver\"); });\nasync function f(h) { return res().resolveMx(h); }\n",
+  "var other = module.require(\"./x\");\nasync function f(h) { return other.resolveMx(h); }\n",
+  "class R extends Base {}\nvar r = new R();\nfunction f(h) { return r.resolveMx(h); }\n",
+  "var dns = require(\"node:dns\");\nvar proto = Base.prototype;\nfunction f(h) { return proto.resolveMx(h); }\n",
+  "var dns = require(\"node:dns\");\nvar dnsPromises = dns.promises;\nfunction rev(ip) {\n  if (typeof ip !== \"string\" || net.isIP(ip) === 0) {\n    throw new Error(\"x\");\n  }\n  return dnsPromises.reverse(ip);\n}\n",
+  "var dns = require(\"node:dns\").promises;\nasync function rev(ip) {\n  if (!net.isIP(ip)) throw new Error(\"x\");\n  return dns.reverse(ip);\n}\n",
+  "var dns = require(\"node:dns\").promises;\nfunction look(host) { return dns.lookup(host, { all: true }); }\n",
+  "var dns = networkDns();\nasync function rev(ip) { return dns.reverse(ip); }\n",
+  "var dns = require(\"node:dns\");\nfunction t(type) { throw new DnsError(\"dns/x\", \"dns.resolve(host) failed for \" + type); }\n",
+  "var dns = require(\"node:dns\");\nvar dnsPromises = dns.promises;\nfunction has() { return typeof dnsPromises.resolveTlsa !== \"function\"; }\n",
+  "var dns = require(\"node:dns\");\nfunction p() { return Promise.resolve(1); }\n",
+  "var dns = require(\"node:dns\").promises;\nfunction f() { return dns.resolveMx(\"example.com\"); }\n",
+  "var dns = require(\"node:dns\");\nfunction resolve(x) { return x; }\nfunction f(h) { return resolve(h); }\n",
+  "var dns = require(\"node:dns\");\nvar networkDns = lazyRequire(function () { return require(\"./network-dns\"); });\nvar dnsPromises = dns.promises;\nasync function t(host, p) {\n  var q;\n  try { q = networkDns()._validateHostShape(\"_\" + p + \"._tcp.\" + host, \"x\"); }\n  catch (_e) { throw new Error(\"x\"); }\n  return dnsPromises.resolveTlsa(q);\n}\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) { var q = _validateHostShape(h); return dns.promises.resolveMx.call(dns.promises, q); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) { return dns.promises[\"lookup\"](h); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) {\n  if (!h) return [];\n  var q = _validateHostShape(h);\n  if (q === \".\") { return []; }\n  return dns.promises.resolveMx(q);\n}\n",
+  "var dns = require(\"node:dns\");\nasync function f(h) { var q = _validateHostShape(h); return dns.promises?.resolveMx?.(q); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(h, n) { var q = _validateHostShape(h); if (q <= n || q >= n || q == null) return []; return (dns.promises).resolveMx(q); }\n",
+  "var dns = require(\"node:dns\");\nfunction has() { return typeof dns.promises?.resolveTlsa === \"function\"; }\n",
+  "var dns = require(\"node:dns\");\nvar rmx = dns.promises.resolveMx;\nasync function f(h) { var q = _validateHostShape(h); return rmx(q); }\n",
+  "var dns = require(\"node:dns\");\nasync function f(host, p) {\n  var q = _composedQname(\"_\" + p + \"._tcp.\", host, \"x\");\n  if (q === null) throw new Error(\"x\");\n  return dns.promises.resolveTlsa(q);\n}\n",
+];
+
+function testCaresLookupValidatesTheNamePassed() {
+  // class: c-ares-lookup-reads-an-unvalidated-name (no marker)
+  var wrong = [];
+  function fixtureHits(f) {
+    return typeof f === "string" ? _caresUnvalidatedCalls(f, null) : _caresUnvalidatedCalls(f.src, f.rel);
+  }
+  CARES_FIRES.forEach(function (f, i) {
+    var s = typeof f === "string" ? f : f.src;
+    if (fixtureHits(f).length === 0) wrong.push("fires[" + i + "] did not fire: " + s.replace(/\s+/g, " ").slice(0, 90));
+  });
+  CARES_QUIET.forEach(function (f, i) {
+    var h = fixtureHits(f);
+    if (h.length !== 0) wrong.push("quiet[" + i + "] fired on " + JSON.stringify(h[0].text));
+  });
+  check("the c-ares lookup detector fires on every node:dns form with an unvalidated name and " +
+        "stays quiet on a validated one", wrong.length === 0, wrong.join("; "));
+  var bad = [];
+  _libFiles().forEach(function (abs) {
+    var src;
+    try { src = fs.readFileSync(abs, "utf8"); } catch (_e) { return; }
+    if (!/\bdns\b/.test(src)) return;
+    _caresUnvalidatedCalls(src, _relPath(abs)).forEach(function (h) {
+      bad.push({ file: _relPath(abs), line: h.line,
+        content: "node:dns " + h.text + " reads a name not validated in the same function" });
+    });
+  });
+  _report("a node:dns resolve*/reverse call passes a name validated in the same function " +
+          "(_validateHostShape / _mailDomainQname / a net.isIP refusal)", bad);
+}
+
 async function run() {
   testPrimitiveReachability();
   testDenyPathComposesDenyResponse();
   testAntipatternFixturesHold();
+  testCaresLookupValidatesTheNamePassed();
   testCaptureStatusChecked();
   testSfvCitationMatchesReferencingProtocol();
   testNoInternalNarrativeComments();
@@ -28441,6 +29277,7 @@ async function run() {
   testNoRawTimeLiterals();
   testNumericOptsValidate();
   testHttp2TeardownPaired();
+  testHttp1AgentsAndRequestsAreGuarded();
   testNoStrayConsoleCalls();
   testNoApplyDefaultsDroppedOpt();
   testNoUnresolvedMarkers();

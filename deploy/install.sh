@@ -53,33 +53,42 @@ HERMITSTASH_AUTO_UPDATE="${HERMITSTASH_AUTO_UPDATE:-no}"
 log "Installing HermitStash to ${INSTALL_DIR}"
 echo ""
 
-# ---- Step 1: Node.js 24.22.1+ ----
+# ---- Step 1: Node.js 24.22.1+ (24 line) or 26.12.1+ (26 line) ----
 #
 # HermitStash needs OpenSSL 3.5 PQC bindings (ML-KEM-1024,
-# SLH-DSA-SHAKE-256f, ML-DSA-87) plus the cumulative 24.x security
-# patches that have shipped since 24.8 (24.17.0 was a security
-# release; 24.19.0 bundles SQLite 3.53.3; 24.21.0 fixes the TLS 1.3
-# no-cert resumption that reported an unauthenticated client as
-# authorized; 24.22.1 fixes CVE-2026-111497 in the Brotli decoder).
-# The 24.22.1 floor pins the latest active 24.x patch series.
+# SLH-DSA-SHAKE-256f, ML-DSA-87) plus the cumulative security patches
+# (24.21.0 fixes the TLS 1.3 no-cert resumption that reported an
+# unauthenticated client as authorized; 24.22.1 and 26.12.1 fix
+# CVE-2026-111497 in the bundled Brotli decoder). Accepted: 24.22.1 or
+# later on the 24 line, 26.12.1 or later on the 26 line, or 27 and later.
+# Odd-numbered lines are refused. server.js applies the same floors, plus
+# an OpenSSL floor, at startup (lib/runtime-floor.js).
 # NodeSource setup_24.x ships current 24.x.
-
-NODE_MIN_MAJOR=24
-NODE_MIN_MINOR=22
-NODE_MIN_PATCH=1
 
 needs_install=false
 if command -v node &>/dev/null; then
-  NODE_VER=$(node -v | sed 's/v//')
+  NODE_VER=$(node -v | sed 's/^v//')
   NODE_MAJOR=$(echo "$NODE_VER" | cut -d. -f1)
   NODE_MINOR=$(echo "$NODE_VER" | cut -d. -f2)
-  NODE_PATCH=$(echo "$NODE_VER" | cut -d. -f3)
-  if [ "$NODE_MAJOR" -gt "$NODE_MIN_MAJOR" ] || \
-     { [ "$NODE_MAJOR" -eq "$NODE_MIN_MAJOR" ] && [ "$NODE_MINOR" -gt "$NODE_MIN_MINOR" ]; } || \
-     { [ "$NODE_MAJOR" -eq "$NODE_MIN_MAJOR" ] && [ "$NODE_MINOR" -eq "$NODE_MIN_MINOR" ] && [ "$NODE_PATCH" -ge "$NODE_MIN_PATCH" ]; }; then
-    log "Node.js v$NODE_VER already installed (>= v${NODE_MIN_MAJOR}.${NODE_MIN_MINOR}.${NODE_MIN_PATCH})"
+  NODE_PATCH=$(echo "$NODE_VER" | cut -d. -f3 | sed 's/[^0-9].*$//')
+  node_ok=false
+  case "$NODE_MAJOR" in
+    24) floor_minor=22; floor_patch=1 ;;
+    26) floor_minor=12; floor_patch=1 ;;
+    *)  floor_minor=""; floor_patch="" ;;
+  esac
+  if [ -n "$floor_minor" ]; then
+    if [ "$NODE_MINOR" -gt "$floor_minor" ] || \
+       { [ "$NODE_MINOR" -eq "$floor_minor" ] && [ "${NODE_PATCH:-0}" -ge "$floor_patch" ]; }; then
+      node_ok=true
+    fi
+  elif [ "$NODE_MAJOR" -ge 27 ] 2>/dev/null; then
+    node_ok=true
+  fi
+  if [ "$node_ok" = true ]; then
+    log "Node.js v$NODE_VER already installed"
   else
-    warn "Node.js v$NODE_VER found but v${NODE_MIN_MAJOR}.${NODE_MIN_MINOR}.${NODE_MIN_PATCH}+ required for OpenSSL 3.5 PQC support"
+    warn "Node.js v$NODE_VER found but 24.22.1+ (24 line), 26.12.1+ (26 line) or 27+ is required"
     needs_install=true
   fi
 else

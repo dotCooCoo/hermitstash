@@ -1,6 +1,6 @@
 {
   "name": "@blamejs/core",
-  "version": "0.21.4",
+  "version": "0.21.6",
   "description": "The Node framework that owns its stack.",
   "license": "Apache-2.0",
   "author": "blamejs contributors",
@@ -54,7 +54,7 @@
     "owns-its-stack"
   ],
   "engines": {
-    "node": ">=24.21.0"
+    "node": ">=24.22.1"
   },
   "files": [
     "index.js",

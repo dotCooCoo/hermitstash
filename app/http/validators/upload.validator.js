@@ -390,6 +390,23 @@ async function validateArchive(filename, buffer) {
     return { valid: false, reason: "Archive could not be read for inspection.", detail: e.code || "unreadable" };
   }
 
+  // The tar reader reports a typeflag it does not interpret as entryType
+  // "unknown". That includes GNU long-name ('L') and long-link ('K') records:
+  // their body holds the name or link target an extractor gives the NEXT entry,
+  // and the reader leaves that entry with its own 100-byte header name. The guard
+  // would check a name no extractor uses, so these archives are refused.
+  var uninterpreted = entries.find(function (e) {
+    return typeof e.typeflag === "string" && e.entryType === "unknown";
+  });
+  if (uninterpreted) {
+    return {
+      valid: false,
+      reason: "Archive contents failed inspection.",
+      detail: uninterpreted.typeflag === "L" || uninterpreted.typeflag === "K"
+        ? "archive.tar-gnu-long-name" : "archive.tar-entry-type-unsupported",
+    };
+  }
+
   var guardEntries = entries.map(toGuardEntry);
 
   // A link whose destination cannot be read is refused before the guard sees
