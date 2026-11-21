@@ -1,7 +1,7 @@
 # Pinned to the same Node the runtime image and package.json engines.node declare
-# (24.22.1 "Krypton", the current Active LTS). Tests must not run on a different
-# major than production ships — and 25/26 are Current releases, not LTS.
-FROM node:24.22.1-alpine
+# (26.13.1, the current Active LTS line). Tests must not run on a different
+# major than production ships.
+FROM node:26.13.1-alpine
 
 WORKDIR /app
 

@@ -22,6 +22,7 @@
 #   SERVICE_NAME      systemd unit name                        (default: hermitstash)
 #   PORT              health check port                        (default: 3000)
 #   HEALTH_TIMEOUT    seconds to wait for healthy after restart (default: 60)
+#   NODE_BIN          Node.js binary the service runs           (default: /usr/bin/node)
 #   TRUSTED_KEYS_DIR  dir containing ECDSA pubkeys in PEM form (default: /etc/hermitstash/trusted-keys.d)
 #   DRY_RUN           1 = log what would happen, don't apply   (default: 0)
 #   FORCE             1 = apply even if no newer version found (default: 0)
@@ -75,6 +76,7 @@ INSTALL_DIR="${INSTALL_DIR:-/opt/hermitstash}"
 SERVICE_NAME="${SERVICE_NAME:-hermitstash}"
 PORT="${PORT:-3000}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-60}"
+NODE_BIN="${NODE_BIN:-/usr/bin/node}"
 TRUSTED_KEYS_DIR="${TRUSTED_KEYS_DIR:-/etc/hermitstash/trusted-keys.d}"
 DRY_RUN="${DRY_RUN:-0}"
 FORCE="${FORCE:-0}"
@@ -328,6 +330,24 @@ fi
 log "Updating ${CURRENT} → ${LATEST}"
 acquire_release "$LATEST"
 verify_release "$LATEST"
+
+# The new release's package.json engines.node floor (">=X.Y.Z") is compared
+# with the version of NODE_BIN, the binary hermitstash.service starts (ExecStart),
+# as text; no code from the fetched release runs
+# here. When the installed Node.js is older, the update is rolled back before
+# the restart and the required version is logged. Upgrading Node.js is left to
+# the operator.
+NODE_REQUIRED="$(grep -Eo '"node"[[:space:]]*:[[:space:]]*">=[0-9]+\.[0-9]+\.[0-9]+"' "$INSTALL_DIR/package.json" \
+  | head -1 | sed -E 's/.*">=([^"]+)"$/\1/')"
+NODE_INSTALLED="$({ "$NODE_BIN" -v 2>/dev/null || true; } | sed -E 's/^v//; s/[^0-9.].*$//')"
+if [ -n "$NODE_REQUIRED" ] && { [ -z "$NODE_INSTALLED" ] || version_gt "$NODE_REQUIRED" "$NODE_INSTALLED"; }; then
+  err "${LATEST} requires Node.js ${NODE_REQUIRED} or later; ${NODE_BIN} is ${NODE_INSTALLED:-missing}."
+  if [ -n "$ROLLBACK_REF" ]; then
+    rollback "$ROLLBACK_REF" || err "The rollback command failed. The install directory is in an unknown state."
+  fi
+  err "Upgrade Node.js, then re-run this updater. The running service was not restarted."
+  exit 20
+fi
 
 restart_service
 

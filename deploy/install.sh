@@ -5,7 +5,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/dotCooCoo/hermitstash/main/deploy/install.sh | bash
 #
 # What it does:
-#   1. Installs Node.js 24 (required for PQC / OpenSSL 3.5)
+#   1. Installs Node.js 26 (required for PQC / OpenSSL 3.5)
 #   2. Creates a 'hermit' system user
 #   3. Clones HermitStash to /opt/hermitstash
 #   4. Sets up tmpfs for in-memory database (256MB)
@@ -53,17 +53,14 @@ HERMITSTASH_AUTO_UPDATE="${HERMITSTASH_AUTO_UPDATE:-no}"
 log "Installing HermitStash to ${INSTALL_DIR}"
 echo ""
 
-# ---- Step 1: Node.js 24.22.1+ (24 line) or 26.12.1+ (26 line) ----
+# ---- Step 1: Node.js 26.13.1+ ----
 #
 # HermitStash needs OpenSSL 3.5 PQC bindings (ML-KEM-1024,
-# SLH-DSA-SHAKE-256f, ML-DSA-87) plus the cumulative security patches
-# (24.21.0 fixes the TLS 1.3 no-cert resumption that reported an
-# unauthenticated client as authorized; 24.22.1 and 26.12.1 fix
-# CVE-2026-111497 in the bundled Brotli decoder). Accepted: 24.22.1 or
-# later on the 24 line, 26.12.1 or later on the 26 line, or 27 and later.
-# Odd-numbered lines are refused. server.js applies the same floors, plus
-# an OpenSSL floor, at startup (lib/runtime-floor.js).
-# NodeSource setup_24.x ships current 24.x.
+# SLH-DSA-SHAKE-256f, ML-DSA-87) plus the cumulative security patches,
+# including the fix for CVE-2026-111497 in the bundled Brotli decoder.
+# Accepted: 26.13.1 or later on the 26 line, or 27 and later. server.js
+# applies the same floor, plus an OpenSSL floor, at startup
+# (lib/runtime-floor.js). NodeSource setup_26.x ships current 26.x.
 
 needs_install=false
 if command -v node &>/dev/null; then
@@ -73,8 +70,7 @@ if command -v node &>/dev/null; then
   NODE_PATCH=$(echo "$NODE_VER" | cut -d. -f3 | sed 's/[^0-9].*$//')
   node_ok=false
   case "$NODE_MAJOR" in
-    24) floor_minor=22; floor_patch=1 ;;
-    26) floor_minor=12; floor_patch=1 ;;
+    26) floor_minor=13; floor_patch=1 ;;
     *)  floor_minor=""; floor_patch="" ;;
   esac
   if [ -n "$floor_minor" ]; then
@@ -88,7 +84,7 @@ if command -v node &>/dev/null; then
   if [ "$node_ok" = true ]; then
     log "Node.js v$NODE_VER already installed"
   else
-    warn "Node.js v$NODE_VER found but 24.22.1+ (24 line), 26.12.1+ (26 line) or 27+ is required"
+    warn "Node.js v$NODE_VER found but 26.13.1+ (26 line) or 27+ is required"
     needs_install=true
   fi
 else
@@ -96,8 +92,8 @@ else
 fi
 
 if [ "$needs_install" = true ]; then
-  log "Installing Node.js 24.x..."
-  curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
+  log "Installing Node.js 26.x..."
+  curl -fsSL https://deb.nodesource.com/setup_26.x | bash -
   apt-get install -y nodejs
 fi
 

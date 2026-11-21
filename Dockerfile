@@ -13,7 +13,7 @@
 # digest with:
 #   docker buildx imagetools inspect cgr.dev/chainguard/wolfi-base:latest
 #
-# This digest is COUPLED to the unpinned `nodejs-24` below, which resolves at
+# This digest is COUPLED to the unpinned `nodejs-26` below, which resolves at
 # build time. A newer Node can raise the glibc it links against, and then a base
 # pinned months earlier no longer satisfies it: the build succeeds and the image
 # dies at startup with
@@ -23,7 +23,7 @@
 # digest in the same change, and building the image locally to confirm it starts.
 # The release preflight reports a moved base as advisory, which is not enough on
 # its own when the Node floor moves with it.
-ARG RUNTIME_BASE=cgr.dev/chainguard/wolfi-base@sha256:0b179206ab162b12a43bacea1b525a4023e0272005c92d08555c61b1beaedc40  # wolfi-base 2026-10-26
+ARG RUNTIME_BASE=cgr.dev/chainguard/wolfi-base@sha256:be019c1c74fe69204a42c4e10bc4d886a49bf5403ffa74374ef7baa408fc9a26  # wolfi-base 2026-11-20
 FROM ${RUNTIME_BASE}
 # Chainguard wolfi-base — glibc-dynamic (not musl), continuously rebuilt when
 # upstream CVE fixes land. CVE count at any given digest is typically near-zero;
@@ -36,18 +36,18 @@ FROM ${RUNTIME_BASE}
 # crypto.argon2, so there is no prebuild to match against the base image's libc and
 # the Alpine musl trap doesn't apply here.
 #
-# Node comes from the `nodejs-24` apk package rather than a prebuilt Node image so
+# Node comes from the `nodejs-26` apk package rather than a prebuilt Node image so
 # the runtime stays on the SAME major this project declares in package.json
-# (engines.node) — Node 24 "Krypton", the current Active LTS. A latest-tracking Node
+# (engines.node): Node 26, the current Active LTS line. A latest-tracking Node
 # image silently follows the newest major instead, which puts a Current (non-LTS)
 # release into production: those lines stop receiving security updates months after
 # release. The major is pinned; the patch level is deliberately not, so a wolfi
-# rebuild carrying a 24.x security fix is picked up without a Dockerfile edit. An
-# exact `=24.22.1-r2` pin is NOT used because wolfi's apk repository prunes
+# rebuild carrying a 26.x security fix is picked up without a Dockerfile edit. An
+# exact `=26.13.1-r1` pin is NOT used because wolfi's apk repository prunes
 # superseded versions, which would break rebuilds once that revision ages out.
 #
-# Node 24.22.1+ is required for PQC: ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87
-# (OpenSSL 3.5) plus cumulative 24.x security patches. wolfi's nodejs-24 links
+# Node 26.13.1+ is required for PQC: ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87
+# (OpenSSL 3.5) plus cumulative 26.x security patches. wolfi's nodejs-26 links
 # the system Brotli library rather than Node's bundled copy, so the
 # CVE-2026-111497 fix in this image comes from libbrotlidec1 1.2.1, which the
 # apk line below sets as a floor.
@@ -85,7 +85,7 @@ LABEL org.opencontainers.image.title="HermitStash" \
       org.opencontainers.image.vendor="dotCooCoo"
 
 # Runtime packages:
-#   - nodejs-24: the Node runtime itself (see the base-image notes above for why
+#   - nodejs-26: the Node runtime itself (see the base-image notes above for why
 #     the major is pinned to the Active LTS line and the patch level is not)
 #   - su-exec: drops privileges to hermit and direct-execs node — node
 #     becomes PID 1's successor, signals reach it natively. We originally
@@ -98,14 +98,14 @@ LABEL org.opencontainers.image.title="HermitStash" \
 #     at container start (Unraid/Synology integration — see entrypoint)
 # --no-cache keeps the layer small. Intentionally NOT pinning exact package versions
 # (hadolint DL3018): wolfi's apk repository prunes superseded revisions, so an exact
-# pin turns into a broken build rather than a reproducible one. `nodejs-24` pins the
+# pin turns into a broken build rather than a reproducible one. `nodejs-26` pins the
 # major, which is the part that has to agree with package.json engines.node; the
 # release Trivy gate is what catches a package that has aged into a known CVE.
-# `>=24.22.1` and `>=1.2.1` are floors, not exact pins: the build fails if the
+# `>=26.13.1` and `>=1.2.1` are floors, not exact pins: the build fails if the
 # repository offers only a Node older than the one package.json engines.node
 # requires, or a Brotli library affected by CVE-2026-111497.
 # hadolint ignore=DL3018
-RUN apk add --no-cache "nodejs-24>=24.22.1" "libbrotlidec1>=1.2.1" shadow su-exec
+RUN apk add --no-cache "nodejs-26>=26.13.1" "libbrotlidec1>=1.2.1" shadow su-exec
 
 # Security: non-root user for runtime. PUID/PGID env vars remap UID/GID at
 # runtime via groupmod/usermod (installed above); setpriv then drops privs.

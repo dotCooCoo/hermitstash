@@ -230,7 +230,7 @@ Every field in every table is classified as `seal` (encrypted), `hash` (one-way 
 | Timing attack revealing which candidate matched | Where a presented value is checked against a list — two-factor backup codes, passkey credential lookup — every candidate is compared. A loop of constant-time comparisons that stops at the first match reports the match's position, which for an ordered list narrows which credential was presented |
 | Crash during backup restore | Pre-restore snapshots of vault.key, db.key.enc, hermitstash.db.enc enable rollback if restore is interrupted |
 
-Built on Node.js 24.22.1+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default signature) and ML-DSA-87 (legacy) via OpenSSL 3.5, XChaCha20-Poly1305 and SHAKE256 via vendored blamejs (which bundles @noble/ciphers and @noble/post-quantum), Argon2id via Node 24+'s built-in `crypto.argon2` (no native binding required), WebAuthn via vendored blamejs (which bundles @simplewebauthn/server), and built-in SQLite via `node:sqlite`. Zero npm runtime dependencies.
+Built on Node.js 26.13.1+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default signature) and ML-DSA-87 (legacy) via OpenSSL 3.5, XChaCha20-Poly1305 and SHAKE256 via vendored blamejs (which bundles @noble/ciphers and @noble/post-quantum), Argon2id via Node 24+'s built-in `crypto.argon2` (no native binding required), WebAuthn via vendored blamejs (which bundles @simplewebauthn/server), and built-in SQLite via `node:sqlite`. Zero npm runtime dependencies.
 
 ## Features
 
@@ -572,14 +572,14 @@ cd hermitstash
 docker compose up -d
 ```
 
-Uses `cgr.dev/chainguard/wolfi-base` with Node installed from the `nodejs-24` package — glibc-dynamic, rebuilt continuously by Chainguard when upstream CVE fixes land, so the image's CVE count at any given digest is typically near zero. Pinning the Node *major* keeps the runtime on 24.x "Krypton", the current Active LTS, rather than following whichever major is newest; Current (non-LTS) releases stop receiving security updates months after they ship. Node 24.22.1+ is required for PQC (OpenSSL 3.5) plus cumulative 24.x security patches. The image ships no `npm`, so npm's bundled-dependency CVEs don't apply to it. No config files needed — all dependencies vendored, no `npm install`. Starts with defaults and generates the vault keypair on first run. Configure everything from the admin panel at `/admin` once running.
+Uses `cgr.dev/chainguard/wolfi-base` with Node installed from the `nodejs-26` package — glibc-dynamic, rebuilt continuously by Chainguard when upstream CVE fixes land, so the image's CVE count at any given digest is typically near zero. Pinning the Node *major* keeps the runtime on 26.x, the current Active LTS line, rather than following whichever major is newest; Current (non-LTS) releases stop receiving security updates months after they ship. Node 26.13.1+ is required for PQC (OpenSSL 3.5) plus cumulative 26.x security patches. The image ships no `npm`, so npm's bundled-dependency CVEs don't apply to it. No config files needed — all dependencies vendored, no `npm install`. Starts with defaults and generates the vault keypair on first run. Configure everything from the admin panel at `/admin` once running.
 
 ### Image details
 
 | | |
 |---|---|
 | **Base image** | `cgr.dev/chainguard/wolfi-base` (glibc — continuously rebuilt for CVE fixes), digest-pinned; no `npm` in the image |
-| **Node.js** | 24.22.1+ from the `nodejs-24` package — major pinned to the Active LTS line (required for ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87 via OpenSSL 3.5 + cumulative 24.x security patches). Outside the image, the server starts on 24.22.1 or later on the 24 line, 26.12.1 or later on the 26 line, or 27 and later, with OpenSSL 3.5.9, 3.6.5 or 4.0.3 or later on those lines, or 4.1 and later. On a Node built against the system Brotli library it also requires Brotli 1.2.1 or later |
+| **Node.js** | 26.13.1+ from the `nodejs-26` package — major pinned to the Active LTS line (required for ML-KEM-1024, SLH-DSA-SHAKE-256f, ML-DSA-87 via OpenSSL 3.5 + cumulative 26.x security patches). Outside the image, the server starts on 26.13.1 or later on the 26 line, or 27 and later, with OpenSSL 3.5.9, 3.6.5 or 4.0.3 or later on those lines, or 4.1 and later. On a Node built against the system Brotli library it also requires Brotli 1.2.1 or later |
 | **User** | Runs as `hermit` (non-root) via `su-exec` (installed at build time) — PUID/PGID env vars remap UID/GID at runtime (default 99:100, standard Linux 1000:1000) |
 | **Tmpfs** | `HERMITSTASH_TMPDIR=/dev/shm` — plaintext DB held in memory, never on disk. Set `shm_size: 256m` in compose. Also consider `CHUNK_SCRATCH_DIR=/dev/shm/hermitstash-chunks` for RAM-backed chunked-upload staging. |
 | **Volumes** | `/app/data` (encrypted DB, vault keys, TLS certs), `/app/uploads` (files if using local storage) |
@@ -1008,7 +1008,7 @@ curl -fsSL https://raw.githubusercontent.com/dotCooCoo/hermitstash/main/deploy/i
 # Or with auto-update enabled from the start:
 curl -fsSL https://raw.githubusercontent.com/dotCooCoo/hermitstash/main/deploy/install.sh | sudo HERMITSTASH_AUTO_UPDATE=yes bash
 ```
-Installs Node.js 24, creates a `hermit` system user, sets up tmpfs (256 MiB) for the in-memory database, and registers a systemd service using the checked-in [`deploy/hermitstash.service`](deploy/hermitstash.service) unit. Re-running the script `git pull`s the latest code and restarts the service. See [`deploy/install.sh`](deploy/install.sh). Uninstall with [`deploy/uninstall.sh`](deploy/uninstall.sh) — data is preserved unless you pass `--purge`.
+Installs Node.js 26, creates a `hermit` system user, sets up tmpfs (256 MiB) for the in-memory database, and registers a systemd service using the checked-in [`deploy/hermitstash.service`](deploy/hermitstash.service) unit. Re-running the script `git pull`s the latest code and restarts the service. See [`deploy/install.sh`](deploy/install.sh). Uninstall with [`deploy/uninstall.sh`](deploy/uninstall.sh) — data is preserved unless you pass `--purge`.
 
 **Terraform (DigitalOcean):**
 ```bash
@@ -1044,7 +1044,7 @@ bash deploy/podman.sh
 ```
 Drop-in Docker alternative — works rootless or rootful. Automatically generates a systemd unit via `podman generate systemd` (user unit for rootless, system unit for rootful). Volumes use `:Z` for SELinux relabeling. Pass `AUTO_UPDATE=true` to opt into `podman-auto-update.timer`. See [`deploy/podman.sh`](deploy/podman.sh).
 
-**systemd (manual):** If you already have Node.js 24+ installed, copy [`deploy/hermitstash.service`](deploy/hermitstash.service) to `/etc/systemd/system/` and adjust paths. The unit includes `NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`, and scoped `ReadWritePaths`.
+**systemd (manual):** If you already have Node.js 26.13.1+ installed, copy [`deploy/hermitstash.service`](deploy/hermitstash.service) to `/etc/systemd/system/` and adjust paths. The unit includes `NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`, and scoped `ReadWritePaths`.
 
 ### Upgrading
 

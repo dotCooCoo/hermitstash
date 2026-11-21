@@ -21,7 +21,8 @@
     hermitstash_user: hermit
     hermitstash_dir: /opt/hermitstash
     hermitstash_image: ghcr.io/dotcoocoo/hermitstash:1
-    node_version: "24"
+    node_version: "26"
+    node_floor: "26.13.1"
 
   tasks:
     # ---- Docker deployment ----
@@ -99,12 +100,39 @@
     - name: Native deployment
       when: hermitstash_deploy == "native"
       block:
-        - name: Install Node.js {{ node_version }}
-          shell: |
-            curl -fsSL https://deb.nodesource.com/setup_{{ node_version }}.x | bash -
-            apt-get install -y nodejs
-          args:
-            creates: /usr/bin/node
+        # /usr/bin/node is the binary hermitstash.service starts (ExecStart).
+        - name: Read the installed Node.js version
+          command: /usr/bin/node -v
+          register: node_installed
+          changed_when: false
+          failed_when: false
+
+        - name: Decide whether Node.js needs installing
+          set_fact:
+            node_needs_install: "{{ node_installed.rc != 0 or not (node_installed.stdout | regex_replace('^v', '') is version(node_floor, '>=')) }}"
+
+        - name: Add the NodeSource {{ node_version }}.x repository
+          shell: curl -fsSL https://deb.nodesource.com/setup_{{ node_version }}.x | bash -
+          when: node_needs_install | bool
+
+        - name: Install Node.js {{ node_version }} at its latest patch
+          apt:
+            name: nodejs
+            state: latest
+            update_cache: yes
+          when: node_needs_install | bool
+          notify: restart hermitstash
+
+        - name: Read the Node.js version after the install
+          command: /usr/bin/node -v
+          register: node_after
+          changed_when: false
+
+        - name: Require Node.js {{ node_floor }} or later
+          assert:
+            that:
+              - node_after.stdout | regex_replace('^v', '') is version(node_floor, '>=')
+            fail_msg: "Node.js {{ node_after.stdout }} is installed, but HermitStash requires {{ node_floor }} or later."
 
         - name: Create hermit user
           user:
@@ -119,6 +147,7 @@
             dest: "{{ hermitstash_dir }}"
             version: main
           become_user: "{{ hermitstash_user }}"
+          notify: restart hermitstash
 
         - name: Create data directories
           file:

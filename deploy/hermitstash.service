@@ -6,7 +6,7 @@
 #   sudo systemctl enable --now hermitstash
 #
 # Prerequisites:
-#   - Node.js 24+ installed (for PQC / OpenSSL 3.5 support)
+#   - Node.js 26.13.1+ installed (for PQC / OpenSSL 3.5 support)
 #   - Application at /opt/hermitstash (git clone or copy)
 #   - User 'hermit' created: sudo useradd -r -m -d /opt/hermitstash -s /bin/false hermit
 #   - Data dirs: sudo mkdir -p /opt/hermitstash/{data,uploads}
