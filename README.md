@@ -235,7 +235,7 @@ Built on Node.js 26.13.1+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 ## Features
 
 **Authentication**
-- Argon2id local auth, Google OAuth, Sign in with Tailscale, WebAuthn passkeys — all simultaneous
+- Argon2id local auth, Google sign-in, OpenID Connect, Sign in with Tailscale and WebAuthn passkeys can all be enabled at the same time
 - TOTP 2FA with single-use backup codes — HMAC-SHA-512, 128-byte secret, 8-digit codes (legacy SHA-1 enrollments are forced through a one-time re-pair on next login)
 - Email verification with SHA3-hashed tokens
 - Hybrid KEM encrypted session cookies
@@ -246,7 +246,7 @@ Built on Node.js 26.13.1+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - Password reset flow with single-use, 1-hour-expiry tokens and anti-enumeration (always returns success)
 - User invitation system — admin invites by email with role assignment, 48-hour expiry
 - The server ends a session when it goes `SESSION_IDLE_TIMEOUT` milliseconds without a request or reaches `SESSION_ABSOLUTE_TIMEOUT_MS` milliseconds of age. The defaults are 30 minutes and 12 hours, and the admin settings page can change the idle timeout. The server deletes ended sessions every hour.
-- OAuth 2.0 PKCE + CSRF state validation on the Google sign-in callback
+- Google and OpenID Connect sign-in check a signed id_token, a nonce, PKCE (S256) and a single-use state
 - Sign in with Tailscale (opt-in) — tailnet members authenticate via the `tailscale serve` identity headers (`Tailscale-User-*` / `Tailscale-App-Capabilities`), trusted only from the loopback serve proxy and stripped from every other peer. Account creation is admin-gated: a tailnet user is auto-provisioned only when they carry a required capability grant or are on an allowlist. Under Funnel a public visitor carries no identity and falls back to the other sign-in methods
 - Password change automatically revokes all other sessions
 
@@ -259,6 +259,7 @@ Built on Node.js 26.13.1+ (LTS) with ML-KEM-1024, SLH-DSA-SHAKE-256f (default si
 - Email-gated access — restrict bundles to specific recipient emails, verified by one-time code (anti-enumeration, rate limited, SHA3-hashed codes)
 - Dual protection mode — require both email verification and password for maximum security
 - Custom expiry per bundle (1d, 7d, 30d, 90d, never)
+- Limited-download bundles: each file can be downloaded once (burn after read) or up to a set number of times, then it is deleted. See [Limited-download bundles](#limited-download-bundles)
 - Bundle messages, multiple recipient emails
 - Bundle naming — name bundles during upload, rename inline from dashboard
 - Inline rename for files and bundles with backend-enforced sanitization (dot attack protection, path traversal prevention, extension preservation)
@@ -472,6 +473,72 @@ When the migration runs, the superseded CA cert is retained at `data/ca.prev.crt
 | `MTLS_BROWSER_CA_KEY` / `MTLS_BROWSER_CA_CERT` | under `data/` | Point the browser CA private key / cert at absolute paths. |
 
 Browser certs are unaffected by any sync-CA migration, pin, or regeneration.
+
+## Limited-download bundles
+
+A sender can limit how many times each file in a bundle can be downloaded. Choose **Download limit** on the upload form, or send `readLimit` in the `POST /drop/init` body. A limit of 1 deletes each file after its first download. A larger limit deletes each file after that many downloads. The limit applies to each file separately.
+
+- A limited-download bundle needs an expiry. The upload is refused when no expiry applies.
+- Only snapshot bundles take a limit. Sync bundles and uploads to a stash page are refused.
+- The highest limit a sender can choose is `MAX_BURN_READS` (default 10, at most 100). An admin can also change it in **Admin → Settings**.
+
+What a recipient sees:
+
+- The bundle page lists each file with the number of downloads it has left. Reading the page does not count as a download.
+- Opening a file link shows a confirmation page. The download starts only when the recipient presses **Download**, which sends a POST with a CSRF token. A link preview, a prefetch or a `HEAD` request does not use up a download. A `HEAD` request returns 405.
+- A download counts only after the server has written the whole file to the connection. If the recipient's connection drops part-way, the download is not counted and they can try again.
+- While one download of a file is running, a second request for the same file returns 409.
+- The whole file is always sent. A `Range` header is ignored.
+- Previews, **Download All as ZIP** and folder ZIP downloads are not available for these bundles. The sync API refuses to download these files.
+- After the last download of the last file, the share link shows the same "expired" page (HTTP 410) that an expired bundle shows, until the bundle's expiry passes.
+
+Storage:
+
+- These files are kept in `<data dir>/burn-stash` on local disk, even when `STORAGE_BACKEND=s3`. Each file is split into 64 KiB chunks, and each chunk is encrypted with XChaCha20-Poly1305 under the file's key. The chunk index and a final-chunk flag are bound into each chunk's authentication data, so a reordered, dropped or truncated chunk fails authentication. A file that fails authentication is not counted as downloaded.
+- The stored size of each file is its size plus 1 MiB plus 4 bytes, plus 46 bytes for each chunk of up to 64 KiB (an empty file counts as one chunk). The storage quota, the per-user limit and the per-IP limit count this stored size. The file size shown to senders and recipients, and the stash `maxBundleSize`, count the original size.
+- Backups do not include this directory, and storage migration does not move these files. After a restore, the bundles' download links return 410.
+- If the server stops during a download, that download is not counted. After a restart the file can be downloaded again once 10 minutes have passed since the interrupted download started.
+- The hourly `burn_store_cleanup` job deletes expired files, removes records of files whose downloads have run out, and removes used-up bundles once their expiry has passed.
+
+The audit log records `bundle_burn_read` for each counted download, `bundle_burned` when a file's last download is used, `bundle_burn_destroyed` when the sender deletes a file early, and `bundle_burn_expired` for the cleanup job.
+
+## Sign in with OpenID Connect
+
+HermitStash can sign users in through any OpenID Connect provider that publishes a discovery document, such as Keycloak, Authentik or Authelia. The feature is off by default. Configure it in **Admin → Settings → Auth**, or with environment variables. Settings saved in the admin panel take effect without a restart.
+
+| Env var | Default | Effect |
+|---|---|---|
+| `OIDC_ENABLED` | `false` | Shows the sign-in button and accepts OpenID Connect sign-ins. |
+| `OIDC_ISSUER` | empty | The issuer URL. HermitStash reads `<issuer>/.well-known/openid-configuration` and refuses a document whose `issuer` differs. |
+| `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | empty | The client registered at the provider. |
+| `OIDC_CALLBACK_URL` | `<RP_ORIGIN>/auth/oidc/callback` | The redirect URI registered at the provider. |
+| `OIDC_BUTTON_LABEL` | `Sign in with SSO` | The text on the login and register pages (60 characters at most). |
+| `OIDC_SCOPES` | `openid email profile` | Space- or comma-separated scopes. `openid` is always sent. |
+| `OIDC_AUTO_PROVISION` | `false` | Creates an account on first sign-in. It requires `OIDC_ALLOWLIST` or `OIDC_REQUIRED_GROUP`. With neither set, the server does not start and the admin panel does not save the settings. |
+| `OIDC_ALLOWLIST` | empty | Comma-separated email addresses that may be provisioned. |
+| `OIDC_GROUPS_CLAIM` | `groups` | The claim that holds the user's groups. A dotted path such as `realm_access.roles` reads a nested claim. |
+| `OIDC_REQUIRED_GROUP` | empty | Users outside this group cannot sign in. When a user loses the group, their next sign-in attempt is refused and their existing sessions are ended. |
+| `OIDC_ADMIN_GROUP` | empty | Members get the admin role and non-members lose it at each sign-in. The last active admin is never demoted. A demotion ends the user's other sessions. |
+| `OIDC_ALLOW_INTERNAL` | empty | Comma-separated IP ranges in CIDR form (for example `10.0.0.0/8`). Each range must lie inside a private (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `fc00::/7`), shared (`100.64.0.0/10`), loopback or link-local block. The issuer may use plain `http` only when its host is an IP address inside one of these ranges. |
+
+On each sign-in, HermitStash checks the id_token signature against the provider's JWKS and checks the token's issuer, audience, expiry and nonce. It uses PKCE with S256. A provider that does not offer S256 cannot be used. The token must be signed with an RSA or ECDSA algorithm; EdDSA-signed tokens are refused.
+
+**Accounts.** An account is bound to the provider's issuer and `sub` claim. On the first sign-in, an existing account with the same email address is linked when the provider reports `email_verified` as the boolean `true`. A pending account, a suspended account, and an account already linked to a different identity are refused. A linked account keeps its own sign-in method and display name. Each link is written to the audit log as `oidc_account_linked`. `ALLOWED_DOMAINS` applies to OpenID Connect sign-ins as it does to Google. An OpenID Connect account is never made admin by being the first user; use `OIDC_ADMIN_GROUP`.
+
+**Groups.** When the token and the userinfo endpoint both omit the groups claim, HermitStash leaves the user's role unchanged and refuses the sign-in if `OIDC_REQUIRED_GROUP` is set.
+
+**Plain-http issuers.** With an `http` issuer inside `OIDC_ALLOW_INTERNAL`, every request the client makes, including to the token, userinfo and JWKS endpoints, must go to the issuer's host. Avatars are shown only from hosts that the Content Security Policy allows, which by default are Google's.
+
+**Provider notes.** At every provider, register `<RP_ORIGIN>/auth/oidc/callback` (or your `OIDC_CALLBACK_URL`) as the redirect URI, create a confidential client, and allow the `openid email profile` scopes. HermitStash sends the client secret in the body of the token request (`client_secret_post`). When the id_token omits `email` or the groups claim, HermitStash reads it from the userinfo endpoint.
+
+- **Keycloak:** use `https://<host>/realms/<realm>` as the issuer. To send groups, add a Group Membership mapper to the client with Token Claim Name `groups` and "Full group path" turned off. "Full group path" is on by default and sends paths such as `/top/level1` instead of group names. To use realm roles instead, set `OIDC_GROUPS_CLAIM=realm_access.roles` and turn on "Add to ID token" or "Add to userinfo" on the "realm roles" mapper of the `roles` client scope. By default that mapper adds the roles to the access token only, and HermitStash does not read the access token.
+- **Authentik:** use `https://<host>/application/o/<slug>/` as the issuer, with the trailing slash. Create an OAuth2/OpenID provider with Client Type set to Confidential. The default `profile` scope mapping emits `groups` with the names of the user's Authentik groups.
+- **Authelia:** use the Authelia root URL, for example `https://auth.example.com`, as the issuer. Add a client under `identity_providers.oidc.clients` with `redirect_uris` set to the callback URL, `scopes: [openid, email, profile, groups]`, `token_endpoint_auth_method: client_secret_post`, and `require_pkce: true` with `pkce_challenge_method: S256`. Authelia defaults to `client_secret_basic` and rejects a token request that uses a different method than the one registered. Add `groups` to `OIDC_SCOPES` (`openid email profile groups`), since Authelia emits the `groups` claim only for that scope. By default Authelia returns `email`, `email_verified` and `groups` from the userinfo endpoint rather than in the id_token.
+- **Pocket ID:** use the Pocket ID `APP_URL`, for example `https://id.example.com`, as the issuer. Create an OIDC client with Client type set to Confidential and the callback URL under Callback URLs. On the client's Access tab, select the user groups whose members may sign in, or All Users. A new client lets no one sign in until you do this. Pocket ID emits the `groups` claim when the `groups` scope is requested, so set `OIDC_SCOPES=openid email profile groups`. The claim carries group names, not the friendly names shown in the admin UI.
+- **VoidAuth:** use `https://<host>/oidc` as the issuer; VoidAuth shows it as the OIDC Issuer Endpoint in the OIDC info panel on its OIDC App page. Create an OIDC App with the callback URL under Redirect URLs and Auth Method set to Client Secret Post. Auth Method defaults to `client_secret_basic`. VoidAuth emits `groups` when the `groups` scope is requested, so set `OIDC_SCOPES=openid email profile groups`.
+- **Microsoft Entra ID:** not supported. HermitStash links and creates accounts only from an email address the provider reports with `email_verified` set to `true`, and Entra does not include `email_verified` in its ID token or userinfo response. An Entra sign-in is refused, and the audit log records the reason `no-verified-email`.
+
+**Google sign-in.** Google sign-in runs through the same OpenID Connect code and still uses `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. It requires a signed id_token with a nonce and PKCE, and it treats only a boolean `email_verified: true` as verified. The `googleId` stored for each account is the id_token `sub`, so existing Google accounts continue to sign in. HermitStash does not request offline access from Google.
 
 ## Sign in with Tailscale
 
@@ -1335,7 +1402,7 @@ Public upload endpoints accept API key authentication. When authenticated, uploa
 | Endpoint | Description |
 |----------|-------------|
 | `GET  /.well-known/blamejs-pubkey` | Server keypair for the blamejs apiEncrypt envelope. Plain JSON `{publicKey, ecPublicKey, kemId, cipherId, kdfId}`. No auth, no encryption. Cache at the client; re-fetch only when the server keypair rotates |
-| `POST /drop/init` | Initialize a bundle. **Blamejs-encrypted.** Decrypted body: `{ uploaderName, uploaderEmail, password, message, bundleName, expiryDays, fileCount, ... }`. Decrypted response: `{ bundleId, shareId, finalizeToken }`. `fileCount` and `skippedCount` are whole numbers. `skippedFiles` is a list of `{ path, reason }`, and the server keeps its first 50 entries. `allowedEmails` holds at most 100 comma-separated addresses, and an invalid address is refused with 400. A `bundleType` of `sync` needs a signed-in user or an API key, and an API key bound to a stash or a bundle is refused with 403 |
+| `POST /drop/init` | Initialize a bundle. **Blamejs-encrypted.** Decrypted body: `{ uploaderName, uploaderEmail, password, message, bundleName, expiryDays, readLimit, fileCount, ... }`. `readLimit` is optional: 0 or absent for no limit, or 1 to `MAX_BURN_READS` for a limited-download bundle. Decrypted response: `{ bundleId, shareId, finalizeToken }`. `fileCount` and `skippedCount` are whole numbers. `skippedFiles` is a list of `{ path, reason }`, and the server keeps its first 50 entries. `allowedEmails` holds at most 100 comma-separated addresses, and an invalid address is refused with 400. A `bundleType` of `sync` needs a signed-in user or an API key, and an API key bound to a stash or a bundle is refused with 403 |
 | `POST /drop/file/:bundleId` | Upload a file (multipart/form-data, field: `file`). Body bypasses encryption (multipart not JSON). Response is plaintext JSON for Bearer clients |
 | `POST /drop/chunk/:bundleId` | Upload a chunk for large files (multipart, fields: `chunk`, `filename`, `chunkIndex`, `totalChunks`). Same encryption shape as `/drop/file/:bundleId` |
 | `POST /drop/finalize/:bundleId` | Finalize the bundle. **Blamejs-encrypted.** Decrypted body: `{ finalizeToken }`. Decrypted response: `{ success, shareId, shareUrl, emailSent }`. Finalizing a bundle that is already complete returns its share link only to the bundle's owner or to a caller that sends its `finalizeToken`, and any other caller gets 404 |
@@ -1513,13 +1580,15 @@ Managed via `scripts/vendor-update.sh`:
 
 ```bash
 ./scripts/vendor-update.sh blamejs                # refresh the framework bundle
+./scripts/vendor-update.sh @blamejs/stash         # refresh the limited-download store
 ./scripts/vendor-update.sh --check                # see what's outdated (browser bundles)
 ./scripts/vendor-update.sh --diff @noble/ciphers  # see changelog (browser bundles)
 ```
 
 | Vendored | Version | Author | Purpose |
 |----------|---------|--------|---------|
-| [`blamejs`](https://github.com/blamejs/blamejs) | 0.21.8 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, and envelope-bound field crypto. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
+| [`blamejs`](https://github.com/blamejs/blamejs) | 0.21.9 | blamejs contributors (Apache-2.0) | Server-side framework: XChaCha20-Poly1305, ML-KEM-1024, ML-DSA-87, SLH-DSA-SHAKE-256f, Argon2id (Node 24+ built-in), WebAuthn, mTLS CA, envelope versioning, audit chain, and envelope-bound field crypto. Bundles every server-side crypto/identity dep transitively (see `lib/vendor/MANIFEST.json` `packages.blamejs.components`) |
+| [`@blamejs/stash`](https://github.com/blamejs/stash) | 2.3.0 | blamejs contributors (Apache-2.0) | The store behind limited-download bundles: per-file read budgets, expiry, and one download at a time per file. Vendored at `lib/vendor/stash/` from the npm registry tarball, checked against its published sha512, and loaded through `lib/stash-shim.js` |
 | [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) (browser only) | 2.4.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | XChaCha20-Poly1305 in the browser vault + outbox flows |
 | [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) (browser only) | 2.4.0 | [Paul Miller](https://github.com/paulmillr) (MIT) | SHAKE256 KDF in the browser |
 | [`@noble/post-quantum`](https://github.com/paulmillr/noble-post-quantum) (browser only) | 0.7.1 | [Paul Miller](https://github.com/paulmillr) (MIT) | ML-KEM-1024 in the browser vault flow |
@@ -1567,7 +1636,8 @@ lib/
   sanitize-svg.js     SVG sanitizer (strips scripts, events, dangerous tags)
   totp.js             TOTP generation/verification (HMAC-SHA-512 default,
                       legacy HMAC-SHA-1 verification retained), backup codes
-  google-auth.js      Google OAuth2 (OpenID Connect, CSRF state)
+  oidc.js             Google and OpenID Connect sign-in (id_token, PKCE, nonce)
+  oidc-policy.js      OpenID Connect settings validation
   constants.js        Paths, versions, theme, hash prefixes, time constants
   zip.js              ZIP writer with Deflate compression
   expiry.js           File expiry cleanup

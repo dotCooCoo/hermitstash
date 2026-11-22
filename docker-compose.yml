@@ -102,6 +102,22 @@ services:
       GOOGLE_CLIENT_ID: ""
       GOOGLE_CLIENT_SECRET: ""
 
+      # OpenID Connect single sign-on (off by default). Register
+      # <RP_ORIGIN>/auth/oidc/callback as the redirect URI at the provider.
+      OIDC_ENABLED: "false"
+      OIDC_ISSUER: ""                  # e.g. https://auth.example.com/realms/home
+      OIDC_CLIENT_ID: ""
+      OIDC_CLIENT_SECRET: ""
+      OIDC_CALLBACK_URL: ""            # defaults to <RP_ORIGIN>/auth/oidc/callback
+      OIDC_BUTTON_LABEL: "Sign in with SSO"
+      OIDC_SCOPES: "openid email profile"
+      OIDC_AUTO_PROVISION: "false"     # requires OIDC_ALLOWLIST or OIDC_REQUIRED_GROUP
+      OIDC_ALLOWLIST: ""
+      OIDC_GROUPS_CLAIM: "groups"
+      OIDC_REQUIRED_GROUP: ""
+      OIDC_ADMIN_GROUP: ""
+      OIDC_ALLOW_INTERNAL: ""          # e.g. 10.0.0.0/8
+
       # SMTP — leave empty to disable email
       SMTP_HOST: ""                    # e.g. smtp.gmail.com
       SMTP_PORT: "587"
@@ -114,6 +130,7 @@ services:
       STORAGE_BACKEND: local           # "local" or "s3"
       UPLOAD_DIR: /app/uploads
       MAX_FILE_SIZE: "104857600"       # 100MB in bytes
+      MAX_BURN_READS: "10"             # highest download limit per file (1 to 100)
 
       # S3 — only when STORAGE_BACKEND=s3
       S3_BUCKET: ""

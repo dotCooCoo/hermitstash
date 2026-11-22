@@ -50,6 +50,7 @@ module.exports = b.middleware.botGuard({
     "/stash/",          // stash upload portal POST handlers (Bearer or session)
     "/.well-known/",    // RFC-defined paths (blamejs-pubkey, apple-app-site-assn)
     "/auth/google",     // OAuth callback (no browser session yet)
+    "/auth/oidc",       // OpenID Connect start + callback (a redirect from the identity provider)
     "/auth/tailscale",  // Tailscale SSO — identity from the peer-gated serve headers, no browser session yet
     "/files/",          // sync client file download (Bearer + mTLS)
     "/admin/",          // admin APIs (Bearer + admin scope — auth is the gate, not fingerprint)

@@ -5,7 +5,7 @@ var config = require("../lib/config");
 var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
 var usersRepo = require("../app/data/repositories/users.repo");
-var { getAuthUrl, exchangeCode, generateState } = require("../lib/google-auth");
+var oidc = require("../lib/oidc");
 var emailService = require("../app/domain/integrations/email.service");
 var { send, host } = require("../middleware/send");
 var { emitError } = require("../middleware/respond-error");
@@ -19,45 +19,35 @@ var { validateToken } = require("../app/security/csrf-policy");
 var { AppError, ValidationError, AuthenticationError, ForbiddenError } = require("../app/shared/errors");
 
 module.exports = function (app) {
-  // Google OAuth
-  app.get("/auth/google", (req, res) => {
+  // Google sign-in runs on lib/oidc: PKCE, state, nonce and a verified
+  // id_token. The pending state lives in req.session.oauthState, is single-use
+  // and expires after 5 minutes.
+  app.get("/auth/google", async (req, res) => {
     if (!config.google.clientID) {
       audit.log(audit.ACTIONS.AUTH_FAILED_PAGE, { details: "Google OAuth not configured (no Client ID)", req: req });
       return send(res, "error", { title: "Not Configured", message: "Google OAuth is not set up. Add a Client ID in Admin Settings.", user: null }, 500);
     }
-    var state = generateState();
-    // PKCE: generate a verifier now, keep it session-side, and send only its S256
-    // challenge on the authorization request (RFC 7636 / OAuth 2.1).
-    var pkce = b.auth.oauth.generatePkce();
-    // Bind a creation timestamp so a captured state can't be replayed across a
-    // long-lived session window (state is single-use and expires in 5 minutes).
-    req.session.oauthState = { value: state, ts: Date.now(), verifier: pkce.verifier };
-    var url = getAuthUrl(state, req, pkce.challenge);
-    res.redirect(url);
+    try {
+      oidc.redirectToProvider(res, await oidc.startLogin("google", req));
+    } catch (err) {
+      var reason = oidc.auditReason(err);
+      logger.error("Google sign-in could not start", { reason: reason });
+      audit.log(audit.ACTIONS.AUTH_FAILED_PAGE, { details: "Google sign-in could not start: " + reason, req: req });
+      send(res, "error", { title: "Sign-in Unavailable", message: "Google sign-in could not be started. The server log has the reason.", user: null }, 502);
+    }
   });
 
   app.get("/auth/google/callback", rateLimit.guard({ max: 10, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
     try {
-      var code = req.query.code;
-      if (!code) {
-        logger.error("Google callback: no code", { error: "Missing code parameter" });
-        return res.redirect("/auth/failed");
+      var identity = await oidc.completeLogin("google", req);
+      if (!identity.email) {
+        var unverified = new Error("Google email not verified");
+        unverified.oidcReason = "email-not-verified";
+        throw unverified;
       }
-
-      // Verify state to prevent CSRF: constant-time value match + freshness.
-      var st = req.session.oauthState;
-      var stateOk = !!st && !!req.query.state &&
-        b.crypto.timingSafeEqual(String(req.query.state), String(st.value || ""));
-      var fresh = !!st && (Date.now() - (st.ts || 0)) <= C.TIME.minutes(5);
-      if (!stateOk || !fresh) {
-        delete req.session.oauthState;
-        audit.log(audit.ACTIONS.AUTH_FAILED_PAGE, { details: "OAuth state mismatch or expired (CSRF protection)", req: req });
-        return res.redirect("/auth/failed");
-      }
-      var codeVerifier = st.verifier;
-      delete req.session.oauthState;
-
-      var profile = await exchangeCode(code, req, codeVerifier);
+      // googleId is the id_token sub, the same value the userinfo endpoint
+      // reported as `sub` before, so existing accounts keep matching.
+      var profile = { googleId: identity.sub, email: identity.email, displayName: identity.displayName, avatar: identity.avatar };
 
       var result = authService.resolveGoogleUser(profile, config.allowedDomains);
       var user = result.user;
@@ -78,8 +68,88 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.LOGIN_SUCCESS, { targetId: user._id, targetEmail: user.email, details: "authType: google", req: req });
       res.redirect("/dashboard");
     } catch (err) {
-      logger.error("Auth error", { error: err.message || String(err) });
-      audit.log(audit.ACTIONS.AUTH_FAILED_PAGE, { details: "Google callback error: " + (err.message || String(err)), req: req });
+      // The reason is a fixed string (lib/oidc auditReason) or the message of a
+      // refusal raised by the auth service. A provider response body never
+      // reaches the log.
+      var reason = err && err.oidcReason ? oidc.auditReason(err) : (err && err.isAppError ? String(err.message).slice(0, 120) : "callback failed");
+      logger.error("Google sign-in failed", { reason: reason });
+      audit.log(audit.ACTIONS.AUTH_FAILED_PAGE, { details: "Google callback error: " + reason, req: req });
+      res.redirect("/auth/failed");
+    }
+  });
+
+  // Generic OpenID Connect sign-in (Keycloak, Authentik, Authelia and other
+  // conforming providers). Like the Google callback, these are GET
+  // navigations from the provider; state, PKCE and the nonce bind the
+  // callback to the browser that started the login.
+  app.get("/auth/oidc", rateLimit.guard({ max: 30, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
+    if (!oidc.isEnabled()) {
+      audit.log(audit.ACTIONS.AUTH_FAILED_PAGE, { details: "OpenID Connect not configured", req: req });
+      return send(res, "error", { title: "Not Configured", message: "Single sign-on is not set up. Configure OpenID Connect in Admin Settings.", user: null }, 500);
+    }
+    try {
+      oidc.redirectToProvider(res, await oidc.startLogin("oidc", req));
+    } catch (err) {
+      var reason = oidc.auditReason(err);
+      logger.error("OpenID Connect sign-in could not start", { reason: reason });
+      audit.log(audit.ACTIONS.AUTH_FAILED_PAGE, { details: "OpenID Connect sign-in could not start: " + reason, req: req });
+      send(res, "error", { title: "Sign-in Unavailable", message: "Single sign-on could not be started. The server log has the reason.", user: null }, 502);
+    }
+  });
+
+  app.get("/auth/oidc/callback", rateLimit.guard({ max: 10, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
+    var identity = null;
+    try {
+      if (!oidc.isEnabled()) {
+        var off = new Error("OpenID Connect not configured");
+        off.oidcReason = "not-configured";
+        throw off;
+      }
+      var policy = config.oidc;
+      identity = await oidc.completeLogin("oidc", req, { needGroups: !!(policy.requiredGroup || policy.adminGroup) });
+      var result = authService.resolveOidcUser(identity, {
+        allowedDomains: config.allowedDomains,
+        autoProvision: policy.autoProvision,
+        allowlist: policy.allowlist,
+        requiredGroup: policy.requiredGroup,
+        adminGroup: policy.adminGroup,
+      });
+      var user = result.user;
+      if (result.isNew) {
+        audit.log(audit.ACTIONS.USER_REGISTERED, { targetId: user._id, targetEmail: user.email, details: "authType: oidc, role: " + user.role, req: req });
+      }
+      if (result.linked) {
+        audit.log(audit.ACTIONS.OIDC_ACCOUNT_LINKED, { targetId: user._id, targetEmail: user.email, details: "Linked to an OpenID Connect identity by verified email (account authType: " + (user.authType || "unknown") + ")", req: req });
+      }
+      if (result.roleChange) {
+        audit.log(audit.ACTIONS.USER_ROLE_CHANGED, { targetId: user._id, targetEmail: user.email, details: result.roleChange.from + " -> " + result.roleChange.to + " (OpenID Connect admin group)", req: req });
+      }
+      if (result.roleSyncRefused) {
+        audit.log(audit.ACTIONS.OIDC_ROLE_SYNC_REFUSED, { targetId: user._id, targetEmail: user.email, details: "Not in the admin group, but kept as admin because it is the last active admin", req: req });
+      }
+      // A demotion ends the account's other sessions. This request's session
+      // is replaced by the login below.
+      if (result.revokeSessions) await sessionService.revokeUser(user._id);
+
+      var outcome = await sessionService.completeLogin(req, user._id);
+      if (outcome.requires2fa) return res.redirect("/2fa");
+      audit.log(audit.ACTIONS.LOGIN_SUCCESS, { targetId: user._id, targetEmail: user.email, details: "authType: oidc", req: req });
+      res.redirect("/dashboard");
+    } catch (err) {
+      var reason = oidc.auditReason(err);
+      if (err && err.oidcReason === "provision-denied") {
+        audit.log(audit.ACTIONS.OIDC_PROVISION_DENIED, { targetEmail: identity && identity.email ? identity.email : undefined, details: "No account and provisioning did not allow one", req: req });
+      } else if (err && err.oidcReason === "group-denied") {
+        audit.log(audit.ACTIONS.OIDC_GROUP_DENIED, { targetId: err.revokeUserId || undefined, targetEmail: identity && identity.email ? identity.email : undefined, details: "Required group missing", req: req });
+      }
+      // A refusal of an account bound to this identity (required group or
+      // domain no longer satisfied) also ends its existing sessions.
+      if (err && err.revokeUserId) {
+        try { await sessionService.revokeUser(err.revokeUserId); }
+        catch (revokeErr) { logger.error("OpenID Connect: session revocation failed", { error: revokeErr && revokeErr.code ? revokeErr.code : "unknown" }); }
+      }
+      logger.error("OpenID Connect sign-in failed", { reason: reason });
+      audit.log(audit.ACTIONS.AUTH_FAILED_PAGE, { details: "OpenID Connect callback error: " + reason, req: req });
       res.redirect("/auth/failed");
     }
   });
@@ -128,9 +198,10 @@ module.exports = function (app) {
     if (req.user) return res.redirect("/dashboard");
     var tailscaleAuth = !!(config.tailscale.enabled && config.tailscale.ssoEnabled);
     // Must have at least one auth method enabled
-    var hasAnyAuth = config.localAuth || config.passkeyEnabled || !!config.google.clientID || tailscaleAuth;
+    var oidcAuth = oidc.isEnabled();
+    var hasAnyAuth = config.localAuth || config.passkeyEnabled || !!config.google.clientID || tailscaleAuth || oidcAuth;
     if (!hasAnyAuth) return send(res, "error", { title: "No Auth Methods", message: "No authentication methods are configured. Contact the administrator.", user: null }, 503);
-    send(res, "login", { user: null, error: null, localAuth: config.localAuth, googleAuth: !!config.google.clientID, tailscaleAuth: tailscaleAuth, registrationOpen: config.registrationOpen && config.localAuth, passkeyEnabled: config.passkeyEnabled });
+    send(res, "login", { user: null, error: null, localAuth: config.localAuth, googleAuth: !!config.google.clientID, oidcAuth: oidcAuth, oidcButtonLabel: config.oidc.buttonLabel || "Sign in with SSO", tailscaleAuth: tailscaleAuth, registrationOpen: config.registrationOpen && config.localAuth, passkeyEnabled: config.passkeyEnabled });
   });
 
   var loginLimiter = rateLimit.guard({ max: 15, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" });
@@ -253,7 +324,7 @@ module.exports = function (app) {
   app.get("/auth/register", (req, res) => {
     if (!config.localAuth || !config.registrationOpen) return send(res, "error", { title: "Disabled", message: "Registration is closed.", user: null }, 403);
     if (req.user) return res.redirect("/dashboard");
-    send(res, "register", { user: null, error: null, googleAuth: !!config.google.clientID });
+    send(res, "register", { user: null, error: null, googleAuth: !!config.google.clientID, oidcAuth: oidc.isEnabled(), oidcButtonLabel: config.oidc.buttonLabel || "Sign in with SSO" });
   });
 
   app.post("/auth/register", rateLimit.guard({ max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async (req, res) => {

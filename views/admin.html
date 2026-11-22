@@ -437,6 +437,59 @@
           </div>
           <div class="settings-divider"></div>
           <div class="settings-field">
+            <label class="settings-label">OpenID Connect <span class="settings-hint">sign in through Keycloak, Authentik, Authelia or another OpenID Connect provider</span></label>
+            <label class="toggle"><input type="checkbox" id="s-oidcEnabled" data-key="oidcEnabled"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">OIDC Issuer URL <span class="settings-hint">must match the issuer in the provider's discovery document exactly. https is required unless the host is an IP address inside an allowed internal range</span></label>
+            <input type="text" class="text-input" id="s-oidcIssuer" data-key="oidcIssuer" placeholder="https://sso.example.com/realms/main">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">OIDC Client ID</label>
+            <input type="text" class="text-input" id="s-oidcClientID" data-key="oidcClientID">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">OIDC Client Secret <span class="settings-hint">leave empty for a public client</span></label>
+            <input type="password" class="text-input" id="s-oidcClientSecret" data-key="oidcClientSecret">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">OIDC Callback URL <span class="settings-hint">register this redirect URI at the provider. Empty uses the RP Origin followed by /auth/oidc/callback</span></label>
+            <input type="text" class="text-input" id="s-oidcCallbackURL" data-key="oidcCallbackURL" placeholder="https://stash.example.com/auth/oidc/callback">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">OIDC Button Label</label>
+            <input type="text" class="text-input" id="s-oidcButtonLabel" data-key="oidcButtonLabel" placeholder="Sign in with SSO">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">OIDC Scopes <span class="settings-hint">space- or comma-separated; openid is always requested</span></label>
+            <input type="text" class="text-input" id="s-oidcScopes" data-key="oidcScopes" placeholder="openid email profile">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">OIDC Auto-provision <span class="settings-hint">create an account on first sign-in for a user on the allowlist or in the required group. Needs one of the two</span></label>
+            <label class="toggle"><input type="checkbox" id="s-oidcAutoProvision" data-key="oidcAutoProvision"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">OIDC Allowlist <span class="settings-hint">verified email addresses that may be auto-provisioned (comma-separated)</span></label>
+            <input type="text" class="text-input" id="s-oidcAllowlist" data-key="oidcAllowlist" placeholder="alice@example.com, bob@example.com">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">OIDC Groups Claim <span class="settings-hint">claim that lists the user's groups; a dotted path such as realm_access.roles also works</span></label>
+            <input type="text" class="text-input" id="s-oidcGroupsClaim" data-key="oidcGroupsClaim" placeholder="groups">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">OIDC Required Group <span class="settings-hint">when set, every sign-in requires this group, and removing a user from it ends their sessions at their next sign-in attempt</span></label>
+            <input type="text" class="text-input" id="s-oidcRequiredGroup" data-key="oidcRequiredGroup">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">OIDC Admin Group <span class="settings-hint">when set, linked accounts become admins while in this group and lose admin when removed, at each sign-in. The last active admin is never demoted</span></label>
+            <input type="text" class="text-input" id="s-oidcAdminGroup" data-key="oidcAdminGroup">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">OIDC Allowed Internal Ranges <span class="settings-hint">private address ranges the provider may be reached on, in CIDR form (comma-separated). Needed for a provider on a LAN address</span></label>
+            <input type="text" class="text-input" id="s-oidcAllowInternal" data-key="oidcAllowInternal" placeholder="10.0.0.5/32">
+          </div>
+          <div class="settings-divider"></div>
+          <div class="settings-field">
             <label class="settings-label">Allowed Domains <span class="settings-hint">comma-separated, leave empty to allow all</span></label>
             <input type="text" class="text-input" id="s-allowedDomains" data-key="allowedDomains" placeholder="hermitstash.com">
           </div>
@@ -586,6 +639,10 @@
           <div class="settings-field">
             <label class="settings-label">Retry Attempts <span class="settings-hint">per file</span></label>
             <input type="number" class="text-input" id="s-uploadRetries" data-key="uploadRetries" min="0" max="5">
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Highest Download Limit <span class="settings-hint">per file, for limited-download bundles (1 to 100)</span></label>
+            <input type="number" class="text-input" id="s-maxBurnReads" data-key="maxBurnReads" min="1" max="100">
           </div>
           <div class="settings-divider"></div>
           <div class="settings-field">
@@ -1706,8 +1763,8 @@ function loadBundles(page){
 var tabFields={
   branding:['siteName','customLogo','landingEnabled','heroTitle','heroSubtitle','dropTitle','dropSubtitle','showMaintainerSupport','maintenanceMode','announcementBanner','analyticsScript','analyticsCspDomains'],
   general:['port','sessionSecret'],
-  auth:['localAuth','registrationOpen','enforceMtls','googleClientID','googleClientSecret','allowedDomains','tailscaleEnabled','tailscaleSso','tailscaleSsoAllowlist','tailscaleSsoGrant','tailscaleHostnameAutoConfig','tailscaleSocket','emailVerification','passkeyEnabled','rpName','rpId','rpOrigin'],
-  uploads:['publicUpload','maxFileSize','publicMaxFiles','publicMaxBundleSize','perUserQuotaBytes','publicIpQuotaBytes','uploadTimeout','uploadConcurrency','uploadRetries','allowedExtensions'],
+  auth:['localAuth','registrationOpen','enforceMtls','googleClientID','googleClientSecret','oidcEnabled','oidcIssuer','oidcClientID','oidcClientSecret','oidcCallbackURL','oidcButtonLabel','oidcScopes','oidcAutoProvision','oidcAllowlist','oidcGroupsClaim','oidcRequiredGroup','oidcAdminGroup','oidcAllowInternal','allowedDomains','tailscaleEnabled','tailscaleSso','tailscaleSsoAllowlist','tailscaleSsoGrant','tailscaleHostnameAutoConfig','tailscaleSocket','emailVerification','passkeyEnabled','rpName','rpId','rpOrigin'],
+  uploads:['publicUpload','maxFileSize','publicMaxFiles','publicMaxBundleSize','perUserQuotaBytes','publicIpQuotaBytes','uploadTimeout','uploadConcurrency','uploadRetries','maxBurnReads','allowedExtensions'],
   storage:['storageBackend','uploadDir','s3Bucket','s3Region','s3AccessKey','s3SecretKey','s3Endpoint'],
   theme:['themeAccentColor','themeBgColor','themeFont'],
   email:['emailEnabled','emailBackend','resendApiKey','resendQuotaDaily','resendQuotaMonthly','smtpHost','smtpPort','smtpUser','smtpPass','smtpFrom','emailTemplateMode','emailTemplateSubject','emailTemplateHeader','emailTemplateFooter'],

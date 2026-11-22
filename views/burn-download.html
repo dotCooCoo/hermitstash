@@ -1,0 +1,21 @@
+{{> head}}
+<main class="main" id="main-content">
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-logo"><img src="{{brand.logo}}" alt="" class="auth-logo-img"></div>
+    <h2 class="auth-title">Limited <span style="font-weight:200">Download</span></h2>
+    <p class="auth-desc"><strong>{{fileName}}</strong></p>
+    {% if (readsLeft === 1) { %}
+    <p class="auth-desc">This file can be downloaded one more time. After this download it is deleted from the server.</p>
+    {% } else { %}
+    <p class="auth-desc">This file can be downloaded {{readsLeft}} more times. After the last download it is deleted from the server.</p>
+    {% } %}
+    <p class="auth-desc">A download counts only when it finishes. If it is interrupted, you can try again.</p>
+    <form class="auth-form" method="POST" action="/b/{{shareId}}/file/{{fileShareId}}">
+      <input type="hidden" name="_csrf" value="{{csrfToken}}">
+      <button type="submit" class="butn butn-bg butn-full radius-30"><span>Download</span></button>
+    </form>
+  </div>
+</div>
+</main>
+{{> foot}}

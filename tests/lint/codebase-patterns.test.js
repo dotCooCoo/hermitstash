@@ -2428,6 +2428,37 @@ function testNoProcessExitInLib() {
   _report("no process.exit() in lib/ (CLI surface only)", matches);
 }
 
+// ---- Burn-after-read store: one construction site, explicit digest, one shim ----
+//
+// The vendored @blamejs/stash store holds limited-download files. Only
+// lib/storage.js constructs a Stash, and its constructor names
+// digest: "sha3-512" explicitly, so a change to the upstream default cannot
+// move HermitStash off SHA3. Only lib/stash-shim.js requires the vendored
+// package. Reading a stash: path anywhere except lib/storage.js and the routes
+// that are written for limited downloads would spend a download, so
+// consumeEphemeral has an allowlist too.
+
+function testBurnStoreConfinement() {
+  var bad = [];
+  _scan(/\bnew\s+(?:\w+\.)?Stash\s*\(/, { skipComments: true, appScope: true }).forEach(function (m) {
+    if (m.file !== "lib/storage.js") bad.push(m);
+  });
+  _scan(/require\(\s*["'][^"']*vendor\/stash\//, { skipComments: true, appScope: true }).forEach(function (m) {
+    if (m.file !== "lib/stash-shim.js") bad.push(m);
+  });
+  _scan(/\bconsumeEphemeral\s*\(/, { skipComments: true, appScope: true }).forEach(function (m) {
+    if (m.file !== "lib/storage.js" && m.file !== "routes/bundles.js") bad.push(m);
+  });
+  var storageSrc = fs.readFileSync(path.resolve(__dirname, "..", "..", "lib", "storage.js"), "utf8");
+  var ctor = /new\s+stashShim\.Stash\s*\(\s*\{([\s\S]*?)\}\s*\)\s*;/.exec(storageSrc);
+  if (!ctor) {
+    bad.push({ file: "lib/storage.js", line: 0, content: "no new stashShim.Stash({...}) construction found" });
+  } else if (!/\bdigest\s*:\s*"sha3-512"/.test(ctor[1])) {
+    bad.push({ file: "lib/storage.js", line: 0, content: "the Stash constructor does not set digest: \"sha3-512\"" });
+  }
+  _report("burn store: Stash built only in lib/storage.js with digest sha3-512; vendored package required only by lib/stash-shim.js; consumeEphemeral only from routes/bundles.js", bad);
+}
+
 // ---- Pattern 18: catch (_e) {} swallowing without logging ----
 
 function testNoSilentCatchSwallow() {
@@ -6193,6 +6224,7 @@ async function run() {
   testNoBareCanonicalizeWalks();
   testFormatValidatorLengthCap();
   testNoProcessExitInLib();
+  testBurnStoreConfinement();
   testNoSilentCatchSwallow();
   testNoDynamicRegexFromOperatorInput();
   testNoRawXffRead();

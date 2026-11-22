@@ -1,0 +1,790 @@
+{
+  "minor": "1.15",
+  "releases": [
+    {
+      "version": "1.15.14",
+      "date": "2026-11-21",
+      "headline": "Move to Node.js 26.13.1",
+      "summary": "The container image and CI move to Node.js 26.13.1, the current Active LTS line, and the server now requires Node.js 26.13.1 or later. Native installs must upgrade Node.js before they update to this release.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Run on Node.js 26.13.1",
+              "body": "The container image installs Node.js from the `nodejs-26` package, 26.13.1 or later, on the 2026-11-20 `cgr.dev/chainguard/wolfi-base` digest. The server refuses to start on a Node.js release earlier than 26.13.1, including every 24.x release, and prints the required version. `package.json` `engines.node` is `>=26.13.1`. The OpenSSL floor is unchanged: 3.5.9, 3.6.5 or 4.0.3 or later on those lines, or 4.1 and later."
+            },
+            {
+              "title": "Native install and update scripts handle the Node.js version",
+              "body": "`deploy/install.sh` installs Node.js 26 from NodeSource when the installed Node.js is older than 26.13.1. The Ansible playbook checks `/usr/bin/node` against 26.13.1, installs or upgrades Node.js only when it is older, fails if the version is still older afterward, and restarts the service when Node.js or the checkout changes. `deploy/update.sh` compares the new release's `engines.node` with the Node.js binary in `NODE_BIN` (default `/usr/bin/node`) before it restarts the service. When that binary is older, the update is rolled back, the service is not restarted, and the script exits with status 20."
+            },
+            {
+              "title": "Move GitHub Actions pins",
+              "body": "The release workflows pin `docker/login-action` v4.8.0, `sigstore/cosign-installer` v4.1.3 and `github/codeql-action` v4.39.4."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Upgrade Node.js before updating a native install",
+              "body": "This applies to installs that run from a git checkout under systemd, not to the container image. Upgrade Node.js to 26.13.1 or later first (https://nodejs.org/en/download lists the packages; `deploy/install.sh` uses the NodeSource 26.x repository), then run `deploy/update.sh` or wait for `hermitstash-update.timer`. The updater installed with an earlier release does not check the Node.js version. On Node.js 24 it restarts the service, the health check fails, and it rolls back to the running version with exit status 10 until Node.js is upgraded. Re-running the Ansible playbook upgrades Node.js for you."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "Node.js 26.13.1 release",
+          "url": "https://nodejs.org/en/blog/release/v26.13.1"
+        }
+      ]
+    },
+    {
+      "version": "1.15.13",
+      "date": "2026-10-28",
+      "headline": "Check every name an archive entry can be extracted under, and pool connections to S3 storage again",
+      "summary": "Upload inspection now checks each name an extractor may give an archive entry, including a ZIP entry's raw name field when its Unicode Path field names it differently, and a tar entry's GNU long name. The vendored framework moves to blamejs 0.21.8, and connections to the configured S3 storage are pooled again, which removes the extra TLS handshake per request that v1.15.12 introduced.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Check every name a ZIP or tar entry can be extracted under",
+              "body": "unzip, 7-Zip and bsdtar name a ZIP entry from its Info-ZIP Unicode Path field when the field matches, while Python's zipfile and Java use the raw name field. Upload inspection now checks both, so a ZIP whose name field is `../../evil.txt` and whose Unicode Path field is `docs.txt` is refused as `archive.zip-slip`. A tar entry is checked under the name and link target its GNU long-name and long-link records give it. Inspection also compares each ZIP local header with its central directory entry and refuses a mismatch as `archive-read/lfh-cd-skew`."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Move to blamejs 0.21.8",
+              "body": "The vendored framework moves from blamejs 0.21.6 to 0.21.8, with `@blamejs/pki` 0.9.10. Changes that reach HermitStash:\n\n- Connections to the configured S3 storage and backup buckets are pooled again. v1.15.12 opened a new TLS connection for each S3 request to Amazon S3, Backblaze B2 and other HTTP/1.1 object stores. The server now lists the endpoint and the bucket host of each configured S3 client as a trusted keep-alive origin; every other outbound origin, such as a webhook receiver, still uses one connection per request (CVE-2026-105481). The list is set when the server starts, so an S3 endpoint or bucket you change in Admin > Settings is pooled after the next restart. An `http://` S3 endpoint is not pooled.\n- Resolved outbound host addresses are cached for each DNS record's TTL, up to 5 minutes, in place of the fixed 60 seconds v1.15.12 set. DNS-over-HTTPS queries share one HTTP/2 connection, and TLS sessions are resumed on hosts with both IPv4 and IPv6 addresses.\n- Outbound TLS connections no longer offer certificate compression. The server's listener already offered none.\n- A tar archive that GNU tar writes with names longer than 100 bytes, pax archives with non-ASCII names, and tar headers with base-256 numeric fields are now read and inspected. v1.15.12 refused tar archives with GNU long-name records."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Uploads that inspection now refuses",
+              "body": "These uploads are refused with `Archive contents failed inspection.` or `Archive could not be read for inspection.`, where earlier releases accepted them:\n\n- An archive with a Windows device name as any path segment, such as `lib/aux.c`, `drivers/con/x` or `ports/COM1.h` (`archive.filename.reserved-name`). Windows cannot extract such a file.\n- An archive with a directory or file name that ends in a dot or a space, or starts with a space, such as `Acme Inc./x.pdf` (`archive.filename.leading-trailing`).\n- An archive with two entries that name the same file in different spellings, such as `d/a.txt` next to `./d/a.txt`, `d//a.txt` or `d\\a.txt`.\n- A tar archive with a name or link target that is not valid UTF-8, and a V7-format tar, which carries no ustar marker (`archive-tar/bad-magic`).\n- A tar archive whose headers GNU tar and bsdtar read differently, such as a GNU long-name record with no entry after it (`archive-tar/dangling-extended-header`).\n\nThe refusal names the rule in the audit log's `UPLOAD_REJECTED` detail. Re-create the archive without the affected names, or in the zip or pax tar format."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "blamejs v0.21.8",
+          "url": "https://github.com/blamejs/blamejs/releases/tag/v0.21.8"
+        },
+        {
+          "label": "Node.js October 2026 security releases",
+          "url": "https://nodejs.org/en/blog/vulnerability/october-2026-security-releases"
+        }
+      ]
+    },
+    {
+      "version": "1.15.12",
+      "date": "2026-10-27",
+      "headline": "Make vault key rotation work on a Docker volume, and stop decompressing TLS client certificates before authentication",
+      "summary": "`scripts/vault-key-rotate.js` stopped with `FATAL: invalid tag` on every database a running server had written, and `scripts/vault-key-verify.js` reported a healthy database as `db.key.enc is corrupted`. Neither tool changed any data, but the messages read as a damaged database. Both tools now read the database the way the server does. The rotation also no longer renames the data directory, so it runs when `/app/data` is a Docker volume, and the offline vault tools now detect a running server from the data directory instead of only from local ports. The TLS listener no longer accepts compressed client certificates, the image and the server require a Brotli library fixed for CVE-2026-111497, and upload inspection refuses tar archives that use GNU long-name records.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Move to blamejs 0.21.6",
+              "body": "The vendored framework moves from blamejs 0.21.4 to 0.21.6, with `@blamejs/pki` 0.9.9. Changes that reach HermitStash:\n\n- Outbound HTTPS over HTTP/1.1 uses a new TLS connection for each request (CVE-2026-105481). This includes S3 storage on Amazon S3 and Backblaze B2, which do not offer HTTP/2: each upload, download, delete and list call now makes its own TLS handshake, which adds latency to uploads, downloads, backups, storage migration and retention runs. Webhooks, Google sign-in, GitHub badges and the Resend mail API are affected the same way. HTTP/2 endpoints keep one shared connection.\n- The server keeps resolved outbound host addresses for 60 seconds and failed lookups for 10 seconds. Without the cache, each outbound request made two extra TLS connections to the DNS-over-HTTPS resolver. A request still connects to the address its own SSRF check validated.\n- Upload inspection refuses ZIP archives whose central directory or end record can be read differently by different extractors: an entry the end record does not count, entries that overlap, another archive hidden before the first entry or in the end-record comment, and ZIP64 end records that disagree with the classic record. The audit detail for an archive with unadjusted data before it changes from `archive-read/bad-cd-signature` to `archive-read/cd-position-mismatch`.\n- Outbound TLS connections refuse a host that is an IPv4 address in a non-canonical spelling, such as `127.1` or `0x7f.0.0.1`, or a host with an empty label. Write the address in dotted decimal or use a DNS name."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Stop decompressing client certificates before authentication",
+              "body": "When an mTLS CA exists, the TLS listener asks every client for a certificate. It also offered TLS certificate compression (RFC 8879), so OpenSSL decompressed a client's certificate during the handshake, before verifying it, with or without `ENFORCE_MTLS_STRICT`. On images up to v1.15.9, which shipped Brotli 1.2.0, an unauthenticated client could use this to reach CVE-2026-111497, an out-of-bounds write in the Brotli decoder. The listener now offers no certificate compression, at boot and after a certificate reload. If you run an image older than v1.15.10 with an mTLS CA, upgrade."
+            },
+            {
+              "title": "Require a Brotli library fixed for CVE-2026-111497",
+              "body": "The container image's Node links the system Brotli library rather than the copy bundled with Node.js, so the CVE-2026-111497 fix in the image comes from `libbrotlidec1` 1.2.1, not from Node.js 24.22.1 as the v1.15.11 notes said. The image now installs `libbrotlidec1>=1.2.1`, and a server whose Node is built against a system Brotli older than 1.2.1 exits at startup with `FATAL: this Node.js uses the system Brotli library`."
+            },
+            {
+              "title": "Refuse to start on a Node.js or OpenSSL release that lacks the October 2026 fixes",
+              "body": "The server accepted any Node.js from 24.22.1 on, which includes Node 25 and Node 26.0.0 to 26.12.0, whose bundled Brotli decoder is affected by CVE-2026-111497. It now starts on 24.22.1 or later on the 24 line, 26.12.1 or later on the 26 line, or 27 and later, and refuses odd-numbered lines. It also requires OpenSSL 3.5.9, 3.6.5 or 4.0.3 or later on those lines, or 4.1 and later: older releases are affected by CVE-2026-35189, in which a crafted peer certificate makes OpenSSL allocate hundreds of MiB during the handshake. An unsupported runtime exits with a `FATAL: HermitStash requires` message naming the version found. `deploy/install.sh` applies the same Node.js floors. The container image runs Node 24.22.1 with OpenSSL 4.0.3 and is not affected."
+            },
+            {
+              "title": "Refuse tar archives with GNU long-name records",
+              "body": "Upload inspection read a GNU long-name (`L`) or long-link (`K`) record as an entry of its own and checked the next entry under the 100-byte name in its header. GNU tar and other extractors give that entry the name or link target stored in the record, so a `.tar` or `.tar.gz` could carry a path outside the extraction directory, or a link pointing outside the archive, past the check. Archives with these records, or any other tar entry type the inspection does not read, are now refused with `archive.tar-gnu-long-name` or `archive.tar-entry-type-unsupported`. A tar written in the pax or ustar format, which bsdtar and macOS use by default, is not affected. Create one with GNU tar using `tar --format=posix`."
+            },
+            {
+              "title": "Refuse stash logo URLs that load from another origin",
+              "body": "The stash logo setting accepted a path such as `/\\evil.example/logo.png`, or one containing a tab or line break, which a browser reads as a URL on another origin. A logo path now has to resolve to the server's own origin, and values containing a backslash or a control character are refused."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Rotate and verify a database written by the server",
+              "body": "The server binds `hermitstash.db.enc` to its data directory path. The schema check in `vault-key-rotate.js` and the database read in `vault-key-verify.js` decrypted it without that binding, so the rotation stopped with `FATAL: invalid tag` before it wrote anything, and the verify tool exited with `invalid tag`. The verify tool also unsealed `db.key.enc` with a reader for the older envelope format, which the server stopped writing in v1.9.16, so it printed `db.key.enc cannot be unsealed ... Either the vault key is wrong, or db.key.enc is corrupted.` on every current install. Both tools now unseal `db.key.enc` and decrypt `hermitstash.db.enc` through the same code as the server. These messages appeared whether or not the database was damaged, so on their own they do not show that a database needed restoring."
+            },
+            {
+              "title": "Rotate the vault key when the data directory is a mount point",
+              "body": "The rotation renamed the data directory to `data.old.<timestamp>` and a sibling `data.rotating` into its place. A Docker volume at `/app/data` cannot be renamed, and the tool refused with `is on a different filesystem from its parent`. The tool now builds the rotated copy in `data/.rotation-staging/`, writes `data/.rotation-swap.json`, moves each top-level entry of `data/` into `data/.rotation-old-<timestamp>/` and each rotated entry into `data/`, and then decrypts the swapped-in database the way the server will. If a move or that check fails, the tool moves the original entries back. If the tool stops partway, the server finishes the swap, or the move back, at its next start. The previous vault key and database stay in `data/.rotation-old-<timestamp>/` until you delete that directory."
+            },
+            {
+              "title": "Keep the original data directory when a swap fails",
+              "body": "When the second rename of the old swap failed after the first had succeeded, the tool deleted the rotated copy and the server then reported that the data directory had been lost, with the original data in `data.old.<timestamp>`. A failed swap now moves every original entry back into `data/`."
+            },
+            {
+              "title": "Detect a running server from any container or host",
+              "body": "The offline vault tools (`vault-key-rotate.js`, `vault-passphrase-setup.js`, `vault-passphrase-rotate.js`, `vault-passphrase-remove.js`) checked for a running server only by connecting to `PORT` and `INTERNAL_TLS_PORT` on 127.0.0.1 with the values in their own environment. They missed a server in another container, on the host, or listening on a port set in Admin > Settings. The server now writes `data/.server-lease` at the start of boot, refreshes it every 30 seconds and deletes it when it exits. Each tool refuses to run while that lease was refreshed in the last 90 seconds, and then holds the lease itself until it exits. While a tool holds it, the server refuses to start and prints the tool's name, pid and host. `vault-key-rotate.js` checks again immediately before the swap that the lease is still its own. A process that was killed leaves a lease that expires 90 seconds after its last refresh."
+            },
+            {
+              "title": "Block an IPv4 address entered with leading zeros",
+              "body": "The IP blocklist stored an address such as `203.0.113.010` as typed. Client addresses are never reported in that form, so the ban never matched. The blocklist now refuses an address that is not valid in its canonical form, with `Invalid IP format.`, and removing a ban matches the canonical form of the address you enter."
+            },
+            {
+              "title": "Write the verify tool's temporary database owner-only",
+              "body": "`vault-key-verify.js` wrote the decrypted database next to the data directory under a predictable name with the default file mode. It now writes it to `HERMITSTASH_TMPDIR`, `/dev/shm` or the OS temp directory with mode 0600 and a random name, and deletes it when it finishes or exits. The schema check in `vault-key-rotate.js` writes its copy the same way."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Run the offline vault tools in a one-off container",
+              "body": "The tools refuse to run while the server is running, and `docker exec` needs a running container. Stop the server and run them from the same image: `docker compose stop hermitstash`, then `docker compose run --rm --no-deps --entrypoint node --user 99:100 hermitstash scripts/vault-key-rotate.js`, then `docker compose up -d hermitstash`, which also applies a passphrase you changed in the compose file. Use the `PUID:PGID` your stack runs as for `--user`. Pass passphrases with `-e`, for example `-e VAULT_PASSPHRASE_OLD='current' -e VAULT_PASSPHRASE_NEW='new'`. Run the rotation with the same `HERMITSTASH_DATA_DIR` as the server; `docker compose run` uses the service's environment, so it matches by default. A `data.rotating` or `data.rotation-pending` left next to the data directory by the previous tool is still resolved by the server at startup, and the new tool refuses to run until it has been."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "Node.js October 2026 security releases",
+          "url": "https://nodejs.org/en/blog/vulnerability/october-2026-security-releases"
+        },
+        {
+          "label": "RFC 8879 (TLS Certificate Compression)",
+          "url": "https://www.rfc-editor.org/rfc/rfc8879"
+        }
+      ]
+    },
+    {
+      "version": "1.15.11",
+      "date": "2026-10-27",
+      "headline": "Move to Node.js 24.22.1 for the CVE-2026-111497 Brotli decoder fix",
+      "summary": "Node.js 24.22.1 fixes CVE-2026-111497, an out-of-bounds write in the Brotli decoder bundled with Node.js that malformed compressed data can trigger, and seven other vulnerabilities in DNS, TLS, HTTP, crypto and the Permission Model. The container image now refuses to build with an older Node, and the server refuses to start on one.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Run on Node.js 24.22.1",
+              "body": "The container image installs `nodejs-24` 24.22.1 or newer on the wolfi-base image of 2026-10-26. Node.js 24.22.1 fixes CVE-2026-111497, in which invalid Brotli data writes past an 8-byte buffer and can crash the process, disclose memory or run code. Node.js 24.22.1 also fixes CVE-2026-105483, CVE-2026-106069 and CVE-2026-106072 in `tls.checkServerIdentity()`, CVE-2026-105482 in `dns.resolve*()`, CVE-2026-105481 in HTTP keep-alive sockets, CVE-2026-106074 in `crypto.randomUUID()` for snapshot builds, and CVE-2026-106073 in the Permission Model, and it updates the bundled OpenSSL, c-ares, Undici and CA certificates."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Node.js floor moves to 24.22.1",
+              "body": "Running from source on Node older than 24.22.1 now exits at startup with a message naming the version found. Earlier releases checked only the major and minor version, so 24.22.0 passed; the check now compares the patch version too.\n\nIf you run the container image, pull the new image. The `nodejs-24` package in the image is installed with a `>=24.22.1` constraint, so a build that cannot get a fixed Node fails. If you installed with `deploy/install.sh`, re-run it or upgrade Node through your package manager. NodeSource `setup_24.x` ships a current 24.x."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "Node.js October 2026 security releases",
+          "url": "https://nodejs.org/en/blog/vulnerability/october-2026-security-releases"
+        },
+        {
+          "label": "Node.js 24.22.1 changelog",
+          "url": "https://github.com/nodejs/node/releases/tag/v24.22.1"
+        }
+      ]
+    },
+    {
+      "version": "1.15.10",
+      "date": "2026-10-24",
+      "headline": "Keep a file's local copy when S3 storage reports a short upload, and move to blamejs 0.21.4",
+      "summary": "A Local → S3 storage migration on v1.15.9 could replace a file with an empty object after a transient error from the storage service and then delete the local copy. If you ran one, read the Migration section. This release also stops S3 uploads and downloads from holding their data in memory for two minutes after they finish, reports a damaged vault.key.sealed as a damaged file rather than a rejected passphrase, converts the database so that the daily vacuum frees pages, makes the TLS listener choose the strongest post-quantum key exchange a client supports, and moves the vendored framework to blamejs 0.21.4, which checks outbound TLS certificate chains up to a trust anchor.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Keep a file's local copy when S3 storage reports a short upload",
+              "body": "Local → S3 storage migration deletes each local file after its upload. In v1.15.9 the S3 client retried a failed upload from a stream it had already read, stored an empty object and reported success, and the migration then deleted the local copy. One transient error from the storage service during a file's upload was enough. A failed stream upload is no longer retried, and the migration deletes a local copy only after the storage service reports that it stored the file's full size. A file that fails keeps its local copy and its record and is listed in the migration result, and running the migration again retries it."
+            },
+            {
+              "title": "Release S3 request and response data when the request finishes",
+              "body": "The S3 client kept the body of every upload and every download in memory until the request's 120-second timeout passed, after the request had already finished. A burst of large uploads or downloads, or a backup of files stored on S3, held everything it moved in the previous two minutes. The data is now released as soon as each request finishes."
+            },
+            {
+              "title": "Report a damaged vault.key.sealed as unreadable rather than as a rejected passphrase",
+              "body": "The server at boot, `scripts/vault-key-rotate.js` and `scripts/vault-key-verify.js` reported every failure to unwrap `vault.key.sealed` as a rejected passphrase. They now report a rejected passphrase only when the passphrase fails to decrypt the key. For a truncated file, a file that is not a sealed vault key, or a header naming an Argon2id cost above the ceiling, they print the reason and state that the passphrase was not checked. At boot that line begins `FATAL: vault.key.sealed could not be unwrapped, and the passphrase was not checked`."
+            },
+            {
+              "title": "Reclaim free pages in the daily database vacuum",
+              "body": "A new main database was created in `auto_vacuum=NONE` because `lib/db.js` switched it to WAL before it set `auto_vacuum=INCREMENTAL`, and the daily `incremental_vacuum` job ran its statement for one step, which frees one page. A new database is now created in incremental mode, and the job frees up to 100 pages a day. A database created by an earlier release is rebuilt in incremental mode with one `VACUUM` the first time this release opens it, and the server logs `DB: converted to auto_vacuum=INCREMENTAL` with the time it took."
+            },
+            {
+              "title": "Check the costs in BACKUP_PASSPHRASE_HASH with the framework's decoder",
+              "body": "The server reads the memory, time and parallelism costs of `BACKUP_PASSPHRASE_HASH` through `b.auth.password.exceedsCostCeiling`, which uses the decoder that `b.auth.password.verify` uses. A hash that lists its costs in another order is now reported as unusable when a cost is above the ceiling. Such a hash was previously checked as a passphrase and rejected every time."
+            },
+            {
+              "title": "Accept vault uploads when the file size limit is off",
+              "body": "With the maximum file size set to 0 (no limit), every vault upload and vault file update failed with HTTP 500, because the body limit was computed as twice the file size limit. Those requests now use the 2 GiB ceiling that other uploads use when the limit is off."
+            },
+            {
+              "title": "Restore the wording of two sync rename errors",
+              "body": "`POST /sync/rename` answers `Invalid new path.` and `File not found at old path.` again. Since v1.10.7 it answered `Invalid new nodePath.` and `File not found at old nodePath.`."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "The TLS listener prefers the strongest post-quantum key exchange",
+              "body": "The listener gives each key-exchange group its own preference tuple, so it negotiates the first group in its list that the client supports: `SecP384r1MLKEM1024`, then `X25519MLKEM768`, then `SecP256r1MLKEM768`. Before, the client's key share decided, so a client that offered both negotiated `X25519MLKEM768` over `SecP384r1MLKEM1024`, and with `PQC_ENFORCE=false` a client that listed `X25519` first negotiated classical `X25519` even when it also offered a hybrid. A client whose first key share is for a later group gets one extra round trip. The TLS start-up log line lists the groups separated by `>`."
+            },
+            {
+              "title": "Backup and restore count against the password-check limit",
+              "body": "The Argon2id derivations of a backup or a restore, which run in a worker thread, now take slots from the same limit as sign-ins and password checks, `C.PASSWORD_HASH.MAX_CONCURRENT`. They previously ran outside it, so a backup during a burst of sign-ins could run more Argon2id derivations at once than the limit allows."
+            },
+            {
+              "title": "A failure in the security middleware is answered with its own status",
+              "body": "When the IP check, bot guard, CORS check, security headers or static file handler raised an error, the server answered HTTP 500 for every one of them. The shared error handler now answers it, so an error that carries a status, such as a 403 or a 429, is sent with that status and in the same RFC 9457 shape as other errors. The request still stops there and never reaches its route."
+            },
+            {
+              "title": "Show why an admin unseal of the vault key failed",
+              "body": "When `vault.key.sealed` cannot be unwrapped for a reason other than a rejected passphrase, `POST /admin/security/unseal/vault-passphrase` answers 500 with the reason in the problem detail, for example a truncated file or one that is not a sealed vault key. The response previously carried a generic error, and the reason appeared only in the server log."
+            },
+            {
+              "title": "Name the matched route when a request fails before its route runs",
+              "body": "When a request fails in middleware that runs before its route, the `path` field of the `Unhandled server error` and `Request refused` log lines now holds the route pattern the request matches, such as `/b/:shareId/folder`, where it held `/b/:token/folder`. The same applies to the `path` field of SIEM events and to the path in the `details` of audit entries for refused requests and for requests the admin network fence refuses. A request that matches no route is still shown with each path segment of 32 or more letters, digits, `-` or `_` replaced by `:token`. Update a dashboard or alert that matches the `:token` form of a path that a route serves."
+            },
+            {
+              "title": "Refuse a request target longer than 8,170 characters with 400",
+              "body": "A request whose path and query string together are longer than 8,170 characters is now refused with HTTP 400 and the plain-text body `400 Bad Request: malformed request target` before any middleware runs. The server writes no log line for it. Such a request was previously answered with HTTP 500 and logged at error level as `Unhandled server error`."
+            },
+            {
+              "title": "A stored-file path that is not a regular file reads as not found",
+              "body": "A download or vault read whose stored path held a directory or another non-regular file failed with HTTP 500. It is now refused the same way as a missing file, and a FIFO or a device at that path is refused without the read waiting on it."
+            },
+            {
+              "title": "Vendored blamejs moves to 0.21.4",
+              "body": "The changes that reach this server are described in the other items of this release. The bundled `@blamejs/pki` moves from 0.8.48 to 0.9.7. Passkey registration, passkey sign-in, the passkey vault unlock, and the certificates, revocation lists and PKCS#12 files the server issues give the same results as with 0.8.48. The PQC gate in front of the listener now also refuses a ClientHello that cannot negotiate TLS 1.3."
+            },
+            {
+              "title": "The runtime base image moves to the current Chainguard rebuild",
+              "body": "The image is built on the `cgr.dev/chainguard/wolfi-base` build of 2026-10-24."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Refuse a sealed key file that asks for an Argon2id cost above the ceiling",
+              "body": "Unsealing `vault.key.sealed` or the audit signing key read the Argon2id memory, time and parallelism costs from the file header and derived the key at those costs, up to 4 GiB of memory. The vendored framework now applies `b.auth.password.costCeiling()` (m=524288 KiB, t=24, p=16) to these derivations, so a header naming a higher cost is refused before the derivation starts and is reported as an unseal failure rather than a rejected passphrase. HermitStash writes these files at m=65536 KiB, t=3, p=4 and does not change the ceiling."
+            },
+            {
+              "title": "Outbound TLS checks the server's chain up to a trust anchor",
+              "body": "Connections the server opens to S3 storage, webhook receivers, the SIEM, the mail server and identity providers now check the peer's certificate chain up to a trusted root, and refuse a certificate whose private key is publicly known. A refusal fails with `tls/server-chain-unverifiable` or `tls/compromised-key`."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Check the storage bucket after a Local → S3 migration run on v1.15.9",
+              "body": "If you ran Local → S3 storage migration on v1.15.9, list the objects in the storage bucket and look for any of 0 bytes. The server stores every uploaded file encrypted, so a stored file is never 0 bytes, and each such object is a file whose local copy was deleted after an empty upload. Restore those files from a backup taken before the migration. A migration run on v1.15.7 or earlier read each file whole and is not affected."
+            },
+            {
+              "title": "Allow for the one-time database rebuild on the first start",
+              "body": "The first start of this release rebuilds a database created by an earlier release. The rebuild holds one more copy of the database in memory and needs free space in the database's working directory (usually `/dev/shm`) of about the database's size plus 16 MiB. With less free space the server logs that `auto_vacuum` stays NONE, starts without the rebuild, and tries again at the next start. A rebuild that fails leaves the database unchanged."
+            },
+            {
+              "title": "Check endpoints whose certificate chain does not lead to a trusted root",
+              "body": "An S3-compatible store, webhook receiver, SIEM collector or mail server whose certificate chain cannot be followed to a trusted root, for example one that sends an unrelated certificate ahead of its issuer, is now refused. A private CA is accepted when its certificate is listed in `NODE_EXTRA_CA_CERTS`. Webhook refusals appear in the delivery log."
+            },
+            {
+              "title": "Some IPv6 clients sign in again once",
+              "body": "A client that reaches the server through NAT64 (`64:ff9b::/96`) or 6to4 (`2002::/16`) is now identified by the IPv4 address its IPv6 address carries. Its existing session no longer matches and it signs in once more, and its rate-limit and upload-quota counters start again under the IPv4 address."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "blamejs 0.21.4",
+          "url": "https://github.com/blamejs/blamejs/releases/tag/v0.21.4"
+        },
+        {
+          "label": "blamejs 0.21.1",
+          "url": "https://github.com/blamejs/blamejs/releases/tag/v0.21.1"
+        },
+        {
+          "label": "blamejs#840: a retried stream upload stores an empty object",
+          "url": "https://github.com/blamejs/blamejs/issues/840"
+        }
+      ]
+    },
+    {
+      "version": "1.15.9",
+      "date": "2026-10-05",
+      "headline": "Ship the session, password-check and log fixes that v1.15.8 could not publish",
+      "summary": "v1.15.8 was tagged but produced no image and no release page. blamejs 0.20.39 was published after that release was prepared, and the build's check that the vendored framework is the latest release refused it. Use this version instead. It carries every v1.15.8 change with blamejs 0.20.39. Read the v1.15.8 entry in CHANGELOG.md before you upgrade from 1.15.7 or earlier: it lists changes to log fields, to the bundle init routes and to `BACKUP_PASSPHRASE_HASH` that can need action. The v1.15.8 tag exists and has nothing attached to it.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Vendored blamejs moves to 0.20.39",
+              "body": "The framework's bundled `@blamejs/pki` library moves from 0.8.31 to 0.8.48. The server uses it to verify passkey registrations, passkey sign-ins and the passkey check that unlocks the vault, and to create the client and browser certificate authorities, issue their certificates and package browser certificates as PKCS#12 files. In 0.8.48 the passkey checks use the `Promise.resolve`, `Promise.reject` and WebCrypto `verify` functions as they were when the library loaded. Code that replaces those functions after the library loads no longer changes the result of a passkey check. Passkey checks and the certificates the server issues give the same results as with 0.8.31. The other changes in blamejs 0.20.39 correct the framework's documentation or change functions that this server does not call."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "v1.15.8 changes (CHANGELOG.md)",
+          "url": "https://github.com/dotCooCoo/hermitstash/blob/main/CHANGELOG.md"
+        }
+      ]
+    },
+    {
+      "version": "1.15.8",
+      "date": "2026-10-05",
+      "headline": "Stale sessions are deleted and password checks run one at a time",
+      "summary": "The server now deletes stale sessions every hour and no longer stores one for health checks or API clients. Password checks run one at a time with up to eight waiting, request fields that a visitor can store are held to fixed limits, and a vault-key rotation keeps every file it does not rewrite. Share links and tokens no longer appear in the server's logs. A signed-in page left open now shows the session-expired prompt once the idle timeout passes, and an idle timeout longer than 30 minutes now takes effect.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Vendored blamejs moves to 0.20.38",
+              "body": "Four changes in the framework affect this server. The CADF audit export writes `blamejs:unattributed` as the initiator ID of an entry with no actor and `blamejs:unidentified` as the target ID of an entry with no target, where it wrote `unknown` and `n/a`, and it no longer types an entry with no actor as a user account. CSV exports write a cell that opens with `|` unchanged, and a cell that opens with `=`, `+`, `-`, `@`, a tab or a line break is still prefixed with an apostrophe. The client and browser certificate authorities each keep their own CRL number, in `ca.crl-number` and `ca-browser.crl-number`.\n\nA password check against a stored Argon2id hash with a memory cost above 524288 KiB, a time cost above 24 or a parallelism above 16 now fails without running Argon2id. The hashes the server writes use m=65536, t=3, p=4."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Purge stale sessions, and stop storing one for health checks and API clients",
+              "body": "Every request that arrived without a session cookie stored a new session of about 9 KB, and the server deleted a session only when a request presented it after it had expired. The session database lives in `/dev/shm` by default, which is held in memory. The Docker health check requests `/health` every 30 seconds, which stored 2,880 sessions and about 25 MB a day. The probes in `deploy/kubernetes.yml` stored 11,520 sessions and about 100 MB a day. Each request from the desktop sync client stored one as well.\n\nThe server now deletes stale sessions once at startup and then every hour. A session is stale when it has been idle for longer than `SESSION_IDLE_TIMEOUT`, when it is past its seven-day lifetime, or when it is older than `SESSION_ABSOLUTE_TIMEOUT_MS`. The server already refused to accept any of those sessions. When the deletions leave the session database file at least half empty and at least 16 MiB in size, the server rewrites the file, which shrinks it to the size of the sessions that remain.\n\nA request without a session cookie no longer stores a session when it carries an `Authorization: Bearer` credential, when it is a `HEAD` or `OPTIONS` request, or when it is a `GET` of `/health`, `/sitemap.xml`, `/manifest.json` or `/.well-known/blamejs-pubkey`. The server sends no `Set-Cookie` header in the response to such a request."
+            },
+            {
+              "title": "Apply the configured session timeouts when a session is saved",
+              "body": "After each request the server saved the session data through a call that applied the framework's default timeouts instead of the configured ones: 30 minutes idle, and 12 hours from creation. An idle timeout longer than 30 minutes therefore had no effect beyond 30 minutes, whether it was set with `SESSION_IDLE_TIMEOUT` or in the admin settings: a session idle for longer than 30 minutes ended after its next request. A `SESSION_ABSOLUTE_TIMEOUT_MS` longer than 12 hours had no effect either. The same call also reset the idle timer on every request. A signed-in page sends a session check every minute, so a page left open never reached the idle timeout.\n\nSaving a session now applies the configured timeouts and leaves the idle timer alone. A signed-in page left idle for the idle timeout now shows the \"Session expired\" prompt. `SESSION_ABSOLUTE_TIMEOUT_MS` now defaults to `43200000`. That is 12 hours, the limit sessions already had in practice. Set it to `0` to remove the limit."
+            },
+            {
+              "title": "Carry every file a vault-key rotation does not rewrite",
+              "body": "`scripts/vault-key-rotate.js` builds a rotated copy of the data directory and then swaps it into place. It copied a fixed list of files into that copy, and everything else stayed behind in the retained `data.old.<timestamp>/` directory: the revocation lists and generation watermarks of both certificate authorities, the audit signing key, uploaded logos, audit archives, the markers that record one-time migrations, and certificates kept as symbolic links. Releases up to and including 1.15.7 are affected.\n\nThe rotation now copies everything under the data directory into the rotated copy except the files it rewrites and transient files. It rewrites the encrypted database, the sealed database key, the vault key and the other re-sealed keys. The transient files are locks, temporary files and a plaintext working database. It recreates each symbolic link with its original target.\n\nIf you rotated the vault key with an earlier release and still have the `data.old.<timestamp>/` directory it left, the files listed above are in that directory."
+            },
+            {
+              "title": "Answer an unusable sign-in email address like a wrong password",
+              "body": "A sign-in attempt with an email address longer than 254 characters wrote the whole address to the audit log, and an address containing a line break failed with HTTP 500. Both now get the same 401 response as a wrong password, after the same password check, and the audit entry records the length of the address instead of the address."
+            },
+            {
+              "title": "Encode an apostrophe in a download's file name",
+              "body": "The `filename*` parameter of a download's `Content-Disposition` header left an apostrophe unencoded, which RFC 8187 does not allow. The framework now builds the header: `filename` holds an ASCII form of the name, `filename*` holds the full name percent-encoded, and a name containing a carriage return, line feed or NUL is sent as `download`."
+            },
+            {
+              "title": "Remove C1 control characters from file names",
+              "body": "Renaming a file and naming a vault file removed C0 control characters and DEL but kept the C1 range, U+0080 to U+009F, and a Tailscale display name kept it as well. Those characters are now removed."
+            },
+            {
+              "title": "Keep the Vary tokens that other layers set",
+              "body": "A response marked `Cache-Control: no-store` had its `Vary` header replaced with `Cookie`, which dropped a `Vary: Origin` set for CORS. `Cookie` is now added to the existing header."
+            },
+            {
+              "title": "Migrate files larger than 64 MiB from local disk to S3",
+              "body": "The local-to-S3 storage migration read each file with a 64 MiB limit, so every larger file was reported as failed and stayed on local disk. The migration now reads each file as a stream, without blocking the server while it reads, and migrates files up to 2 GiB. The upload to S3 holds one file in memory at a time, and a file larger than 2 GiB is reported as failed and stays on local disk."
+            },
+            {
+              "title": "Stop reporting a damaged sealed vault key as a wrong passphrase",
+              "body": "When the server could not read the header of `vault.key.sealed`, the Disable action for vault key passphrase wrapping on the admin Security tab returned HTTP 401 with \"passphrase rejected\", the response for a wrong passphrase. It now returns HTTP 500, and the server logs an error whose message starts with \"unseal failed:\". `scripts/vault-passphrase-remove.js` and `scripts/vault-passphrase-rotate.js` print the header error without the line that asks you to check the passphrase. A wrong passphrase gets the same responses as before. The Enable and Disable actions now refuse a passphrase longer than 4,096 bytes with HTTP 400."
+            },
+            {
+              "title": "Load the audit signing key again after a failed load",
+              "body": "The server loads the audit signing key the first time an audit operation needs it: archiving, retention cleanup, a chain checkpoint, or a chain or archive verification. When that load failed, the server did not try it again, and each of those operations failed with the same error until a restart. The server now tries the load again the next time an operation needs the key.\n\nWith `AUDIT_SIGNING_MODE=wrapped`, the server loads the key again only when it can read the passphrase without a prompt: from the file named by `BLAMEJS_AUDIT_SIGNING_PASSPHRASE_FILE`, or from `BLAMEJS_AUDIT_SIGNING_PASSPHRASE` while that variable is still set. The framework removes the variable when it first reads it. When a load fails after that, each later operation returns the same error until the server restarts."
+            },
+            {
+              "title": "Remove an audit archive bundle whose check stopped with an error",
+              "body": "The server writes each audit archive bundle, reads it back and checks it before it deletes the archived entries from the live audit log. It removed a bundle that failed the check. It left a bundle whose check stopped with an error, such as a failed decryption, in the archive directory, and the bundle's entries stayed in the live log. The next archive run then wrote the same entries into a second bundle. The server now removes the bundle in both cases."
+            },
+            {
+              "title": "Answer a request with an error when the session store fails",
+              "body": "When the server could not read or create a session, it continued the request without one, and a signed-in visitor appeared signed out. It now answers the request with HTTP 500 and logs the failure as `Unhandled server error`."
+            },
+            {
+              "title": "Restore the error text for a chunk the server could not save",
+              "body": "When the server could not save an uploaded chunk, its error response read \"Invalid nodePath.\" The response now reads \"Invalid path.\" in that case."
+            },
+            {
+              "title": "Name `BACKUP_PASSPHRASE_HASH` when the server cannot check it",
+              "body": "When `BACKUP_PASSPHRASE_HASH` was not an Argon2id hash, the server refused every passphrase as wrong: a backup run returned \"Incorrect backup passphrase.\" and a restore returned \"Invalid passphrase.\" With blamejs 0.20.38, an Argon2id hash with a memory cost above 524288 KiB, a time cost above 24 or a parallelism above 16 would fail the same way. A backup run or restore with either kind of value now fails with HTTP 500 and a message that names `BACKUP_PASSPHRASE_HASH`, and the server logs the same message."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Limit concurrent password checks",
+              "body": "Each Argon2id password check uses 64 MiB of memory. The server ran up to eight checks at once, 512 MiB in all, and queued every further check with no limit, so a burst of sign-in or share-link unlock attempts kept that memory in use until the queue drained.\n\nOne check now runs at a time and up to eight more wait. A check that arrives while the queue is full is refused with HTTP 503 and `Retry-After: 2`, and no Argon2id work starts for it. The limit covers sign-in, registration and invitation acceptance, password reset, password and email changes on the profile page, the setup wizard, share-link and stash passwords, and backup passphrase checks. A refused check does not count as a failed attempt for account lockout or for the share-link and stash unlock backoff, and a password reset link stays usable after a refused submit. The public upload page waits for the `Retry-After` delay and retries a refused upload start up to `UPLOAD_RETRIES` times.\n\nSealing or unsealing the vault key from the admin Security tab, loading a wrapped audit signing key, and encrypting or checking an audit archive also run Argon2id. The server now runs them one at a time together with the password checks. They wait for a free slot and are not refused. A backup or restore runs its Argon2id work in a worker thread, and this limit does not apply to it."
+            },
+            {
+              "title": "Stop putting the skipped-file count into notification emails as HTML",
+              "body": "`/drop/init` and `/stash/:slug/init` stored the `skippedCount` they were sent without checking it, and the upload emails inserted that value into their HTML without escaping it. An anonymous uploader could put links and other HTML into the admin notification email, and, when the upload listed skipped files, into the confirmation sent to the address the uploader supplied. The init routes now refuse a `skippedCount` that is not a whole number, and the emails write the stored value as a number."
+            },
+            {
+              "title": "Refuse an invalid address in a bundle's allowed-email list",
+              "body": "`/drop/init` dropped each address in `allowedEmails` that failed validation and kept the rest. When every address failed, the bundle was created without the email restriction. An invalid address is now refused with HTTP 400, and the list holds at most 100 addresses."
+            },
+            {
+              "title": "Hold stored request fields to fixed limits",
+              "body": "`/drop/init` and `/stash/:slug/init` refuse a `fileCount` or `skippedCount` that is not a whole number and a `skippedFiles` value that is not a list. They keep the first 50 skipped entries, with each path cut to 500 characters and each reason to 100. The server previously stored these values at any size.\n\nA sync rename to a path longer than 500 characters is refused with HTTP 400, which is the limit uploads already applied. Vault uploads refuse an encapsulated key that is not 1,568 bytes, an IV that is not 24 bytes, and a batch ID that is not 1 to 64 letters, digits, hyphens or underscores, and a vault public key, seed or re-encrypted key must be sent as canonical base64. A vault upload's MIME type that is longer than 255 bytes or contains a line break is stored as `application/octet-stream`. Passkey registration stores at most 8 distinct transport hints. An audit entry stores at most 4,096 characters of details, 320 characters of an email address and 128 characters of an ID, and the entry for an uploaded file records the file name as the file record stores it."
+            },
+            {
+              "title": "Refuse a symbolic link during a local-to-S3 storage migration",
+              "body": "The local-to-S3 storage migration read each stored file with a call that follows symbolic links, so a link planted at an upload path made the migration copy the file it pointed to into the bucket. The migration now reads through the same function as downloads, which opens the file with `O_NOFOLLOW`, and a link fails that file's migration with \"storage object not found\"."
+            },
+            {
+              "title": "Move the base image to a build with a fixed zlib",
+              "body": "The v1.15.7 image ships zlib 1.3.2-r5, which Trivy reports as affected by CVE-2026-85091 (MEDIUM, a heap buffer overflow). The base image is now the `cgr.dev/chainguard/wolfi-base` build of 2026-10-02, which ships zlib 1.3.2.1_rc20260601-r0, the version Wolfi lists as fixed."
+            },
+            {
+              "title": "Keep share links and tokens out of the server's logs",
+              "body": "When a request failed, the server wrote its request path to stdout or stderr. The path of a share link holds the bundle or file share ID, and a password-reset, email-verification or invite link holds its token. Anyone who could read the container output or a log aggregator could therefore open those bundles and files or use those links. The router's `route error` and `middleware error` lines wrote the path with its query string, and the server's `Unhandled server error`, `requireAdmin denied` and `security pipeline error` lines wrote it as well. The `Bundle unlock lockout`, `Zip skip`, `[files/download] Error` and `[migration] Failed to migrate file` lines named a share ID, and storage errors named the storage key, which holds both share IDs of a file.\n\nThe server now answers every failed request through its own error handler, and the router writes no line for it. A server error is logged as `Unhandled server error`, and a request refused with a 4xx status is logged at debug level as `Request refused`, with its status, code and route pattern. A refusal with HTTP 401, 403 or 429 is also recorded in the audit log, as before. The path in the server's lines is the route pattern, such as `/b/:shareId/download`, without the query string. A request that fails before a route matches is shown with each path segment of 32 or more letters, digits, `-` or `_` replaced by `:token`. Each 64-character hexadecimal value in a log message or a text field, such as an error message or a storage path, is written as `[redacted]`, and so is the value of a field whose name contains `share`. A field whose name ends in `Id`, such as `bundleId` or `userId`, is written unchanged. The `Unhandled server error` line now carries the request ID that the audit log records for the request.\n\nAudit events forwarded to a SIEM carry the route pattern in `path`, and each 64-character hexadecimal value in `details` is replaced by `[redacted]`. A new `pathDigest` field holds the first 32 hexadecimal characters of the SHA3-512 hash of the full path. Two events for the same share link carry the same `pathDigest`. The audit log that the server stores keeps the full request path, so an administrator can search it for a share link, and an audit export carries the full path as well. In the stored log, the `details` of an entry for a refused request (HTTP 401, 403 or 429) and of a refused admin request now give the route pattern, and a password-reset token in the path is no longer copied into them.\n\nLog output written by earlier releases still contains share IDs and tokens, and a share link in it stays usable until its bundle is deleted or expires. Delete that output, or restrict who can read it. A reverse proxy's access log also records the full request line of every share link. The nginx and Apache examples in `deploy/reverse-proxy/` and the ingress example in `deploy/kubernetes.yml` use the proxy's default access log. The Caddyfile example writes no access log unless a `log` directive is added."
+            },
+            {
+              "title": "Return a share link on a repeated finalize only to the bundle's owner or uploader",
+              "body": "A repeated `POST /drop/finalize/:bundleId` or `POST /stash/:slug/finalize/:bundleId` for a complete bundle without an owner, such as a signed-out upload or a stash upload, returned the bundle's share link to any caller that had the bundle ID. A bundle ID appears in audit events, in sync connection log lines and in the request lines a reverse proxy logs. A repeated finalize of such a bundle now returns the link only to a caller that sends the bundle's finalize token. Any other caller gets the HTTP 404 reply an unknown bundle gets. A bundle with an owner returns the link only to its owner, as before. A bundle finalized by an earlier release has no finalize token on record, so a repeated finalize for it succeeds only for its owner."
+            },
+            {
+              "title": "Apply an API key's stash, bundle and certificate binding on the drop routes",
+              "body": "A sync API key carries the user ID of the admin who issued it, and it can be bound to a stash, to one bundle or to a client certificate. `POST /drop/init`, `POST /drop/file/:bundleId`, `POST /drop/chunk/:bundleId` and `POST /drop/finalize/:bundleId` checked only that user ID. A stash client's key could therefore start bundles in the issuing admin's account, upload into the admin's own sync bundles and replace files there, and receive the share link of the admin's completed bundles. A key bound to a certificate also worked on these routes without its certificate. These routes now apply the binding checks the other bundle routes apply. A key bound to a stash reaches only that stash's bundles, a key bound to a bundle reaches only that bundle, and a key bound to a certificate works only with that certificate. A key bound to a stash or a bundle gets HTTP 403 on `POST /drop/init`."
+            },
+            {
+              "title": "Refuse sync bundles that have no owner",
+              "body": "`POST /drop/init` accepted `bundleType: \"sync\"` from a caller that was not signed in. The bundle it created was complete from the start and accepted files, including replacements of existing files, from anyone who had its bundle ID. An anonymous caller now gets HTTP 403 for a sync bundle. `POST /drop/file/:bundleId` and `POST /drop/chunk/:bundleId` answer HTTP 404 for an existing sync bundle that has neither an owner nor a stash. A sync bundle that has an owner or belongs to a stash is not affected."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Send whole numbers and valid addresses to the bundle init routes",
+              "body": "A client that calls `/drop/init` or `/stash/:slug/init` must send `fileCount` and `skippedCount` as whole numbers, `skippedFiles` as a list of `{ path, reason }`, and only valid addresses in `allowedEmails`. Other values are refused with HTTP 400. The upload page that this release serves sends these fields in that form."
+            },
+            {
+              "title": "Retry a password request refused with 503",
+              "body": "A script that signs in, unlocks a share link or creates a password-protected bundle can receive HTTP 503 with a `Retry-After` header while other password checks are queued. Wait for the given number of seconds and send the request again."
+            },
+            {
+              "title": "Update SIEM rules that match CADF placeholder IDs",
+              "body": "A rule that matched the CADF initiator ID `unknown` or the target ID `n/a` in an audit export needs `blamejs:unattributed` or `blamejs:unidentified` instead."
+            },
+            {
+              "title": "Update log queries that use renamed fields",
+              "body": "Some log fields are renamed. `Bundle unlock lockout` and `Zip skip` name the bundle with `bundleId`, and `[files/download] Error` and `[migration] Failed to migrate file` name the file with `fileId`. `[Sync] WebSocket connected` has `bundleId`, `userId` and `since` fields in place of `bundleId`, `user` and `url`. `requireAdmin denied` has `userId` and `role` in place of `user`. `Chunk save failed` no longer has a `bundle` field. `[expiry-cleanup] Failed to remove chunk directory for stale bundle` no longer has `bundleShareId`, and `[orphan-cleanup] Failed to delete empty bundle` no longer has `shareId`. Both keep `bundleId`. The router's `route error` and `middleware error` lines no longer appear. The `Unhandled server error` line reports a server error, and the debug-level `Request refused` line reports a request refused with a 4xx status."
+            },
+            {
+              "title": "Replace a `BACKUP_PASSPHRASE_HASH` the server cannot check",
+              "body": "If a backup run or restore fails with \"BACKUP_PASSPHRASE_HASH cannot be checked\", set `BACKUP_PASSPHRASE_HASH` to an Argon2id hash of the backup passphrase generated at m=65536, t=3, p=4. Its PHC string starts with `$argon2id$v=19$m=65536,t=3,p=4$`."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.15.7",
+      "date": "2026-09-12",
+      "headline": "Uploaded SVGs are checked for a link hidden behind a namespace prefix",
+      "summary": "A framework refresh whose one change reaching this server is in the SVG guard. Nothing in your configuration changes and there is no migration. The desktop sync client moves to the same framework version in its own release, and the two were tested together end to end before either was tagged.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "The SVG guard reads a prefixed href wherever it reads href",
+              "body": "Every rule in the SVG guard that inspects `href` matched two literal spellings, `href` and `xlink:href`. In an XML document a namespace prefix is a binding rather than part of the name, so with `xmlns:l=\"http://www.w3.org/1999/xlink\"` declared, `l:href` is `xlink:href`, and every rule missed it. `<a l:href=\"javascript:alert(1)\">` and `<image l:href=\"javascript:alert(1)\">` reported nothing at any profile and came back from sanitizing unchanged.\n\nThe guard now reads any prefixed `href` wherever it reads `href`. This server passes every uploaded SVG through that guard before storing it, so an SVG carrying such a link is now refused where it was previously accepted."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Vendored blamejs moves to 0.20.1",
+              "body": "Beyond the SVG fix above, the release tightens how the HTML, CSV, SQL, JSON, JSONPath and Markdown guards read a document, so that each judges what the consuming parser will see rather than what the bytes show. Of those, this server uses the HTML and CSV guards, and neither of the documented behavior changes applies: `guardSvg.allowedAttrs` is now enforced but this server does not set it, and the CSV allowlist policy changed but this server does not use it. Three unbounded-time paths in the Markdown guard are closed; this server does not use that guard.\n\nThe nested certificate toolkit moves to 0.7.37."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.15.6",
+      "date": "2026-09-11",
+      "headline": "A rename could stall the server, and a second instance could discard the first one's writes",
+      "summary": "Two defects found while reviewing what the framework upgrade had changed. Neither is new in 1.15.x; both have been present for some time. The first lets any account that can rename a file hold the server still for about a minute per request. The second applies only where two instances share a temporary directory, and costs recent writes rather than the database. Nothing in your configuration changes and there is no migration.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Bound the rename value before sanitizing it",
+              "body": "Renaming a file or a bundle passed the submitted name through a chain of pattern replacements and only capped its length afterwards. One of those patterns collapses whitespace around a dot, and its cost grows with the square of the input: 100,000 spaces took 3.3 seconds, and 400,000 took 57. Node runs one thread, so that is the whole server stalled, for every other request, per rename submitted. Nothing bounded the value on the way in.\n\nThe raw value is now refused above 1024 characters, which is four times the longest name a rename can produce. The same input is rejected in under a millisecond. Renaming is behind authentication and an ownership check, so this needed an account that could already rename something.\n\nIf you run a public instance with open registration, this is the one to take."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Stop a starting instance from deleting a running instance's database",
+              "body": "The database is held as plaintext in a temporary directory while the server runs, under a name generated fresh at every start, and the encrypted copy on disk is rewritten every five minutes and again at shutdown. At startup each instance clears out plaintext databases left behind by a crash. It recognized them only by not being its own, and because the name is new on every start, that is every other instance's database as well.\n\nA second instance sharing the directory therefore deleted the first one's live database. The first kept serving, because the file stays readable to a process that already has it open, so nothing looked wrong. Its next scheduled save, and its save at shutdown, both found the file missing and returned without writing and without logging. Everything it had written since its last successful save was gone at the next start.\n\nEach instance now records which process owns its database, and the cleanup skips any file whose owner is still running. A file with no owner recorded, which is what a crash leaves, is still cleared as before.\n\nThis needed two instances sharing one temporary directory, so a single container was never affected: containers get their own. Two instances on one host, or a restart where the replacement starts before the previous one has finished exiting, were."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Exclude the vendored patterns reference from code scanning",
+              "body": "The repository carries a copy of the framework's own pattern-matching rules, refreshed whenever the framework is, and compared against this project's during a release. Code scanning reported 142 findings against its expressions. They are the framework's, they run against no request data, and the scanner is already told to skip the vendored tree and the vendored browser bundles for the same reason. This file sits outside that tree, so none of those exclusions covered it."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.15.5",
+      "date": "2026-09-11",
+      "headline": "The v1.15.4 container could not start; this release fixes it",
+      "summary": "The v1.15.4 image exits immediately with a dynamic linker error and never serves a request. If you pull `latest`, `1`, `1.15` or `1.15.4`, take this release instead. Nothing in your configuration or data is affected, and there is no migration. Deployments that run from source rather than the container image were never affected.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Refresh the runtime base image so the container starts",
+              "body": "The image installs Node from the `nodejs-24` package with the patch level deliberately unpinned, so a rebuild picks up security fixes without a Dockerfile edit. The base image underneath it is pinned by digest. v1.15.4 raised the Node floor to 24.21.0 while leaving the base pinned at a build from 2026-08-22, and 24.21.0 links against glibc 2.44, which that base predates. The build succeeded and the resulting container died at startup with `node: /usr/lib/libm.so.6: version 'GLIBC_2.44' not found (required by node)`.\n\nThe base is refreshed to a current Chainguard build, which carries glibc 2.44. The Dockerfile now records that the base digest and the unpinned Node package are coupled, so raising one means refreshing the other in the same change and confirming the image starts before the tag goes out."
+            }
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "The v1.15.4 security fixes reach the container for the first time",
+              "body": "v1.15.4 carried two fixes that no container user could run, because no v1.15.4 container ran. Both are in this image.\n\nThe web mTLS gate requires a presented client certificate rather than trusting the TLS layer's authorized flag on its own. Soft mode leaves `rejectUnauthorized` off, so a client may complete a handshake without sending a certificate, and before Node 24.21.0 such a peer was reported as authorized once its session resumed.\n\nThe audit purge anchor is signed with the audit signing key. It is the row recording which audit entries were removed on purpose, so an unsigned one let anything able to write that table name an arbitrary span as legitimately deleted while verification reported a clean chain.\n\nSee the v1.15.4 notes for the full description of both."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "Chainguard wolfi-base",
+          "url": "https://images.chainguard.dev/directory/image/wolfi-base/versions"
+        }
+      ]
+    },
+    {
+      "version": "1.15.4",
+      "date": "2026-09-10",
+      "headline": "Soft mTLS refuses a client that presented no certificate",
+      "summary": "Two gates trusted something they should have checked. The web mTLS gate admitted any connection the TLS layer reported as authorized, without confirming a certificate had actually been presented, and the audit purge anchor licensed missing rows without a signature. Both are closed here. If you run from source rather than the container image, note the Node.js floor moves to 24.21.0 and the server refuses to start below it.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Require a presented certificate on the soft mTLS gate",
+              "body": "With `ENFORCE_MTLS` set and strict mode off, the web gate let a request through whenever the TLS socket reported the client as authorized. It never confirmed that a certificate had been presented. Because that mode leaves `rejectUnauthorized` off, a client may complete a handshake without sending one, and Node reported such a peer as authorized after the session was resumed. A peer could therefore connect once with no certificate, resume, and reach the pages the gate protects.\n\nThe gate now requires a certificate alongside the flag. The certificate-renewal endpoint, the sync WebSocket upgrade and the certificate-binding check already paired the two; the web gate was the one that did not. Node 24.21.0 corrects the underlying report as well and the floor moves to it below, but the gate no longer depends on the runtime to be right about this."
+            },
+            {
+              "title": "Sign the audit purge anchor",
+              "body": "The purge anchor is the row that records which audit entries were removed on purpose, so chain verification accepts the gap instead of reporting tampering. It carried no signature. Anything able to write that table could name an arbitrary span as legitimately deleted, and verification would report a clean chain over the hole.\n\nThe anchor is now signed with the audit signing key and stores the key fingerprint alongside it. Verification refuses an anchor that carries no signature, and refuses one whose signature does not verify under the key its fingerprint names. Retention cleanup, archival and the schema re-anchor all write signed anchors. An anchor written by archival also records the digest of the archive manifest, so the bundle holding the removed rows is named by something the signature covers. Chain verification checks that digest's signature rather than opening the bundle; `verifyArchive` is what checks a bundle's own signature and checksum.\n\nAn existing database gains the signature columns on first boot. The first prune after upgrading writes a signed anchor; until then the stored anchor is the unsigned one written by an earlier version, and chain verification reports it."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Refuse an upload whose relative path reduces to nothing",
+              "body": "A relative path built only from traversal segments, such as `..`, `.` or `/`, sanitizes to an empty string, as does a path the filename guard refuses. On a sync bundle that empty value was stored and then used to look up an existing file to replace. Two uploads whose paths both reduced to nothing resolved to the same record, so the second replaced the first and the earlier file's stored blob, size and checksum were overwritten. The upload is now refused with 400 and recorded as rejected."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Vendored blamejs moves to 0.20.0",
+              "body": "Carries the framework side of the signed purge anchor, including the verification that reports whether an anchor is unsigned, forged or unverifiable. 0.20.0 raises its own Node floor to 24.21.0 for the same OpenSSL 3.5.8 and NSS 3.126 root store this release moves to, so the framework and the server now state one supported runtime.\n\nThe filename guard now validates its option values. A policy name the guard does not accept raises an error where it is configured, rather than being ignored. Previously an unrecognized policy was accepted silently, and a policy that stopped being honored would have emptied filenames with nothing reported. Names carrying a colon, which this server allows because a colon is an ordinary filename character outside Windows, are unaffected and now have test coverage.\n\nOutbound mail is stricter about 8-bit content. A message carrying raw 8-bit bytes is refused when the receiving relay does not advertise 8BITMIME, instead of being sent and arriving corrupted. If your relay predates that extension, a notification naming a file with an accented character now fails to send rather than arriving mangled.\n\nThe shipped framework source also drops about 65,800 lines of comments, which is most of the deletion count in this release. Nothing executable changed with them, but line numbers inside the vendored tree moved, so the threat model now cites the functions it refers to by name instead of by line.\n\nThe nested crypto bundles move with it: @noble/ciphers and @noble/hashes to 2.4.0, @noble/post-quantum to 0.7.1."
+            }
+          ]
+        },
+        {
+          "heading": "Migration",
+          "items": [
+            {
+              "title": "Node.js floor moves to 24.21.0",
+              "body": "Running from source on Node older than 24.21.0 now exits at startup with a message naming the version found. 24.21.0 is the current Active LTS patch level and corrects the TLS 1.3 session-resumption report described above, along with the cumulative 24.x security fixes.\n\nIf you run the container image there is nothing to do: it installs Node from the `nodejs-24` package, which already provides 24.21.0. If you installed with `deploy/install.sh`, re-run it or upgrade Node through your package manager. NodeSource `setup_24.x` ships a current 24.x."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "Node.js 24.21.0 changelog",
+          "url": "https://github.com/nodejs/node/releases/tag/v24.21.0"
+        },
+        {
+          "label": "RFC 8446 (TLS 1.3)",
+          "url": "https://www.rfc-editor.org/rfc/rfc8446"
+        }
+      ]
+    },
+    {
+      "version": "1.15.3",
+      "date": "2026-08-22",
+      "headline": "The container image picks up an OpenSSL denial-of-service fix",
+      "summary": "A high-severity OpenSSL flaw was disclosed after the previous release shipped, so the image that release was built on carries it. Chainguard has rebuilt the base with the patched OpenSSL and this version pins that rebuild. If you run the container, pulling this release is the whole of the fix — nothing in your configuration changes, and there is no migration.",
+      "sections": [
+        {
+          "heading": "Security",
+          "items": [
+            {
+              "title": "Rebuild on a base image with the patched OpenSSL",
+              "body": "CVE-2026-14456 is a denial of service through unbounded memory in OpenSSL, affecting the libcrypto3 and libssl3 packages at 3.6.3-r4 and fixed upstream in 3.6.3-r5. It was disclosed after v1.15.2 was built, so that image scanned clean when it shipped and does not now.\n\nOpenSSL is what this server's post-quantum key exchange runs on, so the runtime image is pinned by digest specifically to make this kind of fix a deliberate, reviewable step rather than something that drifts in unnoticed. The pinned digest now names the Chainguard rebuild that carries the patch, and the image scans clean at every severity — including findings with no fix available."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Vendored blamejs moves to 0.18.47",
+              "body": "Hostname canonicalization stops returning names that cannot exist. A label longer than the 63 octets RFC 1035 permits was accepted as a domain, and characters no DNS name may carry survived canonicalization because the underlying call maps a name without validating it as a host.\n\nThis server reaches that function when it compares a request's Origin against the origins you have configured. Both sides pass through the same canonicalizer, so a malformed host could never match one and the comparison already refused it — this narrows the input rather than closing a way past the check.\n\nAlso in this range: a character-handling policy set to a value outside its vocabulary is now refused where options are resolved rather than read leniently at runtime, and the two spellings of the audit disposition stop disagreeing about severity. This server names those policies in code rather than exposing them as settings, so nothing you configure is affected. The vendored certificate toolkit moves to 0.5.25 alongside, whose breaking change is to an interface this server does not use."
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "label": "CVE-2026-14456",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-14456"
+        },
+        {
+          "label": "RFC 1035 §2.3.4",
+          "url": "https://www.rfc-editor.org/rfc/rfc1035#section-2.3.4"
+        }
+      ]
+    },
+    {
+      "version": "1.15.2",
+      "date": "2026-08-20",
+      "headline": "Public pages no longer answer 403 to search-engine crawlers",
+      "summary": "If anything you host is meant to be found — a public stash portal, a share link, a landing page — this is worth taking. The bot filter refused any request that omitted an Accept-Language header, and every major search-engine crawler omits it. A browser was served normally, so the refusal was invisible unless you looked at what a crawler received.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Stop refusing requests that omit Accept-Language",
+              "body": "The bot filter treated a missing Accept-Language header as grounds for a 403. Google documents that Googlebot sends requests without setting it, and bingbot behaves the same, so every public page answered 403 to a crawler while a browser sailed through. Uptime monitors, link previewers and feed readers were refused the same way. The header's absence is now an advisory signal, matching how the same filter already treats a missing Sec-Fetch-Mode.\n\nWhat still refuses a request has not been loosened. Automation libraries are refused by their User-Agent, and a request carrying no User-Agent at all is refused too — a crawler identifies itself in that header, so the empty case stays blocked without taking the crawlers with it. A raw header-less GET to a page route is still turned away."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Vendored blamejs moves to 0.18.43",
+              "body": "Carries the framework side of the fix above. The nested certificate toolkit moves to 0.5.17, where a failed integrity check now destroys the plaintext it had recovered instead of returning it, and an authenticated-encryption container validates the attributes it is asked to authenticate. Neither path is reachable from this server, which uses the toolkit for its certificate authorities rather than for message containers."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.15.1",
+      "date": "2026-08-20",
+      "headline": "Signing out clears the session cookie on a plain-HTTP deployment",
+      "summary": "If you reach HermitStash over plain HTTP — behind a proxy that terminates TLS elsewhere, or on a local network — signing out left the session cookie in the browser. The session itself was always destroyed, so the leftover cookie was dead rather than usable, but it was sent on every later request and it did not disappear when the user expected it to.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Clear the session cookie when the connection is not HTTPS",
+              "body": "The cookie that expires the session was always marked Secure, and a browser refuses a Secure cookie that arrives over plain HTTP. On a cleartext deployment the browser therefore discarded it and kept the cookie the sign-out was meant to remove. The flag now follows the scheme the request actually used, resolved against the same trusted-proxy list as the client address, so a proxy that terminates TLS still produces a Secure cookie and a caller cannot choose the attributes by sending a forwarded header. A session was never left usable by this: the server destroys the session before writing the cookie, so anything that survived in the browser was already revoked."
+            }
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Vendored blamejs moves to 0.18.41",
+              "body": "Carries the framework side of the fix above, and routes every cookie the framework writes through one validating writer rather than through per-call string building. The second change closes a header-injection path in the framework's CSRF middleware for deployments that configure a cookie path; HermitStash does not reach it, because it runs that middleware in token-lookup mode and configures no cookie."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.15.0",
+      "date": "2026-08-20",
+      "headline": "Two superseded standards references corrected, and the API reference renders its columns",
+      "summary": "A documentation-accuracy release. If you have been reading the threat model or the API reference, two of the standards it cited were superseded and two endpoint tables were rendering a column that had no content in any row. Nothing about how the server behaves changes.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            {
+              "title": "Vendored blamejs moves to 0.18.40",
+              "body": "Upstream corrected DMARC policy discovery: the resolver queried the Author Domain and the organizational domain, where RFC 9989 specifies a walk over every ancestor label, so a p=reject published at an intermediate label was read as none. This server evaluates no inbound DMARC and reaches none of that path. Taken to keep the vendored copy current."
+            }
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            {
+              "title": "Cite the standards that are current",
+              "body": "The threat model and the certificate-authority code named RFC 9579 for PBMAC1 in PKCS#12. RFC 9879 obsoleted it in September 2025 under the same title, so the older number is no longer the document to read for current behaviour. The README named RFC 5987 for HTTP header parameter encoding, obsoleted by RFC 8187. Both now point at the current text. No behaviour changes — the mechanisms these describe are unaltered, and only the reference was stale."
+            },
+            {
+              "title": "Render both API endpoint tables correctly",
+              "body": "The upload and admin endpoint tables declared three columns while every row supplied two, because each row's method is written as part of the endpoint. Renderers misalign a row whose cell count disagrees with the header, so the tables were harder to read than they should have been throughout. The redundant column is gone and the method stays where it already was."
+            },
+            {
+              "title": "Documented patterns and commands that could not be copied",
+              "body": "Three code spans in the reference material carried a single-character ellipsis where a shell needs three dots, so a copied command would fail on a character it cannot parse. One of those also misdescribed what it documented: a repetition count applied to an ellipsis rather than to the character class the check actually matches."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

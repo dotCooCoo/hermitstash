@@ -1,0 +1,68 @@
+{
+  "name": "@blamejs/stash",
+  "version": "2.3.0",
+  "description": "Zero-dependency, ephemeral, crypto-agnostic content store for Node.js. Bytes in, ref out; bytes out once, and they're gone.",
+  "keywords": [
+    "stash",
+    "content-store",
+    "ephemeral",
+    "burn-after-read",
+    "zero-dependencies",
+    "streaming",
+    "capability",
+    "blob-store"
+  ],
+  "homepage": "https://github.com/blamejs/stash#readme",
+  "bugs": {
+    "url": "https://github.com/blamejs/stash/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/blamejs/stash.git"
+  },
+  "license": "Apache-2.0",
+  "author": "blamejs contributors",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "stashjs": "src/cli.js"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./backends/memory": "./src/backends/memory.js",
+    "./backends/disk": "./src/backends/disk.js",
+    "./conformance": "./src/conformance.js"
+  },
+  "files": [
+    "src/",
+    "ARCHITECTURE.md",
+    "CHANGELOG.md",
+    "CODE_OF_CONDUCT.md",
+    "CONTRIBUTING.md",
+    "GOVERNANCE.md",
+    "LICENSE",
+    "LTS-CALENDAR.md",
+    "MIGRATING.md",
+    "NOTICE",
+    "README.md",
+    "ROADMAP.md",
+    "SECURITY.md",
+    "SPEC.md",
+    "SUPPORT.md",
+    "THREAT-MODEL.md"
+  ],
+  "scripts": {
+    "test": "node --expose-gc --test",
+    "test:sandboxed": "node scripts/run-sandboxed.js",
+    "gates": "node test/codebase-patterns.test.js && node scripts/validate-source-comment-blocks.js && node scripts/check-api-snapshot.js && node scripts/check-status-lifecycle.js && node scripts/check-lockfile-sync.js && node scripts/check-node-pins.js",
+    "coverage": "node --test --experimental-test-coverage",
+    "bench": "node bench/run.js",
+    "wiki:e2e": "node examples/wiki/test/e2e.js",
+    "smoke": "node scripts/smoke.js",
+    "release": "node scripts/release.js",
+    "prepack": "node scripts/check-pack-against-gitignore.js"
+  },
+  "engines": {
+    "node": ">=26.13.1"
+  }
+}

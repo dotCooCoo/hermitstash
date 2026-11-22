@@ -23,8 +23,16 @@
         <option value="login_failed_no_account">Login Failed (No Account)</option>
         <option value="user_registered">User Registered</option>
         <option value="logout">Logout</option>
+        <option value="oidc_account_linked">SSO Account Linked</option>
+        <option value="oidc_provision_denied">SSO Provisioning Denied</option>
+        <option value="oidc_group_denied">SSO Group Denied</option>
+        <option value="oidc_role_sync_refused">SSO Role Sync Refused</option>
         <option value="bundle_initialized">Bundle Initialized</option>
         <option value="bundle_finalized">Bundle Finalized</option>
+        <option value="bundle_burn_read">Limited Download Used</option>
+        <option value="bundle_burned">Limited Download File Used Up</option>
+        <option value="bundle_burn_destroyed">Limited Download File Deleted by Sender</option>
+        <option value="bundle_burn_expired">Limited Download Files Expired</option>
         <option value="upload_rejected">Upload Rejected</option>
         <option value="file_downloaded">File Downloaded</option>
         <option value="file_deleted">File Deleted</option>
@@ -119,6 +127,7 @@ var ACTION_COLORS={
   file_deleted:'red',user_deleted:'red',account_self_deleted:'red',admin_file_deleted:'red',admin_bundle_deleted:'red',
   upload_rejected:'orange',user_suspended:'orange',suspended_user_blocked:'orange',rate_limit_hit:'orange',
   file_downloaded:'blue',bundle_viewed:'blue',bundle_file_downloaded:'blue',bundle_zip_downloaded:'blue',
+  bundle_burn_read:'blue',bundle_burned:'orange',bundle_burn_destroyed:'red',bundle_burn_expired:'grey',
   admin_dashboard_viewed:'blue',admin_settings_viewed:'blue',
   server_started:'grey',default_admin_created:'grey',vault_key_generated:'grey',
   database_migrated:'grey',settings_file_written:'grey',unexpected_error:'red',

@@ -4,6 +4,7 @@
  */
 var b = require("../../../lib/vendor/blamejs");
 var bundlesRepo = require("../../data/repositories/bundles.repo");
+var filesRepo = require("../../data/repositories/files.repo");
 var { TIME, UPLOAD } = require("../../../lib/constants");
 var { getTotalStorageUsed } = require("../../../lib/db");
 var passwordGate = require("../../../lib/password-gate");
@@ -34,6 +35,37 @@ function _safeText(value) {
   if (!text) return text;
   var cleaned = b.guardText.sanitize(text, TEXT_OPTS);
   return typeof cleaned === "string" ? cleaned : (cleaned && cleaned.value) || text;
+}
+
+/**
+ * The read limit a sender asked for: 0 for an ordinary bundle, or 1..max for a
+ * burn-after-read bundle, where max is the operator's maxBurnReads clamped to
+ * UPLOAD.MAX_BURN_READS_CEILING. Only snapshot bundles take one.
+ */
+function resolveReadLimit(raw, bundleType, maxBurnReads) {
+  if (raw === undefined || raw === null || raw === "") return 0;
+  var n = typeof raw === "number" ? raw : (/^\d{1,4}$/.test(String(raw).trim()) ? Number(String(raw).trim()) : NaN);
+  if (!Number.isInteger(n) || n < 0) throw new ValidationError("readLimit must be a whole number.");
+  if (n === 0) return 0;
+  if (bundleType === "sync") throw new ValidationError("A sync bundle cannot have a download limit.");
+  var max = effectiveMaxBurnReads(maxBurnReads);
+  if (n > max) throw new ValidationError("readLimit may not exceed " + max + ".");
+  return n;
+}
+
+/** The operator's maxBurnReads, defaulted and clamped to the ceiling. */
+function effectiveMaxBurnReads(maxBurnReads) {
+  var max = parseInt(maxBurnReads, 10);
+  if (!Number.isInteger(max) || max < 1) max = UPLOAD.MAX_BURN_READS_DEFAULT;
+  return Math.min(max, UPLOAD.MAX_BURN_READS_CEILING);
+}
+
+/** The download-limit choices the upload form offers, up to the operator's maximum. */
+function readLimitChoices(maxBurnReads) {
+  var max = effectiveMaxBurnReads(maxBurnReads);
+  var out = [1, 2, 3, 5, 10, 25, 50, 100].filter(function (n) { return n <= max; }); // allow:raw-byte-literal — download counts, not bytes
+  if (out.indexOf(max) === -1) out.push(max);
+  return out;
 }
 
 /**
@@ -72,6 +104,11 @@ async function initBundle(opts) {
   var effectiveDays = requestedDays > 0 ? Math.min(requestedDays, ceilingDays) : defaultExpiry;
   var expiresAt = effectiveDays > 0 ? new Date(Date.now() + effectiveDays * TIME.days(1)).toISOString() : null;
 
+  var readLimit = resolveReadLimit(opts.readLimit, opts.bundleType, opts.maxBurnReads);
+  if (readLimit > 0 && !expiresAt) {
+    throw new ValidationError("A limited-download bundle needs an expiry. Choose how many days the link stays valid.");
+  }
+
   // opts.allowedEmails is null or the comma-joined list that
   // uploadValidator.validateAllowedEmails returned: at most
   // UPLOAD.ALLOWED_EMAILS_MAX addresses, each normalized by validateEmail, which
@@ -108,10 +145,11 @@ async function initBundle(opts) {
     allowedEmails: allowedEmails,
     accessMode: accessMode,
     expiresAt: expiresAt,
+    readLimit: readLimit,
     createdAt: new Date().toISOString(),
   });
 
-  return { bundleId: bundle._id, shareId: shareId, finalizeToken: finalizeToken };
+  return { bundleId: bundle._id, shareId: shareId, finalizeToken: finalizeToken, readLimit: readLimit };
 }
 
 /**
@@ -144,7 +182,9 @@ function verifyFinalizeToken(bundle, token) {
  */
 function finalizeBundle(bundleId, token) {
   var bundle = bundlesRepo.findById(bundleId);
-  if (!bundle) throw new NotFoundError("Bundle not found.");
+  // A burned bundle stays burned: finalizing it again would make its share
+  // link serve files again.
+  if (!bundle || bundle.status === "burned") throw new NotFoundError("Bundle not found.");
   if (bundle.status === "complete" && bundle.bundleType !== "sync") throw new ValidationError("Already finalized.");
 
   if (!verifyFinalizeToken(bundle, token)) {
@@ -157,4 +197,25 @@ function finalizeBundle(bundleId, token) {
   return bundlesRepo.findById(bundleId);
 }
 
-module.exports = { initBundle, checkStorageQuota, finalizeBundle, verifyFinalizeToken };
+/**
+ * Mark a burn-after-read bundle "burned" once it has no files left. The row
+ * stays until its expiry, so its share link answers 410 like an expired one;
+ * the expiry job removes it then.
+ */
+function markBurnedIfEmpty(bundleShareId) {
+  if (filesRepo.findByBundleShareId(bundleShareId).length > 0) return false;
+  var bundle = bundlesRepo.findByShareId(bundleShareId);
+  if (!bundle || bundleReadLimit(bundle) === 0 || bundle.status === "burned") return false;
+  bundlesRepo.update(bundle._id, { $set: { status: "burned" } });
+  return true;
+}
+
+/**
+ * The read budget a stored bundle row carries: 0 for an ordinary bundle.
+ */
+function bundleReadLimit(bundle) {
+  var n = bundle ? Number(bundle.readLimit) : 0;
+  return Number.isInteger(n) && n > 0 ? n : 0;
+}
+
+module.exports = { initBundle, checkStorageQuota, finalizeBundle, verifyFinalizeToken, resolveReadLimit, readLimitChoices, bundleReadLimit, markBurnedIfEmpty };

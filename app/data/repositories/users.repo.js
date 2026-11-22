@@ -11,6 +11,10 @@ function findByEmail(email) { return users.findOne({ email: String(email).toLowe
 // Indexed lookup on the sealed tailscaleId via its tailscaleIdHash blind index
 // (field-crypto rewrites the sealed-field predicate to the hash column).
 function findByTailscaleId(tailscaleId) { return users.findOne({ tailscaleId: String(tailscaleId).toLowerCase() }); }
+// Indexed lookups on the sealed oidcSubject ("<issuer>|<sub>") through its
+// oidcSubjectHash blind index. The value is case-sensitive and is not folded.
+function findByOidcSubject(subject) { return users.findOne({ oidcSubject: String(subject) }); }
+function findAllByOidcSubject(subject) { return users.find({ oidcSubject: String(subject) }); }
 function findAll(query) { return users.find(query || {}); }
 function count(query) { return users.count(query || {}); }
 
@@ -105,4 +109,4 @@ function deleteUser(userId, reassignTo) {
 
 function remove(id) { return users.remove({ _id: id }); }
 
-module.exports = { findById, findByEmail, findByTailscaleId, findAll, count, findPaginated, create, update, remove, deleteUser, incrementFailedAttempts, consumeBackupCode };
+module.exports = { findById, findByEmail, findByTailscaleId, findByOidcSubject, findAllByOidcSubject, findAll, count, findPaginated, create, update, remove, deleteUser, incrementFailedAttempts, consumeBackupCode };

@@ -444,6 +444,7 @@ var VALID_ALLOW_CLASSES = {
   "inline-require-in-deferred": 1,
   "jmap-eventsource-ping-shape": 1,
   "jmap-id-undersized-cap": 1,
+  "keyed-insert-absence-drives": 1,
   "legacy-url-format": 1,
   "listen-port-default": 1,
   "literal-size-zero": 1,
@@ -15059,6 +15060,13 @@ function testStateStampScanningDeferred() {
 //      out every allowlist change.
 //   4. The catalog scans whole-file content (multiline regex) so
 //      patterns split across lines still match.
+// Builds a keyed-insert detector: `head`, then any text that does not cross a
+// column-0 `}` (so both ends sit in one top-level function), then `tail`.
+// `bound` is a backtracking ceiling set far above any real function body.
+function _keyedInsertRe(head, tail, bound) {
+  return new RegExp(head + "(?:(?!\\n\\})[\\s\\S]){0," + (bound || 20000) + "}?" + tail);
+}
+
 var KNOWN_ANTIPATTERNS = [
   {
     id: "a-defaulted-options-parameter-is-read",
@@ -17129,30 +17137,12 @@ var KNOWN_ANTIPATTERNS = [
     // call that does ONE lookup instead of two and closes a small race
     // window in cluster-shared agent registries (no observer can see
     // the half-built state between `.has(k) === false` and `.set(k)`).
+    // The engines floor is >=26.13.1, so every lib/ module may call it.
     //
-    // The framework floor today is `engines.node: ">=24"`. The sweep is
-    // deferred to the Node 26 floor-bump (eligible Oct 2026 per LTS
-    // calendar). This detector lands NOW so:
-    //   1. New code can't introduce fresh occurrences without tripping
-    //      the gate — the floor-bump sweep's surface stays bounded.
-    //   2. Operators reading the catalog see the migration target.
-    //   3. When the floor moves, the bump commit walks the allowlist,
-    //      converts each call site, drops the allowlist entries, and
-    //      flips the detector from "documentation" to "enforce".
-    //
-    // The allowlist below is the survey ground truth — each entry
-    // names the map and the on-miss factory it covers. Adding a new
-    // file here pre-floor-bump requires the same per-site annotation
-    // so the sweep stays mechanical.
-    //
-    // The catalog catches both variants via a pair of sibling entries:
-    //   A. `var X = M.get(k); if (!X) { ... .set(k, ...) ... }` — this
-    //      entry. The body must reach a `.set(` call within ~300 chars
-    //      of the `if`-block opener to qualify; the `.set(` requirement
-    //      excludes guard-throw shapes like `if (!entry) throw new ...`
-    //      where the function returns / errors instead of inserting.
-    //   B. `if (!M.has(k)) { ... .set(k, ...) ... }` — caught by the
-    //      sibling `map-has-then-set-pre-node-26` entry below.
+    // The family: this entry (A, `var X = M.get(k); if (!X) ... .set(`),
+    // map-has-then-set (braced `if (!M.has(k)) {`), map-has-then-set-braceless,
+    // map-get-falsy-then-set, map-memo-has-return-then-set,
+    // map-memo-get-return-then-set and map-get-or-default-then-set.
     // The regexes intentionally drop the same-identifier backref. The
     // first attempt used `\1`-pinned backrefs to require the same map
     // name on both sides; V8's regex engine ran the working set OOM on
@@ -17161,11 +17151,11 @@ var KNOWN_ANTIPATTERNS = [
     // coverage at a fraction of the engine cost; the rare false positive
     // where the `.get(...)` and `.set(...)` name DIFFERENT maps is
     // covered by the allowlist + reason.
-    id: "map-get-or-insert-pre-node-26",
+    id: "map-get-or-insert",
     primitive: "b.internal boundedMap.getOrInsert(map, key, factory, opts?) — the framework's get-or-insert primitive (lib/bounded-map.js). Hand-rolled two-step get-then-set is the duplication; route it through getOrInsert.",
     // Variant A only — `var X = M.get(k); if (!X) { ... M.set(k, ...) ... }`.
     // Variant B (`if (!M.has(k)) { ... M.set(k, ...) ... }`) is caught
-    // by the sibling `map-has-then-set-pre-node-26` entry below; one
+    // by the sibling `map-has-then-set` entry below; one
     // regex per shape keeps V8's backtracking engine happy on large
     // files (an alternation `(?:A)|(?:B)` with backrefs + `[\s\S]{0,N}?`
     // triggered an OOM on the first attempt).
@@ -17176,20 +17166,70 @@ var KNOWN_ANTIPATTERNS = [
     // OUTSIDE the if-block (`if (!v) { throw } m.set(...)` — the `\1}` precedes
     // the `.set`) and (b) catches a real get-or-insert at any depth, where a
     // layout-coupled `\s{0,4}\}` char-bound silently rotted on nested code.
-    regex: /(?:^|\n)([ \t]*)var\s+\w+\s*=\s*\w+\.get\s*\([^;]+\)\s*;\s*\n[ \t]*if\s*\(\s*!\s*\w+\s*\)\s*\{(?:(?!\n\1\}|\.set\s*\()[\s\S]){0,4000}?\.set\s*\(/,
+    // The condition covers `!X` and `X === undefined|null`, the receiver may be
+    // dotted (`index.bySubject`), and the block may be braceless. The token
+    // stops at `return` / `throw` so an LRU touch, an expiry check or a
+    // throw-on-missing lookup is not read as an insert.
+    regex: /(?:^|\n)([ \t]*)var\s+\w+\s*=\s*[\w.]+\.get\s*\([^;]+\)\s*;\s*\n[ \t]*if\s*\(\s*(?:!\s*\w+|\w+\s*===?\s*(?:undefined|null))\s*\)\s*\{?(?:(?!\n\1\}|\.set\s*\(|\breturn\b|\bthrow\b)[\s\S]){0,4000}?\.set\s*\(/,
+    requires: /allow:keyed-insert-absence-drives/,
     allowlist: [
       // lib/bounded-map.js is the primitive's own home — its getOrInsert body
       // is the canonical get-then-set and must not flag itself.
       "lib/bounded-map.js",
     ],
-    reason: "The framework's request-keyed Maps used to hand-roll `var v = m.get(k); if (!v) { v = factory(); m.set(k, v); }` everywhere. That two-step get-or-insert is now a single primitive — boundedMap.getOrInsert(map, key, factory, opts?) in lib/bounded-map.js — which also composes the optional cardinality ceiling (opts.maxSize/onFull) a capped caller would otherwise re-roll. Every call site routes through it; the detector enforces that routing. New hand-rolled get-then-set trips this — route it through boundedMap.getOrInsert rather than re-rolling or allowlisting. (Floor note: when the Node floor reaches 26, getOrInsert's one body swaps to native Map.prototype.getOrInsertComputed in a single edit — the point of centralizing it.)",
+    reason: "The framework's request-keyed Maps used to hand-roll `var v = m.get(k); if (!v) { v = factory(); m.set(k, v); }` everywhere. That two-step get-or-insert is one primitive — boundedMap.getOrInsert(map, key, factory, opts?) in lib/bounded-map.js — whose body calls native Map.prototype.getOrInsertComputed (Node 26 floor) and keeps a has/get/set fallback for a boundedMap facade, which must evict. A leaf or hot-path module may call `map.getOrInsertComputed(key, factory)` directly. A site whose code after the lookup depends on whether the key was absent (an async fill, a conditional insert, a placeholder overwritten later) carries an `allow:keyed-insert-absence-drives` marker naming that dependency.",
   },
   {
-    // Companion to `map-get-or-insert-pre-node-26` — same Node-26
-    // migration target, different syntactic variant. Catches the
-    // `if (!M.has(k)) { ... M.set(k, factory); ... }` shape (no
-    // intermediate `var X = M.get(k)` binding). See the sibling entry.
-    id: "map-has-then-set-pre-node-26",
+    // Braceless sibling of map-has-then-set: `if (!m.has(k)) m.set(k, v);`.
+    // The braced rule needs `{`, so a one-line insert passed it.
+    id: "map-has-then-set-braceless",
+    primitive: "Map.prototype.getOrInsertComputed(key, factory), or boundedMap.getOrInsert for a boundedMap facade",
+    regex: /(?:^|\n)([ \t]*)if\s*\(\s*!\s*[\w.]+\.has\s*\([^)]+\)\s*\)\s*[\w.]+\.set\s*\(/,
+    requires: /allow:keyed-insert-absence-drives/,
+    allowlist: [],
+    reason: "`if (!m.has(k)) m.set(k, v)` is a get-or-insert written as two lookups. Use `m.getOrInsertComputed(k, factory)` (native since the Node 26 floor) or boundedMap.getOrInsert when `m` is a boundedMap facade.",
+  },
+  {
+    // Memo shape: `if (m.has(k)) return m.get(k); ...build...; m.set(k, v)`
+    // inside one function. The token cannot cross a column-0 `}`, so the
+    // `.set` must sit in the same top-level function as the lookup.
+    id: "map-memo-has-return-then-set",
+    primitive: "Map.prototype.getOrInsertComputed(key, factory), or boundedMap.getOrInsert for a boundedMap facade",
+    regex: _keyedInsertRe(
+      "if\\s*\\(\\s*([\\w.]+)\\.has\\s*\\(([^)]+)\\)\\s*\\)\\s*return\\s+\\1\\.get\\s*\\(\\2\\)\\s*;",
+      "\\b\\1\\.set\\s*\\(\\2\\s*,"),
+    requires: /allow:keyed-insert-absence-drives/,
+    allowlist: [
+      "lib/bounded-map.js",   // the primitive's own fallback body for a boundedMap facade
+    ],
+    reason: "A memo that returns the cached value on a hit and builds then stores it on a miss is getOrInsertComputed written by hand. Move the build into the factory. A memo whose build is async, caches only some outcomes, or registers a placeholder before recursing carries an `allow:keyed-insert-absence-drives` marker naming why.",
+  },
+  {
+    // Memo shape bound to a local: `var v = m.get(k); if (v) return v; ... m.set(k, v)`.
+    id: "map-memo-get-return-then-set",
+    primitive: "Map.prototype.getOrInsertComputed(key, factory), or boundedMap.getOrInsert for a boundedMap facade",
+    regex: _keyedInsertRe(
+      "var\\s+(\\w+)\\s*=\\s*([\\w.]+)\\.get\\s*\\(([^;]+?)\\)\\s*;\\s*if\\s*\\(\\s*\\1(?:\\s*!==\\s*undefined)?\\s*\\)\\s*return\\s+\\1\\s*;",
+      "\\b\\2\\.set\\s*\\(\\3\\s*,"),
+    requires: /allow:keyed-insert-absence-drives/,
+    allowlist: [],
+    reason: "Same class as map-memo-has-return-then-set, with the cached value read into a local first.",
+  },
+  {
+    // Get-or-default then store: `var v = m.get(k) || []; v.push(x); m.set(k, v);`.
+    id: "map-get-or-default-then-set",
+    primitive: "Map.prototype.getOrInsertComputed(key, factory), or boundedMap.getOrInsert for a boundedMap facade",
+    regex: _keyedInsertRe(
+      "var\\s+(\\w+)\\s*=\\s*([\\w.]+)\\.get\\s*\\(([^;]+?)\\)\\s*(?:\\|\\||\\?\\?)\\s*(?:\\[|\\{|new\\b)",
+      "\\b\\2\\.set\\s*\\(\\3\\s*,\\s*\\1\\s*\\)", 600),
+    requires: /allow:keyed-insert-absence-drives/,
+    allowlist: [],
+    reason: "`m.get(k) || []` followed by `m.set(k, v)` stores a default on absence and re-stores the same object on a hit. getOrInsertComputed does that in one lookup. A site that must not insert until later work succeeds carries an `allow:keyed-insert-absence-drives` marker.",
+  },
+  {
+    // Catches the `if (!M.has(k)) { ... M.set(k, factory); ... }` shape,
+    // which has no intermediate `var X = M.get(k)` binding.
+    id: "map-has-then-set",
     primitive: "b.internal keyed-store guard family (lib/bounded-map.js): boundedMap.getOrInsert (insert-on-absence) or boundedMap.requirePresent (must-exist lookup/update). Hand-rolled `if (!map.has(k)) { … }` absence guard is the duplication; route it through the matching member.",
     // The general ABSENCE guard — `if (!map.has(key)) { … }` whose block then
     // either SETS (insert-on-absence → getOrInsert) or THROWS (must-exist →
@@ -21162,18 +21202,15 @@ var KNOWN_ANTIPATTERNS = [
   },
 
   {
-    // v0.11.3 audit found: the existing `map-has-then-set-pre-node-26`
-    // detector catches the literal `if (!M.has(k))` shape but misses
-    // the semantically-identical `if (!M.get(k))` and `if (M.get(k)
-    // === undefined)` variants — same race window, same bug class,
-    // same Node-26 getOrInsertComputed migration target. This entry
-    // closes those variants.
-    id: "map-get-falsy-then-set-pre-node-26",
-    primitive: "Node 26 `Map.prototype.getOrInsertComputed(key, factory)` collapses falsy-check + insert into one atomic call",
+    // The `map-has-then-set` detector catches the literal `if (!M.has(k))`
+    // shape. This entry catches the `if (!M.get(k))` and
+    // `if (M.get(k) === undefined)` variants of the same get-or-insert.
+    id: "map-get-falsy-then-set",
+    primitive: "Map.prototype.getOrInsertComputed(key, factory), or boundedMap.getOrInsert for a boundedMap facade",
     regex: /(?:^|\n)([ \t]*)if\s*\(\s*(?:!\s*\w+\.get\s*\([^)]+\)|\w+\.get\s*\([^)]+\)\s*===\s*(?:undefined|null))\s*\)\s*\{(?:(?!\n\1\}|\.set\s*\()[\s\S]){0,3000}?\.set\s*\(/,
     skipCommentLines: true,
     allowlist: [],
-    reason: "Companion to map-has-then-set-pre-node-26 — same Node 26 getOrInsertComputed migration target, captures the `!M.get(k)` / `M.get(k) === undefined|null` syntactic variants. v0.11.3 audit identified the original map-has-then-set detector as bypassable by switching `.has(k)` to `.get(k)` falsy-check; this entry closes that gap.",
+    reason: "Companion to map-has-then-set: captures the `!M.get(k)` / `M.get(k) === undefined|null` variants, which otherwise bypass that detector by switching `.has(k)` to a `.get(k)` falsy check. Use getOrInsertComputed.",
   },
 
   {

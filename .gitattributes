@@ -16,3 +16,4 @@ scripts/sync-to-public.sh export-ignore
 # anything genuinely binary, so a future release adding a compiled artifact
 # cannot be silently corrupted by end-of-line conversion.
 lib/vendor/blamejs/** text=auto eol=lf
+lib/vendor/stash/** text=auto eol=lf

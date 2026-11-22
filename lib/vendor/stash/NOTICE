@@ -1,0 +1,18 @@
+@blamejs/stash
+Copyright 2026 blamejs contributors
+
+This product includes software developed by the blamejs project.
+
+Licensed under the Apache License, Version 2.0. See LICENSE for the full text.
+
+================================================================================
+Third-Party Components
+================================================================================
+
+@blamejs/stash ships with zero npm dependencies -- runtime and development --
+and vendors no third-party code in the published package. Hashing and random
+identifier generation run entirely on Node's built-in node:crypto.
+
+The documentation example app (examples/wiki, never published) vendors the
+Prism syntax highlighter under examples/wiki/public/vendor/ with its original
+license and a pinned SHA-256 manifest.

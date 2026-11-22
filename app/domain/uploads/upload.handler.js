@@ -134,8 +134,24 @@ function _refundIpQuota(req, bytes) {
   } catch (_e) { /* refund best-effort — overcount fails closed, never grants quota */ }
 }
 
+// The bytes a file of `plaintextSize` uploaded to `bundle` occupies in storage.
+// A burn bundle's files carry stash framing and a hold region on top of the
+// plaintext, and every quota charges that full amount.
+function _storedSize(bundle, plaintextSize) {
+  return storage.storedSizeOf(plaintextSize, bundleService.bundleReadLimit(bundle) > 0);
+}
+
+// Committed stored bytes of every file the user uploaded.
+function _userStoredTotal(ownerId) {
+  var userFiles = filesRepo.findAll({ uploadedBy: ownerId });
+  var total = 0;
+  for (var i = 0; i < userFiles.length; i++) { total += storage.storedSizeOfRecord(userFiles[i]); }
+  return total;
+}
+
 /**
- * Storage, per-user and per-IP quotas for one file upload.
+ * Storage, per-user and per-IP quotas for one file upload. `fileSize` is the
+ * plaintext size; each quota is charged the stored size (see _storedSize).
  *
  * The per-IP budget is debited the instant its check passes, not after the save
  * resolves, so concurrent uploads see each other's debits rather than all
@@ -143,9 +159,11 @@ function _refundIpQuota(req, bytes) {
  * _refundIpQuota if the upload later fails.
  */
 async function checkAllQuotas(fileSize, bundle, req) {
+  var stored = _storedSize(bundle, fileSize);
+
   // Storage quota
   try {
-    bundleService.checkStorageQuota(fileSize, config.storageQuotaBytes);
+    bundleService.checkStorageQuota(stored, config.storageQuotaBytes);
   } catch (_e) {
     return { allowed: false, error: _e.message, reason: "storage quota exceeded" };
   }
@@ -153,10 +171,7 @@ async function checkAllQuotas(fileSize, bundle, req) {
   // Per-user quota — the owner's override when set, else the global PER_USER_QUOTA.
   var perUserCap = _perUserQuotaCap(bundle.ownerId);
   if (perUserCap > 0) {
-    var userFiles = filesRepo.findAll({ uploadedBy: bundle.ownerId });
-    var userTotal = 0;
-    for (var i = 0; i < userFiles.length; i++) { userTotal += Number(userFiles[i].size) || 0; }
-    if (userTotal + fileSize > perUserCap) {
+    if (_userStoredTotal(bundle.ownerId) + stored > perUserCap) {
       return { allowed: false, error: "Personal storage quota exceeded.", reason: "per-user quota exceeded" };
     }
   }
@@ -165,14 +180,14 @@ async function checkAllQuotas(fileSize, bundle, req) {
   var ipReserved = 0;
   if (config.publicIpQuotaBytes > 0 && !bundle.ownerId) {
     var ipKey = _ipQuotaKey(req);
-    var ipCheck = await _getIpQuota().check(ipKey, fileSize);
+    var ipCheck = await _getIpQuota().check(ipKey, stored);
     if (!ipCheck.allowed) {
       return { allowed: false, error: "Upload quota exceeded. Try again later.", reason: "per-IP quota exceeded" };
     }
     // Debit immediately so the in-flight bytes are visible to a concurrent
     // check before THIS upload's long save window yields the event loop.
-    await _getIpQuota().record(ipKey, fileSize);
-    ipReserved = fileSize;
+    await _getIpQuota().record(ipKey, stored);
+    ipReserved = stored;
   }
 
   return { allowed: true, ipReserved: ipReserved };
@@ -190,12 +205,7 @@ function _postWriteQuotaReason(bundle) {
     catch (_e) { return "Storage quota exceeded."; }
   }
   var perUserCap = _perUserQuotaCap(bundle.ownerId);
-  if (perUserCap > 0) {
-    var userFiles = filesRepo.findAll({ uploadedBy: bundle.ownerId });
-    var userTotal = 0;
-    for (var i = 0; i < userFiles.length; i++) { userTotal += Number(userFiles[i].size) || 0; }
-    if (userTotal > perUserCap) return "Personal storage quota exceeded.";
-  }
+  if (perUserCap > 0 && _userStoredTotal(bundle.ownerId) > perUserCap) return "Personal storage quota exceeded.";
   return null;
 }
 
@@ -327,6 +337,7 @@ async function handleFileUpload(ctx) {
       // shared file list (GET /teams/:teamId/files). null for non-team bundles.
       teamId: bundle.teamId || null,
       seq: newSeq,
+      readLimit: bundleService.bundleReadLimit(bundle), bundleExpiresAt: bundle.expiresAt,
     });
     fileShareId = result.shareId;
     checksum = result.checksum;
@@ -355,7 +366,7 @@ async function handleFileUpload(ctx) {
   // re-checked on both paths.
   if (counters) {
     // Per-bundle caps re-checked on the atomic committed value; the global +
-    // per-user caps are re-checked on the committed SUM(size) the same way, so a
+    // per-user caps are re-checked on the committed stored-size total the same way, so a
     // concurrent burst can't overshoot any storage cap (not just the per-bundle one).
     var postCheck = uploadValidator.validateBundleLimits(counters.receivedFiles, limits.maxFiles, counters.totalSize, limits.maxBundleSize);
     var postReason = postCheck.valid ? _postWriteQuotaReason(bundle) : postCheck.reason;
@@ -588,15 +599,18 @@ async function handleChunkUpload(ctx) {
       // Inherit the bundle's team so chunked uploads to a team-scoped stash also
       // land in the team's file list (parity with the non-chunked path above).
       teamId: bundle.teamId || null,
+      readLimit: bundleService.bundleReadLimit(bundle), bundleExpiresAt: bundle.expiresAt,
     });
     var checksum = chunkResult.checksum;
 
-    // The per-IP byte quota was reserved on estimatedSize at checkAllQuotas above
-    // (reserve-then-confirm); no post-save record here. estimatedSize is the sum
-    // of the chunk sizes and equals fullData.length, but if they diverge, refund
-    // the difference so the debit matches the bytes actually stored.
-    if (quota.ipReserved && fullData.length !== quota.ipReserved) {
-      _refundIpQuota(ctx.req, quota.ipReserved - fullData.length);
+    // The per-IP byte quota was reserved on the stored size of estimatedSize at
+    // checkAllQuotas above (reserve-then-confirm); no post-save record here.
+    // estimatedSize is the sum of the staged chunk sizes, which carry envelope
+    // overhead, so the difference to the stored size of fullData is refunded
+    // and the debit matches the bytes actually stored.
+    var chunkStored = _storedSize(bundle, fullData.length);
+    if (quota.ipReserved && chunkStored !== quota.ipReserved) {
+      _refundIpQuota(ctx.req, quota.ipReserved - chunkStored);
     }
 
     var chunkCounters = bundlesRepo.incrementCounters(bundle._id, 1, fullData.length);
@@ -613,8 +627,8 @@ async function handleChunkUpload(ctx) {
         bundlesRepo.incrementCounters(bundle._id, -1, -fullData.length);
         try { if (chunkResult.saved && chunkResult.saved.path) { await storage.deleteFile(chunkResult.saved.path); } } catch (_e) { /* cleanup — blob may already be gone on S3 */ }
         try { if (chunkResult.doc && chunkResult.doc._id) { filesRepo.remove(chunkResult.doc._id); } } catch (_e) { /* cleanup — record removal best-effort */ }
-        // Release the per-IP byte reservation (reconciled above to fullData.length).
-        _refundIpQuota(ctx.req, fullData.length);
+        // Release the per-IP byte reservation (reconciled above to chunkStored).
+        if (quota.ipReserved) _refundIpQuota(ctx.req, chunkStored);
         audit.log(audit.ACTIONS.UPLOAD_REJECTED, { targetId: bundle._id, details: "reason: " + chunkReason + " (chunked, post-write)" + suffix, req: ctx.req });
         return { error: chunkReason };
       }
@@ -635,7 +649,8 @@ async function handleChunkUpload(ctx) {
  */
 function handleFinalize(ctx) {
   var existing = bundlesRepo.findById(ctx.bundleId);
-  if (!existing) return { error: "Bundle not found.", status: 404 };
+  // A burned bundle answers like an unknown one and is never finalized again.
+  if (!existing || existing.status === "burned") return { error: "Bundle not found.", status: 404 };
   if (existing.status === "complete") {
     // A repeated finalize returns the share link only to the bundle's owner or
     // to a caller that sends the bundle's finalize token. Any other caller gets

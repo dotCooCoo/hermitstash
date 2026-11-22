@@ -25,6 +25,8 @@ var uploadHandler = require("../app/domain/uploads/upload.handler");
 var accessCodeService = require("../app/domain/access-code.service");
 var accessLockout = require("../lib/access-lockout");
 var passwordGate = require("../lib/password-gate");
+var bundleService = require("../app/domain/uploads/bundle.service");
+var csrfPolicy = require("../app/security/csrf-policy");
 
 // Persistent exponential backoff for bundle password attempts, keyed on the
 // (namespace, shareId, client subnet) tuple. Stored in bundle_access_lockouts
@@ -58,6 +60,80 @@ function bundleAllowedMatch(bundle) {
   return function (email) { return allowedList.includes(String(email).toLowerCase()); };
 }
 
+// A burn-after-read bundle that has run out of reads keeps its row with status
+// "burned" until its expiry. Its share link answers exactly like an expired one,
+// so a third party cannot tell that the recipient downloaded it.
+function sendExpiredPage(req, res) {
+  res.setHeader("Cache-Control", "no-store");
+  return send(res, "error", { title: "Expired", message: "This bundle has expired.", user: req.user }, 410);
+}
+
+function isBurnedBundle(shareId) {
+  var row = bundlesRepo.findByShareId(shareId);
+  return !!(row && row.status === "burned");
+}
+
+function isBurnBundle(bundle) {
+  return !!bundle && (bundle.status === "burned" || bundleService.bundleReadLimit(bundle) > 0);
+}
+
+// The download of a burn file spent its credit. Record it, and once the last
+// credit is gone remove the file row and, with no files left, mark the bundle
+// burned. The stash ref is never written to the audit log.
+function recordBurnRead(doc, bundle, readsLeft, req) {
+  filesRepo.incrementDownloads(doc._id);
+  db.rawExec("UPDATE bundles SET downloads = downloads + 1 WHERE _id = ?", bundle._id);
+  audit.log(audit.ACTIONS.BUNDLE_BURN_READ, { targetId: doc._id, details: "bundle: " + bundle.shareId + ", readsLeft: " + readsLeft, req: req });
+  if (readsLeft > 0) return;
+  removeSpentBurnFile(doc, bundle);
+}
+
+// The stash entry of a burn file is gone (last credit spent, or found missing on
+// a read). Remove its row and mark the bundle burned once it has no files left.
+function removeSpentBurnFile(doc, bundle) {
+  filesRepo.remove(doc._id);
+  audit.log(audit.ACTIONS.BUNDLE_BURNED, { targetId: doc._id, performedBy: "system", details: "bundle: " + bundle.shareId + ", last read spent" });
+  bundleService.markBurnedIfEmpty(bundle.shareId);
+}
+
+// Resolve the bundle and file of a limited-download request and run the expiry
+// and access gates, in that order, before anything touches the stash store.
+// Returns { doc, bundle } or { status } for the response to send.
+function resolveBurnFile(req, bundle) {
+  if (bundle.status === "burned" || isBundleExpired(bundle)) return { status: 410 };
+  // A bundle still uploading is not served, the same as on its browse page.
+  if (bundle.status !== "complete") return { status: 404 };
+  if (isBundleLocked(bundle, req.session, bundleAllowedMatch(bundle))) return { status: 401 };
+  var doc = filesRepo.findCompleteByShareId(req.params.fileShareId);
+  if (!doc || doc.bundleShareId !== bundle.shareId) return { status: 410 };
+  if (doc.expiresAt && doc.expiresAt < new Date().toISOString()) return { status: 410 };
+  if (!storage.isStashPath(doc.storagePath)) return { status: 404 };
+  return { doc: doc, bundle: bundle };
+}
+
+function sendBurnGateStatus(req, res, status) {
+  if (status === 410) return sendExpiredPage(req, res);
+  if (status === 401) return send(res, "error", { title: "Access restricted", message: "Unlock this bundle from its share page first.", user: req.user }, 401);
+  return send(res, "error", { title: "Not Found", message: "File not found.", user: req.user }, 404);
+}
+
+// Read the small urlencoded body of the click-through form.
+function readClickThroughForm(req) {
+  return new Promise(function (resolve, reject) {
+    var collector = b.safeBuffer.boundedChunkCollector({ maxBytes: C.BYTES.kib(2) });
+    var failed = false;
+    req.on("data", function (c) {
+      if (failed) return;
+      try { collector.push(c); } catch (_e) { failed = true; reject(new ValidationError("Request body too large.")); }
+    });
+    req.on("end", function () {
+      if (failed) return;
+      resolve(Object.fromEntries(new URLSearchParams(collector.result().toString("utf8"))));
+    });
+    req.on("error", function (e) { if (!failed) { failed = true; reject(e); } });
+  });
+}
+
 async function _streamToBuffer(stream) {
   // Cap at 2 GiB — far above the per-file upload limit, but bounds memory
   // against a corrupted/hostile storage stream. The collector enforces the
@@ -68,7 +144,16 @@ async function _streamToBuffer(stream) {
   return collector.result();
 }
 
+var BUNDLE_FILE_PATH = /^\/b\/[^/]+\/file\/[^/]+$/;
+
 module.exports = function (app) {
+  // HEAD on a bundle file answers 405 without reading anything.
+  app.use(function bundleFileHeadGuard(req, res, next) {
+    if (String(req.method || "").toUpperCase() !== "HEAD" || !BUNDLE_FILE_PATH.test(req.pathname || "")) return next();
+    res.writeHead(405, { "Allow": "GET, POST", "Cache-Control": "no-store" });
+    res.end();
+  });
+
   // Bundle password verification (rate limited to prevent brute force)
   app.post("/b/:shareId/unlock", rateLimit.guard({ max: 10, windowMs: C.TIME.minutes(15), algorithm: "fixed-window" }), async (req, res) => {
     var shareId = req.params.shareId;
@@ -205,14 +290,15 @@ module.exports = function (app) {
   });
 
   // Bundle browse page
-  app.get("/b/:shareId", (req, res) => {
+  app.get("/b/:shareId", async (req, res) => {
     var bundle = bundlesRepo.findCompleteByShareId(req.params.shareId);
-    if (!bundle) return send(res, "error", { title: "Not Found", message: "Bundle not found.", user: req.user }, 404);
+    if (!bundle) {
+      if (isBurnedBundle(req.params.shareId)) return sendExpiredPage(req, res);
+      return send(res, "error", { title: "Not Found", message: "Bundle not found.", user: req.user }, 404);
+    }
 
     // Check expiry
-    if (isBundleExpired(bundle)) {
-      return send(res, "error", { title: "Expired", message: "This bundle has expired.", user: req.user }, 410);
-    }
+    if (isBundleExpired(bundle)) return sendExpiredPage(req, res);
 
     // Access protection (password, email, or both)
     var locked = isBundleLocked(bundle, req.session, bundleAllowedMatch(bundle));
@@ -225,6 +311,20 @@ module.exports = function (app) {
     }
     var bundleFiles = filesRepo.findServableByBundleShareId(bundle.shareId)
       .sort((a, b) => (a.relativePath || "").localeCompare(b.relativePath || ""));
+    // A limited-download bundle shows the downloads left on each file. Reading
+    // the count spends nothing. A file whose stash entry is gone (spent or
+    // expired) is left out.
+    var readLimit = bundleService.bundleReadLimit(bundle);
+    if (readLimit > 0) {
+      var live = [];
+      for (var bi = 0; bi < bundleFiles.length; bi++) {
+        var left = storage.isStashPath(bundleFiles[bi].storagePath) ? await storage.peekEphemeral(bundleFiles[bi].storagePath) : null;
+        if (left === null) continue;
+        live.push(Object.assign({}, bundleFiles[bi], { readsLeft: left }));
+      }
+      bundleFiles = live;
+      if (bundleFiles.length === 0) return sendExpiredPage(req, res);
+    }
     var verifiedEmail = req.session["bundle_" + req.params.shareId];
     var viewerEmail = (typeof verifiedEmail === "object" && verifiedEmail.emailVerified && typeof verifiedEmail.emailVerified === "string") ? verifiedEmail.emailVerified : (typeof verifiedEmail === "string" ? verifiedEmail : null);
     audit.log(audit.ACTIONS.BUNDLE_VIEWED, { targetId: bundle._id, details: "shareId: " + bundle.shareId + (viewerEmail ? ", viewer: " + viewerEmail : ""), req: req });
@@ -244,8 +344,9 @@ module.exports = function (app) {
         downloads: bundle.downloads || 0,
         createdAt: bundle.createdAt,
         expiresAt: bundle.expiresAt || null,
+        readLimit: readLimit,
         files: bundleFiles.map(function (f) {
-          return {
+          var out = {
             id: f._id,
             shareId: f.shareId,
             name: f.originalName,
@@ -255,6 +356,8 @@ module.exports = function (app) {
             checksum: f.checksum || null,
             createdAt: f.createdAt,
           };
+          if (readLimit > 0) out.readsLeft = f.readsLeft;
+          return out;
         }),
       });
     }
@@ -262,11 +365,33 @@ module.exports = function (app) {
     var displayBundle = Object.assign({}, bundle);
     displayBundle.hasPassword = !!bundle.passwordHash;
     displayBundle.accessMode = bundle.accessMode || "open";
+    displayBundle.readLimit = readLimit;
     send(res, "bundle", { bundle: displayBundle, files: bundleFiles, user: req.user, host: host(req) });
   });
 
   // Download single file from bundle
   app.get("/b/:shareId/file/:fileShareId", async (req, res) => {
+    // A limited-download file is never sent in answer to a GET, so a link
+    // preview or prefetch cannot spend a download. The GET shows a page whose
+    // button POSTs back here with the CSRF token.
+    var burnParent = bundlesRepo.findByShareId(req.params.shareId);
+    if (isBurnBundle(burnParent)) {
+      var gate = resolveBurnFile(req, burnParent);
+      if (gate.status) return sendBurnGateStatus(req, res, gate.status);
+      var readsLeft = await storage.peekEphemeral(gate.doc.storagePath);
+      if (readsLeft === null) {
+        removeSpentBurnFile(gate.doc, burnParent);
+        return sendExpiredPage(req, res);
+      }
+      res.setHeader("Cache-Control", "no-store");
+      return send(res, "burn-download", {
+        shareId: burnParent.shareId,
+        fileShareId: gate.doc.shareId,
+        fileName: gate.doc.originalName,
+        readsLeft: readsLeft,
+        user: req.user,
+      });
+    }
     // Serve only finalized files — an in-flight (chunking) upload must never be
     // streamed to a downloader (partial/garbled bytes, missing encryption key).
     var doc = filesRepo.findCompleteByShareId(req.params.fileShareId);
@@ -311,6 +436,61 @@ module.exports = function (app) {
     }
   });
 
+  // Limited-download click-through. Spends one download of the file, and only
+  // once the response has been written in full; a download the client abandons
+  // keeps its credit. A second download of the same file while one is running
+  // answers 409. Range is ignored and the whole file is always sent.
+  app.post("/b/:shareId/file/:fileShareId", rateLimit.guard({ max: 30, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
+    var form = await readClickThroughForm(req);
+    if (!req.session || !csrfPolicy.validateToken(req.session, req, form)) {
+      throw new ForbiddenError("CSRF validation failed.");
+    }
+    var bundle = bundlesRepo.findByShareId(req.params.shareId);
+    if (!bundle) return sendBurnGateStatus(req, res, 404);
+    if (!isBurnBundle(bundle)) throw new NotFoundError("Not found.");
+    var gate = resolveBurnFile(req, bundle);
+    if (gate.status) return sendBurnGateStatus(req, res, gate.status);
+    var doc = gate.doc;
+    try {
+      var result = await storage.consumeEphemeral(doc.storagePath, doc.encryptionKey, {
+        sink: res,
+        onStart: function () {
+          res.writeHead(200, {
+            "Content-Disposition": safeContentDisposition(doc.originalName),
+            "Content-Type": doc.mimeType || "application/octet-stream",
+            "Cache-Control": "no-store",
+          });
+        },
+      });
+      if (result.damaged) {
+        logger.error("Limited download: stored data failed verification after the file was sent; the file was deleted", { fileId: doc._id });
+        audit.log(audit.ACTIONS.BUNDLE_BURN_DESTROYED, { targetId: doc._id, performedBy: "system", details: "bundle: " + bundle.shareId + ", stored data failed verification after delivery", req: req });
+      }
+      recordBurnRead(doc, bundle, result.readsLeft, req);
+    } catch (e) {
+      var code = e && e.code;
+      if (code === "ECLAIMED") {
+        return send(res, "error", { title: "Download in progress", message: "A download of this file is in progress. Try again shortly.", user: req.user }, 409);
+      }
+      if (code === "ENOREF") {
+        removeSpentBurnFile(doc, bundle);
+        return sendExpiredPage(req, res);
+      }
+      if (code === "EBURNABORT") {
+        logger.info("Limited download interrupted; the download was not counted", { fileId: doc._id });
+        return;
+      }
+      if (code === "EBURNINTEGRITY") {
+        logger.error("Limited download failed authentication", { fileId: doc._id });
+        audit.log(audit.ACTIONS.BUNDLE_BURN_READ, { targetId: doc._id, details: "bundle: " + bundle.shareId + ", failed: authentication, not counted", req: req });
+      } else {
+        logger.error("Limited download error", { fileId: doc._id, error: e && (e.message || String(e)) });
+      }
+      if (res.headersSent) { res.destroy(); return; }
+      res.writeHead(500); res.end("File unavailable");
+    }
+  });
+
   // Download entire bundle as ZIP
   // Rate-limited per subnet like every other /b/ endpoint: the handler buffers
   // each decrypted file to keep the per-file skip-on-error semantic, so an
@@ -325,6 +505,8 @@ module.exports = function (app) {
     if (isBundleLocked(bundle, req.session, bundleAllowedMatch(bundle))) {
       res.writeHead(401); return res.end("Access restricted");
     }
+    // Limited-download files are sent one at a time through the click-through.
+    if (isBurnBundle(bundle)) { res.writeHead(409); return res.end("This bundle has a download limit. Download its files one at a time."); }
     // Exclude sync-bundle tombstones (deletedAt) AND individually-expired files
     // so the ZIP matches the browse view and the single-file 410 — a deleted or
     // expired file must not be fed to getFileStream (it would otherwise land in
@@ -396,6 +578,7 @@ module.exports = function (app) {
     if (isBundleLocked(bundle, req.session, bundleAllowedMatch(bundle))) {
       res.writeHead(401); return res.end("Access restricted");
     }
+    if (isBurnBundle(bundle)) { res.writeHead(409); return res.end("This bundle has a download limit. Download its files one at a time."); }
     // The folder path is carried in the query string (?path=a/b), which the router
     // decodes exactly once via searchParams. A nested folder used to ride a single
     // percent-encoded PATH segment (…/folder/a%2Fb), but the hardened router now
@@ -521,7 +704,12 @@ module.exports = function (app) {
     }
     var bundleFiles = filesRepo.findByBundleShareId(bundle.shareId);
     for (var i = 0; i < bundleFiles.length; i++) {
-      try { await storage.deleteFile(bundleFiles[i].storagePath); } catch (_e) { /* cleanup — storage file may already be gone */ }
+      try {
+        await storage.deleteFile(bundleFiles[i].storagePath);
+        if (storage.isStashPath(bundleFiles[i].storagePath)) {
+          audit.log(audit.ACTIONS.BUNDLE_BURN_DESTROYED, { targetId: bundleFiles[i]._id, details: "bundle: " + bundle.shareId + ", deleted by sender", req: req });
+        }
+      } catch (_e) { /* cleanup — storage file may already be gone */ }
       filesRepo.remove(bundleFiles[i]._id);
     }
     // Decrement stash stats if bundle belongs to a stash page

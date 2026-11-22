@@ -13,6 +13,7 @@ var nodeFs = require("node:fs");
 var b = require("../../lib/vendor/blamejs");
 var config = require("../../lib/config");
 var C = require("../../lib/constants");
+var oidcPolicy = require("../../lib/oidc-policy");
 var { PATHS } = C;
 
 function run() {
@@ -53,7 +54,14 @@ function run() {
   }
 
   // ---- Warning: public upload without authentication ----
-  if (config.publicUpload && !config.localAuth && !config.passkeyEnabled && !config.google.clientID) {
+  // ---- Critical: OpenID Connect settings ----
+  // The admin save path refuses the same values, so this catches settings that
+  // arrive through environment variables.
+  var oidcError = oidcPolicy.validateOidcConfig(config.oidc);
+  if (oidcError) errors.push("OpenID Connect: " + oidcError);
+
+  var oidcOn = !!(config.oidc && config.oidc.enabled && config.oidc.issuer && config.oidc.clientID);
+  if (config.publicUpload && !config.localAuth && !config.passkeyEnabled && !config.google.clientID && !oidcOn) {
     warnings.push("Public uploads enabled but no authentication method configured. Anyone can upload without accountability.");
   }
 

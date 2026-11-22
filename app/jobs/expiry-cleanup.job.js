@@ -18,7 +18,10 @@ async function cleanupExpiredFiles() {
   var affectedBundleShareIds = new Set();
   for (var i = 0; i < expired.length; i++) {
     try {
-      if (expired[i].storagePath) await storage.deleteFile(expired[i].storagePath);
+      // A limited-download file's stash entry expires with it and is destroyed
+      // by cleanupBurnStore's prune, which writes no tombstone. Dropping it here
+      // would record a sender destroy for a file that expired.
+      if (expired[i].storagePath && !storage.isStashPath(expired[i].storagePath)) await storage.deleteFile(expired[i].storagePath);
       files.remove({ _id: expired[i]._id });
       if (expired[i].bundleShareId) affectedBundleShareIds.add(expired[i].bundleShareId);
       removed++;
@@ -56,6 +59,62 @@ async function cleanupExpiredFiles() {
     }
   }
   return removed;
+}
+
+/**
+ * Maintain the limited-download (burn-after-read) store.
+ *
+ *   1. Destroy every expired stash entry (prune).
+ *   2. Remove the row of every limited-download file whose stash entry is gone
+ *      (spent, expired or missing), and mark its bundle "burned" once it has no
+ *      files left.
+ *   3. Remove "burned" bundles whose expiry has passed. Until then a burned
+ *      bundle's share link answers 410, like an expired one. Stash statistics
+ *      are decremented here, when the row is removed.
+ *
+ * Returns { pruned, reconciled, burnedRemoved }.
+ */
+async function cleanupBurnStore() {
+  var filesRepo = require("../data/repositories/files.repo");
+  var bundlesRepo = require("../data/repositories/bundles.repo");
+  var stashRepo = require("../data/repositories/stash.repo");
+  var bundleService = require("../domain/uploads/bundle.service");
+  var pruned = await storage.pruneEphemeral();
+
+  var reconciled = 0;
+  var burnFiles = files.find({}).filter(function (f) { return storage.isStashPath(f.storagePath); });
+  for (var i = 0; i < burnFiles.length; i++) {
+    try {
+      if ((await storage.peekEphemeral(burnFiles[i].storagePath)) !== null) continue;
+      files.remove({ _id: burnFiles[i]._id });
+      reconciled++;
+      if (burnFiles[i].bundleShareId) bundleService.markBurnedIfEmpty(burnFiles[i].bundleShareId);
+    } catch (e) { logger.error("Burn store reconcile error", { error: e.message }); }
+  }
+
+  var now = new Date().toISOString();
+  var burnedRemoved = 0;
+  var burned = bundles.find({ status: "burned" }).filter(function (bd) { return !bd.expiresAt || bd.expiresAt < now; });
+  for (var j = 0; j < burned.length; j++) {
+    try {
+      var bundle = bundlesRepo.findById(burned[j]._id);
+      if (!bundle || filesRepo.findByBundleShareId(bundle.shareId).length > 0) continue;
+      if (bundle.stashId) {
+        try { stashRepo.decrementBundleStats(bundle.stashId, bundle.totalSize); } catch (_e) { /* stash may have been deleted */ }
+      }
+      bundlesRepo.remove(bundle._id);
+      burnedRemoved++;
+    } catch (e) { logger.error("Burned bundle cleanup error", { error: e.message }); }
+  }
+
+  if (pruned > 0 || reconciled > 0) {
+    try {
+      audit.log(audit.ACTIONS.BUNDLE_BURN_EXPIRED, { performedBy: "system", details: "Destroyed " + pruned + " expired limited-download files, removed " + reconciled + " spent or expired file records" });
+    } catch (e) {
+      logger.warn("[expiry-cleanup] Audit log write failed", { error: e.message });
+    }
+  }
+  return { pruned: pruned, reconciled: reconciled, burnedRemoved: burnedRemoved };
 }
 
 /**
@@ -181,4 +240,4 @@ function cleanupWebhookDeliveries() {
   }
 }
 
-module.exports = { cleanupExpiredFiles, cleanupStaleBundles, cleanupTombstones, cleanupExpiredAccessCodes, cleanupExpiredEnrollmentCodes, cleanupExpiredIdempotencyKeys, cleanupWebhookDeliveries };
+module.exports = { cleanupExpiredFiles, cleanupBurnStore, cleanupStaleBundles, cleanupTombstones, cleanupExpiredAccessCodes, cleanupExpiredEnrollmentCodes, cleanupExpiredIdempotencyKeys, cleanupWebhookDeliveries };

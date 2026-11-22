@@ -67,10 +67,11 @@ describe("s3-client keep-alive origins", function () {
     assert.strictEqual(calls.length, 0);
   });
 
-  it("is called at boot and when a backup or restore worker starts", function () {
+  it("is called at boot, when a backup or restore worker starts, and on an S3 settings change", function () {
     var root = path.join(__dirname, "..", "..");
     [["server-main.js", /s3Client\.trustS3Configs\(/], ["lib/backup-worker.js", /S3Client\.trustS3Configs\(/],
-      ["lib/restore-worker.js", /S3Client\.trustS3Configs\(/]].forEach(function (pair) {
+      ["lib/restore-worker.js", /S3Client\.trustS3Configs\(/],
+      ["lib/storage.js", /S3Client\.trustS3Configs\(/]].forEach(function (pair) {
       assert.match(fs.readFileSync(path.join(root, pair[0]), "utf8"), pair[1], pair[0]);
     });
   });

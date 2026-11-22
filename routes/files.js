@@ -14,6 +14,17 @@ var C = require("../lib/constants");
 var syncGuards = require("../middleware/sync-guards");
 var rateLimit = require("../lib/rate-limit");
 var { AppError, ValidationError, ForbiddenError, NotFoundError } = require("../app/shared/errors");
+var storage = require("../lib/storage");
+
+// A limited-download file is served only through its bundle's click-through
+// page, which applies the bundle's access gates and spends a download on POST.
+function redirectToClickThrough(res, doc) {
+  res.writeHead(303, {
+    "Location": "/b/" + encodeURIComponent(doc.bundleShareId) + "/file/" + encodeURIComponent(doc.shareId),
+    "Cache-Control": "no-store",
+  });
+  res.end();
+}
 
 module.exports = function (app) {
   // Share page
@@ -23,6 +34,7 @@ module.exports = function (app) {
       // instead of leaking its name/size/uploader — matching the 410 the
       // /download and /preview routes already return for the same state.
       var doc = fileService.lookupFile(req.params.shareId, { checkExpiry: true });
+      if (storage.isStashPath(doc.storagePath)) return redirectToClickThrough(res, doc);
       send(res, "share", { file: doc, user: req.user, host: host(req) });
     } catch (_e) {
       return send(res, "error", { title: "Not Found", message: "File not found.", user: req.user }, 404);
@@ -38,6 +50,7 @@ module.exports = function (app) {
       if (err.name === "ValidationError") { res.writeHead(410); return res.end("File expired"); }
       res.writeHead(404); return res.end("Not found");
     }
+    if (storage.isStashPath(doc.storagePath)) return redirectToClickThrough(res, doc);
     try {
       var result = await fileService.getDownloadStream(doc);
       // Count the download + write the audit row only once a stream actually
@@ -75,6 +88,8 @@ module.exports = function (app) {
       if (err.name === "ValidationError") { res.writeHead(410); return res.end("File expired"); }
       res.writeHead(404); return res.end("Not found");
     }
+    // A preview would spend a download of a limited-download file.
+    if (storage.isStashPath(doc.storagePath)) { res.writeHead(404); return res.end("Not found"); }
 
     var preview = fileService.getPreviewMode(doc);
 
@@ -178,6 +193,9 @@ module.exports = function (app) {
     }
     await fileService.deleteFile(doc);
     audit.log(audit.ACTIONS.FILE_DELETED, { targetId: doc._id, targetEmail: doc.uploaderEmail, details: "file: " + doc.originalName + ", deletedBy: " + (doc.uploadedBy === req.user._id ? "owner" : "admin"), req: req });
+    if (storage.isStashPath(doc.storagePath)) {
+      audit.log(audit.ACTIONS.BUNDLE_BURN_DESTROYED, { targetId: doc._id, details: "bundle: " + doc.bundleShareId + ", deleted by " + (doc.uploadedBy === req.user._id ? "owner" : "admin"), req: req });
+    }
 
     // Auto-cleanup: if this was the last file in a bundle, remove the empty bundle
     if (doc.bundleShareId) {
@@ -229,6 +247,10 @@ module.exports = function (app) {
 
         var ownerErr = syncGuards.enforceBundleOwnership(req.apiKey, bundle);
         if (ownerErr) throw new AppError(ownerErr.error, ownerErr.status);
+
+        if (storage.isStashPath(doc.storagePath)) {
+          throw new ForbiddenError("A limited-download file cannot be downloaded through the sync API.");
+        }
 
         var result = await fileService.getDownloadStream(doc);
         res.writeHead(200, {

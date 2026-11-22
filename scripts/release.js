@@ -48,8 +48,8 @@
  *              Reusable workflows (owner/repo/.github/workflows/x.yml@ref) are
  *              the exception: they must stay TAG-pinned (the SLSA generator
  *              refuses a SHA), so the gate checks the tag is current instead.
- *   vendor     vendor-currency only — vendored blamejs must be at the latest
- *              github.com/blamejs/blamejs release.
+ *   vendor     vendor-currency only — vendored blamejs (@blamejs/core) and
+ *              @blamejs/stash must be at the latest npm release.
  *   patterns   patterns-currency ADVISORY — compares HS's codebase-patterns lint
  *              gate against the vendored blamejs gate and lists detector classes
  *              blamejs has that HS hasn't adopted (= candidate new checks /
@@ -433,6 +433,45 @@ function actionsGate() {
 
 function vendorGate() {
   console.log(bold("\n== vendor-currency =="));
+  var bjRc = blamejsVendorLeg();
+  var stRc = stashVendorLeg();
+  return (bjRc || stRc) ? 1 : 0;
+}
+
+// The vendored @blamejs/stash package, checked against the npm registry it is
+// fetched from. Stale fails; vendored-ahead warns.
+function stashVendorLeg() {
+  var manifest = JSON.parse(fs.readFileSync(MANIFEST, "utf8"));
+  var st = manifest.packages && manifest.packages["@blamejs/stash"];
+  if (!st) { console.log(red("  ✗ no @blamejs/stash entry in MANIFEST.json")); return 1; }
+  var latestVersion = null;
+  try {
+    // A fixed literal through a shell, for the same npm.cmd reason as below.
+    latestVersion = cp.execSync("npm view @blamejs/stash version", {
+      cwd: REPO,
+      stdio: ["ignore", "pipe", "ignore"],
+      encoding: "utf8",
+    }).trim();
+  } catch (_e) { latestVersion = null; }
+  if (!latestVersion) {
+    console.log(red("  ✗ could not resolve the latest @blamejs/stash version from the registry"));
+    return 1;
+  }
+  var vendoredTag = st.tag || ("v" + st.version);
+  var latestTag = "v" + latestVersion;
+  console.log(dim("  @blamejs/stash vendored " + vendoredTag + ", latest " + latestTag));
+  var cmp = semverCmp(vendoredTag, latestTag);
+  if (cmp === 0) { console.log(green("  OK — vendored @blamejs/stash is at the latest release")); return 0; }
+  if (cmp > 0) {
+    console.log(yellow("  ⚠ vendored @blamejs/stash " + vendoredTag + " is AHEAD of the latest published release " + latestTag + " — not failing"));
+    return 0;
+  }
+  console.log(red("\n  ✗ @blamejs/stash is stale: vendored " + vendoredTag + " → latest " + latestTag));
+  console.log("      " + green("@blamejs/stash@" + latestVersion) + dim("   (refresh: bash scripts/vendor-update.sh @blamejs/stash)"));
+  return 1;
+}
+
+function blamejsVendorLeg() {
   var manifest = JSON.parse(fs.readFileSync(MANIFEST, "utf8"));
   var bj = manifest.packages && manifest.packages.blamejs;
   if (!bj) { console.log(red("  ✗ no blamejs entry in MANIFEST.json")); return 1; }
@@ -1351,7 +1390,7 @@ function cmdHelp() {
     "    status     versions, repo state, latest tags, in-flight Docker run",
     "    preflight  version agreement + changelog/rollup/extract/pattern/test-coverage gates + currency gates",
     "    actions    actions-currency gate only (paste-ready owner/repo@<sha> # vX.Y.Z)",
-    "    vendor     vendor-currency gate only (blamejs)",
+    "    vendor     vendor-currency gate only (blamejs, @blamejs/stash)",
     "    patterns   patterns-currency advisory — new blamejs codebase-patterns detectors to adopt",
     "    base       base-currency — pinned base-image digests vs their tags (drift warns; broken pin fails)",
     "    e2e        full suite from ../hermitstash-sync",

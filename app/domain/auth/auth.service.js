@@ -208,6 +208,175 @@ function resolveGoogleUser(profile, allowedDomains) {
   return { user: user, isNew: false };
 }
 
+function _oidcRefusal(reason, message, revokeUserId) {
+  var err = new ForbiddenError(message);
+  err.oidcReason = reason;
+  if (revokeUserId) err.revokeUserId = revokeUserId;
+  return err;
+}
+
+function _domainOf(email) {
+  var e = String(email || "");
+  return e.indexOf("@") === -1 ? "" : e.slice(e.lastIndexOf("@") + 1);
+}
+
+function _timingSafeStrEq(a, b2) {
+  return b.crypto.timingSafeEqual(Buffer.from(String(a)), Buffer.from(String(b2)));
+}
+
+/**
+ * Resolve a verified OpenID Connect identity (lib/oidc completeLogin) to an
+ * account.
+ *
+ * `identity` is { issuer, sub, email, displayName, avatar, groups }. `email`
+ * is null unless the provider verified it, and `groups` is null when the
+ * provider did not supply them. `policy` is config.oidc plus
+ * `allowedDomains`.
+ *
+ * Lookup order:
+ *   1. The account bound to "<issuer>|<sub>".
+ *   2. Otherwise the account holding the verified email, which is then linked
+ *      to this subject. An account already bound to another subject is
+ *      refused, as is a suspended or pending one.
+ *   3. Otherwise a new account, when provisioning allows it.
+ *
+ * Every login re-checks allowedDomains and the required group. When the admin
+ * group is set and the provider supplied groups, the role of a linked account
+ * follows group membership, except that the last active admin is never
+ * demoted.
+ *
+ * Returns { user, isNew, linked, roleChange: { from, to } | null,
+ * roleSyncRefused, revokeSessions }. A refusal throws ForbiddenError carrying
+ * `oidcReason`; one that should also end the account's existing sessions
+ * carries `revokeUserId`.
+ */
+function resolveOidcUser(identity, policy) {
+  if (!identity || typeof identity.sub !== "string" || !identity.sub || typeof identity.issuer !== "string" || !identity.issuer) {
+    throw _oidcRefusal("no-identity", "The identity provider returned no subject.");
+  }
+  policy = policy || {};
+  var subject = identity.issuer + "|" + identity.sub;
+  var groups = Array.isArray(identity.groups) ? identity.groups : null;
+  var allowedDomains = Array.isArray(policy.allowedDomains) ? policy.allowedDomains : [];
+  var requiredGroup = policy.requiredGroup || "";
+  var adminGroup = policy.adminGroup || "";
+  var hasGroup = function (g) { return !!(groups && g && groups.indexOf(g) !== -1); };
+
+  var user = usersRepo.findByOidcSubject(subject);
+  var linked = false;
+
+  if (!user && identity.email) {
+    var byEmail = usersRepo.findByEmail(identity.email);
+    if (byEmail) {
+      // A verified email can move between two identities at the provider (an
+      // address reassigned to a new employee, or a deleted account recreated).
+      // An account already bound to a different subject is not taken over.
+      if (byEmail.oidcSubject && !_timingSafeStrEq(byEmail.oidcSubject, subject)) {
+        throw _oidcRefusal("subject-mismatch", "This account is linked to a different single sign-on identity.");
+      }
+      // A pending account has not proven control of its address, so it may
+      // belong to someone who registered the address first.
+      if (byEmail.status === "pending") {
+        throw _oidcRefusal("account-pending", "This account has not verified its email address.");
+      }
+      user = byEmail;
+      linked = true;
+    }
+  }
+
+  if (user) {
+    if (user.status === "suspended") throw _oidcRefusal("account-suspended", "Account suspended.");
+    if (allowedDomains.length > 0) {
+      // The stored address and, when the provider sends one, its current
+      // verified address must both be in an allowed domain.
+      var domain = _domainOf(user.email);
+      var idpDomain = identity.email ? _domainOf(identity.email) : domain;
+      if (!domain || allowedDomains.indexOf(domain) === -1 ||
+          !idpDomain || allowedDomains.indexOf(idpDomain) === -1) {
+        throw _oidcRefusal("domain-not-allowed", "Your email domain is not allowed.", linked ? null : user._id);
+      }
+    }
+    if (requiredGroup && !hasGroup(requiredGroup)) {
+      throw _oidcRefusal("group-denied", "Your account is not in the group required to sign in.", linked ? null : user._id);
+    }
+
+    var set = {};
+    if (linked) set.oidcSubject = subject;
+    if (user.authType === "oidc") {
+      if (identity.displayName) set.displayName = identity.displayName;
+      set.avatar = identity.avatar || "";
+    }
+
+    var roleChange = null;
+    var roleSyncRefused = false;
+    var revokeSessions = false;
+    if (adminGroup && groups !== null) {
+      var wantAdmin = hasGroup(adminGroup);
+      if (wantAdmin && user.role !== "admin") {
+        set.role = "admin";
+        roleChange = { from: user.role || "user", to: "admin" };
+      } else if (!wantAdmin && user.role === "admin") {
+        var activeAdmins = usersRepo.count({ role: "admin", status: "active" });
+        if (activeAdmins <= 1) {
+          roleSyncRefused = true;
+        } else {
+          set.role = "user";
+          roleChange = { from: "admin", to: "user" };
+          revokeSessions = true;
+        }
+      }
+    }
+    if (Object.keys(set).length > 0) usersRepo.update(user._id, { $set: set });
+    var fresh = usersRepo.findById(user._id) || user;
+    return { user: fresh, isNew: false, linked: linked, roleChange: roleChange, roleSyncRefused: roleSyncRefused, revokeSessions: revokeSessions };
+  }
+
+  // No account: provisioning.
+  if (!identity.email) {
+    throw _oidcRefusal("no-verified-email", "The identity provider did not supply a verified email address.");
+  }
+  if (allowedDomains.length > 0 && allowedDomains.indexOf(_domainOf(identity.email)) === -1) {
+    throw _oidcRefusal("domain-not-allowed", "Your email domain is not allowed.");
+  }
+  if (requiredGroup && !hasGroup(requiredGroup)) {
+    throw _oidcRefusal("group-denied", "Your account is not in the group required to sign in.");
+  }
+  var allowlist = Array.isArray(policy.allowlist) ? policy.allowlist : [];
+  var permitted = !!policy.autoProvision &&
+    ((allowlist.length > 0 && allowlist.indexOf(identity.email) !== -1) || (!!requiredGroup && hasGroup(requiredGroup)));
+  if (!permitted) {
+    throw _oidcRefusal("provision-denied", "No account exists for this identity. Ask an administrator for access.");
+  }
+
+  var created = usersRepo.create({
+    email: identity.email,
+    displayName: identity.displayName || identity.email.split("@")[0],
+    avatar: identity.avatar || "",
+    authType: "oidc",
+    oidcSubject: subject,
+    role: adminGroup && hasGroup(adminGroup) ? "admin" : "user",
+    status: "active",
+    createdAt: new Date().toISOString(),
+    lastLogin: new Date().toISOString(),
+  });
+
+  // Two callbacks for the same subject can both reach this point. Whichever
+  // row was created first is kept and the other is removed.
+  var rows = usersRepo.findAllByOidcSubject(subject);
+  if (rows.length > 1) {
+    rows.sort(function (x, y) {
+      var cx = String(x.createdAt || ""), cy = String(y.createdAt || "");
+      if (cx !== cy) return cx < cy ? -1 : 1;
+      return String(x._id) < String(y._id) ? -1 : 1;
+    });
+    if (rows[0]._id !== created._id) {
+      usersRepo.remove(created._id);
+      return { user: rows[0], isNew: false, linked: false, roleChange: null, roleSyncRefused: false, revokeSessions: false };
+    }
+  }
+  return { user: created, isNew: true, linked: false, roleChange: null, roleSyncRefused: false, revokeSessions: false };
+}
+
 /**
  * Resolve a Sign-in-with-Tailscale identity to an existing or new user.
  * `identity` is the normalized, already-peer-gated tailnet identity from
@@ -288,4 +457,4 @@ function touchLogin(userId) {
   usersRepo.update(userId, { $set: { lastLogin: new Date().toISOString() } });
 }
 
-module.exports = { registerLocal, authenticateLocal, resolveGoogleUser, resolveTailscaleUser, requires2fa, touchLogin, emailIsVerified };
+module.exports = { registerLocal, authenticateLocal, resolveGoogleUser, resolveOidcUser, resolveTailscaleUser, requires2fa, touchLogin, emailIsVerified };

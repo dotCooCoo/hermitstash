@@ -307,6 +307,11 @@ module.exports = function (app) {
     var body = (await b.parsers.json(req)) || {};
     var init = uploadValidator.validateInitInput(body);
     if (init.error) throw new ValidationError(init.error);
+    // A stash collects uploads for its owner, so a visitor may not make one
+    // burn-after-read: the owner would lose files to someone else's reads.
+    if (bundleService.resolveReadLimit(body.readLimit, "snapshot", UPLOAD.MAX_BURN_READS_CEILING) > 0) {
+      throw new ValidationError("Stash uploads cannot have a download limit.");
+    }
     var expiryDays = (stash.defaultExpiry && stash.defaultExpiry > 0) ? stash.defaultExpiry : config.fileExpiryDays;
     // The shared sync bundle is created lazily by the FIRST sync-client init; a
     // browser visitor always gets a one-off snapshot bundle with normal expiry.
@@ -553,6 +558,9 @@ module.exports = function (app) {
       for (var i = 0; i < bundleFiles.length; i++) {
         if (bundleFiles[i].storagePath) { try { await storage.deleteFile(bundleFiles[i].storagePath); } catch (_e) { /* cleanup — storage file may already be gone */ } }
         filesRepo.remove(bundleFiles[i]._id);
+        if (storage.isStashPath(bundleFiles[i].storagePath)) {
+          audit.log(audit.ACTIONS.BUNDLE_BURN_DESTROYED, { targetId: bundleFiles[i]._id, details: "bundle: " + bundle.shareId + ", deleted by admin", req: req });
+        }
       }
       // Decrement stash stats
       stashRepo.decrementBundleStats(stash._id, bundle.totalSize);

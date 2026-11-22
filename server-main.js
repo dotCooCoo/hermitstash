@@ -63,17 +63,19 @@ var certExpiryJob = require("./app/jobs/cert-expiry.job");
 var backupJob = require("./app/jobs/backup.job");
 var sessionPurgeJob = require("./app/jobs/session-purge.job");
 
-// Every res.redirect() target must be listed here. Wildcards are not accepted
-// and an http:// origin is refused at construction.
+// Every cross-origin res.redirect() target must be listed here. Wildcards are
+// not accepted and an http:// origin is refused at construction. The Google and
+// OpenID Connect sign-in redirects do not use res.redirect: lib/oidc.js
+// redirectToProvider writes them, because the provider origin is a setting.
 // logErrors: false leaves the log line for a failed request to the handler
 // registered with app.onError() below (errorHandler.routeErrorHandler).
 var app = new Router({
-  allowedRedirectOrigins: ["https://accounts.google.com"],
+  allowedRedirectOrigins: [],
   logErrors: false,
 });
 
-// Pool connections to the configured S3 storage and backup buckets, before any
-// request is in flight (lib/s3-client.js trustS3Configs).
+// Pool connections to the configured S3 storage and backup buckets
+// (lib/s3-client.js trustS3Configs).
 s3Client.trustS3Configs([config.storage && config.storage.s3, config.backup && config.backup.s3]);
 
 var dataDir = C.DATA_DIR;
@@ -638,6 +640,9 @@ app.onError(errorHandler.routeErrorHandler);
 
 scheduler.register("file_expiry_cleanup", C.TIME.hours(1), function () {
   return expiryCleanupJob.cleanupExpiredFiles().catch(function (e) { logger.error("file_expiry_cleanup failed", { error: e.message }); });
+});
+scheduler.register("burn_store_cleanup", C.TIME.hours(1), function () {
+  return expiryCleanupJob.cleanupBurnStore().catch(function (e) { logger.error("burn_store_cleanup failed", { error: e.message }); });
 });
 scheduler.register("email_sends_cleanup", C.TIME.days(1), function () {
   try {
@@ -1328,7 +1333,10 @@ function gracefulShutdown(signal) {
   if (gateServer) gateServer.close();
   server.close(function () {
     logger.info("All connections drained, exiting");
-    process.exit(0); // db.js "exit" handler encrypts the DB
+    // Close the burn-after-read store once no download can still be reading it.
+    storage.closeEphemeral()
+      .catch(function (e) { logger.warn("Burn store close failed", { error: e && e.message }); })
+      .then(function () { process.exit(0); }); // db.js "exit" handler encrypts the DB
   });
 
   var forceTimer = setTimeout(function () {

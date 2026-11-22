@@ -70,6 +70,7 @@ module.exports = function (app) {
       dropTitle: config.dropTitle, dropSubtitle: config.dropSubtitle,
       vaultEnabled: vaultEnabled, vaultPublicKey: vaultPublicKey,
       skippedFilesStored: C.UPLOAD.SKIPPED_FILES_STORED,
+      readLimitChoices: bundleService.readLimitChoices(config.maxBurnReads),
     });
   });
 
@@ -104,9 +105,10 @@ module.exports = function (app) {
       allowedEmails: allowed.value,
       bundleType: body.bundleType || "snapshot",
       expiryDays: body.expiryDays, defaultExpiryDays: config.fileExpiryDays,
+      readLimit: body.readLimit, maxBurnReads: config.maxBurnReads,
       fileCount: init.fileCount, skippedCount: init.skippedCount, skippedFiles: init.skippedFiles,
     });
-    audit.log(audit.ACTIONS.BUNDLE_INITIALIZED, { targetId: result.bundleId, targetEmail: rawEmail, details: "expected: " + init.fileCount, req: req });
+    audit.log(audit.ACTIONS.BUNDLE_INITIALIZED, { targetId: result.bundleId, targetEmail: rawEmail, details: "expected: " + init.fileCount + (result.readLimit > 0 ? ", readLimit: " + result.readLimit : ""), req: req });
     res.json({ bundleId: result.bundleId, shareId: result.shareId, finalizeToken: result.finalizeToken });
   });
 
@@ -115,7 +117,7 @@ module.exports = function (app) {
     if (!config.publicUpload) throw new ForbiddenError("Disabled.");
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
-      if (!bundle || (bundle.status === "complete" && bundle.bundleType !== "sync")) throw new NotFoundError("Bundle not found.");
+      if (!bundle || bundle.status === "burned" || (bundle.status === "complete" && bundle.bundleType !== "sync")) throw new NotFoundError("Bundle not found.");
       // A sync bundle with neither an owner nor a stash accepts no writes.
       if (bundle.bundleType === "sync" && !bundle.ownerId && !bundle.stashId) throw new NotFoundError("Bundle not found.");
       // Stash-owned bundles must go through the /stash/:slug/file/:bundleId path,
@@ -169,7 +171,7 @@ module.exports = function (app) {
     if (!config.publicUpload) throw new ForbiddenError("Disabled.");
     try {
       var bundle = bundlesRepo.findById(req.params.bundleId);
-      if (!bundle || (bundle.status === "complete" && bundle.bundleType !== "sync")) throw new NotFoundError("Bundle not found.");
+      if (!bundle || bundle.status === "burned" || (bundle.status === "complete" && bundle.bundleType !== "sync")) throw new NotFoundError("Bundle not found.");
       // A sync bundle with neither an owner nor a stash accepts no writes.
       if (bundle.bundleType === "sync" && !bundle.ownerId && !bundle.stashId) throw new NotFoundError("Bundle not found.");
       if (bundle.stashId && !(req.apiKey && req.apiKey.boundStashId === bundle.stashId)) {

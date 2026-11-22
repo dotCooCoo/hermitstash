@@ -1,0 +1,48 @@
+{
+  "version": "1.16.0",
+  "date": "2026-11-22",
+  "headline": "Sign in with any OpenID Connect provider, and limit how many times a file can be downloaded",
+  "summary": "HermitStash can now sign users in through any OpenID Connect provider, such as Keycloak, Authentik, Authelia, Pocket ID or VoidAuth, with optional group-based access and admin roles. Senders can set a download limit on a bundle, and each file is deleted after its last allowed download. Google sign-in now runs through the same OpenID Connect code and verifies a signed id_token. The vendored framework moves to blamejs 0.21.9.",
+  "sections": [
+    {
+      "heading": "Added",
+      "items": [
+        {
+          "title": "Sign in with any OpenID Connect provider",
+          "body": "Set `OIDC_ENABLED=true`, `OIDC_ISSUER`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET`, and register `<RP_ORIGIN>/auth/oidc/callback` as the redirect URI at the provider. The login page shows a button labeled with `OIDC_BUTTON_LABEL` (default `Sign in with SSO`). HermitStash reads the provider's discovery document, uses PKCE with S256, and checks the id_token signature against the provider's JWKS along with its issuer, audience, expiry and nonce. The settings are also in **Admin → Settings**.\n\n- An account is bound to the provider's issuer and `sub` claim. On the first sign-in, an existing account with the same email address is linked when the provider reports `email_verified` as the boolean `true`. Pending accounts, suspended accounts and accounts already linked to a different identity are refused, and each link is written to the audit log as `oidc_account_linked`.\n- `OIDC_AUTO_PROVISION=true` creates accounts on first sign-in. It requires `OIDC_ALLOWLIST` or `OIDC_REQUIRED_GROUP`; with neither set, the server does not start and the admin panel does not save the settings.\n- `OIDC_REQUIRED_GROUP` refuses users outside a group, and ends a user's sessions when they lose it. `OIDC_ADMIN_GROUP` grants and removes the admin role at each sign-in and never demotes the last active admin. `OIDC_GROUPS_CLAIM` (default `groups`) accepts a dotted path such as `realm_access.roles`.\n- `ALLOWED_DOMAINS` applies to the account's stored address and to the provider's current verified address at every sign-in.\n- `OIDC_ALLOW_INTERNAL` takes IP ranges in CIDR form, each inside a private, shared (`100.64.0.0/10`), loopback or link-local block. An issuer may use plain `http` only when its host is an IP address inside one of them.\n- The README has setup notes for Keycloak, Authentik, Authelia, Pocket ID and VoidAuth. HermitStash sends the client secret with `client_secret_post`. Providers that sign id_tokens only with EdDSA are not supported, and neither are providers that do not report `email_verified`, such as Microsoft Entra ID."
+        },
+        {
+          "title": "Limit how many times each file in a bundle can be downloaded",
+          "body": "Choose **Download limit** on the upload form, or send `readLimit` in the `POST /drop/init` body. Each file is deleted after that many downloads. A limited-download bundle needs an expiry. Only snapshot bundles take a limit. The highest limit is `MAX_BURN_READS` (default 10, at most 100), which is also in **Admin → Settings**.\n\n- Opening a file link shows a confirmation page, and the download starts when the recipient presses **Download**. Link previews, prefetches and `HEAD` requests do not use up a download.\n- A download counts only after the server has written the whole file to the connection. A download cut off part-way is not counted.\n- Previews, ZIP downloads, `Range` requests and sync downloads are not available for these files. After the last download, the share link shows the expired page (HTTP 410) until the bundle's expiry passes.\n- Files are stored in `<data dir>/burn-stash` on local disk, also when `STORAGE_BACKEND=s3`, in 64 KiB chunks encrypted with XChaCha20-Poly1305. Backups and storage migration skip this directory.\n- The stored size of each file is its size plus 1 MiB plus 4 bytes, plus 46 bytes for each chunk of up to 64 KiB. The storage quota, the per-user limit and the per-IP limit count this stored size.\n- The audit log records `bundle_burn_read`, `bundle_burned`, `bundle_burn_destroyed` and `bundle_burn_expired`. The hourly `burn_store_cleanup` job removes expired and spent files."
+        }
+      ]
+    },
+    {
+      "heading": "Changed",
+      "items": [
+        {
+          "title": "Google sign-in verifies a signed id_token",
+          "body": "Google sign-in now runs through the same OpenID Connect code as generic providers and still uses `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. HermitStash checks the id_token's signature, issuer, audience, expiry and nonce, and uses PKCE with S256. The account match is unchanged: `googleId` is the id_token's `sub`. Google is no longer asked for offline access. For a failed sign-in, the audit log records a short reason and does not record the provider's error text."
+        },
+        {
+          "title": "Move to blamejs 0.21.9 and vendor @blamejs/stash 2.3.0",
+          "body": "The vendored framework moves from blamejs 0.21.8 to 0.21.9, which requires Node.js 26.13.1, the release HermitStash already requires. In 0.21.9, changing the trusted keep-alive origins no longer drops connections in flight. HermitStash now re-lists the pooled S3 origins when an S3 or backup S3 bucket, endpoint or region changes in **Admin → Settings**. Before, a changed endpoint was pooled only after a restart. An HTTP/2 stream that closes before its response headers arrive now fails at once instead of waiting for the request timeout. `@blamejs/stash` 2.3.0 is vendored at `lib/vendor/stash/` from the npm registry, with its sha512 checked against the published integrity value, and stores limited-download files."
+        }
+      ]
+    },
+    {
+      "heading": "Migration",
+      "items": [
+        {
+          "title": "Google accounts whose email Google does not report as verified",
+          "body": "Google sign-in now requires `email_verified` to be the boolean `true` in the id_token or the userinfo response, and refuses the string `\"true\"`. A Google account that Google does not report as verified can no longer sign in. Existing Google users keep their accounts, because `googleId` is still the account's Google `sub`."
+        }
+      ]
+    }
+  ],
+  "references": [
+    { "label": "OpenID Connect Core 1.0", "url": "https://openid.net/specs/openid-connect-core-1_0.html" },
+    { "label": "RFC 7636 (PKCE)", "url": "https://www.rfc-editor.org/rfc/rfc7636" },
+    { "label": "blamejs v0.21.9", "url": "https://github.com/blamejs/blamejs/releases/tag/v0.21.9" }
+  ]
+}

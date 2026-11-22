@@ -146,9 +146,67 @@ VER="${2:-latest}"
 
 echo "=== Vendoring $PKG@$VER ==="
 
-# Install temporarily (skipped for blamejs, which is sourced from the sibling
-# working tree / GitHub release tag, not npm).
-if [ "$PKG" != "blamejs" ]; then
+# ---- Helper: fetch a published npm tarball, verify it, unpack it ----
+# Usage: npm_verified_unpack <npm-name> <version> <dest-dir> <tmp-dir>
+# Reads the registry's dist.integrity value BEFORE the download, recomputes the
+# digest over the received tarball, and stops before unpacking on a mismatch or
+# when the registry publishes no integrity value. Sets INTEGRITY for the
+# MANIFEST update. The caller empties <dest-dir> first.
+npm_verified_unpack() {
+  local npm_name="$1" version="$2" dest="$3" tmppack="$4" tarball
+  # Clean up on ANY exit, including an early `exit 1` and the Windows+Dropbox
+  # "Device or resource busy" lock. node's rmSync retries on EBUSY. The EXIT
+  # trap runs after this function returns, so it reads a global, not a local.
+  VENDOR_TMPPACK="$tmppack"
+  _cleanup_tmppack() { node -e "try{require('fs').rmSync(process.argv[1],{recursive:true,force:true,maxRetries:10,retryDelay:200})}catch(_e){}" "${VENDOR_TMPPACK:-}" 2>/dev/null || true; }
+  trap _cleanup_tmppack EXIT
+  _cleanup_tmppack
+  mkdir -p "$tmppack"
+
+  INTEGRITY=$(npm view "$npm_name@$version" dist.integrity 2>/dev/null)
+  if [ -z "$INTEGRITY" ]; then
+    echo "ERROR: registry published no integrity value for $npm_name@$version."
+    echo "       Refusing to vendor bytes that cannot be checked."
+    exit 1
+  fi
+
+  npm pack "$npm_name@$version" --pack-destination "$tmppack" --silent >/dev/null 2>&1
+  tarball=$(node -e "
+    var fs=require('fs'),p=require('path');
+    var d=process.argv[1];
+    var f=fs.readdirSync(d).filter(function(n){return /\.tgz\$/.test(n);});
+    if(f.length!==1){process.stderr.write('expected exactly one tarball, found '+f.length+'\n');process.exit(1);}
+    process.stdout.write(p.join(d,f[0]));
+  " "$tmppack")
+  if [ -z "$tarball" ] || [ ! -f "$tarball" ]; then
+    echo "ERROR: npm pack produced no tarball for $npm_name@$version."
+    exit 1
+  fi
+
+  INTEGRITY="$INTEGRITY" TARBALL="$tarball" node -e '
+    var fs = require("fs"), crypto = require("crypto");
+    var want = process.env.INTEGRITY.trim();
+    var m = /^sha(256|384|512)-(.+)$/.exec(want);
+    if (!m) { console.error("unrecognized integrity format: " + want); process.exit(1); }
+    var got = "sha" + m[1] + "-" + crypto.createHash("sha" + m[1])
+      .update(fs.readFileSync(process.env.TARBALL)).digest("base64");
+    if (got !== want) {
+      console.error("INTEGRITY MISMATCH");
+      console.error("  published: " + want);
+      console.error("  received:  " + got);
+      process.exit(1);
+    }
+    console.log("Integrity verified: " + want.slice(0, 24) + "…");
+  '
+
+  # --strip-components=1 drops the tarball's leading package/ directory.
+  tar -xzf "$tarball" -C "$dest" --strip-components=1
+  _cleanup_tmppack
+}
+
+# Install temporarily. blamejs and @blamejs/stash are skipped: they are fetched
+# as verified registry tarballs by npm_verified_unpack instead.
+if [ "$PKG" != "blamejs" ] && [ "$PKG" != "@blamejs/stash" ]; then
   npm install "${PKG}@${VER}" --no-save --ignore-scripts 2>/dev/null
   INSTALLED_VER=$(node -e "console.log(require('./node_modules/${PKG}/package.json').version)")
   echo "Installed: $PKG@$INSTALLED_VER"
@@ -253,60 +311,7 @@ case "$PKG" in
     # of the Windows-mangled `examples/wiki/C:` paths to filter out. The
     # leaked-path guard below still runs, so their return would be caught rather
     # than assumed impossible.
-    TMPPACK=".vendor-blamejs.tmp"
-    # Clean up on ANY exit — including an early `exit 1` and the Windows+Dropbox
-    # "Device or resource busy" lock that has aborted a run mid-script, leaving
-    # MANIFEST un-updated. node's rmSync retries on EBUSY and the trap guarantees
-    # the temp directory can't leak or abort the run before MANIFEST is written.
-    _cleanup_tmppack() { node -e "try{require('fs').rmSync('$TMPPACK',{recursive:true,force:true,maxRetries:10,retryDelay:200})}catch(_e){}" 2>/dev/null || true; }
-    trap _cleanup_tmppack EXIT
-    _cleanup_tmppack
-    mkdir -p "$TMPPACK"
-
-    # The integrity value is read BEFORE the download so the comparison is
-    # against what the registry publishes, not against the file just received.
-    INTEGRITY=$(npm view "$NPM_NAME@$INSTALLED_VER" dist.integrity 2>/dev/null)
-    if [ -z "$INTEGRITY" ]; then
-      echo "ERROR: registry published no integrity value for $NPM_NAME@$INSTALLED_VER."
-      echo "       Refusing to vendor bytes that cannot be checked."
-      exit 1
-    fi
-
-    npm pack "$NPM_NAME@$INSTALLED_VER" --pack-destination "$TMPPACK" --silent >/dev/null 2>&1
-    TARBALL=$(node -e "
-      var fs=require('fs'),p=require('path');
-      var d=process.argv[1];
-      var f=fs.readdirSync(d).filter(function(n){return /\.tgz\$/.test(n);});
-      if(f.length!==1){process.stderr.write('expected exactly one tarball, found '+f.length+'\n');process.exit(1);}
-      process.stdout.write(p.join(d,f[0]));
-    " "$TMPPACK")
-    if [ -z "$TARBALL" ] || [ ! -f "$TARBALL" ]; then
-      echo "ERROR: npm pack produced no tarball for $NPM_NAME@$INSTALLED_VER."
-      exit 1
-    fi
-
-    # Recompute the digest over the received bytes and compare. A mismatch means
-    # the tarball is not what the registry says it published, so the run stops
-    # here rather than unpacking it.
-    INTEGRITY="$INTEGRITY" TARBALL="$TARBALL" node -e '
-      var fs = require("fs"), crypto = require("crypto");
-      var want = process.env.INTEGRITY.trim();
-      var m = /^sha(256|384|512)-(.+)$/.exec(want);
-      if (!m) { console.error("unrecognized integrity format: " + want); process.exit(1); }
-      var got = "sha" + m[1] + "-" + crypto.createHash("sha" + m[1])
-        .update(fs.readFileSync(process.env.TARBALL)).digest("base64");
-      if (got !== want) {
-        console.error("INTEGRITY MISMATCH");
-        console.error("  published: " + want);
-        console.error("  received:  " + got);
-        process.exit(1);
-      }
-      console.log("Integrity verified: " + want.slice(0, 24) + "…");
-    '
-
-    # --strip-components=1 drops the tarball's leading package/ directory.
-    tar -xzf "$TARBALL" -C "$DEST" --strip-components=1
-    _cleanup_tmppack
+    npm_verified_unpack "$NPM_NAME" "$INSTALLED_VER" "$DEST" ".vendor-blamejs.tmp"
 
     # Upstream's own codebase-patterns lint gate lives in its test tree, which
     # is not part of the published package. The release runner's patterns
@@ -435,6 +440,31 @@ case "$PKG" in
     # CI freshness gate). The tag handle mirrors hermitstash-sync's MANIFEST.
     ;;
 
+  "@blamejs/stash")
+    # The ephemeral store behind burn-after-read and limited-download bundles.
+    # Fetched as the verified registry tarball, like blamejs. The package is
+    # ESM; lib/stash-shim.js loads it through require(esm).
+    if [ "$VER" = "latest" ]; then
+      INSTALLED_VER=$(npm view "$PKG" version 2>/dev/null)
+      if [ -z "$INSTALLED_VER" ]; then
+        echo "ERROR: could not resolve the latest $PKG version from the registry."
+        exit 1
+      fi
+    else
+      INSTALLED_VER="${VER#v}"
+    fi
+    TAG="v$INSTALLED_VER"
+    DEST="lib/vendor/stash"
+    mkdir -p "$DEST"
+    node scripts/_vendor-wipe.js "$DEST"
+    npm_verified_unpack "$PKG" "$INSTALLED_VER" "$DEST" ".vendor-stash.tmp"
+    if [ ! -f "$DEST/src/index.js" ] || [ ! -f "$DEST/src/backends/disk.js" ]; then
+      echo "ERROR: extract failed: $DEST/src/index.js or src/backends/disk.js missing."
+      exit 1
+    fi
+    node -e "var s=require('./lib/stash-shim');if(typeof s.Stash!=='function'||typeof s.DiskBackend!=='function'){process.exit(1)}console.log('stash surface OK:',s.version)"
+    ;;
+
   *)
     echo "Unknown package: $PKG"
     echo "Add a case to this script for bundling instructions."
@@ -463,7 +493,7 @@ if (m.packages[pkg]) {
   var prev = entry.version;
   entry.version = process.env.INSTALLED_VER;
   entry.bundledAt = process.env.DATE;
-  if (pkg === "blamejs" && process.env.TAG) entry.tag = process.env.TAG;
+  if ((pkg === "blamejs" || pkg === "@blamejs/stash") && process.env.TAG) entry.tag = process.env.TAG;
   // The registry-published digest of the exact tarball this tree was unpacked
   // from. Recorded so the vendored bytes stay traceable to something after the
   // fact — the tree itself carries no proof of where it came from, and a plain

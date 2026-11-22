@@ -177,6 +177,9 @@ async function scanDanglingRecords() {
       // S3 — skip for now (checking each key is expensive)
       continue;
     }
+    // Limited-download files live in the stash store under C.PATHS.STASH_DIR,
+    // not under uploadDir. The expiry job reconciles their rows.
+    if (storage.isStashPath(sp)) continue;
     // resolveLocalPath normalizes + guards against escape. If the path
     // escapes uploadDir, that itself is a dangling/corrupted record.
     var resolved = storage.resolveLocalPath(sp);

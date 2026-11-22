@@ -11,7 +11,7 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
 
 ---
 
-## blamejs v0.21.8
+## blamejs v0.21.9
 
 - **License:** Apache-2.0
 - **Copyright:** blamejs contributors
@@ -71,7 +71,7 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
   - `tslib` — Apache-2.0, (c) Microsoft Corporation
   - `cbor-x` — MIT
 
-## @blamejs/pki v0.9.10
+## @blamejs/pki v0.9.13
 
 - **License:** Apache-2.0
 - **Copyright:** blamejs contributors
@@ -81,6 +81,19 @@ See `lib/vendor/MANIFEST.json` for versions and build details.
   engine — CA generation, client-certificate signing, PKCS#12 packaging, and
   CRL issuance under ML-DSA-87 (FIPS 204) by default or ECDSA-P384-SHA384
   (classical bridge), with no openssl CLI at runtime
+
+## @blamejs/stash v2.3.0
+
+- **License:** Apache-2.0
+- **Copyright:** 2026 blamejs contributors
+- **Source:** https://github.com/blamejs/stash
+- **Files:** `lib/vendor/stash/` (published package tree, including `LICENSE`
+  and `NOTICE`)
+- **Used for:** The store behind limited-download (burn-after-read) bundles:
+  per-entry read budgets, expiry, and claims that let one download run at a
+  time
+- **NOTICE:** "@blamejs/stash. Copyright 2026 blamejs contributors. This
+  product includes software developed by the blamejs project."
 
 ## SecLists — common-passwords-top-10000
 

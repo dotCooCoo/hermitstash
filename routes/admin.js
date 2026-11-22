@@ -76,20 +76,33 @@ var { AppError, ValidationError, AuthenticationError, ForbiddenError, NotFoundEr
 // Recursive sum of all file sizes under `dir`. Used by the dashboard to report
 // real on-disk storage including chunks, orphan files, and empty bundle dirs that
 // aren't represented in the file table. Returns 0 if dir is missing/unreadable.
-function walkDiskUsage(dir) {
+// A directory equal to `skipDir` is not entered.
+function walkDiskUsage(dir, skipDir) {
   if (!nodeFs.existsSync(dir)) return 0;
+  if (skipDir && nodePath.resolve(dir) === nodePath.resolve(skipDir)) return 0;
   var total = 0;
   var entries;
   try { entries = nodeFs.readdirSync(dir, { withFileTypes: true }); } catch (_e) { return 0; }
   for (var i = 0; i < entries.length; i++) {
     var full = nodePath.join(dir, entries[i].name);
     if (entries[i].isDirectory()) {
-      total += walkDiskUsage(full);
+      total += walkDiskUsage(full, skipDir);
     } else if (entries[i].isFile()) {
       try { total += nodeFs.statSync(full).size; } catch (_e) { /* file may have been removed between readdir and stat */ }
     }
   }
   return total;
+}
+
+// On-disk bytes of the upload tree plus the burn store, each byte counted once.
+// STASH_DIR sits inside uploadDir when UPLOAD_DIR contains the data directory,
+// so the upload walk skips it and the store is walked on its own. The store
+// walk includes entries whose rows are gone, such as stash tombstones.
+function diskFootprint(uploadDir) {
+  var rel = nodePath.relative(nodePath.resolve(C.PATHS.STASH_DIR), nodePath.resolve(uploadDir));
+  var insideStore = rel === "" || (!rel.startsWith("..") && !nodePath.isAbsolute(rel));
+  if (insideStore) return walkDiskUsage(C.PATHS.STASH_DIR);
+  return walkDiskUsage(uploadDir, C.PATHS.STASH_DIR) + walkDiskUsage(C.PATHS.STASH_DIR);
 }
 
 // The disk walk is synchronous and proportional to file count, which stalled
@@ -103,7 +116,7 @@ function refreshDiskUsageAsync(dir) {
   _diskUsageCache.computing = true;
   setImmediate(function () {
     try {
-      _diskUsageCache.bytes = walkDiskUsage(dir);
+      _diskUsageCache.bytes = diskFootprint(dir);
       _diskUsageCache.computedAt = Date.now();
     } finally {
       _diskUsageCache.computing = false;
@@ -117,7 +130,7 @@ function diskUsage(dir) {
   if (_diskUsageCache.computedAt === 0) {
     // First call — do a synchronous walk so the dashboard has a real number
     // on initial render. Subsequent stale-refreshes run in the background.
-    _diskUsageCache.bytes = walkDiskUsage(dir);
+    _diskUsageCache.bytes = diskFootprint(dir);
     _diskUsageCache.computedAt = now;
   } else if (stale) {
     refreshDiskUsageAsync(dir);
@@ -145,6 +158,7 @@ module.exports = function (app) {
     var s3Bytes = liveFiles
       .filter(function (f) { return f.storagePath && f.storagePath.indexOf("s3://") === 0; })
       .reduce(function(s, f) { return s + (f.size || 0); }, 0);
+    // The local figure includes the burn store (lib/storage.js STASH_DIR).
     var localBytes = diskUsage(storage.uploadDir);
     var totalSize = s3Bytes + localBytes;
 
@@ -318,6 +332,9 @@ module.exports = function (app) {
       }
     }
     audit.log(audit.ACTIONS.ADMIN_FILE_DELETED, { targetId: doc._id, targetEmail: doc.uploaderEmail, details: "file: " + doc.originalName + ", size: " + doc.size, req: req });
+    if (storage.isStashPath(doc.storagePath)) {
+      audit.log(audit.ACTIONS.BUNDLE_BURN_DESTROYED, { targetId: doc._id, details: "bundle: " + doc.bundleShareId + ", deleted by admin", req: req });
+    }
     res.json({ success: true });
   });
 
@@ -330,6 +347,9 @@ module.exports = function (app) {
     for (var f of bf) {
       if (f.storagePath) await storage.deleteFile(f.storagePath);
       filesRepo.remove(f._id);
+      if (storage.isStashPath(f.storagePath)) {
+        audit.log(audit.ACTIONS.BUNDLE_BURN_DESTROYED, { targetId: f._id, details: "bundle: " + bundle.shareId + ", deleted by admin", req: req });
+      }
     }
     // Decrement stash stats if bundle belongs to a stash page
     if (bundle.stashId) {
@@ -1360,6 +1380,9 @@ module.exports = function (app) {
       for (var i = 0; i < allFiles.length; i++) {
         if (allFiles[i].storagePath) {
           try { await storage.deleteFile(allFiles[i].storagePath); } catch (_e) { /* cleanup — storage file may already be gone */ }
+          if (storage.isStashPath(allFiles[i].storagePath)) {
+            audit.log(audit.ACTIONS.BUNDLE_BURN_DESTROYED, { targetId: allFiles[i]._id, details: "bundle: " + allFiles[i].bundleShareId + ", purged by admin", req: req });
+          }
         }
         filesRepo.remove(allFiles[i]._id);
       }
@@ -1653,3 +1676,6 @@ module.exports = function (app) {
     }
   });
 };
+
+module.exports.walkDiskUsage = walkDiskUsage;
+module.exports.diskFootprint = diskFootprint;

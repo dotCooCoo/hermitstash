@@ -308,8 +308,10 @@ module.exports = function (app) {
       if (remaining.length <= 1) {
         var hasPassword = !!req.user.passwordHash;
         var hasGoogle = req.user.authType === "google" || !!req.user.googleId;
-        if (!hasPassword && !hasGoogle) {
-          throw new ValidationError("Cannot remove your only passkey. Add a password or link Google first.");
+        // A linked OpenID Connect identity counts only while OIDC sign-in is on.
+        var hasOidc = !!req.user.oidcSubject && !!(config.oidc && config.oidc.enabled && config.oidc.issuer && config.oidc.clientID);
+        if (!hasPassword && !hasGoogle && !hasOidc) {
+          throw new ValidationError("Cannot remove your only passkey. Add a password, or link Google or single sign-on first.");
         }
         // Warn if vault is enabled — removing the only passkey makes vault unrecoverable
         var vaultEnabled = req.user.vaultEnabled === "true";

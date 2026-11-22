@@ -176,6 +176,8 @@ async function saveToStorage(buffer, storagePath) {
 /**
  * Save a file buffer to storage and create the DB record in one step.
  * Handles: storage path generation, checksum, saveFile, DB insert, cleanup on failure.
+ * A burn file's record also carries storedSize, the bytes it occupies in the
+ * stash store.
  *
  * @param {Buffer} buffer — file data
  * @param {object} opts
@@ -188,6 +190,8 @@ async function saveToStorage(buffer, storagePath) {
  * @param {string} [opts.uploaderEmail] — uploader's email
  * @param {string} [opts.expiresAt] — ISO date string or null
  * @param {number} [opts.seq] — sequence number for sync bundles
+ * @param {number} [opts.readLimit] read budget of a burn-after-read bundle (0 = ordinary)
+ * @param {string} [opts.bundleExpiresAt] the bundle's expiry, required with readLimit
  * @returns {{ doc: object, shareId: string, checksum: string, saved: object }}
  */
 async function saveAndCreateFileRecord(buffer, opts) {
@@ -195,7 +199,11 @@ async function saveAndCreateFileRecord(buffer, opts) {
   var fileShareId = b.crypto.generateToken(32);
   var storagePath = "bundles/" + opts.bundleShareId + "/" + Date.now() + "-" + fileShareId + ext;
   var checksum = b.crypto.sha3Hash(buffer);
-  var saved = await storage.saveFile(buffer, storagePath);
+  // A burn-after-read bundle stores each file in the stash store with the
+  // bundle's read budget and expiry, instead of under uploadDir or on S3.
+  var saved = opts.readLimit > 0
+    ? await storage.saveEphemeral(buffer, { reads: opts.readLimit, expiresAt: opts.bundleExpiresAt })
+    : await storage.saveFile(buffer, storagePath);
   var now = new Date().toISOString();
 
   var record = {
@@ -219,6 +227,9 @@ async function saveAndCreateFileRecord(buffer, opts) {
     expiresAt: opts.expiresAt || null,
   };
   if (opts.seq !== undefined) record.seq = opts.seq;
+  // Quotas charge a burn file the bytes it occupies in the stash store; size
+  // stays the plaintext length shown to users.
+  if (saved.storedSize !== undefined) record.storedSize = saved.storedSize;
 
   try {
     var doc = filesRepo.create(record);

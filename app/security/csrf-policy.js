@@ -55,6 +55,7 @@ function canonicalOrigin(raw) {
 var EXEMPT_PREFIXES = [
   "/drop/",           // public uploads (init, file, chunk, finalize)
   "/auth/google",     // OAuth redirect/callback
+  "/auth/oidc",       // OpenID Connect redirect/callback; state, PKCE and the nonce bind the callback to the browser that started it
   "/auth/tailscale",  // Sign in with Tailscale — GET, identity is the visitor's own peer-gated tailnet identity (login-CSRF has no leverage)
   "/passkey/login",   // WebAuthn challenge-response (has its own CSRF via challenge)
 ];
@@ -62,9 +63,17 @@ var EXEMPT_EXACT = [
   "/drop/init",
   "/auth/logout",     // form POST — validates CSRF token in route handler
 ];
+// Limited-download click-through (POST /b/:shareId/file/:fileShareId): a form
+// POST whose route handler reads the body and validates the CSRF token itself.
+var EXEMPT_PATTERNS = [
+  /^\/b\/[^/]+\/file\/[^/]+$/,
+];
 
 function isExempt(pathname) {
   if (!pathname) return false;
+  for (var k = 0; k < EXEMPT_PATTERNS.length; k++) {
+    if (EXEMPT_PATTERNS[k].test(pathname)) return true;
+  }
   for (var i = 0; i < EXEMPT_EXACT.length; i++) {
     if (pathname === EXEMPT_EXACT[i]) return true;
   }

@@ -47,11 +47,12 @@ async function migrateStorage(direction, progressCb) {
     throw new AppError("S3 connection failed: " + err.message, 502, "S3_UNAVAILABLE");
   }
 
+  // Limited-download files stay in the stash store, whatever the backend.
   var allFiles = filesRepo.findAll({}).filter(function (f) {
-    return f.status === "complete" && f.storagePath;
+    return f.status === "complete" && f.storagePath && !storage.isStashPath(f.storagePath);
   });
 
-  var result = { migrated: 0, skipped: 0, failed: 0, total: allFiles.length, errors: [] };
+  var result ={ migrated: 0, skipped: 0, failed: 0, total: allFiles.length, errors: [] };
 
   for (var i = 0; i < allFiles.length; i++) {
     var file = allFiles[i];
@@ -183,7 +184,7 @@ async function migrateStorage(direction, progressCb) {
 function migrationPreview(direction) {
   var toS3 = direction === "local-to-s3";
   var allFiles = filesRepo.findAll({}).filter(function (f) {
-    return f.status === "complete" && f.storagePath;
+    return f.status === "complete" && f.storagePath && !storage.isStashPath(f.storagePath);
   });
 
   var toMigrate = 0, alreadyDone = 0, missing = 0, totalBytes = 0;

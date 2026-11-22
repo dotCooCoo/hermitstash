@@ -16,7 +16,7 @@
         "browser": "public/js/noble-ciphers.js"
       },
       "bundler": "copied from the vendored framework (no separate build)",
-      "bundledAt": "2026-10-28"
+      "bundledAt": "2026-11-21"
     },
     "@noble/hashes": {
       "version": "2.4.0",
@@ -32,7 +32,7 @@
         "browser": "public/js/noble-hashes.js"
       },
       "bundler": "copied from the vendored framework (no separate build)",
-      "bundledAt": "2026-10-28"
+      "bundledAt": "2026-11-21"
     },
     "@noble/post-quantum": {
       "version": "0.7.1",
@@ -50,11 +50,26 @@
         "browser": "public/js/noble-pq.js"
       },
       "bundler": "copied from the vendored framework (no separate build)",
-      "bundledAt": "2026-10-28"
+      "bundledAt": "2026-11-21"
+    },
+    "@blamejs/stash": {
+      "version": "2.3.0",
+      "tag": "v2.3.0",
+      "license": "Apache-2.0",
+      "author": "blamejs contributors",
+      "source": "https://github.com/blamejs/stash",
+      "cpe": "cpe:2.3:a:blamejs:stash:2.3.0:*:*:*:*:node.js:*:*",
+      "_about": "Ephemeral content store with per-entry read budgets. Backs burn-after-read and limited-download bundles. Vendored as the published package tree at lib/vendor/stash/ from the npm registry tarball, sha512-verified against dist.integrity. ESM, loaded through lib/stash-shim.js. Zero runtime dependencies.",
+      "files": {
+        "server": "lib/vendor/stash/"
+      },
+      "bundler": "npm registry tarball, integrity-verified (scripts/vendor-update.sh @blamejs/stash)",
+      "bundledAt": "2026-11-21",
+      "integrity": "sha512-TaEzUtLkrvrPj1ad8pbQueNuWsjPJmAe25Uc4xyePtVt3hApw2IPcUYwkG6GsEc0hUw6LwmdKdlsl4KARQG2FQ=="
     },
     "blamejs": {
-      "version": "0.21.8",
-      "tag": "v0.21.8",
+      "version": "0.21.9",
+      "tag": "v0.21.9",
       "license": "Apache-2.0",
       "author": "blamejs contributors",
       "source": "https://github.com/blamejs/blamejs",
@@ -63,7 +78,7 @@
         "server": "lib/vendor/blamejs/"
       },
       "bundler": "shallow git clone of release tag from github.com/blamejs/blamejs",
-      "bundledAt": "2026-10-28",
+      "bundledAt": "2026-11-21",
       "components": {
         "@noble/ciphers": {
           "version": "2.4.0",
@@ -174,11 +189,11 @@
           "file": "lib/vendor/blamejs/lib/vendor/public-suffix-list.dat"
         },
         "@blamejs/pki": {
-          "version": "0.9.10",
+          "version": "0.9.13",
           "license": "Apache-2.0",
           "author": "blamejs",
           "source": "https://github.com/blamejs/pki",
-          "cpe": "cpe:2.3:a:blamejs:pki:0.9.10:*:*:*:*:node.js:*:*",
+          "cpe": "cpe:2.3:a:blamejs:pki:0.9.13:*:*:*:*:node.js:*:*",
           "exports": [
             "x509",
             "crl",
@@ -194,7 +209,7 @@
           "file": "lib/vendor/blamejs/lib/vendor/blamejs-pki.cjs"
         }
       },
-      "integrity": "sha512-LnXavbyRkKZzOc///jYjyFUeWUoJvZuFlbuOGvmHnvZBDVe85CUWIUXjaDSma+jKgNXcJOUpjibXKFcUtofKkQ=="
+      "integrity": "sha512-tyfgOvaOo9ZQHB06nl3UFToQp1OXwNneF0xbNyWmxbtU1a7vkNgJPY6zhMXaD+V2O+4gKFyiqn4PWvyZytQVPQ=="
     }
   }
 }
