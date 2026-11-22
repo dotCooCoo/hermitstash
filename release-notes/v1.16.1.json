@@ -1,0 +1,17 @@
+{
+  "version": "1.16.1",
+  "date": "2026-11-22",
+  "headline": "Publish the OpenID Connect sign-in and download-limit release that v1.16.0 could not build",
+  "summary": "v1.16.0 was tagged but produced no image and no release page. The image build read the version with the runner's preinstalled Node.js 24, which cannot load blamejs 0.21.9. Use this version instead. It carries every v1.16.0 change: sign-in through any OpenID Connect provider, a per-file download limit on bundles, Google sign-in on a verified id_token, and blamejs 0.21.9. Read the v1.16.0 entry in CHANGELOG.md before you upgrade from 1.15.14 or earlier: it describes the new `OIDC_*` and `MAX_BURN_READS` settings, and a Google account that Google does not report as verified can no longer sign in. The v1.16.0 tag exists and has nothing attached to it.",
+  "sections": [
+    {
+      "heading": "Fixed",
+      "items": [
+        {
+          "title": "Set up Node.js 26 before the image build reads the version",
+          "body": "The Docker workflow now installs Node.js 26.13.1 at the start of the image build, before it reads the version from `lib/constants.js`. A new test fails when a workflow step runs `node` on the runner before the job's `actions/setup-node` step."
+        }
+      ]
+    }
+  ]
+}

@@ -277,6 +277,13 @@ jobs:
           grep -q '"AGPL-3.0-or-later"' package.json || { echo "::error::package.json license is not AGPL-3.0-or-later"; exit 1; }
           echo "License check passed"
 
+      # Every `node` step in this job, starting with the version check below,
+      # loads the vendored framework, which needs Node.js 26.
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.13.1
+
       - name: Resolve version + cross-check tag vs constants.js
         # Tag pushes derive version from the ref (`refs/tags/vX.Y.Z` →
         # `X.Y.Z`) which is bulletproof. Workflow-dispatch (manual)
@@ -356,12 +363,6 @@ jobs:
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: cosign sign --yes ${{ env.IMAGE }}@${DIGEST}
-
-      - name: Set up Node.js (for build-vex.js)
-        if: ${{ !inputs.dry_run }}
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 26.13.1
 
       - name: Build CSAF 2.1 VEX document
         if: ${{ !inputs.dry_run }}
