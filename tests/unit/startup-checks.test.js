@@ -113,6 +113,31 @@ describe("startup checks", function () {
     assert.deepEqual(out.warnings, [], "a sound configuration should be silent: " + out.warnings.join(" | "));
   });
 
+  describe("OpenID Connect", function () {
+    function oidcCfg(over) {
+      return Object.assign({}, config.oidc, { enabled: true, issuer: "https://idp.example.com", clientID: "c", allowInternal: [], scopes: ["openid"], groupsClaim: "groups", allowlist: [], autoProvision: false }, over);
+    }
+    it("refuses to boot with OIDC_TRUST_UNVERIFIED_EMAIL and no required group", function () {
+      // run() exits on a fatal error; the stub records the exit instead, so
+      // run() returns the errors it found.
+      var origExit = process.exit;
+      var exitCode = null;
+      process.exit = function (code) { exitCode = code; };
+      var out;
+      try {
+        out = runWith(quiet({ oidc: oidcCfg({ trustUnverifiedEmail: true, requiredGroup: "" }) }), QUIET_ENV);
+      } finally {
+        process.exit = origExit;
+      }
+      assert.strictEqual(exitCode, 1);
+      assert.ok(out.errors.some(function (e) { return /OIDC_TRUST_UNVERIFIED_EMAIL needs OIDC_REQUIRED_GROUP/.test(e); }), out.errors.join(" | "));
+    });
+    it("boots with OIDC_TRUST_UNVERIFIED_EMAIL and a required group", function () {
+      var out = runWith(quiet({ oidc: oidcCfg({ trustUnverifiedEmail: true, requiredGroup: "staff" }) }), QUIET_ENV);
+      assert.deepEqual(out.errors, []);
+    });
+  });
+
   describe("the canonical origin", function () {
     it("warns when none is set", function () {
       var out = runWith(quiet({ rpOrigin: "" }), QUIET_ENV);

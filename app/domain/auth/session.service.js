@@ -39,6 +39,21 @@ async function loginUser(req, userId) {
   await req.regenerateSession({ userId: userId });
   clearPendingAuth(req.session);
   req.session.userId = userId;
+  req.session.authAt = Date.now();
+}
+
+// How recently a sign-in must have happened for isRecentlyAuthenticated.
+var RECENT_AUTH_MS = TIME.minutes(10);
+
+/**
+ * True when this session completed a sign-in within the last 10 minutes.
+ * loginUser and complete2fa record the time; a pending 2FA session has none.
+ */
+function isRecentlyAuthenticated(req) {
+  var at = req && req.session ? req.session.authAt : null;
+  if (typeof at !== "number" || !Number.isFinite(at)) return false;
+  var age = Date.now() - at;
+  return age >= 0 && age <= RECENT_AUTH_MS;
 }
 
 /**
@@ -52,6 +67,7 @@ async function start2faPending(req, userId) {
   // Fresh pending cycle: drop any stale pending-auth state (incl. a prior
   // cycle's failed-attempt count) before stamping the new pending user.
   clearPendingAuth(req.session);
+  delete req.session.authAt;
   req.session.pendingTotpUserId = userId;
   req.session.pendingTotpExpires = Date.now() + TIME.minutes(5);
 }
@@ -68,6 +84,7 @@ async function complete2fa(req) {
   await req.regenerateSession({ userId: userId });
   clearPendingAuth(req.session);
   req.session.userId = userId;
+  req.session.authAt = Date.now();
   return userId;
 }
 
@@ -127,4 +144,4 @@ async function revokeUser(userId) {
   return clearSessionsForUser(userId);
 }
 
-module.exports = { loginUser, completeLogin, start2faPending, complete2fa, logoutUser, revokeAll, revokeUser };
+module.exports = { loginUser, completeLogin, start2faPending, complete2fa, logoutUser, revokeAll, revokeUser, isRecentlyAuthenticated };

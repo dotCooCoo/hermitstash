@@ -61,6 +61,18 @@ function insertUser(fields) {
   }, fields));
 }
 
+// The fields an account carries once its address has been confirmed.
+function confirmedBy(via) {
+  return { emailConfirmedVia: via, emailConfirmedAt: new Date().toISOString() };
+}
+
+// The message /auth/failed shows to this browser.
+async function failedPageText(client) {
+  var page = await client.get("/auth/failed");
+  assert.strictEqual(page.status, 401);
+  return String(page.text);
+}
+
 async function expectFailed(res, msg) {
   assert.strictEqual(res.status, 302, msg + " (status " + res.status + ")");
   assert.strictEqual(res.location, "/auth/failed", msg);
@@ -311,7 +323,7 @@ describe("OIDC sign-in: id_token refusals", function () {
   it("links an existing account on an email that only userinfo marks verified", async function () {
     var sub = uniq("sub-ui-link");
     var email = uniq("ui-link") + "@corp.test";
-    var row = insertUser({ email: email, displayName: "Local", authType: "local", passwordHash: "$argon2id$placeholder" });
+    var row = insertUser(Object.assign({ email: email, displayName: "Local", authType: "local", passwordHash: "$argon2id$placeholder" }, confirmedBy("verification")));
     var res = await login(new TestClient(testServer.baseUrl()), {
       claims: { sub: sub, email: email, email_verified: false },
       userinfo: { sub: sub, email: email, email_verified: true },
@@ -377,9 +389,9 @@ describe("OIDC sign-in: discovery refusals", function () {
 });
 
 describe("OIDC sign-in: account linking", function () {
-  it("links an existing local account on a verified email and audits it", async function () {
+  it("links an existing local account with a confirmed address on a verified email and audits it", async function () {
     var email = uniq("link-local") + "@corp.test";
-    var row = insertUser({ email: email, displayName: "Local User", authType: "local", passwordHash: "$argon2id$placeholder" });
+    var row = insertUser(Object.assign({ email: email, displayName: "Local User", authType: "local", passwordHash: "$argon2id$placeholder" }, confirmedBy("verification")));
     var sub = uniq("sub-link");
     var before = auditActions("oidc_account_linked").length;
     var res = await login(new TestClient(testServer.baseUrl()), { claims: { sub: sub, email: email, name: "IdP Name" } });
@@ -393,7 +405,7 @@ describe("OIDC sign-in: account linking", function () {
 
   it("links an existing Google account on a verified email", async function () {
     var email = uniq("link-google") + "@corp.test";
-    var row = insertUser({ email: email, displayName: "G", authType: "google", googleId: uniq("gid") });
+    var row = insertUser(Object.assign({ email: email, displayName: "G", authType: "google", googleId: uniq("gid") }, confirmedBy("google")));
     var res = await login(new TestClient(testServer.baseUrl()), { claims: { sub: uniq("sub"), email: email } });
     assert.strictEqual(res.location, "/dashboard");
     assert.ok(db.users.findOne({ _id: row._id }).oidcSubject);
@@ -423,8 +435,201 @@ describe("OIDC sign-in: account linking", function () {
   });
 });
 
+describe("OIDC sign-in: the account's address must be confirmed before linking", function () {
+  it("refuses an account with no recorded confirmation, writes nothing and explains on /auth/failed once", async function () {
+    var email = uniq("unconf") + "@corp.test";
+    var row = insertUser({ email: email, displayName: "Unconfirmed", authType: "local", passwordHash: "$argon2id$placeholder", emailConfirmedVia: "legacy", emailConfirmedAt: new Date().toISOString() });
+    var before = auditActions("oidc_link_refused").length;
+    var c = new TestClient(testServer.baseUrl());
+    var res = await login(c, { claims: { sub: uniq("sub-unconf"), email: email, name: "Other Name" } });
+    await expectFailed(res, "a legacy account is not linked by email");
+    var fresh = db.users.findOne({ _id: row._id });
+    assert.ok(!fresh.oidcSubject);
+    assert.strictEqual(fresh.displayName, "Unconfirmed");
+    var rows = auditActions("oidc_link_refused");
+    assert.strictEqual(rows.length, before + 1);
+    assert.ok(/reason: email-unconfirmed/.test(rows[rows.length - 1].details));
+    assert.ok(/link single sign-on from your profile page/.test(await failedPageText(c)), "the reason is shown");
+    assert.ok(/Could not sign you in/.test(await failedPageText(c)), "only once");
+  });
+
+  it("links an account confirmed by a verification email", async function () {
+    var email = uniq("verified-addr") + "@corp.test";
+    var row = insertUser({ email: email, displayName: "V", authType: "local", passwordHash: "$argon2id$placeholder", status: "pending" });
+    var verification = require(path.join(testServer.projectRoot, "routes", "verification"));
+    var token = verification.createVerificationToken(row._id, "email", email);
+    rateLimit.resetAllInstances();
+    var c = new TestClient(testServer.baseUrl());
+    await c.initApiKey();
+    var v = await c.post("/auth/verify/" + token, { json: {} });
+    assert.strictEqual(v.status, 200);
+    assert.strictEqual(db.users.findOne({ _id: row._id }).emailConfirmedVia, "verification");
+    var res = await login(new TestClient(testServer.baseUrl()), { claims: { sub: uniq("sub-va"), email: email } });
+    assert.strictEqual(res.location, "/dashboard");
+    assert.ok(db.users.findOne({ _id: row._id }).oidcSubject);
+  });
+
+  it("does not count a token an administrator copied by hand as confirmation", async function () {
+    var email = uniq("manual-addr") + "@corp.test";
+    var row = insertUser({ email: email, displayName: "M", authType: "local", passwordHash: "$argon2id$placeholder", status: "pending" });
+    var verification = require(path.join(testServer.projectRoot, "routes", "verification"));
+    var token = verification.createVerificationToken(row._id, "manual", email);
+    rateLimit.resetAllInstances();
+    var c = new TestClient(testServer.baseUrl());
+    await c.initApiKey();
+    assert.strictEqual((await c.post("/auth/verify/" + token, { json: {} })).status, 200);
+    var fresh = db.users.findOne({ _id: row._id });
+    assert.strictEqual(fresh.status, "active");
+    assert.strictEqual(fresh.emailConfirmedVia, "legacy");
+    await expectFailed(await login(new TestClient(testServer.baseUrl()), { claims: { sub: uniq("sub-ma"), email: email } }), "a hand-delivered token does not confirm");
+  });
+
+  it("does not let a verification token issued for one address confirm a later pendingEmail", async function () {
+    var verification = require(path.join(testServer.projectRoot, "routes", "verification"));
+    async function redeem(token) {
+      rateLimit.resetAllInstances();
+      var c = new TestClient(testServer.baseUrl());
+      await c.initApiKey();
+      var v = await c.post("/auth/verify/" + token, { json: {} });
+      assert.strictEqual(v.status, 200);
+    }
+
+    // Token mailed to address A; the account later stages address B.
+    var orig = uniq("orig-addr") + "@corp.test";
+    var issued = uniq("issued-addr") + "@corp.test";
+    var staged = uniq("staged-addr") + "@corp.test";
+    var row = insertUser({ email: orig, displayName: "P", authType: "local", passwordHash: "$argon2id$placeholder" });
+    var token = verification.createVerificationToken(row._id, "email", issued);
+    db.users.update({ _id: row._id }, { $set: { pendingEmail: staged } });
+    await redeem(token);
+    var fresh = db.users.findOne({ _id: row._id });
+    assert.strictEqual(fresh.email, orig, "the account email is unchanged");
+    assert.strictEqual(fresh.pendingEmail, staged, "the staged address is not committed");
+    assert.notStrictEqual(fresh.emailConfirmedVia, "verification");
+
+    // Control: the token was mailed to the staged address itself.
+    var orig2 = uniq("orig-addr2") + "@corp.test";
+    var staged2 = uniq("staged-addr2") + "@corp.test";
+    var row2 = insertUser({ email: orig2, displayName: "P2", authType: "local", passwordHash: "$argon2id$placeholder", pendingEmail: staged2 });
+    await redeem(verification.createVerificationToken(row2._id, "email", staged2));
+    var fresh2 = db.users.findOne({ _id: row2._id });
+    assert.strictEqual(fresh2.email, staged2, "the staged address is committed");
+    assert.ok(!fresh2.pendingEmail);
+    assert.strictEqual(fresh2.emailConfirmedVia, "verification");
+  });
+
+  it("records an invite as emailed only for the token that was sent", function () {
+    var invitesRepo = require(path.join(testServer.projectRoot, "app", "data", "repositories", "invites.repo"));
+    var first = b.crypto.generateToken(32);
+    var second = b.crypto.generateToken(32);
+    var inv = invitesRepo.create({ email: uniq("inv-race") + "@corp.test", tokenHash: b.crypto.sha3Hash(first), role: "user", status: "pending", delivery: "manual", expiresAt: new Date(Date.now() + 3600000).toISOString(), createdAt: new Date().toISOString() });
+    // A second resend replaces the token before the first send finishes.
+    invitesRepo.update(inv._id, { $set: { tokenHash: b.crypto.sha3Hash(second), delivery: "manual" } });
+    assert.strictEqual(invitesRepo.markEmailed(inv._id, b.crypto.sha3Hash(first)), false, "a replaced token is not marked");
+    assert.strictEqual(invitesRepo.findOne({ _id: inv._id }).delivery, "manual");
+    assert.strictEqual(invitesRepo.markEmailed(inv._id, b.crypto.sha3Hash(second)), true);
+    assert.strictEqual(invitesRepo.findOne({ _id: inv._id }).delivery, "email");
+  });
+
+  it("links an account created from an emailed invite and refuses one from a copied invite", async function () {
+    var invitesRepo = require(path.join(testServer.projectRoot, "app", "data", "repositories", "invites.repo"));
+    async function accept(delivery) {
+      var email = uniq("inv-" + delivery) + "@corp.test";
+      var raw = b.crypto.generateToken(32);
+      invitesRepo.create({ email: email, tokenHash: b.crypto.sha3Hash(raw), role: "user", status: "pending", delivery: delivery, expiresAt: new Date(Date.now() + 3600000).toISOString(), createdAt: new Date().toISOString() });
+      rateLimit.resetAllInstances();
+      var c = new TestClient(testServer.baseUrl());
+      await c.initApiKey();
+      var r = await c.post("/auth/invite/accept", { json: { token: raw, displayName: "Invited", password: "password123" } });
+      assert.strictEqual(r.status, 200, "invite accepted: " + JSON.stringify(r.json));
+      return email;
+    }
+    var emailed = await accept("email");
+    var acc = db.users.findOne({ email: emailed });
+    assert.strictEqual(acc.emailConfirmedVia, "invite");
+    assert.strictEqual((await login(new TestClient(testServer.baseUrl()), { claims: { sub: uniq("sub-inv"), email: emailed } })).location, "/dashboard");
+    var copied = await accept("manual");
+    assert.strictEqual(db.users.findOne({ email: copied }).emailConfirmedVia, "legacy");
+    await expectFailed(await login(new TestClient(testServer.baseUrl()), { claims: { sub: uniq("sub-inv2"), email: copied } }), "a copied invite does not confirm");
+  });
+
+  it("keeps an account with an http avatar URL without storing it", async function () {
+    var sub = uniq("sub-avatar");
+    var email = uniq("avatar") + "@corp.test";
+    var row = insertUser({ email: email, displayName: "Av", authType: "oidc", oidcSubject: op.issuer + "|" + sub });
+    var res = await login(new TestClient(testServer.baseUrl()), { claims: { sub: sub, email: email, picture: "http://images.example/p.png" } });
+    assert.strictEqual(res.location, "/dashboard");
+    assert.ok(!db.users.findOne({ _id: row._id }).avatar, "an avatar off the https issuer origin is not stored");
+  });
+});
+
+describe("OIDC sign-in: OIDC_TRUST_UNVERIFIED_EMAIL", function () {
+  before(function () {
+    config.updateSettings({ oidcRequiredGroup: "hs-users" });
+    config.updateSettings({ oidcTrustUnverifiedEmail: "true" });
+  });
+  after(function () {
+    config.updateSettings({ oidcTrustUnverifiedEmail: "false" });
+    config.updateSettings({ oidcRequiredGroup: "" });
+  });
+
+  it("provisions a group member with an unverified address and records no confirmation", async function () {
+    var sub = uniq("sub-unv");
+    var email = uniq("unv") + "@corp.test";
+    var res = await login(new TestClient(testServer.baseUrl()), { claims: { sub: sub, email: email, email_verified: undefined, groups: ["hs-users"] } });
+    assert.strictEqual(res.location, "/dashboard");
+    var row = usersBySubject(sub)[0];
+    assert.strictEqual(row.email, email);
+    assert.ok(!row.emailConfirmedVia, "no confirmation recorded");
+  });
+
+  it("refuses to match an existing account and explains why", async function () {
+    var email = uniq("unv-taken") + "@corp.test";
+    var row = insertUser(Object.assign({ email: email, displayName: "Taken", authType: "local", passwordHash: "x" }, confirmedBy("verification")));
+    var c = new TestClient(testServer.baseUrl());
+    await expectFailed(await login(c, { claims: { sub: uniq("sub-unvt"), email: email, email_verified: undefined, groups: ["hs-users"] } }), "an unverified address never matches");
+    assert.ok(!db.users.findOne({ _id: row._id }).oidcSubject);
+    assert.ok(/did not confirm your email address/.test(await failedPageText(c)));
+  });
+
+  it("refuses a guest account", async function () {
+    var sub = uniq("sub-guest");
+    await expectFailed(await login(new TestClient(testServer.baseUrl()), { claims: { sub: sub, email: uniq("guest") + "@corp.test", email_verified: undefined, acct: 1, groups: ["hs-users"] } }), "a guest is refused");
+    assert.strictEqual(usersBySubject(sub).length, 0);
+  });
+
+  it("refuses a non-member even when the address is allowlisted", async function () {
+    var sub = uniq("sub-unv-nm");
+    await expectFailed(await login(new TestClient(testServer.baseUrl()), { claims: { sub: sub, email: "new.user@corp.test", email_verified: undefined, groups: ["other"] } }), "the allowlist does not apply");
+    assert.strictEqual(usersBySubject(sub).length, 0);
+  });
+
+  it("asks before adding the unconfirmed account to a stash", async function () {
+    var sub = uniq("sub-stash");
+    var email = uniq("stash-unv") + "@corp.test";
+    assert.strictEqual((await login(new TestClient(testServer.baseUrl()), { claims: { sub: sub, email: email, email_verified: undefined, groups: ["hs-users"] } })).location, "/dashboard");
+    var adminEmail = uniq("stash-admin") + "@corp.test";
+    var hash = await b.auth.password.hash("password123");
+    insertUser({ email: adminEmail, displayName: "SA", authType: "local", role: "admin", passwordHash: hash });
+    rateLimit.resetAllInstances();
+    var admin = new TestClient(testServer.baseUrl());
+    await admin.initApiKey();
+    var li = await admin.post("/auth/login", { json: { email: adminEmail, password: "password123" } });
+    assert.strictEqual(li.json.success, true);
+    var slug = uniq("unvstash");
+    assert.ok((await admin.post("/admin/stash/create", { json: { name: "Unconfirmed test", slug: slug } })).json.success);
+    var stash = require(path.join(testServer.projectRoot, "app", "data", "repositories", "stash.repo")).findBySlug(slug);
+    var first = await admin.post("/admin/stash/" + stash._id + "/members/add", { json: { email: email } });
+    assert.strictEqual(first.status, 409);
+    assert.strictEqual(first.json.unconfirmed, true);
+    var second = await admin.post("/admin/stash/" + stash._id + "/members/add", { json: { email: email, confirmUnconfirmed: true } });
+    assert.strictEqual(second.status, 200, JSON.stringify(second.json));
+  });
+});
+
 describe("OIDC sign-in: groups and roles", function () {
   after(function () {
+    config.updateSettings({ oidcTrustUnverifiedEmail: "false" });
     config.updateSettings({ oidcRequiredGroup: "", oidcAdminGroup: "" });
   });
 
@@ -488,14 +693,53 @@ describe("OIDC sign-in: groups and roles", function () {
     assert.strictEqual((await c2.get("/dashboard")).status, 200, "the new session works");
   });
 
-  it("leaves the role alone when the provider supplies no groups", async function () {
+  it("refuses an admin whose groups cannot be read, keeping the role and the sessions", async function () {
     config.updateSettings({ oidcAdminGroup: "hs-admins" });
     var sub = uniq("sub-keep");
     var email = uniq("keep") + "@corp.test";
     var row = insertUser({ email: email, displayName: "K", authType: "oidc", oidcSubject: op.issuer + "|" + sub, role: "admin" });
+    var first = new TestClient(testServer.baseUrl());
+    assert.strictEqual((await login(first, { claims: { sub: sub, email: email, groups: ["hs-admins"] } })).location, "/dashboard");
+    var before = auditActions("oidc_groups_unavailable").length;
+    var c = new TestClient(testServer.baseUrl());
+    var res = await login(c, { claims: { sub: sub, email: email }, userinfo: null });
+    await expectFailed(res, "an admin with unreadable groups is refused");
+    assert.strictEqual(db.users.findOne({ _id: row._id }).role, "admin", "a failed userinfo read does not demote");
+    assert.strictEqual((await first.get("/dashboard")).status, 200, "the earlier session survives");
+    var rows = auditActions("oidc_groups_unavailable");
+    assert.strictEqual(rows.length, before + 1);
+    assert.ok(/Admin group could not be read \(userinfo-failed/.test(rows[rows.length - 1].details), rows[rows.length - 1].details);
+    assert.ok(/group membership/.test(await failedPageText(c)));
+  });
+
+  it("signs in a non-admin whose groups cannot be read when no group is required", async function () {
+    config.updateSettings({ oidcAdminGroup: "hs-admins" });
+    var sub = uniq("sub-plain");
+    var email = uniq("plain") + "@corp.test";
+    var row = insertUser({ email: email, displayName: "P", authType: "oidc", oidcSubject: op.issuer + "|" + sub });
     var res = await login(new TestClient(testServer.baseUrl()), { claims: { sub: sub, email: email }, userinfo: null });
     assert.strictEqual(res.location, "/dashboard");
-    assert.strictEqual(db.users.findOne({ _id: row._id }).role, "admin", "a failed userinfo read does not demote");
+    assert.strictEqual(db.users.findOne({ _id: row._id }).role, "user");
+  });
+
+  it("does not end sessions when the required group cannot be read", async function () {
+    config.updateSettings({ oidcRequiredGroup: "hs-users", oidcAdminGroup: "" });
+    var sub = uniq("sub-gu");
+    var email = uniq("gu") + "@corp.test";
+    insertUser({ email: email, displayName: "GU", authType: "oidc", oidcSubject: op.issuer + "|" + sub });
+    var first = new TestClient(testServer.baseUrl());
+    assert.strictEqual((await login(first, { claims: { sub: sub, email: email, groups: ["hs-users"] } })).location, "/dashboard");
+    // No groups claim and a userinfo response without one.
+    var absent = await login(new TestClient(testServer.baseUrl()), { claims: { sub: sub, email: email } });
+    await expectFailed(absent, "absent groups are refused");
+    // A distributed-claims marker in place of the groups.
+    var overage = await login(new TestClient(testServer.baseUrl()), { claims: { sub: sub, email: email, _claim_names: { groups: "src1" }, _claim_sources: { src1: { endpoint: "https://graph.example/x" } } } });
+    await expectFailed(overage, "an overage marker is refused");
+    assert.strictEqual((await first.get("/dashboard")).status, 200, "neither refusal ended the session");
+    var rows = auditActions("oidc_groups_unavailable");
+    assert.ok(/\(overage\)/.test(rows[rows.length - 1].details), rows[rows.length - 1].details);
+    assert.ok(/\(absent\)/.test(rows[rows.length - 2].details), rows[rows.length - 2].details);
+    config.updateSettings({ oidcRequiredGroup: "" });
   });
 
   it("never demotes the last active admin", async function () {

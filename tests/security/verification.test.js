@@ -61,7 +61,7 @@ describe("email verification flow", function () {
   it("createVerificationToken creates token and POST /auth/verify/:token activates user", async function () {
     // Use the exported createVerificationToken to get the raw token
     var { createVerificationToken } = require(path.join(projectRoot, "routes", "verification"));
-    var rawToken = createVerificationToken(pendingUserId);
+    var rawToken = createVerificationToken(pendingUserId, "email", "verify@test.com");
     assert.ok(rawToken, "should return a raw token string");
     assert.strictEqual(rawToken.length, 64, "token should be 64 hex chars (32 bytes)");
 

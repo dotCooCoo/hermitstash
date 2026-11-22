@@ -1491,7 +1491,8 @@ module.exports = function (app) {
         if (existing && existing._id !== req.user._id) {
           errors.push("Email already in use.");
         } else {
-          usersRepo.update(req.user._id, { $set: { email: email } });
+          // The wizard does not prove control of the address.
+          usersRepo.update(req.user._id, { $set: { email: email, emailConfirmedVia: "legacy", emailConfirmedAt: new Date().toISOString() } });
         }
       }
 

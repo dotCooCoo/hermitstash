@@ -17,6 +17,46 @@ var { validateLoginInput, validateRegisterInput } = require("../app/http/validat
 var { createVerificationToken } = require("./verification");
 var { validateToken } = require("../app/security/csrf-policy");
 var { AppError, ValidationError, AuthenticationError, ForbiddenError } = require("../app/shared/errors");
+var { timingSafeEqual } = require("../lib/crypto");
+
+var LINK_REFUSED_TEXT = "An account with this email address already exists. If it is yours, sign in to it with the method you already use and link single sign-on from your profile page. If you did not create it, ask an administrator.";
+var UNVERIFIED_TEXT = "Your identity provider did not confirm your email address. Ask an administrator for access.";
+
+// What /auth/failed shows after an OpenID Connect sign-in refusal. Any other
+// reason shows the generic text.
+var OIDC_FAILURE_MESSAGES = Object.freeze({
+  "email-unconfirmed": LINK_REFUSED_TEXT,
+  "auto-link-blocked": LINK_REFUSED_TEXT,
+  "email-in-use-unverified": UNVERIFIED_TEXT,
+  "unverified-email-external": UNVERIFIED_TEXT,
+  "unverified-email-needs-group": UNVERIFIED_TEXT,
+  "groups-unavailable": "Your identity provider did not send your group membership, so your access could not be checked. Try again later, or ask an administrator.",
+  "group-denied": "Your account is not in the group required to sign in.",
+  "domain-not-allowed": "Your email domain is not allowed.",
+  "provision-denied": "No account exists for this identity. Ask an administrator for access.",
+  "no-verified-email": "Your identity provider did not supply a verified email address.",
+  "account-pending": "This account has not verified its email address.",
+  "account-suspended": "This account is suspended.",
+  "subject-mismatch": "An account with this email address is linked to a different single sign-on identity.",
+});
+var GENERIC_FAILURE_MESSAGE = "Could not sign you in. Your email domain may not be authorized.";
+
+// The ?sso= code the profile page shows for a refused link.
+var LINK_FAILURE_CODES = Object.freeze({
+  "link-session-changed": "session-changed",
+  "link-subject-in-use": "subject-in-use",
+  "link-other-subject": "other-subject",
+  "link-email-other-account": "email-other-account",
+  "link-stale-auth": "stale-auth",
+  "domain-not-allowed": "domain-not-allowed",
+  "groups-unavailable": "groups-unavailable",
+  "group-denied": "group-denied",
+  "account-not-active": "account-not-active",
+});
+
+function linkFailureCode(reason) {
+  return b.safeObject.ownProp(LINK_FAILURE_CODES, reason) || "failed";
+}
 
 module.exports = function (app) {
   // Google sign-in runs on lib/oidc: PKCE, state, nonce and a verified
@@ -98,6 +138,9 @@ module.exports = function (app) {
   });
 
   app.get("/auth/oidc/callback", rateLimit.guard({ max: 10, windowMs: C.TIME.minutes(1), algorithm: "fixed-window" }), async (req, res) => {
+    // Read before anything can fail, so a failed link attempt is reported on
+    // the profile page rather than as a failed sign-in.
+    var linkFor = oidc.pendingLinkUserId(req);
     var identity = null;
     try {
       if (!oidc.isEnabled()) {
@@ -106,20 +149,26 @@ module.exports = function (app) {
         throw off;
       }
       var policy = config.oidc;
-      identity = await oidc.completeLogin("oidc", req, { needGroups: !!(policy.requiredGroup || policy.adminGroup) });
-      var result = authService.resolveOidcUser(identity, {
+      identity = await oidc.completeLogin("oidc", req, {
+        needGroups: !!(policy.requiredGroup || policy.adminGroup),
+        allowUnverifiedEmail: !!policy.trustUnverifiedEmail,
+      });
+      var resolvePolicy = {
         allowedDomains: config.allowedDomains,
         autoProvision: policy.autoProvision,
         allowlist: policy.allowlist,
         requiredGroup: policy.requiredGroup,
         adminGroup: policy.adminGroup,
-      });
+        trustUnverifiedEmail: !!policy.trustUnverifiedEmail,
+      };
+      if (identity.linkUserId) return await finishLink(req, res, identity, resolvePolicy);
+      var result = authService.resolveOidcUser(identity, resolvePolicy);
       var user = result.user;
       if (result.isNew) {
         audit.log(audit.ACTIONS.USER_REGISTERED, { targetId: user._id, targetEmail: user.email, details: "authType: oidc, role: " + user.role, req: req });
       }
       if (result.linked) {
-        audit.log(audit.ACTIONS.OIDC_ACCOUNT_LINKED, { targetId: user._id, targetEmail: user.email, details: "Linked to an OpenID Connect identity by verified email (account authType: " + (user.authType || "unknown") + ")", req: req });
+        audit.log(audit.ACTIONS.OIDC_ACCOUNT_LINKED, { targetId: user._id, targetEmail: user.email, details: "method: verified-email (account authType: " + (user.authType || "unknown") + ")", req: req });
       }
       if (result.roleChange) {
         audit.log(audit.ACTIONS.USER_ROLE_CHANGED, { targetId: user._id, targetEmail: user.email, details: result.roleChange.from + " -> " + result.roleChange.to + " (OpenID Connect admin group)", req: req });
@@ -137,10 +186,36 @@ module.exports = function (app) {
       res.redirect("/dashboard");
     } catch (err) {
       var reason = oidc.auditReason(err);
-      if (err && err.oidcReason === "provision-denied") {
-        audit.log(audit.ACTIONS.OIDC_PROVISION_DENIED, { targetEmail: identity && identity.email ? identity.email : undefined, details: "No account and provisioning did not allow one", req: req });
-      } else if (err && err.oidcReason === "group-denied") {
-        audit.log(audit.ACTIONS.OIDC_GROUP_DENIED, { targetId: err.revokeUserId || undefined, targetEmail: identity && identity.email ? identity.email : undefined, details: "Required group missing", req: req });
+      var code = err && err.oidcReason ? err.oidcReason : "";
+      var idEmail = identity ? (identity.email || identity.unverifiedEmail || undefined) : undefined;
+      if (code === "groups-unavailable") {
+        audit.log(audit.ACTIONS.OIDC_GROUPS_UNAVAILABLE, {
+          targetId: err.accountId || undefined,
+          targetEmail: idEmail,
+          details: (config.oidc.requiredGroup ? "Required group" : "Admin group") + " could not be read (" +
+            (identity && identity.groupsStatus ? identity.groupsStatus : "unknown") +
+            (identity && identity.userinfoError ? ", " + identity.userinfoError : "") + "). Sessions were not ended.",
+          req: req,
+        });
+      }
+      if (linkFor || (identity && identity.linkUserId)) {
+        // A link attempt never ends sessions and reports on the profile page.
+        if (code !== "groups-unavailable") {
+          audit.log(audit.ACTIONS.OIDC_LINK_REFUSED, { targetId: (req.user && req.user._id) || err.accountId || undefined, targetEmail: idEmail, details: "method: explicit, reason: " + reason, req: req });
+        }
+        logger.error("OpenID Connect link failed", { reason: reason });
+        if (req.user) return res.redirect("/profile?sso=" + linkFailureCode(code));
+        audit.log(audit.ACTIONS.AUTH_FAILED_PAGE, { details: "OpenID Connect link error: " + reason, req: req });
+        return res.redirect("/auth/failed");
+      }
+      if (code === "provision-denied") {
+        audit.log(audit.ACTIONS.OIDC_PROVISION_DENIED, { targetEmail: idEmail, details: "No account and provisioning did not allow one", req: req });
+      } else if (code === "group-denied") {
+        audit.log(audit.ACTIONS.OIDC_GROUP_DENIED, { targetId: err.revokeUserId || err.accountId || undefined, targetEmail: idEmail, details: "Required group missing", req: req });
+      } else if (code === "email-unconfirmed" || code === "auto-link-blocked") {
+        audit.log(audit.ACTIONS.OIDC_LINK_REFUSED, { targetId: err.accountId || undefined, targetEmail: idEmail, details: "method: verified-email, reason: " + code, req: req });
+      } else if (code === "email-in-use-unverified" || code === "unverified-email-external" || code === "unverified-email-needs-group") {
+        audit.log(audit.ACTIONS.OIDC_LINK_REFUSED, { targetId: err.accountId || undefined, targetEmail: idEmail, details: "method: unverified-email, reason: " + code, req: req });
       }
       // A refusal of an account bound to this identity (required group or
       // domain no longer satisfied) also ends its existing sessions.
@@ -148,11 +223,29 @@ module.exports = function (app) {
         try { await sessionService.revokeUser(err.revokeUserId); }
         catch (revokeErr) { logger.error("OpenID Connect: session revocation failed", { error: revokeErr && revokeErr.code ? revokeErr.code : "unknown" }); }
       }
+      if (req.session && b.safeObject.ownProp(OIDC_FAILURE_MESSAGES, code)) req.session.authFailure = code;
       logger.error("OpenID Connect sign-in failed", { reason: reason });
       audit.log(audit.ACTIONS.AUTH_FAILED_PAGE, { details: "OpenID Connect callback error: " + reason, req: req });
       res.redirect("/auth/failed");
     }
   });
+
+  // Complete an explicit link started from the profile page. The browser must
+  // still be signed in as the account that started it.
+  async function finishLink(req, res, identity, policy) {
+    if (!req.user || !timingSafeEqual(String(req.user._id), String(identity.linkUserId))) {
+      var changed = new Error("The session changed during the link");
+      changed.oidcReason = "link-session-changed";
+      throw changed;
+    }
+    var userId = req.user._id;
+    var result = authService.linkOidcIdentity(usersRepo.findById(userId), identity, policy);
+    if (result.alreadyLinked) return res.redirect("/profile?sso=already-linked");
+    await sessionService.revokeUser(userId);
+    await sessionService.loginUser(req, userId);
+    audit.log(audit.ACTIONS.OIDC_ACCOUNT_LINKED, { targetId: userId, targetEmail: req.user.email, details: "method: explicit, provider email matches account: " + (result.emailMatched ? "yes" : "no"), req: req });
+    res.redirect("/profile?sso=linked");
+  }
 
   // Sign in with Tailscale. Like the Google callback, the identity arrives from
   // outside the credential form — here as the peer-gated `tailscale serve` header
@@ -340,7 +433,7 @@ module.exports = function (app) {
       audit.log(audit.ACTIONS.USER_REGISTERED, { targetId: user._id, targetEmail: user.email, details: "authType: local, role: " + user.role + ", claimed: " + result.claimed + ", verified: " + !result.needsVerification, req: req });
 
       if (result.needsVerification) {
-        var rawToken = createVerificationToken(user._id);
+        var rawToken = createVerificationToken(user._id, "email", user.email);
         var verifyUrl = host(req) + "/auth/verify/" + rawToken;
         emailService.sendVerificationEmail({ to: user.email, displayName: user.displayName, verifyUrl: verifyUrl });
         audit.log(audit.ACTIONS.EMAIL_VERIFICATION_SENT, { targetId: user._id, targetEmail: user.email, req: req });
@@ -362,7 +455,11 @@ module.exports = function (app) {
     // FormBased is not a registered scheme — browsers ignore it — but its
     // presence satisfies the MUST so compliance scanners don't flag the page.
     res.setHeader("WWW-Authenticate", 'FormBased realm="HermitStash"');
-    send(res, "error", { title: "Login Failed", message: "Could not sign you in. Your email domain may not be authorized.", user: null }, 401);
+    // The reason a single sign-on refusal left in the session is shown once.
+    var code = req.session ? b.safeObject.ownProp(req.session, "authFailure") : undefined;
+    if (req.session) delete req.session.authFailure;
+    var message = (typeof code === "string" && b.safeObject.ownProp(OIDC_FAILURE_MESSAGES, code)) || GENERIC_FAILURE_MESSAGE;
+    send(res, "error", { title: "Login Failed", message: message, user: null }, 401);
   });
 
   // Lightweight session check for client-side heartbeat (no side effects)

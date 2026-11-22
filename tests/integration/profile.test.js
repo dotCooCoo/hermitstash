@@ -232,7 +232,7 @@ describe("profile integration", function () {
         assert.notStrictEqual(newEarly.status, 200, "new email must not log in before confirmation");
 
         // Prove control of the new address — commits pendingEmail -> email.
-        var token = verification.createVerificationToken(idRow._id);
+        var token = verification.createVerificationToken(idRow._id, "email", "stage-new@profile.test");
         await client.post("/auth/verify/" + token, { json: {} });
 
         // After commit: the NEW address is the identity; the OLD one is not.

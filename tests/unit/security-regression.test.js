@@ -170,13 +170,21 @@ describe("verification-token cleanup is type-scoped (a resent verification email
     db.verificationTokens.insert({ userId: u._id, token: "seed-email", type: "email", expiresAt: future, createdAt: new Date().toISOString() });
 
     // Issuing a fresh email verification token clears existing EMAIL tokens only.
-    createVerificationToken(u._id);
+    createVerificationToken(u._id, "email", "tokclean@ex.com");
 
     var rows = db.verificationTokens.find({ userId: u._id });
     var pw = rows.filter(function (t) { return t.type === "password_reset"; });
     var em = rows.filter(function (t) { return t.type === "email"; });
     assert.strictEqual(pw.length, 1, "the pending password-reset token must survive an email-verification resend");
     assert.strictEqual(em.length, 1, "the prior email token is replaced by exactly one fresh email token");
+    assert.strictEqual(em[0].delivery, "email");
+    assert.ok(em[0].addressHash, "the token records the address it was issued for");
+  });
+
+  it("createVerificationToken refuses a missing or unknown delivery", function () {
+    var createVerificationToken = require("../../routes/verification").createVerificationToken;
+    assert.throws(function () { createVerificationToken("some-user"); }, /delivery must be/);
+    assert.throws(function () { createVerificationToken("some-user", "sms", "a@ex.com"); }, /delivery must be/);
   });
 });
 

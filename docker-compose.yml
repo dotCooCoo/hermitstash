@@ -116,6 +116,7 @@ services:
       OIDC_GROUPS_CLAIM: "groups"
       OIDC_REQUIRED_GROUP: ""
       OIDC_ADMIN_GROUP: ""
+      OIDC_TRUST_UNVERIFIED_EMAIL: "false"   # Entra ID; requires OIDC_REQUIRED_GROUP
       OIDC_ALLOW_INTERNAL: ""          # e.g. 10.0.0.0/8
 
       # SMTP — leave empty to disable email

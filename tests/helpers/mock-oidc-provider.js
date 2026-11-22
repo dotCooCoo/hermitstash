@@ -91,6 +91,12 @@ function create(opts) {
     var u = new URL(authUrl);
     var params = u.searchParams;
     var code = b64url(nodeCrypto.randomBytes(18));
+    // A provider that receives max_age returns auth_time (OpenID Connect Core
+    // 1.0, section 3.1.2.1). A test's own auth_time, or its explicit
+    // undefined, is kept.
+    if (params.has("max_age") && !(aopts.claims && Object.prototype.hasOwnProperty.call(aopts.claims, "auth_time"))) {
+      aopts = Object.assign({}, aopts, { claims: Object.assign({ auth_time: Math.floor(Date.now() / 1000) }, aopts.claims || {}) });
+    }
     op.codes.set(code, {
       nonce: params.get("nonce"),
       challenge: params.get("code_challenge"),

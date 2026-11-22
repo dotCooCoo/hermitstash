@@ -64,6 +64,28 @@
     </div>
     {% } %}
 
+    <!-- Single sign-on -->
+    {% if (oidcEnabled || oidcLinked) { %}
+    <div class="profile-section">
+      <h3 class="profile-section-title">Single sign-on</h3>
+      {% if (oidcLinked) { %}
+      <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:16px">Single sign-on is linked to this account ({{oidcIdentity || 'no email from provider'}}).</p>
+      <button class="butn butn-sm radius-30" id="ssoUnlinkBtn" style="border-color:rgba(255,68,68,.3);color:var(--danger)" onclick="unlinkSso()"{% if (!oidcCanUnlink) { %} disabled{% } %}><span>Unlink</span></button>
+      {% if (!oidcCanUnlink) { %}<p style="font-size:.75rem;color:var(--text-muted);margin-top:8px">Add a password or a passkey before you unlink.</p>{% } %}
+      {% } else { %}
+      <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:16px">Link your account to single sign-on so you can sign in with {{oidcLabel}}.</p>
+      {% if (!emailConfirmed) { %}<p style="font-size:.75rem;color:var(--text-muted);margin-bottom:16px">Your email address has not been confirmed, so single sign-on is not linked automatically. Link it here.</p>{% } %}
+      {% if (needsPassword) { %}
+      <div class="profile-field">
+        <label class="input-label">Current Password</label>
+        <input type="password" id="ssoCurPwd" class="text-input" autocomplete="current-password">
+      </div>
+      {% } %}
+      <button class="butn butn-bg butn-sm radius-30" id="ssoLinkBtn" onclick="linkSso()"><span>Link single sign-on</span></button>
+      {% } %}
+    </div>
+    {% } %}
+
     <!-- Vault Stealth Mode -->
     <div class="profile-section" id="stealthSection" style="display:none">
       <h3 class="profile-section-title">Vault Stealth Mode</h3>
@@ -219,6 +241,57 @@ window.addEventListener('load',function(){
     var note=document.getElementById('passkeyUnsupportedNote');
     if(note){note.textContent=WebAuthnHelpers.UNSUPPORTED_MSG;note.style.display='block'}
   }
+});
+
+// ---- Single sign-on ----
+var SSO_METHODS={{{__scriptJson(methodSummary || [])}}};
+var SSO_MESSAGES={
+  'linked':['Single sign-on is now linked.',true],
+  'already-linked':['Single sign-on was already linked.',true],
+  'session-changed':['The link was not completed because you signed in as someone else. Try again.',false],
+  'subject-in-use':['That single sign-on identity is already linked to another account.',false],
+  'other-subject':['This account is linked to a different single sign-on identity.',false],
+  'email-other-account':['The email address of that single sign-on identity belongs to another account here.',false],
+  'stale-auth':['Your identity provider did not ask you to sign in again. Try again.',false],
+  'domain-not-allowed':['Your email domain is not allowed.',false],
+  'groups-unavailable':['Your identity provider did not send your group membership. Try again later.',false],
+  'group-denied':['Your single sign-on identity is not in the group required to sign in.',false],
+  'account-not-active':['This account cannot be linked.',false],
+  'failed':['Single sign-on could not be linked. The server log has the reason.',false]
+};
+
+function linkSso(){
+  var summary=SSO_METHODS.length?SSO_METHODS.join(', '):'no other sign-in method';
+  if(!confirm('This account can currently be signed in to or used with: '+summary+'. Remove any you do not recognize before you continue. Linking ends your other sessions.'))return;
+  var payload={};
+  var pwd=document.getElementById('ssoCurPwd');
+  if(pwd&&pwd.value)payload.currentPassword=pwd.value;
+  var btn=document.getElementById('ssoLinkBtn');
+  btn.disabled=true;
+  fetch('/profile/oidc/link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json()}).then(function(d){
+    if(d.success&&d.redirect){location.assign(d.redirect);return}
+    btn.disabled=false;
+    msg(d.detail||d.error||'Single sign-on could not be started.',false);
+  }).catch(function(){btn.disabled=false;msg('Network error',false)});
+}
+
+function unlinkSso(){
+  if(!confirm('Unlink single sign-on from this account? Your other sessions will end.'))return;
+  var btn=document.getElementById('ssoUnlinkBtn');
+  btn.disabled=true;
+  fetch('/profile/oidc/unlink',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(d){
+    if(d.success){location.reload();return}
+    btn.disabled=false;
+    msg(d.detail||d.error||'Single sign-on could not be unlinked.',false);
+  }).catch(function(){btn.disabled=false;msg('Network error',false)});
+}
+
+window.addEventListener('load',function(){
+  var code=new URLSearchParams(location.search).get('sso');
+  if(!code)return;
+  var entry=Object.prototype.hasOwnProperty.call(SSO_MESSAGES,code)?SSO_MESSAGES[code]:SSO_MESSAGES.failed;
+  msg(entry[0],entry[1]);
+  history.replaceState(null,'',location.pathname);
 });
 
 function deleteAccount(){

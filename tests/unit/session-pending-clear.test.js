@@ -97,3 +97,35 @@ describe("session.service pending-auth cleanup (D-5)", function () {
     assert.strictEqual(req.session._csrf, "keep-me", "non-pending session state must survive");
   });
 });
+
+describe("session.service recent sign-in marker", function () {
+  it("loginUser and complete2fa record the sign-in time", async function () {
+    var before = Date.now();
+    var req = makeReq({});
+    await sessionService.loginUser(req, "u1");
+    assert.ok(typeof req.session.authAt === "number" && req.session.authAt >= before);
+    assert.strictEqual(sessionService.isRecentlyAuthenticated(req), true);
+
+    var req2 = makeReq(fullPending());
+    await sessionService.complete2fa(req2);
+    assert.ok(typeof req2.session.authAt === "number" && req2.session.authAt >= before);
+    assert.strictEqual(sessionService.isRecentlyAuthenticated(req2), true);
+  });
+
+  it("start2faPending removes the marker carried from an earlier session", async function () {
+    var req = makeReq({ authAt: Date.now() });
+    await sessionService.start2faPending(req, "pending-user");
+    assert.ok(!("authAt" in req.session));
+    assert.strictEqual(sessionService.isRecentlyAuthenticated(req), false);
+  });
+
+  it("expires after 10 minutes and refuses a malformed or future marker", function () {
+    var tenMin = 10 * 60 * 1000; // the documented window
+    assert.strictEqual(sessionService.isRecentlyAuthenticated({ session: { authAt: Date.now() - tenMin + 5000 } }), true);
+    assert.strictEqual(sessionService.isRecentlyAuthenticated({ session: { authAt: Date.now() - tenMin - 5000 } }), false);
+    assert.strictEqual(sessionService.isRecentlyAuthenticated({ session: { authAt: String(Date.now()) } }), false);
+    assert.strictEqual(sessionService.isRecentlyAuthenticated({ session: { authAt: Date.now() + 60000 } }), false);
+    assert.strictEqual(sessionService.isRecentlyAuthenticated({ session: {} }), false);
+    assert.strictEqual(sessionService.isRecentlyAuthenticated({}), false);
+  });
+});

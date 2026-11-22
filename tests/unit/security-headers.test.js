@@ -87,3 +87,41 @@ describe("security-headers relies on the b.requestHelpers.appendVary contract", 
     assert.strictEqual(res.getHeader("Vary"), undefined);
   });
 });
+
+describe("security-headers OpenID Connect issuer in img-src", function () {
+  var config = require("../../lib/config");
+  var vault = require("../../lib/vault");
+
+  function directive(csp, name) {
+    var parts = String(csp).split(";").map(function (s) { return s.trim(); });
+    for (var i = 0; i < parts.length; i++) {
+      if (parts[i].indexOf(name + " ") === 0) return parts[i];
+    }
+    return "";
+  }
+
+  // The settings store seals values, so the vault must be up.
+  require("node:test").before(async function () { await vault.init(); });
+  require("node:test").after(function () {
+    config.updateSettings({ oidcEnabled: "false", oidcIssuer: "", oidcClientID: "" });
+  });
+
+  it("adds the https issuer origin to img-src and drops it when OIDC is turned off", function () {
+    config.updateSettings({ oidcEnabled: "true", oidcIssuer: "https://idp.example.com/realms/a", oidcClientID: "c" });
+    var img = directive(securityHeaders.buildCsp(), "img-src");
+    assert.ok(img.indexOf("https://idp.example.com") !== -1, img);
+    assert.strictEqual(directive(securityHeaders.buildCsp(), "connect-src").indexOf("idp.example.com"), -1, "only img-src lists it");
+    config.updateSettings({ oidcEnabled: "false" });
+    assert.strictEqual(directive(securityHeaders.buildCsp(), "img-src").indexOf("idp.example.com"), -1, "dropped without a restart");
+  });
+
+  it("omits an http issuer and a wildcard issuer", function () {
+    config.updateSettings({ oidcEnabled: "true", oidcIssuer: "https://*.example.com", oidcClientID: "c" });
+    assert.strictEqual(directive(securityHeaders.buildCsp(), "img-src").indexOf("example.com"), -1);
+    config.updateSettings({ oidcEnabled: "false" });
+    // An http issuer is only accepted inside an OIDC_ALLOW_INTERNAL range.
+    config.updateSettings({ oidcEnabled: "true", oidcIssuer: "http://10.0.0.5:8080/realms/a", oidcClientID: "c", oidcAllowInternal: "10.0.0.0/24" });
+    assert.strictEqual(directive(securityHeaders.buildCsp(), "img-src").indexOf("10.0.0.5"), -1);
+    config.updateSettings({ oidcEnabled: "false", oidcAllowInternal: "" });
+  });
+});

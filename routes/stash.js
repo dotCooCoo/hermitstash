@@ -38,7 +38,8 @@ var { generateEnrollmentCode, certFingerprintSha3 } = require("../lib/cert-utils
 
 var { isStashLocked } = require("../middleware/require-access");
 var accessCodeService = require("../app/domain/access-code.service");
-var { AppError, ValidationError, AuthenticationError, ForbiddenError, NotFoundError, RateLimitError } = require("../app/shared/errors");
+var { AppError, ValidationError, AuthenticationError, ForbiddenError, NotFoundError, RateLimitError, ConflictError } = require("../app/shared/errors");
+var authService = require("../app/domain/auth/auth.service");
 
 // Namespace for the shared subnet-keyed unlock lockout (disjoint from the
 // bundle route's "bundle" namespace; both share lib/access-lockout + table).
@@ -604,8 +605,15 @@ module.exports = function (app) {
     if (!validateEmail(email).valid) throw new ValidationError("A valid email is required.");
     var user = usersRepo.findByEmail(email);
     if (!user) throw new NotFoundError("No account with that email — the user must register first.");
+    // An account with no confirmation at all (pending, or created from an
+    // email address the provider did not verify) may not be held by the
+    // person the address names. The admin confirms before adding it.
+    var unconfirmed = !authService.emailConfirmedForLinking(user) && user.emailConfirmedVia !== "legacy";
+    if (unconfirmed && body.confirmUnconfirmed !== true) {
+      throw new ConflictError("This account's email address has not been confirmed. Add it anyway only if you know who holds the account.").withExtras({ unconfirmed: true });
+    }
     stashRepo.addMember(stash._id, user._id);
-    audit.log(audit.ACTIONS.STASH_MEMBER_ADDED, { targetId: stash._id, details: "stash: " + stash.slug + ", userId: " + user._id, req: req });
+    audit.log(audit.ACTIONS.STASH_MEMBER_ADDED, { targetId: stash._id, details: "stash: " + stash.slug + ", userId: " + user._id + (unconfirmed ? ", email unconfirmed" : ""), req: req });
     res.json({ success: true, userId: user._id, email: user.email, displayName: user.displayName || null });
   });
 

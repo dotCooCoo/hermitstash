@@ -96,6 +96,7 @@ if (users.count({}) === 0 && config.localAuth) {
       email: "admin@hermitstash.com", displayName: "Admin",
       passwordHash: hash, authType: "local", role: "admin", status: "active",
       createdAt: new Date().toISOString(), lastLogin: new Date().toISOString(),
+      emailConfirmedVia: "legacy", emailConfirmedAt: new Date().toISOString(),
     });
     try {
       fs.writeFileSync(C.PATHS.INITIAL_ADMIN_PASSWORD, initialPassword + "\n", { mode: 0o600 });

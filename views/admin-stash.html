@@ -287,14 +287,20 @@ function renderStashMembers(members){
   });
   el.innerHTML=html;
 }
-function addStashMember(){
+function addStashMember(confirmUnconfirmed){
   if(!_stashEditId)return;
   var email=document.getElementById('seMemberEmail').value.trim();
   var msg=document.getElementById('seMembersMsg');
   if(!email)return;
   msg.style.color='var(--muted)';msg.textContent='Adding…';
-  fetch('/admin/stash/'+_stashEditId+'/members/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})}).then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d}})}).then(function(o){
+  var payload={email:email};
+  if(confirmUnconfirmed===true)payload.confirmUnconfirmed=true;
+  fetch('/admin/stash/'+_stashEditId+'/members/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d}})}).then(function(o){
     if(o.ok&&o.d.success){document.getElementById('seMemberEmail').value='';msg.textContent='';loadStashMembers(_stashEditId)}
+    else if(o.d&&o.d.unconfirmed===true&&confirmUnconfirmed!==true){
+      msg.textContent='';
+      if(confirm(o.d.detail||o.d.error||'This account\'s email address has not been confirmed.'))addStashMember(true);
+    }
     else{msg.style.color='var(--danger)';msg.textContent=(o.d&&(o.d.detail||o.d.error))||'Failed to add user'}
   }).catch(function(){msg.style.color='var(--danger)';msg.textContent='Network error'});
 }

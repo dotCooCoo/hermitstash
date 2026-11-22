@@ -17,6 +17,8 @@ var idempotency = require("../middleware/idempotency");
 var { send, host } = require("../middleware/send");
 var { validateInviteInput, validateRoleChangeInput, validateSuspendInput, validateDeleteUserInput, validatePaginationParams } = require("../app/http/validators/admin.validator");
 var usersRepo = require("../app/data/repositories/users.repo");
+var authService = require("../app/domain/auth/auth.service");
+var verificationRoutes = require("./verification");
 var { AppError, ValidationError, ForbiddenError, NotFoundError } = require("../app/shared/errors");
 
 module.exports = function (app) {
@@ -75,6 +77,18 @@ module.exports = function (app) {
       delete obj.totpBackupCodes;
       delete obj.vaultSeed;
       delete obj.vaultPublicKey;
+      // Sign-in identifiers are reported as flags only.
+      delete obj.googleId;
+      delete obj.tailscaleId;
+      delete obj.tailscaleIdHash;
+      delete obj.oidcSubject;
+      delete obj.oidcSubjectHash;
+      obj.googleLinked = !!u.googleId;
+      obj.tailscaleLinked = !!u.tailscaleId;
+      obj.oidcLinked = !!u.oidcSubject;
+      obj.oidcLabel = u.oidcSubject ? (u.oidcLabel || null) : null;
+      obj.emailConfirmed = authService.emailConfirmedForLinking(u);
+      obj.emailConfirmedVia = u.emailConfirmedVia || null;
       obj.fileCount = filesRepo.count({ uploadedBy: u._id });
       return obj;
     });
@@ -117,12 +131,15 @@ module.exports = function (app) {
       if (existing.length > 0) throw new ValidationError("Invite already sent to this email.");
 
       var token = b.crypto.generateToken(32);
-      invitesRepo.create({
+      // "manual" until the email is sent: an invite URL handed to the admin
+      // does not confirm the address when it is accepted.
+      var created = invitesRepo.create({
         email: email,
         role: role === "admin" ? "admin" : "user",
         tokenHash: b.crypto.sha3Hash(token),
         invitedBy: req.user._id,
         status: "pending",
+        delivery: "manual",
         expiresAt: new Date(Date.now() + 2 * C.TIME.days(1)).toISOString(),
         createdAt: new Date().toISOString(),
       });
@@ -134,6 +151,7 @@ module.exports = function (app) {
       } catch (emailErr) {
         logger.error("Email send failed", { error: emailErr.message });
       }
+      if (sent === true && created && created._id) invitesRepo.markEmailed(created._id, b.crypto.sha3Hash(token));
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { targetEmail: email, details: "User invited as " + role + ", emailSent: " + sent, req: req });
       // When email fails (or isn't configured), expose the invite URL so the
       // admin can deliver it out-of-band. Safe: requireAdmin gates the route,
@@ -168,6 +186,7 @@ module.exports = function (app) {
         invitesRepo.update(invite._id, {
           $set: {
             tokenHash: b.crypto.sha3Hash(token),
+            delivery: "manual",
             expiresAt: new Date(Date.now() + 2 * C.TIME.days(1)).toISOString(),
           },
         });
@@ -176,12 +195,13 @@ module.exports = function (app) {
         // so generate a fresh token and update the hash
         token = b.crypto.generateToken(32);
         invitesRepo.update(invite._id, {
-          $set: { tokenHash: b.crypto.sha3Hash(token) },
+          $set: { tokenHash: b.crypto.sha3Hash(token), delivery: "manual" },
         });
       }
 
       var inviteUrl = host(req) + "/auth/invite/" + token;
       var sent = await sendInviteEmail({ to: email, inviteUrl: inviteUrl, inviterName: req.user.displayName || req.user.email, role: invite.role });
+      if (sent === true) invitesRepo.markEmailed(invite._id, b.crypto.sha3Hash(token));
       audit.log(audit.ACTIONS.ADMIN_SETTINGS_CHANGED, { targetEmail: email, details: "Invite resent (new token issued; any prior link invalidated), emailSent: " + sent, req: req });
       // Surface the URL when email delivery fails so the admin can deliver
       // it manually (email may not be configured, or the backend may be down).
@@ -242,16 +262,10 @@ module.exports = function (app) {
       if (!user) throw new NotFoundError("User not found.");
       if (user.status !== "pending") throw new ValidationError("User is not awaiting email verification.");
 
-      // Remove any existing verification tokens, generate fresh one
-      verificationTokensRepo.remove({ userId: user._id, type: "email" });
-      var rawToken = b.crypto.generateToken();
-      verificationTokensRepo.create({
-        userId: user._id,
-        token: b.crypto.sha3Hash(rawToken),
-        type: "email",
-        expiresAt: new Date(Date.now() + C.TIME.days(1)).toISOString(),
-        createdAt: new Date().toISOString(),
-      });
+      // Replaces any existing verification token. The token is "manual" until
+      // the email is sent, so a link handed to the admin does not confirm the
+      // address when it is followed.
+      var rawToken = verificationRoutes.createVerificationToken(user._id, "manual", user.pendingEmail || user.email);
 
       var verifyUrl = host(req) + "/auth/verify/" + rawToken;
       var sent = false;
@@ -260,6 +274,7 @@ module.exports = function (app) {
       } catch (emailErr) {
         logger.error("Verification email send failed", { error: emailErr.message });
       }
+      if (sent === true) verificationRoutes.markTokenEmailed(rawToken);
 
       audit.log(audit.ACTIONS.EMAIL_VERIFICATION_RESENT, { targetId: user._id, targetEmail: user.email, details: "Resent by admin, emailSent: " + sent, req: req });
       var resp = { success: true, emailSent: sent };
@@ -325,7 +340,7 @@ module.exports = function (app) {
       if (usersRepo.findByEmail(invite.email)) throw new ValidationError("Account already exists.");
 
       var passwordHash = password ? await passwordGate.hash(password) : null;
-      var newUser = usersRepo.create({
+      var newDoc = {
         email: invite.email,
         displayName: displayName,
         passwordHash: passwordHash,
@@ -333,7 +348,12 @@ module.exports = function (app) {
         role: invite.role,
         status: "active",
         createdAt: new Date().toISOString(),
-      });
+      };
+      // Accepting an invite that was sent by email proves control of the
+      // address. An invite URL handed to the admin does not, and the
+      // repository records such an account as "legacy".
+      if (invite.delivery === "email") Object.assign(newDoc, authService.confirmationFields("invite"));
+      var newUser = usersRepo.create(newDoc);
 
       invitesRepo.update(invite._id, { $set: { status: "accepted" } });
       audit.log(audit.ACTIONS.USER_REGISTERED, { targetId: newUser._id, targetEmail: invite.email, details: "via invite, role: " + invite.role });
@@ -447,6 +467,23 @@ module.exports = function (app) {
 
     audit.log(audit.ACTIONS.USER_UNSUSPENDED, { targetId: target._id, targetEmail: target.email, req: req });
 
+    res.json({ success: true });
+  });
+
+  // Unlink single sign-on from an account. Ends all of the user's sessions.
+  // After an unlink the account is linked again only from its profile page.
+  app.post("/admin/users/:id/oidc/unlink", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    var target = usersRepo.findById(req.params.id);
+    if (!target) throw new NotFoundError("Not found.");
+    if (!target.oidcSubject) throw new ValidationError("This account has no linked single sign-on identity.");
+    var others = authService.signInMethods(target).filter(function (m) { return m !== "oidc"; });
+    if (others.length === 0) {
+      throw new ValidationError("Unlinking would leave this account with no way to sign in. Suspend or delete it instead.");
+    }
+    usersRepo.clearOidcSubject(target._id);
+    await clearSessionsForUser(target._id);
+    audit.log(audit.ACTIONS.OIDC_ACCOUNT_UNLINKED, { targetId: target._id, targetEmail: target.email, details: "method: admin", req: req });
     res.json({ success: true });
   });
 

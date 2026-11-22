@@ -3,6 +3,7 @@ var config = require("../lib/config");
 var C = require("../lib/constants");
 var logger = require("../app/shared/logger");
 var usersRepo = require("../app/data/repositories/users.repo");
+var fieldCrypto = require("../lib/field-crypto");
 var verificationTokensRepo = require("../app/data/repositories/verificationTokens.repo");
 var emailSvc = require("../lib/email");
 var audit = require("../lib/audit");
@@ -12,7 +13,19 @@ var { validateEmail } = require("../app/shared/validate");
 var rateLimit = require("../lib/rate-limit");
 var { AppError, ValidationError } = require("../app/shared/errors");
 
-function createVerificationToken(userId) {
+var TOKEN_DELIVERIES = ["email", "manual"];
+
+/**
+ * Issue an email-verification token for `userId` and return the raw token.
+ * `delivery` is "email" when the link goes out by email and "manual" when it
+ * is handed to an administrator; `address` is the address it is issued for.
+ * Only an emailed token for the account's current target address confirms
+ * that address when it is redeemed.
+ */
+function createVerificationToken(userId, delivery, address) {
+  if (TOKEN_DELIVERIES.indexOf(delivery) === -1) {
+    throw new Error("createVerificationToken: delivery must be \"email\" or \"manual\"");
+  }
   // Clean up only this user's existing EMAIL tokens — scoping by type so a
   // verification-email resend can't wipe a pending password-reset token (and
   // vice versa); each action type owns an independent token lifecycle.
@@ -26,11 +39,22 @@ function createVerificationToken(userId) {
     userId: userId,
     token: tokenHash,
     type: "email",
+    delivery: delivery,
+    addressHash: fieldCrypto.emailIndex(address),
     expiresAt: expiresAt,
     createdAt: new Date().toISOString(),
   });
 
   return rawToken;
+}
+
+/**
+ * Record that the token was sent by email (after a "manual" token was mailed
+ * successfully).
+ */
+function markTokenEmailed(rawToken) {
+  if (typeof rawToken !== "string" || !rawToken) return 0;
+  return verificationTokensRepo.update({ token: b.crypto.sha3Hash(rawToken), type: "email" }, { $set: { delivery: "email" } });
 }
 
 // Look up a verification token, send the appropriate error response + audit
@@ -120,18 +144,42 @@ module.exports = function (app) {
         return send(res, "error", { user: null, title: "Invalid Link", message: "This verification link is invalid or has already been used." }, 400);
       }
 
-      // Activate the user. If a verified email CHANGE is staged (pendingEmail
-      // set), commit it now — the holder proved control of the new address by
-      // following this link — and clear the staging field. The derived emailHash
-      // index recomputes on the email $set, so login-by-new-email works after
-      // commit. A plain registration verification has no pendingEmail and only
-      // flips status to active.
+      // Activate the user. The token confirms an address only when it was sent
+      // by email to the address the account is now verifying: the staged
+      // pendingEmail of an email change, or the account email.
+      //   - Emailed token, address matches: commit a staged pendingEmail (the
+      //     derived emailHash recomputes on the $set) and record the address
+      //     as confirmed ("verification").
+      //   - Token handed to an administrator, or issued before delivery was
+      //     recorded: activate, commit a staged pendingEmail, and record no
+      //     proof ("legacy").
+      //   - Emailed token for a different address than the one now staged:
+      //     activate without committing pendingEmail.
+      var target = user.pendingEmail || user.email;
+      var targetHash = fieldCrypto.emailIndex(target);
+      var addressMatches = !!(record.addressHash && targetHash &&
+        b.crypto.timingSafeEqual(String(record.addressHash), String(targetHash)));
       var activate = { status: "active" };
       var verifiedEmail = user.email;
-      if (user.pendingEmail) {
-        activate.email = user.pendingEmail;
-        activate.pendingEmail = null;
-        verifiedEmail = user.pendingEmail;
+      if (record.delivery === "email" && !addressMatches) {
+        logger.warn("Email verification token was issued for a different address than the one being verified; the staged address was not committed", { userId: user._id });
+      } else {
+        if (user.pendingEmail) {
+          activate.email = user.pendingEmail;
+          activate.pendingEmail = null;
+          verifiedEmail = user.pendingEmail;
+        }
+        if (record.delivery === "email") {
+          activate.emailConfirmedVia = "verification";
+          activate.emailConfirmedAt = new Date().toISOString();
+        }
+      }
+      // An activation without proof records "legacy" on an account that had
+      // no record yet. An email commit without proof is recorded as "legacy"
+      // by the repository.
+      if (!activate.emailConfirmedVia && !activate.email && !user.emailConfirmedVia) {
+        activate.emailConfirmedVia = "legacy";
+        activate.emailConfirmedAt = new Date().toISOString();
       }
       usersRepo.update(user._id, { $set: activate });
 
@@ -161,7 +209,7 @@ module.exports = function (app) {
         return res.json({ success: true, message: "If an account with that email exists and needs verification, a new link has been sent." });
       }
 
-      var rawToken = createVerificationToken(user._id);
+      var rawToken = createVerificationToken(user._id, "email", user.email);
       var verifyUrl = host(null) + "/auth/verify/" + rawToken;
 
       // Fire-and-forget the verification email so response latency is identical
@@ -189,3 +237,4 @@ module.exports = function (app) {
 };
 
 module.exports.createVerificationToken = createVerificationToken;
+module.exports.markTokenEmailed = markTokenEmailed;

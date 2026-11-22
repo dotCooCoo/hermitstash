@@ -9,19 +9,114 @@ var usersRepo = require("../app/data/repositories/users.repo");
 var { isAdmin } = require("../app/shared/authz");
 var filesRepo = require("../app/data/repositories/files.repo");
 var credentialsRepo = require("../app/data/repositories/credentials.repo");
+var apiKeysRepo = require("../app/data/repositories/apiKeys.repo");
 var { validateEmail, validatePassword } = require("../app/shared/validate");
 var requireAuth = require("../middleware/require-auth");
 var { send, host } = require("../middleware/send");
 var sessionService = require("../app/domain/auth/session.service");
 var verificationRoutes = require("./verification");
 var emailService = require("../lib/email");
-var { AppError, ValidationError, AuthenticationError } = require("../app/shared/errors");
+var oidc = require("../lib/oidc");
+var authService = require("../app/domain/auth/auth.service");
+var { AppError, ValidationError, AuthenticationError, ConflictError } = require("../app/shared/errors");
+
+var REAUTH_MESSAGE = "Sign out and sign in again, then link single sign-on within 10 minutes.";
+var REAUTH_UNLINK_MESSAGE = "Sign out and sign in again, then unlink single sign-on within 10 minutes.";
+
+// Human labels for the ways the account can currently be signed in to or
+// used, shown before linking so the holder can spot one they did not set up.
+function _methodSummary(user, methods) {
+  var out = [];
+  if (methods.indexOf("password") !== -1) out.push("Password");
+  if (methods.indexOf("passkey") !== -1) {
+    var n = credentialsRepo.findByUser(user._id).length;
+    out.push(n === 1 ? "1 passkey" : n + " passkeys");
+  }
+  if (user.totpEnabled === "true") out.push("Two-factor authentication");
+  if (methods.indexOf("google") !== -1) out.push("Google");
+  if (methods.indexOf("tailscale") !== -1) out.push("Tailscale");
+  // API keys, sync tokens and browser certificates are all rows in api_keys.
+  var keyCount = apiKeysRepo.findAll({ userId: user._id }).length;
+  if (keyCount > 0) out.push(keyCount === 1 ? "1 API key or client certificate" : keyCount + " API keys or client certificates");
+  return out;
+}
 
 module.exports = function (app) {
   // Profile page
   app.get("/profile", (req, res) => {
     if (!requireAuth(req, res)) return;
-    send(res, "profile", { user: req.user, passkeyEnabled: config.passkeyEnabled });
+    var methods = authService.signInMethods(req.user);
+    var oidcLinked = !!req.user.oidcSubject;
+    send(res, "profile", {
+      user: req.user,
+      passkeyEnabled: config.passkeyEnabled,
+      oidcEnabled: oidc.isEnabled(),
+      oidcLabel: (config.oidc && config.oidc.buttonLabel) || "Sign in with SSO",
+      oidcLinked: oidcLinked,
+      oidcIdentity: oidcLinked ? (req.user.oidcLabel || null) : null,
+      oidcCanUnlink: oidcLinked && methods.filter(function (m) { return m !== "oidc"; }).length > 0,
+      emailConfirmed: authService.emailConfirmedForLinking(req.user),
+      needsPassword: methods.indexOf("password") !== -1,
+      methodSummary: _methodSummary(req.user, methods),
+    });
+  });
+
+  // Link single sign-on to the signed-in account. An account with a password
+  // must supply it; any other account must have signed in within the last 10
+  // minutes. The provider is asked to sign the user in again, and the link is
+  // completed by GET /auth/oidc/callback. The path is outside the CSRF-exempt
+  // /auth/oidc prefix.
+  app.post("/profile/oidc/link", rateLimit.guard({ max: 10, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    try {
+      if (!oidc.isEnabled()) throw new ValidationError("Single sign-on is not set up.");
+      if (req.user.oidcSubject) throw new ConflictError("Single sign-on is already linked to this account.");
+      var body = (await b.parsers.json(req)) || {};
+      var methods = authService.signInMethods(req.user);
+      if (methods.indexOf("password") !== -1) {
+        var currentPassword = typeof body.currentPassword === "string" ? body.currentPassword : "";
+        if (!currentPassword) throw new ValidationError("Current password required.");
+        var valid = await passwordGate.verify(req.user.passwordHash, currentPassword);
+        if (!valid) throw new ValidationError("Current password is incorrect.");
+      } else if (!sessionService.isRecentlyAuthenticated(req)) {
+        throw new ValidationError(REAUTH_MESSAGE).withExtras({ reauth: true });
+      }
+      var url;
+      try {
+        url = await oidc.startLogin("oidc", req, { linkUserId: req.user._id });
+      } catch (startErr) {
+        logger.error("OpenID Connect link could not start", { reason: oidc.auditReason(startErr) });
+        throw new AppError("Single sign-on could not be started.", 502);
+      }
+      if (!oidc.isSafeAuthorizationUrl(url)) {
+        logger.error("OpenID Connect link could not start", { reason: "unsafe-authorization-url" });
+        throw new AppError("Single sign-on could not be started.", 502);
+      }
+      res.json({ success: true, redirect: url });
+    } catch (e) {
+      if (e.isAppError) throw e;
+      logger.error("OpenID Connect link error", { error: e.message || String(e) });
+      throw new AppError("Single sign-on could not be started.", 502);
+    }
+  });
+
+  // Unlink single sign-on from the signed-in account. Refused when no other
+  // sign-in method would remain. Ends the user's other sessions.
+  app.post("/profile/oidc/unlink", rateLimit.guard({ max: 5, windowMs: C.TIME.minutes(5), algorithm: "fixed-window" }), async (req, res) => {
+    if (!requireAuth(req, res)) return;
+    if (!req.user.oidcSubject) throw new ValidationError("Single sign-on is not linked to this account.");
+    if (!sessionService.isRecentlyAuthenticated(req)) {
+      throw new ValidationError(REAUTH_UNLINK_MESSAGE).withExtras({ reauth: true });
+    }
+    var others = authService.signInMethods(req.user).filter(function (m) { return m !== "oidc"; });
+    if (others.length === 0) {
+      throw new ValidationError("Add a password or a passkey before you unlink single sign-on. Without one you could not sign in.");
+    }
+    usersRepo.clearOidcSubject(req.user._id);
+    await sessionService.revokeUser(req.user._id);
+    await sessionService.loginUser(req, req.user._id);
+    audit.log(audit.ACTIONS.OIDC_ACCOUNT_UNLINKED, { targetId: req.user._id, targetEmail: req.user.email, details: "method: self", req: req });
+    res.json({ success: true });
   });
 
   // Update display name
@@ -117,7 +212,7 @@ module.exports = function (app) {
       if (config.emailVerification) {
         usersRepo.update(req.user._id, { $set: { pendingEmail: newEmail } });
 
-        var rawToken = verificationRoutes.createVerificationToken(req.user._id);
+        var rawToken = verificationRoutes.createVerificationToken(req.user._id, "email", newEmail);
         var verifyUrl = host(req) + "/auth/verify/" + rawToken;
         try {
           await emailService.sendVerificationEmail({ to: newEmail, displayName: req.user.displayName, verifyUrl: verifyUrl });

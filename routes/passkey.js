@@ -7,6 +7,7 @@ var credentialsRepo = require("../app/data/repositories/credentials.repo");
 var audit = require("../lib/audit");
 var requireAuth = require("../middleware/require-auth");
 var sessionService = require("../app/domain/auth/session.service");
+var authService = require("../app/domain/auth/auth.service");
 var rateLimit = require("../lib/rate-limit");
 var replayNonce = require("../lib/replay-nonce");
 var { AppError, ValidationError, AuthenticationError, ForbiddenError, NotFoundError } = require("../app/shared/errors");
@@ -306,11 +307,9 @@ module.exports = function (app) {
       // Don't allow removing last passkey if user has no other login method
       var remaining = credentialsRepo.findByUser(req.user._id);
       if (remaining.length <= 1) {
-        var hasPassword = !!req.user.passwordHash;
-        var hasGoogle = req.user.authType === "google" || !!req.user.googleId;
-        // A linked OpenID Connect identity counts only while OIDC sign-in is on.
-        var hasOidc = !!req.user.oidcSubject && !!(config.oidc && config.oidc.enabled && config.oidc.issuer && config.oidc.clientID);
-        if (!hasPassword && !hasGoogle && !hasOidc) {
+        // Each other method counts only while it is enabled.
+        var otherMethods = authService.signInMethods(req.user).filter(function (m) { return m !== "passkey"; });
+        if (otherMethods.length === 0) {
           throw new ValidationError("Cannot remove your only passkey. Add a password, or link Google or single sign-on first.");
         }
         // Warn if vault is enabled — removing the only passkey makes vault unrecoverable

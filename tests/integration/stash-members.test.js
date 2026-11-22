@@ -21,6 +21,8 @@ before(async function () {
     var u = users.insert({
       email: vault.seal(email), emailHash: hashEmail(email), displayName: vault.seal(name),
       passwordHash: await b.auth.password.hash(pw), authType: "local", role: role, status: "active",
+      // What the upgrade migration records for an existing active account.
+      emailConfirmedVia: "legacy", emailConfirmedAt: new Date().toISOString(),
       createdAt: new Date().toISOString(),
     });
     return u._id;

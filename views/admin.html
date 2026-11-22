@@ -477,11 +477,15 @@
             <input type="text" class="text-input" id="s-oidcGroupsClaim" data-key="oidcGroupsClaim" placeholder="groups">
           </div>
           <div class="settings-field">
-            <label class="settings-label">OIDC Required Group <span class="settings-hint">when set, every sign-in requires this group, and removing a user from it ends their sessions at their next sign-in attempt</span></label>
+            <label class="settings-label">OIDC Required Group <span class="settings-hint">when set, every sign-in requires this group. A user whose group list no longer contains it is refused and their sessions end. If the provider sends no group list, the sign-in is refused and sessions are kept</span></label>
             <input type="text" class="text-input" id="s-oidcRequiredGroup" data-key="oidcRequiredGroup">
           </div>
           <div class="settings-field">
-            <label class="settings-label">OIDC Admin Group <span class="settings-hint">when set, linked accounts become admins while in this group and lose admin when removed, at each sign-in. The last active admin is never demoted</span></label>
+            <label class="settings-label">OIDC Trust Unverified Email <span class="settings-hint">create an account from an email address the provider does not mark as verified, such as Microsoft Entra ID. Only members of the required group get an account, and the address is never used to sign in to or link an existing account. Needs the Required Group</span></label>
+            <label class="toggle"><input type="checkbox" id="s-oidcTrustUnverifiedEmail" data-key="oidcTrustUnverifiedEmail"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">OIDC Admin Group <span class="settings-hint">when set, linked accounts become admins while in this group and lose admin when removed, at each sign-in. The last active admin is never demoted. If the provider sends no group list, an admin's sign-in is refused and the role is kept</span></label>
             <input type="text" class="text-input" id="s-oidcAdminGroup" data-key="oidcAdminGroup">
           </div>
           <div class="settings-field">
@@ -1763,7 +1767,7 @@ function loadBundles(page){
 var tabFields={
   branding:['siteName','customLogo','landingEnabled','heroTitle','heroSubtitle','dropTitle','dropSubtitle','showMaintainerSupport','maintenanceMode','announcementBanner','analyticsScript','analyticsCspDomains'],
   general:['port','sessionSecret'],
-  auth:['localAuth','registrationOpen','enforceMtls','googleClientID','googleClientSecret','oidcEnabled','oidcIssuer','oidcClientID','oidcClientSecret','oidcCallbackURL','oidcButtonLabel','oidcScopes','oidcAutoProvision','oidcAllowlist','oidcGroupsClaim','oidcRequiredGroup','oidcAdminGroup','oidcAllowInternal','allowedDomains','tailscaleEnabled','tailscaleSso','tailscaleSsoAllowlist','tailscaleSsoGrant','tailscaleHostnameAutoConfig','tailscaleSocket','emailVerification','passkeyEnabled','rpName','rpId','rpOrigin'],
+  auth:['localAuth','registrationOpen','enforceMtls','googleClientID','googleClientSecret','oidcEnabled','oidcIssuer','oidcClientID','oidcClientSecret','oidcCallbackURL','oidcButtonLabel','oidcScopes','oidcAutoProvision','oidcAllowlist','oidcGroupsClaim','oidcRequiredGroup','oidcAdminGroup','oidcTrustUnverifiedEmail','oidcAllowInternal','allowedDomains','tailscaleEnabled','tailscaleSso','tailscaleSsoAllowlist','tailscaleSsoGrant','tailscaleHostnameAutoConfig','tailscaleSocket','emailVerification','passkeyEnabled','rpName','rpId','rpOrigin'],
   uploads:['publicUpload','maxFileSize','publicMaxFiles','publicMaxBundleSize','perUserQuotaBytes','publicIpQuotaBytes','uploadTimeout','uploadConcurrency','uploadRetries','maxBurnReads','allowedExtensions'],
   storage:['storageBackend','uploadDir','s3Bucket','s3Region','s3AccessKey','s3SecretKey','s3Endpoint'],
   theme:['themeAccentColor','themeBgColor','themeFont'],

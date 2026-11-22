@@ -3,8 +3,9 @@
  * Cache-Control bolt-on for dynamic pages.
  *
  * The CSP is computed per request rather than declared once at boot, because
- * its allowlist depends on operator-configured analytics domains and the Google
- * OAuth hosts, both of which hot-reload through config.onReset.
+ * its allowlist depends on operator-configured analytics domains, the Google
+ * OAuth hosts and the OpenID Connect issuer origin, all of which hot-reload
+ * through config.onReset.
  *
  * It keeps 'unsafe-inline' on script-src and style-src because the views still
  * carry inline event-handler attributes; moving to a nonce today would break
@@ -14,6 +15,7 @@
 var b = require("../lib/vendor/blamejs");
 var config = require("../lib/config");
 var clientIp = require("../lib/client-ip");
+var oidcPolicy = require("../lib/oidc-policy");
 
 // A CSP source-expression is a single token, so a value carrying a `;` or
 // whitespace would splice a whole new directive into the header — turning
@@ -58,10 +60,21 @@ function googleConnectDomains() {
   return ["https://accounts.google.com", "https://oauth2.googleapis.com"];
 }
 
+// The OpenID Connect issuer origin, for provider avatars. lib/oidc stores an
+// avatar only when its URL is on this origin, and an http issuer or one whose
+// host is an IP address or a single label yields no origin.
+function oidcImgDomains() {
+  var o = config.oidc;
+  if (!o || !o.enabled || !o.issuer || !o.clientID) return [];
+  var origin = oidcPolicy.httpsIssuerOrigin(o.issuer);
+  return origin ? [_safeCspSource(origin)].filter(Boolean) : [];
+}
+
 function buildCsp() {
   var analytics = resolveAnalyticsDomains();
   var googleImg = googleImgDomains();
   var googleConnect = googleConnectDomains();
+  var oidcImg = oidcImgDomains();
 
   // Built rather than concatenated, so every source is validated and an
   // injection-bearing host is rejected instead of spliced in verbatim.
@@ -71,7 +84,7 @@ function buildCsp() {
     "script-src":      ["'self'", "'unsafe-inline'"].concat(analytics),
     "style-src":       ["'self'", "'unsafe-inline'"],
     "font-src":        ["'self'"],
-    "img-src":         ["'self'", "data:"].concat(analytics, googleImg),
+    "img-src":         ["'self'", "data:"].concat(analytics, googleImg, oidcImg),
     "connect-src":     ["'self'"].concat(analytics, googleConnect),
     "object-src":      ["'none'"],
     "base-uri":        ["'none'"],
@@ -127,5 +140,6 @@ module.exports = function securityHeaders(req, res, next) {
   return bSecurityHeaders(req, res, next);
 };
 
-// Exposed so the CSP-source sanitizer can be tested directly.
+// Exposed so the CSP-source sanitizer and the policy builder can be tested directly.
 module.exports._safeCspSource = _safeCspSource;
+module.exports.buildCsp = buildCsp;

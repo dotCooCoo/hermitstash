@@ -24,12 +24,50 @@ function findPaginated(query, opts) { return users.findPaginated(query, opts); }
 // callers receive the same unsealed shape as findById. Without this, sealed
 // blobs (email, displayName) leak into anything built from the return value —
 // e.g. the registration audit/SIEM event, which records targetEmail from it.
+//
+// A caller that holds proof of the address passes emailConfirmedVia and
+// emailConfirmedAt. Without them an active account is recorded as "legacy"
+// (no proof; never valid for linking) and a pending one as unconfirmed.
 function create(doc) {
-  var inserted = users.insert(doc);
+  var row = Object.assign({}, doc);
+  if (!Object.prototype.hasOwnProperty.call(row, "emailConfirmedVia")) {
+    if (row.status !== "pending") {
+      row.emailConfirmedVia = "legacy";
+      row.emailConfirmedAt = new Date().toISOString();
+    } else {
+      row.emailConfirmedVia = null;
+      row.emailConfirmedAt = null;
+    }
+  }
+  var inserted = users.insert(row);
   return (inserted && inserted._id && users.findOne({ _id: inserted._id })) || inserted;
 }
 
-function update(id, ops) { return users.update({ _id: id }, ops); }
+// An email change that does not say how the new address was confirmed is
+// recorded as "legacy", so an unproven address is never used for linking.
+function update(id, ops) {
+  var set = ops && ops.$set;
+  if (set && typeof set === "object" &&
+      Object.prototype.hasOwnProperty.call(set, "email") &&
+      !Object.prototype.hasOwnProperty.call(set, "emailConfirmedVia")) {
+    ops = Object.assign({}, ops, { $set: Object.assign({}, set, { emailConfirmedVia: "legacy", emailConfirmedAt: new Date().toISOString() }) });
+  }
+  return users.update({ _id: id }, ops);
+}
+
+// Bind an account to an OpenID Connect subject ("<issuer>|<sub>"). `label` is
+// the provider email shown for the linked identity. Binding clears the block
+// that an earlier unlink set.
+function setOidcSubject(id, subject, label) {
+  return users.update({ _id: id }, { $set: { oidcSubject: String(subject), oidcLabel: label || null, oidcAutoLinkBlockedAt: null } });
+}
+
+// Remove the OpenID Connect binding and block linking by email until the
+// account is linked again from the profile page. The blind index is cleared
+// explicitly, because a null source does not recompute it.
+function clearOidcSubject(id) {
+  return users.update({ _id: id }, { $set: { oidcSubject: null, oidcSubjectHash: null, oidcLabel: null, oidcAutoLinkBlockedAt: new Date().toISOString() } });
+}
 
 // Atomic failed-login counter bump. A read-modify-write (read count → +1 →
 // $set) lets concurrent failed attempts each read the same pre-write value and
@@ -109,4 +147,4 @@ function deleteUser(userId, reassignTo) {
 
 function remove(id) { return users.remove({ _id: id }); }
 
-module.exports = { findById, findByEmail, findByTailscaleId, findByOidcSubject, findAllByOidcSubject, findAll, count, findPaginated, create, update, remove, deleteUser, incrementFailedAttempts, consumeBackupCode };
+module.exports = { findById, findByEmail, findByTailscaleId, findByOidcSubject, findAllByOidcSubject, findAll, count, findPaginated, create, update, setOidcSubject, clearOidcSubject, remove, deleteUser, incrementFailedAttempts, consumeBackupCode };
